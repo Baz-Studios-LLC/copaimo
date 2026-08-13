@@ -1,0 +1,12 @@
+# Rust build output
+/target
+
+# Hand-sculpted terrain (assets/world/edits.bin) is NOT ignored on purpose —
+# it's authored content, not build output, and syncing it between machines is
+# the whole reason this repo exists. It compresses well despite its size, being
+# mostly zeros.
+
+# OS cruft
+Thumbs.db
+desktop.ini
+.DS_Store

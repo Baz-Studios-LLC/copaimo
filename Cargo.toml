@@ -1,0 +1,28 @@
+[package]
+name = "ranger-game"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Pinned to 0.16 on purpose: this code is written against 0.16's exact API
+# (required components, Msaa-as-component, DistanceFog). Bevy churns its API
+# between releases — do NOT bump without updating the code to match.
+bevy = "0.16"
+# Perlin/fBm/ridged-multifractal generators for the terrain heightfield.
+noise = "0.9"
+# Decodes the source map image on the CPU at startup. We read it directly
+# rather than through Bevy's asset server because terrain height has to be
+# queryable synchronously (the player spawn point and every chunk mesh need it
+# before the first frame), and Bevy's image assets are loaded asynchronously
+# and normally live GPU-side only. Version matches the one Bevy 0.16 uses.
+image = "0.25"
+
+# Bevy's recommended dev profile: optimize dependencies (so the engine and the
+# noise crate run at full speed) but keep our own crate quick to recompile.
+# The noise sampling in world/terrain.rs is hot enough that an unoptimized
+# build would make chunk generation visibly slow.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
