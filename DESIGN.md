@@ -178,8 +178,14 @@ picks textures later.
 ### Streaming
 
 Terrain exists as **128 m chunks** on a 2 m vertex grid, meshed on background
-threads and kept within a **6-chunk disc** (~768 m) of the camera. Fog is tuned
-to fade terrain out *before* that boundary so chunks never visibly pop in.
+threads and kept within a **9-chunk disc** (~1150 m) of the camera.
+
+There is **no distance fog**. It was there to hide the streaming boundary, but
+haze across the whole view is the wrong trade when the point is reading the
+shape of the land. So the view radius *is* the horizon — terrain stops at the
+edge of it. Raising `VIEW_CHUNKS` pushes that edge back at a cost that grows
+with the square of the radius; distance-based mesh LOD is the real answer to
+seeing further, and is not built yet.
 
 Chunks stitch seamlessly because both height and normals are computed from world
 coordinates alone — neighbours sampling a shared edge get identical answers, so
@@ -367,6 +373,10 @@ assets/
 ---
 
 ## Change log
+
+**2026-08-13** — Removed distance fog; raised `VIEW_CHUNKS` to 9 and the shadow
+cascade bound to 900 m to compensate for the now-visible streaming edge. Fixed
+the world overview's title and scale label running together.
 
 **2026-08-13** — Rebuilt the terrain tool's interface to production standard,
 since it's intended for use across projects: sectioned sidebar, logarithmic
