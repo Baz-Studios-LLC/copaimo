@@ -1,7 +1,7 @@
 ## The world
 
-First cut. There is a world to walk and nothing yet to do in it — no monsters, no
-ranch, no guild exams. What this release is for is judging the ground.
+There is a world to walk and nothing yet to do in it — no monsters, no ranch, no
+guild exams. What this release is for is judging the ground.
 
 **An 8 km continent**, traced from a hand-drawn map and streamed as you go. The
 map decides where the land is; everything on it is generated from that, and the
@@ -32,4 +32,8 @@ to see the shape of the place. `F3` hides the overlay. `Esc` for the menu.
 
 The world is sculpted in **[Opificium](https://github.com/Baz-Studios-LLC/Opificium)**,
 the studio's maker's bench, at its terrain bench — not in the game. This build
-reads what that writes. See `DESIGN.md`.
+reads what that writes.
+
+**Since v0.1.0:** the menu's Terrain Tool button is gone. Sculpting moved out to
+the bench, and the button had been left behind pointing at a mode with nothing in
+it. See `DESIGN.md` for how a change at the bench reaches the game.

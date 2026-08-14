@@ -51,6 +51,19 @@ Sites, roads and all geometry constants go through this file. Colour does **not*
 (`SHORE_FREQ`) — colour cannot put a hill in the wrong place, so drift there is
 cosmetic. Both keep the same number anyway.
 
+### How a bench change reaches the game
+
+```
+sculpt at Opificium  →  Ctrl+S  →  assets/world/edits.bin  →  next launch
+```
+
+Read **once, at startup**; there is no hot-reload. From source, relaunching is
+the refresh. An **installed build has its own copy of `assets/`**, so sculpting
+the repository does nothing for it until a new release ships — the workflow
+packages `assets/` wholesale, so a tag carries whatever is committed then.
+`edits.bin` is deliberately **not** gitignored; commit it or the shaping exists
+on one machine only.
+
 ### A world is NOT an Opificium project
 
 This was got wrong once and rejected. The terrain bench is a **tool you bring

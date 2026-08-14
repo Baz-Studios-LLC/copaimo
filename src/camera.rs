@@ -115,7 +115,6 @@ fn toggle_modes(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<CameraMode>) {
 }
 
 fn orbit_input(
-    state: Res<State<AppState>>,
     motion: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
     mut orbit: ResMut<Orbit>,
@@ -127,7 +126,7 @@ fn orbit_input(
     }
 
     // In the terrain tool the wheel sizes the brush instead of the camera.
-    if scroll.delta.y != 0.0 && *state.get() != AppState::Editing {
+    if scroll.delta.y != 0.0 {
         orbit.distance =
             (orbit.distance - scroll.delta.y * ZOOM_SPEED).clamp(MIN_DISTANCE, MAX_DISTANCE);
     }

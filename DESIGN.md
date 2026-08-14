@@ -290,6 +290,27 @@ cargo test export_world_for_opificium -- --ignored --nocapture
 > hill placed at the bench sits at the wrong height here, and nothing on screen
 > says why.
 
+### How a change at the bench reaches the game
+
+```
+sculpt at Opificium  →  Ctrl+S  →  assets/world/edits.bin  →  next launch
+```
+
+The game reads `edits.bin` **once, at startup**. So:
+
+* **Running from source** (`cargo run`) — sculpt, save, relaunch, it's there.
+* **An installed build from the launcher** has its *own* copy of `assets/`, so
+  sculpting this repository changes nothing for it until a **new release ships**.
+  The release workflow packages `assets/` wholesale, so a tag carries whatever
+  `edits.bin` is committed at that moment.
+
+`edits.bin` is **not gitignored**, on purpose — it's authored content, not build
+output. Commit it like any other work, or the shaping is on one machine only and
+never reaches a build.
+
+There is no hot-reload: the bench and the game are separate processes and the
+game does not watch the file. Relaunching is the refresh.
+
 `edits.bin` whose grid or world size doesn't match is **refused, not stretched** —
 offsets landing in the wrong places would be worse than none. The F3 overlay
 shows how many sculpted cells actually loaded, so a refusal is visible without
