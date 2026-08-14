@@ -28,18 +28,16 @@ later.
 **Apple Silicon only** (M1 or later). The build is arm64; it will not run on an
 Intel Mac.
 
-Easiest route is the **Baz Studios launcher** — it installs the app and clears
-the download quarantine for you.
+Grab the **`.dmg`** and drag Ranger out of it, or install through the **Baz
+Studios launcher** (which uses the `.tar.gz` and clears the quarantine for you).
 
-Installing the `.tar.gz` by hand needs one extra step, because the app is
-**ad-hoc signed** rather than notarised. macOS quarantines anything downloaded
-and will say *"Ranger is damaged and can't be opened"* — it isn't damaged, it
-just isn't from an identified developer:
+The app is **ad-hoc signed** rather than notarised, so macOS quarantines anything
+downloaded and may say *"Ranger is damaged and can't be opened"*. It isn't
+damaged, it just isn't from an identified developer. Either **right-click the app
+→ Open** and confirm, or:
 
 ```bash
-tar -xzf ranger-game-macos-aarch64.app.tar.gz
-xattr -dr com.apple.quarantine Ranger.app
-open Ranger.app
+xattr -dr com.apple.quarantine /Applications/Ranger.app
 ```
 
 The world lives inside the bundle at `Ranger.app/Contents/MacOS/assets`, beside

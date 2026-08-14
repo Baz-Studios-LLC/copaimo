@@ -65,6 +65,11 @@ jobs:
           # reads them here, and without this the shipped bundle carries a
           # litter of them.
           COPYFILE_DISABLE=1 tar -czf "dist/ranger-game-macos-aarch64.app.tar.gz" -C build Ranger.app
+          # And a .dmg, which is how a person installs a mac app and how every
+          # other studio game ships. The .tar.gz above stays because that is
+          # what the launcher matches on; the two are the same app.
+          hdiutil create -volname "Ranger" -srcfolder build/Ranger.app -ov -format UDZO \
+            "dist/ranger-game-v${{ steps.ver.outputs.version }}-macos-arm64.dmg"
 
       # The world lives in assets/ and is READ AT RUNTIME - the map the
       # continents come from, the recipe that turns it into ground, and whatever
