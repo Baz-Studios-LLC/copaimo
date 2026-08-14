@@ -194,6 +194,41 @@ and trees spawned per chunk. Both must scatter identically or the forest differs
 between bench and game. The recipe already carries `tree_spacing`, `treeline`,
 `tree_scale_low/high`.
 
+### Porting the forest: what must agree EXACTLY
+
+This is the sharp edge, and its failure is silent. Both programs work the forest
+out from scratch and never exchange a list of trees. If any of the following
+differs by so much as a digit, the bench shows one forest and the game grows
+another — no error, no failing test, nothing to point at. Copy these, do not
+retype them.
+
+**The scatter hash** — `forest::chance(x, z, salt)`, multipliers
+`0x8da6_b343`, `0xd8163841`, `0xcb1a_b31f`, then the same three-round mix
+(`>>16`, `*0x7feb_352d`, `>>15`, `*0x846c_a68b`, `>>16`) divided by `u32::MAX`.
+
+**The salts, in this order and no other.** 1 and 2 are the jitter off the
+lattice, 3 the density roll, 4 the variety, 5 the turn, 6 the scale. Renumbering
+them reshuffles the whole forest.
+
+**The slot lattice is world-wide, not per chunk** — `floor(position /
+tree_spacing)` in world space. Anchor it to a chunk and every tree moves when
+the chunk boundaries do.
+
+**The tree seeds.** `tree::grow(seed)` for `seed` in `0..VARIETIES`, and `Draw`
+must draw its numbers in the SAME ORDER — height, foot, taper, sides, limbs,
+limbs_from, spread, limb_length, forks, leaf. Reorder those lines and every tree
+in the pool changes shape.
+
+**The recipe fields**, already exported: `tree_spacing` 14.0, `treeline` 150.0,
+`tree_scale_low` 0.75, `tree_scale_high` 1.35.
+
+**The rejection rules**, in `natural_density` and the guards around it: shore
+< 25 m rejects, then moisture, treeline, slope and levelled ground multiply.
+
+A test worth writing on the game side: plant a known patch and assert the tree
+count and the first few positions against numbers taken from the bench. That
+turns a silent divergence into a red test.
+
 **Also not done: shelf controls for how trees LOOK.** The knobs exist in the
 recipe and bark/leaf take the game's ramps; there is no UI to turn them without
 editing `world.json`.
