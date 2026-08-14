@@ -245,14 +245,14 @@ there is no crack and no lighting seam.
 bench, which every Baz Studios game shares. The game only *reads* what the bench
 writes.
 
-Open this game there:
+Open Opificium, go to **BENCH → THE TERRAIN**, press **OPEN A WORLD…** and pick
+`assets/world/heightmap.png`. The folder it sits in is the world; the bench
+remembers it between sessions.
 
-```bash
-opificium /path/to/ranger-game/opificium
-```
-
-`opificium/opificium.json` names the project; everything else takes its default,
-which puts the world at `assets/world` — where it already is.
+A world is **not an Opificium project**. The other benches work on one game's
+authored content and are pointed at it when the app opens; the terrain bench is
+a tool you bring ground to, the way you bring an image to the kiln. Nothing in
+this repository needs an `opificium.json`.
 
 ### What passes between them
 

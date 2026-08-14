@@ -35,9 +35,12 @@ Terrain is sculpted at the **terrain bench in
 [Opificium](https://github.com/Baz-Studios-LLC/Opificium)**, the studio's
 maker's bench. This game only *reads* what the bench writes.
 
-```bash
-opificium /path/to/ranger-game/opificium
-```
+Open Opificium, go to **BENCH → THE TERRAIN**, press **OPEN A WORLD…** and pick
+`assets/world/heightmap.png`. The folder it sits in is the world. The bench
+remembers it, so it's one click next time.
+
+A world is *not* an Opificium project — the terrain bench is a tool you bring
+ground to, like the kiln. Nothing here needs an `opificium.json`.
 
 Two programs, no shared code, only files:
 
