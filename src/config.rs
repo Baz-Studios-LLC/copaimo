@@ -157,6 +157,25 @@ pub const BASE_ELEVATION: f32 = 110.0;
 /// Peak height a range can add on top of the inland rise.
 pub const RANGE_ELEVATION: f32 = 52.0;
 
+// -------------------------------------------------------------------- the ranch
+
+/// Where the player's farm stands, in world metres, and how far its level ground
+/// reaches.
+///
+/// **Chosen by hand, not found.** Every other place on the map is worked out
+/// from the ground — towns go wherever the land allows — but the ranch is where
+/// the game begins and ends up, so it is picked by eye and pinned. This spot was
+/// chosen at Opificium's terrain bench: a gentle shelf at about 23 m, inland of
+/// the coast, on the western landmass.
+///
+/// It is levelled first, before any town is planned, so nothing else can be
+/// placed on top of it. The ranger starts standing on it.
+///
+/// Exported in `world.json`, because the bench must level the same ground or a
+/// farm sculpted there would sit at the wrong height in the game.
+pub const RANCH_AT: (f32, f32) = (-3064.0, 659.0);
+pub const RANCH_RADIUS: f32 = 130.0;
+
 /// The one great mountain: how high it stands above the ground it sits on, and
 /// how far out its foot reaches.
 ///
@@ -327,6 +346,8 @@ mod handing_over {
         // Hand-written rather than derived, so this file needs no serde
         // dependency and the shape stays visible beside the numbers it carries.
         // Field names are Opificium's `terrain::ground::Recipe`.
+        // Unpacked, because a tuple field cannot be named inside a format string.
+        let (ranch_x, ranch_z) = RANCH_AT;
         let json = format!(
             "{{\n  \
              \"width\": {WORLD_WIDTH:?},\n  \
@@ -345,6 +366,9 @@ mod handing_over {
              \"ocean_depth\": {OCEAN_DEPTH:?},\n  \
              \"base_elevation\": {BASE_ELEVATION:?},\n  \
              \"range_elevation\": {RANGE_ELEVATION:?},\n  \
+             \"ranch_x\": {ranch_x:?},\n  \
+             \"ranch_z\": {ranch_z:?},\n  \
+             \"ranch_radius\": {RANCH_RADIUS:?},\n  \
              \"massif_height\": {MASSIF_HEIGHT:?},\n  \
              \"massif_radius\": {MASSIF_RADIUS:?},\n  \
              \"range_freq\": {RANGE_FREQ:?},\n  \

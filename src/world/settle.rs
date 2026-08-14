@@ -96,10 +96,28 @@ impl Settlements {
     pub fn plan(half: Vec2, ground: &dyn Fn(Vec2) -> f32, shore: &dyn Fn(Vec2) -> f32) -> Self {
         let mut sites: Vec<Site> = Vec::new();
 
-        // Cities first, with the room they need; towns afterwards, filling in
+        // The ranch first, before anything that could take its ground.
+        //
+        // It is the one place on the map chosen by hand rather than found: the
+        // game starts here, so it is picked by eye and pinned. Everything below
+        // keeps its distance from whatever is already placed, so putting it in
+        // first is the whole of what protects it.
+        let ranch = Vec2::new(RANCH_AT.0, RANCH_AT.1);
+        sites.push(Site {
+            at: ranch,
+            height: ground(ranch),
+            radius: RANCH_RADIUS,
+            city: false,
+        });
+
+        // Cities next, with the room they need; towns afterwards, filling in
         // whatever is left. Placing them the other way round would let a town
         // sit where a city needed to be.
-        for (wanted, city) in [(CITIES, true), (CITIES + TOWNS, false)] {
+        // The ranch does not count against either quota. These are cumulative
+        // targets measured against `sites.len()`, so without this the ranch
+        // silently costs the map a city — six become five, and nothing says so.
+        let pinned = sites.len();
+        for (wanted, city) in [(pinned + CITIES, true), (pinned + CITIES + TOWNS, false)] {
             let radius = if city { CITY_RADIUS } else { TOWN_RADIUS };
             let apart = if city { CITY_SPACING } else { TOWN_SPACING };
 

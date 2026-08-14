@@ -614,3 +614,29 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod ranch_tests {
+    use super::*;
+
+    #[test]
+    fn the_ranch_stands_on_land_at_the_height_the_bench_reported() {
+        // The spot was chosen by eye at Opificium's terrain bench, which read
+        // 22.9 m. If the game disagrees, the two programs are not building the
+        // same ground — which is the one failure the whole world.json contract
+        // exists to prevent, and it would show up as a farm sunk into a hill.
+        let terrain = Terrain::new();
+        let (x, z) = RANCH_AT;
+        let height = terrain.height(x, z);
+
+        assert!(
+            height > SEA_LEVEL + 1.0,
+            "the ranch is under water at {height:.1} m"
+        );
+        assert!(
+            (height - 22.9).abs() < 1.5,
+            "the bench read 22.9 m here and the game reads {height:.1} m - \
+             the two are not building the same ground"
+        );
+    }
+}

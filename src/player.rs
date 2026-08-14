@@ -14,7 +14,7 @@
 use bevy::prelude::*;
 
 use crate::camera::{CameraMode, MainCamera};
-use crate::config::SEA_LEVEL;
+use crate::config::{RANCH_AT, SEA_LEVEL};
 use crate::states::AppState;
 use crate::util::facing_quat;
 use crate::world::terrain::TerrainSource;
@@ -87,7 +87,18 @@ fn spawn_player(
     terrain: Res<TerrainSource>,
     bounds: Res<WorldBounds>,
 ) {
-    let spawn = find_spawn(&terrain, &bounds);
+    // On the ranch, which is where the game begins. `find_spawn` is kept as the
+    // fallback for a world whose map does not put land there — a redrawn map
+    // could leave the pinned spot at sea, and dropping the ranger into the water
+    // with no explanation is worse than starting them somewhere arbitrary.
+    let ranch = Vec2::new(RANCH_AT.0, RANCH_AT.1);
+    let on_land = terrain.height(ranch.x, ranch.y) > SEA_LEVEL + 1.0;
+    let spawn = if on_land {
+        Vec3::new(ranch.x, terrain.height(ranch.x, ranch.y), ranch.y)
+    } else {
+        warn!("the ranch at {:.0}, {:.0} is under water on this map", ranch.x, ranch.y);
+        find_spawn(&terrain, &bounds)
+    };
     info!("ranger spawning at {:.0}, {:.0}", spawn.x, spawn.z);
 
     let mut solid = |r: f32, g: f32, b: f32| {
