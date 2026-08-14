@@ -17,6 +17,16 @@ noise = "0.9"
 # and normally live GPU-side only. Version matches the one Bevy 0.16 uses.
 image = "0.25"
 
+# The world generation this game and Opificium's terrain bench BOTH run.
+#
+# A git dependency and not a path one on purpose: the two repositories are
+# separate on GitHub and CI checks out only one, so a path would build on a
+# developer's machine and fail every release.
+#
+# It names no engine, which is what lets a game on Bevy 0.16 and a bench on 0.19
+# link the same code. See the crate's own README.
+terrain-core = { git = "https://github.com/Baz-Studios-LLC/terrain-core" }
+
 # Bevy's recommended dev profile: optimize dependencies (so the engine and the
 # noise crate run at full speed) but keep our own crate quick to recompile.
 # The noise sampling in world/terrain.rs is hot enough that an unoptimized

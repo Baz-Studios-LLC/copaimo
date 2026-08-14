@@ -110,7 +110,7 @@ impl Terrain {
             warp_z: Perlin::new(WORLD_SEED.wrapping_add(4)),
             continent: Fbm::<Perlin>::new(WORLD_SEED.wrapping_add(5)).set_octaves(5),
             edits: RwLock::new(EditGrid::load(half)),
-            forest: crate::world::forest::Painted::load(half),
+            forest: crate::world::forest::load(half),
         };
 
         // The great mountain goes in the heartland — the point furthest from any
@@ -156,8 +156,10 @@ impl Terrain {
     /// Opificium planting the same patch gets the same trees. Nothing about a
     /// tree is stored anywhere.
     ///
-    /// **Twin of Opificium's `World::trees_in`.** Every constant and every salt
-    /// below is part of the contract; see `HANDOFF.md`.
+    /// The scatter itself lives in `terrain-core`, which Opificium's terrain
+    /// bench runs too — so the forest here and the forest there are the same
+    /// forest by construction. What is left here is asking THIS world's ground
+    /// the questions the crate needs answered.
     pub fn trees_in(&self, low: Vec2, high: Vec2) -> Vec<crate::world::forest::Planted> {
         use crate::world::forest;
 
@@ -209,9 +211,9 @@ impl Terrain {
                 standing.push(forest::Planted {
                     at: Vec3::new(at.x, height, at.y),
                     variety: (forest::chance(slot_x, slot_z, 4)
-                        * crate::world::tree::VARIETIES as f32)
+                        * terrain_core::tree::VARIETIES as f32)
                         as usize
-                        % crate::world::tree::VARIETIES,
+                        % terrain_core::tree::VARIETIES,
                     turn: forest::chance(slot_x, slot_z, 5) * std::f32::consts::TAU,
                     scale: TREE_SCALE_LOW
                         + (TREE_SCALE_HIGH - TREE_SCALE_LOW) * forest::chance(slot_x, slot_z, 6),

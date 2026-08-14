@@ -192,10 +192,10 @@ pub fn grow_the_grove(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let trees = (0..crate::world::tree::VARIETIES as u32)
+    let trees = (0..terrain_core::tree::VARIETIES as u32)
         .map(|seed| {
-            let tree = crate::world::tree::grow(seed);
-            (meshes.add(tree.wood), meshes.add(tree.leaves))
+            let tree = terrain_core::tree::grow(seed);
+            (meshes.add(as_mesh(&tree.wood)), meshes.add(as_mesh(&tree.leaves)))
         })
         .collect();
 
@@ -244,4 +244,21 @@ pub fn unload_chunks(
         commands.entity(*entity).despawn();
         false
     });
+}
+
+/// Turns the shared crate's plain vertex arrays into a Bevy mesh.
+///
+/// The one engine-shaped seam in the arrangement. `terrain-core` names no engine
+/// — that is what lets this game on Bevy 0.16 and Opificium on 0.19 run the same
+/// world — so somebody has to do this, and it is a dozen lines on each side.
+fn as_mesh(geometry: &terrain_core::Geometry) -> Mesh {
+    Mesh::new(
+        bevy::render::mesh::PrimitiveTopology::TriangleList,
+        // Drawn, never read back.
+        bevy::asset::RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, geometry.places.clone())
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, geometry.normals.clone())
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, geometry.uvs.clone())
+    .with_inserted_indices(bevy::render::mesh::Indices::U32(geometry.indices.clone()))
 }

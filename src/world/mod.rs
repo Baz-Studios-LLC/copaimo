@@ -2,7 +2,6 @@
 
 pub mod biome;
 pub mod forest;
-pub mod tree;
 pub mod chunk;
 pub mod edit;
 pub mod heightmap;
