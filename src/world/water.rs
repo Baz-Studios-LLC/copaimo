@@ -26,16 +26,18 @@ use crate::world::terrain::TerrainSource;
 #[derive(Component)]
 pub struct Water;
 
-/// Quads along the surface's edge. It only has to carry a wave, so it is coarse
-/// — the shape that matters is the coastline's, not the water's.
-const QUADS: u32 = 96;
+/// Quads along the surface's edge.
+const QUADS: u32 = 160;
 
 /// Swell: how tall, how far apart, and how fast, in meters and seconds.
-const SWELL: [(f32, f32, f32); 3] = [
-    (0.42, 260.0, 15.0),
-    (0.26, 95.0, 9.0),
-    (0.11, 37.0, 5.5),
-];
+///
+/// **The wavelengths are long because the mesh can't hold short ones.** The
+/// surface spans several times the world, so even at this many quads its
+/// vertices sit well over a hundred meters apart, and a thirty-meter wave
+/// written onto that grid doesn't come out as a wave — it comes out as noise,
+/// sampled at random points along a curve nobody can see. Under about four
+/// vertices per wavelength is a lie. What's left is long ocean swell.
+const SWELL: [(f32, f32, f32); 2] = [(0.20, 1800.0, 24.0), (0.12, 900.0, 15.0)];
 
 /// How high the sea stands at a point, at a moment.
 pub fn sea_height(at: Vec2, seconds: f32) -> f32 {

@@ -273,11 +273,13 @@ pub const ROAD_SKIRT: f32 = 26.0;
 /// How far the tide carries the waterline up and down, in meters, and how long
 /// a full cycle takes.
 ///
-/// Small on purpose: the coast shelves over hundreds of meters, so half a meter
-/// of tide walks the shoreline a good way up the beach and back. That travel is
-/// the point — a sea that only ripples reads as glass with a texture on it.
-pub const TIDE: f32 = 0.55;
-pub const TIDE_PERIOD: f32 = 26.0;
+/// **Small.** The coast shelves over hundreds of meters, so the water's
+/// horizontal travel is its vertical travel divided by a gradient of about a
+/// tenth — every centimeter of tide is ten centimeters of beach. At half a meter
+/// the sea drew back a good fifteen meters and stranded the shallows, which
+/// reads as a lake emptying rather than as a shore.
+pub const TIDE: f32 = 0.18;
+pub const TIDE_PERIOD: f32 = 20.0;
 
 // ------------------------------------------------- handing this to the bench
 
