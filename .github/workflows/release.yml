@@ -60,7 +60,11 @@ jobs:
         run: |
           bash packaging/macos-app.sh target/release/ranger-game "${{ steps.ver.outputs.version }}" build
           mkdir -p dist
-          tar -czf "dist/ranger-game-macos-aarch64.app.tar.gz" -C build Ranger.app
+          # COPYFILE_DISABLE stops macOS tar writing an AppleDouble `._name`
+          # sidecar beside every file to carry extended attributes. Nothing
+          # reads them here, and without this the shipped bundle carries a
+          # litter of them.
+          COPYFILE_DISABLE=1 tar -czf "dist/ranger-game-macos-aarch64.app.tar.gz" -C build Ranger.app
 
       # The world lives in assets/ and is READ AT RUNTIME - the map the
       # continents come from, the recipe that turns it into ground, and whatever
