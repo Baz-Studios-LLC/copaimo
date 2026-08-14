@@ -575,11 +575,21 @@ mod tests {
             terrain.settlements.roads_len(),
         );
 
+        // The ranch is pinned by hand and does not come out of either quota, so
+        // a full map is every city, every town, and the ranch besides.
         assert!(
-            terrain.sites().len() == CITIES + TOWNS,
-            "every city and town should have found ground: wanted {}, placed {}",
-            CITIES + TOWNS,
+            terrain.sites().len() == CITIES + TOWNS + 1,
+            "every city and town should have found ground beside the ranch: \
+             wanted {}, placed {}",
+            CITIES + TOWNS + 1,
             terrain.sites().len()
+        );
+        assert!(
+            terrain
+                .sites()
+                .iter()
+                .any(|site| site.at.distance(Vec2::new(RANCH_AT.0, RANCH_AT.1)) < 1.0),
+            "the ranch should be among the levelled places"
         );
 
         assert!(
