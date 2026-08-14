@@ -85,41 +85,78 @@ See `assets/world/README.md` for export guidance.
 
 Built in `src/world/terrain.rs`, in order:
 
-1. **Macro elevation** — the map image. Decides land vs. sea and broad relief.
-2. **Mountain ranges** — broad rounded masses from low-octave fBm, masked by
-   `land²` so they rise well inland and coasts stay walkable.
-3. **Fine detail** — small undulations, damped underwater. This is what stops a
+1. **Coast** — the cleaned land/sea mask. Decides the coastline and nothing else.
+2. **Inland rise** — the land climbs away from the sea, by distance from the
+   nearest coast. Coastal plains that become uplands.
+3. **Mountain ranges** — see below.
+4. **Fine detail** — small undulations, damped underwater. This is what stops a
    low-resolution source map from feeling like smooth putty underfoot.
 
 A **domain warp** is applied before the map lookup, so coastlines wander instead
 of tracing the source image's pixel grid.
 
-> **Do not use ridged multifractal noise for the mountain layer.** It was tried
-> and rejected: ridged noise creases sharply at every zero crossing, and masking
-> it by `land²` narrowed those creases into a forest of isolated spikes across
-> the whole map. Rounded low-octave fBm, thresholded so only its upper range
-> contributes, gives ranges you walk over rather than teeth you walk between.
+### Mountains are placed by geography, not by noise alone
+
+`Terrain::range_height` needs three factors to agree before any mountain exists:
+
+* **presence** — a very low-frequency field, hard-thresholded, so ranges occupy
+  a few regions of the map rather than being its texture.
+* **inland** — distance from the nearest coast, computed once at load by a
+  breadth-first sweep out from the water. Mountains are not allowed near the
+  shore; beaches and plains belong there, and a range rising straight out of the
+  sea reads as a mistake.
+* **ridge** — `1 - |noise|`. The crease where the noise crosses zero becomes a
+  crest, and at this frequency that crest runs for kilometers.
+
+> **Do not use ridged multifractal noise here, and do not stack octaves or
+> square the crest.** Tried and rejected twice. Ridged multifractal creases at
+> every zero crossing; masking it by `land²` and squaring narrowed those creases
+> into a map-wide forest of isolated spikes. Two octaves and a modest power
+> (~1.7) on the crest gives ranges you walk over rather than teeth you walk
+> between.
+
+> **`INLAND_FULL` must be checked against the map.** Every mountain threshold is
+> a fraction of it. Set it above the map's actual deepest interior and nothing
+> ever counts as inland, so the mountains silently never appear — no error, just
+> a world of hills. `cargo test -- --nocapture` prints the furthest any point on
+> the current map gets from a coast; keep `INLAND_FULL` below it. On the current
+> map that number is 820 m, and 1100 m produced exactly this failure.
 
 ### Cleaning the map's line work
 
-Real maps are covered in lines that aren't terrain: region borders, rivers,
-roads, labels. They're dark pixels, and read at face value they carve deep
-trenches across the continents — which then alias against the 2 m vertex grid
-into rows of spikes.
+Real maps are covered in things that aren't terrain: region borders, rivers,
+roads, place names, and — in a screenshot — the tool's own buttons and scale
+bar. Read at face value they carve trenches and islands across the continents,
+which then alias against the 2 m vertex grid into rows of spikes.
 
-So land/sea is taken from a **cleaned mask**, not raw brightness. The map is
-thresholded, then passed through a **majority filter**: each pixel becomes
-whatever most of its neighbourhood is. A line a few pixels wide is outvoted by
-the land around it and disappears; a coastline has land on one side and sea on
-the other all the way along, so it holds its position exactly. The result is
-blurred slightly into a 0..1 coverage field, giving beaches that shelve rather
-than drop off a step.
+Land/sea therefore comes from a **cleaned mask** built in four stages:
+
+1. **Classify by hue, not brightness.** This is the important one. Brightness
+   cannot tell open water from a black place name, a road, or a dashed border —
+   all of them are dark, so a brightness threshold cuts *every label on the map*
+   into the terrain as a lake. Water is the one thing on a political map that is
+   distinctly **blue**, so the test is blue meaningfully greater than red
+   (`MAP_SEA_BLUE_MARGIN`). Labels and borders are neutral or warm and stay land.
+   Measured on the current map: ocean sits at 48–80, every land fill at 32 or
+   below. A genuinely grayscale heightmap has no hue to test, so it is detected
+   automatically and thresholded on brightness instead.
+2. **Majority filter.** Each pixel becomes whatever most of its neighbourhood is.
+   A river or border a few pixels wide is outvoted by the land around it and
+   disappears; a coastline has land on one side and sea on the other all the way
+   along, so it holds its position exactly.
+3. **Drop small islands.** Any land blob under `MIN_ISLAND_PIXELS` is deleted as
+   furniture rather than geography — this is what removes a screenshot's buttons
+   and scale bar. Real islands are far larger. Cropping the source is still the
+   cleaner fix; this makes an uncropped one usable.
+4. **Blur** into a 0..1 coverage field, giving beaches that shelve rather than
+   drop off a step.
 
 ### Flat mode
 
 `FLAT_WORLD` in `config.rs` puts all land at one height and all sea at one
 depth, with no generated relief at all. It's the shape-checking mode — the only
-thing visible is the outline of the continents.
+thing visible is the outline of the continents. **Currently off**; turn it on
+whenever the coastlines need checking after a map swap or a mask change.
 
 It's also the natural companion to the sculpting tool: the map gives you the
 continents, and every hill and mountain on them is one you put there. Hand edits
@@ -127,16 +164,17 @@ still apply on top, so a flat world is a canvas, not a locked one.
 
 ### What the map image does and doesn't carry
 
-A **grayscale heightmap export** carries real elevation, and mountains land
-where the map says they do. A **colored political map** does not — it's
-effectively two-tone (mid-brightness sea, bright land fills), so it defines the
-*coastline* perfectly and nothing else. On a political map every bit of relief
-is invented by layers 2 and 3, and all land starts from the same base height.
+A **grayscale heightmap export** carries real elevation, and relief lands where
+the map says it does. A **colored political map** does not — its brightness is
+region fill colors and means nothing as terrain. It defines the *coastline*
+perfectly and nothing else.
 
-This is why `MAP_SEA_THRESHOLD` in `config.rs` depends on which one you supply:
-around **0.20** for a real heightmap, around **0.50** for a political map, where
-it has to sit in the gap between the sea and land brightness peaks. Set wrong,
-whole oceans read as land.
+The loader detects which it has and says so in the log. On a colored map the
+brightness channel is ignored entirely and all relief comes from the inland rise
+and the mountain layer; `MAP_SEA_THRESHOLD` is unused, since hue does the
+classifying. On a grayscale map, brightness drives both the waterline
+(`MAP_SEA_THRESHOLD`, around 0.20) and `BASE_ELEVATION` on top of everything
+else.
 
 Brightness is normalized on load between the 0.5th and 99.5th percentile, not
 the true min and max — map exports carry outliers that aren't terrain (label
@@ -149,6 +187,13 @@ The world ends in **open ocean**, never a wall. Outside the map image everything
 reads as deep sea, and the water plane extends four times the world's longest
 axis so the horizon past any coast is water. `WorldBounds` stops the player
 walking off the edge, but they should reach open sea long before they feel it.
+
+A **border fade** (`COAST_FADE_START`) pulls land under water in the outermost
+few percent of the map, whatever the source image shows there. This is not
+cosmetic: it's what keeps the invariant true when the map is a screenshot whose
+margins contain a toolbar. It's kept tight to the border so it trims furniture
+rather than real coastline. The generation test asserts all four corners are
+open sea, and has already caught this exact failure once.
 
 ### Scale
 
@@ -373,6 +418,18 @@ assets/
 ---
 
 ## Change log
+
+**2026-08-13** — Switched the land/sea test from brightness to **blue channel
+dominance**, which fixed the map's place names being cut into the terrain as
+lakes — brightness cannot separate open water from a black label, and the
+majority filter's reach was far short of a label stroke's thickness. Added
+small-island removal so a screenshot's toolbar and scale bar stop becoming
+islands, and a border fade so the world ends in ocean whatever the source shows
+at its margins (the corner assertion caught this). Turned `FLAT_WORLD` off and
+added real mountains, placed by distance from the coast so ranges sit inland
+with plains between them and the sea. Found and documented that `INLAND_FULL`
+must sit below the map's actual deepest interior — at 1100 m against a map whose
+interior tops out at 820 m, the mountains silently never appeared.
 
 **2026-08-13** — Removed distance fog; raised `VIEW_CHUNKS` to 9 and the shadow
 cascade bound to 900 m to compensate for the now-visible streaming edge. Fixed

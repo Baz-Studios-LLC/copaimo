@@ -82,6 +82,17 @@ pub const SEA_LEVEL: f32 = 0.0;
 /// it went.
 pub const MAP_SEA_THRESHOLD: f32 = 0.74;
 
+/// How much bluer than red a pixel must be to count as water on a *colored*
+/// map, in 0-255 units.
+///
+/// This is what a political map is actually classified by, because brightness
+/// cannot tell open water from a black place name, a road, or a dashed border —
+/// they're all dark, and a brightness threshold cuts every label on the map
+/// into the terrain as a lake. Water is the one thing that's distinctly blue.
+/// Measured on the supplied map: ocean sits at 48-80, every land fill at 32 or
+/// below, so 40 separates them with room on both sides.
+pub const MAP_SEA_BLUE_MARGIN: i16 = 40;
+
 /// Cleanup applied to the land/sea mask before it's used, in map pixels.
 ///
 /// Real maps are covered in line work — region borders, rivers, roads, labels.
@@ -94,25 +105,68 @@ pub const MASK_CLEAN_PASSES: usize = 2;
 /// Softens the cleaned mask's hard edge into a coastal ramp.
 pub const MASK_BLUR_RADIUS: usize = 2;
 
+/// Smallest land blob kept, in map pixels. Anything smaller is deleted as
+/// furniture rather than geography — screenshots carry buttons, scale bars and
+/// legends, none of which are water-colored, and all of which would otherwise
+/// become tiny rectangular islands. Real islands are far larger.
+pub const MIN_ISLAND_PIXELS: usize = 900;
+
 /// When true, land is one flat plateau and sea one flat shelf — no generated
 /// relief at all.
 ///
-/// This is the shape-checking mode, and the natural companion to the sculpting
-/// tool: the map gives you the continents, and every hill and mountain on them
-/// is one you put there. Hand edits still apply on top, so a flat world is a
-/// canvas rather than a locked one.
-pub const FLAT_WORLD: bool = true;
+/// The shape-checking mode: turn it on to see nothing but the outline of the
+/// continents. Hand edits still apply on top, so it's a canvas, not a lock.
+pub const FLAT_WORLD: bool = false;
 
-/// Height of the plateau in flat mode. Low enough to read as lowland, high
-/// enough to sit clearly above the waterline.
-pub const FLAT_LAND_HEIGHT: f32 = 18.0;
+/// Height of land at the shoreline. Low enough to read as coastal plain, high
+/// enough to sit clearly above the waterline. Also the plateau height in flat
+/// mode.
+pub const COAST_HEIGHT: f32 = 16.0;
 
-/// Height of land where the map is at maximum brightness, before ranges.
-/// Unused while `FLAT_WORLD` is on.
+/// How much the land rises from the coast to the deep interior. Gives coastal
+/// plains that climb into uplands, which is where ranges then sit.
+pub const INLAND_RISE: f32 = 65.0;
+
+/// Distance from the coast, in meters, at which land counts as fully inland.
+/// Everything geographic — the rise above, where mountains are allowed — is
+/// measured against this, so it sets how far you walk before the country
+/// starts to feel like an interior.
+///
+/// **Must be checked against the map.** `cargo test -- --nocapture` prints how
+/// far the furthest point on the current map gets from any coast. Set this
+/// above that number and nothing ever counts as inland, so the mountains
+/// silently never appear — which is exactly what happened at 1100 m on a map
+/// whose deepest interior is 820 m.
+pub const INLAND_FULL: f32 = 620.0;
+
+/// Height of land where the map is at maximum brightness. Only used when the
+/// source is a true grayscale heightmap carrying real elevation.
 pub const BASE_ELEVATION: f32 = 110.0;
 
-/// Extra height the broad mountain-range layer can stack on high ground.
-pub const RANGE_ELEVATION: f32 = 190.0;
+// ------------------------------------------------------------------ mountains
+
+/// Peak height a range can add on top of the inland rise.
+pub const RANGE_ELEVATION: f32 = 250.0;
+
+/// Frequency of the ridge lines. Low, so a crest runs for kilometers — this is
+/// the number that decides whether you get mountain *ranges* or a rash of
+/// bumps.
+pub const RANGE_FREQ: f64 = 0.000_42;
+
+/// Frequency of the field deciding *where* ranges exist at all. Low, so
+/// mountains occupy a few regions of the map rather than being its texture —
+/// but not so low that the whole world gets one verdict. Around three cycles
+/// across the map gives a handful of distinct mountainous regions.
+pub const RANGE_PRESENCE_FREQ: f64 = 0.000_35;
+
+/// How much of the presence field becomes mountainous. Higher leaves more of
+/// the world as open country.
+pub const RANGE_PRESENCE_CUTOFF: f32 = 0.45;
+
+/// Fraction of `INLAND_FULL` before mountains may start, and where they reach
+/// full height. Keeps ranges off the coast, where plains and beaches belong.
+pub const RANGE_INLAND_START: f32 = 0.25;
+pub const RANGE_INLAND_FULL: f32 = 0.70;
 
 /// Amplitude of the fine surface detail layer (bumps, small undulations). This
 /// is what keeps a low-resolution source map from looking like smooth putty
@@ -127,10 +181,6 @@ pub const SNOW_LINE: f32 = 210.0;
 
 // ---------------------------------------------------------------- noise shape
 
-/// Frequency of the mountain-range layer (controls how far apart ranges sit).
-/// Low, so ranges are broad masses you walk over the shoulder of — not peaks
-/// you walk between.
-pub const RANGE_FREQ: f64 = 0.000_45;
 /// Frequency of the fine detail layer.
 pub const DETAIL_FREQ: f64 = 0.009;
 /// Frequency of the moisture field that decides dry plains vs. lush forest.
@@ -146,6 +196,11 @@ pub const WARP_STRENGTH: f32 = 26.0;
 
 /// Frequency of the broad landmass mask used only when there's no map image.
 pub const CONTINENT_FREQ: f64 = 0.000_35;
-/// Where the fallback coastline fade begins, as a fraction of the distance from
-/// the world center to its border.
-pub const COAST_FADE_START: f32 = 0.78;
+/// Where the coastline fade begins, as a fraction of the distance from the
+/// world center to its border.
+///
+/// Applied to the map as well as the procedural fallback, because "the world
+/// ends in water, not a wall" has to hold whatever the source image says at its
+/// own edges — a screenshot's UI chrome lives exactly there. Kept very close to
+/// the border so it trims furniture without eating real coastline.
+pub const COAST_FADE_START: f32 = 0.95;

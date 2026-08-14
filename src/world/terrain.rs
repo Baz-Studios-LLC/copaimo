@@ -32,9 +32,14 @@ pub struct TerrainSource(pub Arc<Terrain>);
 pub struct Terrain {
     /// Source map. `None` means we're running on procedural fallback.
     map: Option<HeightMap>,
+    /// Whether the map's brightness is real relief rather than fill colors.
+    map_carries_elevation: bool,
     /// Half-extents of the world in meters (X = east/west, Y here = north/south).
     half: Vec2,
+    /// Ridge lines. Where this field crosses zero becomes a mountain crest.
     ranges: Fbm<Perlin>,
+    /// Much broader field deciding which regions are mountainous at all.
+    presence: Fbm<Perlin>,
     detail: Fbm<Perlin>,
     moisture: Fbm<Perlin>,
     warp_x: Perlin,
@@ -57,9 +62,11 @@ impl Terrain {
         // its scale. A 2:1 map at 8192 m across is 4096 m tall.
         let aspect = map.as_ref().map_or(FALLBACK_ASPECT, HeightMap::aspect);
         let half = Vec2::new(WORLD_WIDTH * 0.5, WORLD_WIDTH / aspect * 0.5);
+        let map_carries_elevation = map.as_ref().is_some_and(HeightMap::carries_elevation);
 
         Self {
             map,
+            map_carries_elevation,
             half,
             // Plain fBm, and only two octaves. Ridged multifractal noise is what
             // produced the spike-forest: it creases sharply at every zero
@@ -70,6 +77,10 @@ impl Terrain {
                 .set_octaves(2)
                 .set_frequency(1.0)
                 .set_persistence(0.45),
+            presence: Fbm::<Perlin>::new(WORLD_SEED.wrapping_add(7))
+                .set_octaves(2)
+                .set_frequency(1.0)
+                .set_persistence(0.5),
             detail: Fbm::<Perlin>::new(WORLD_SEED.wrapping_add(1))
                 .set_octaves(4)
                 .set_frequency(1.0),
@@ -123,43 +134,102 @@ impl Terrain {
         // pixel edges; with it, the shore wanders the way a real one does.
         let (wx, wz) = self.warp(x, z);
 
-        // Shape-checking mode: one flat plateau and one flat shelf, with a
-        // shelving coast between them. No generated relief at all, so the only
-        // thing you can see is the outline of the continents — and anything you
-        // sculpt yourself, which is still added on top of this.
+        // Land or sea, from the cleaned mask. This alone decides the coastline.
+        let coast = crate::util::smoothstep(0.35, 0.68, self.land_coverage(wx, wz));
+        let mut h = SEA_LEVEL - OCEAN_DEPTH + (COAST_HEIGHT + OCEAN_DEPTH) * coast;
+
+        // Shape-checking mode stops here: one flat plateau, one flat shelf, and
+        // nothing else to look at but the outline of the continents. Hand edits
+        // are still added on top, so it's a canvas rather than a lock.
         if FLAT_WORLD {
-            let coast = crate::util::smoothstep(0.35, 0.68, self.land_coverage(wx, wz));
-            return SEA_LEVEL - OCEAN_DEPTH + (FLAT_LAND_HEIGHT + OCEAN_DEPTH) * coast;
+            return h;
         }
 
-        let e = self.macro_elevation(wx, wz);
+        // How far from the sea we are, as 0 at the shore to 1 deep inland.
+        // Everything below is placed against this, which is what makes the
+        // geography read as geography: plains by the water, uplands behind
+        // them, mountains in the interior.
+        let inland = (self.inland_meters(wx, wz) / INLAND_FULL).clamp(0.0, 1.0);
 
-        // Split the macro field around the waterline into two independent
-        // ramps, so how tall the mountains get and how deep the sea gets can be
-        // tuned without fighting each other.
-        let land = ((e - MAP_SEA_THRESHOLD) / (1.0 - MAP_SEA_THRESHOLD)).clamp(0.0, 1.0);
-        let sea = ((MAP_SEA_THRESHOLD - e) / MAP_SEA_THRESHOLD).clamp(0.0, 1.0);
+        // The land climbs away from the coast.
+        h += crate::util::smoothstep(0.0, 0.85, inland) * INLAND_RISE * coast;
 
-        let mut h = land.powf(1.15) * BASE_ELEVATION - sea.powf(0.8) * OCEAN_DEPTH;
+        // A true grayscale heightmap carries real relief; a political map has
+        // none to give, and its brightness would only be region fill colors.
+        if self.map_carries_elevation {
+            h += self.macro_elevation(wx, wz) * BASE_ELEVATION * coast;
+        }
 
-        // Broad, rounded highland masses. Only the upper part of the noise
-        // range contributes, so most of the map stays low and open and ranges
-        // are the exception rather than the texture. Masked by `land` squared
-        // so they rise well inland and coasts stay walkable.
-        let range = (self.ranges.get([wx as f64 * RANGE_FREQ, wz as f64 * RANGE_FREQ]) as f32
-            * 0.5
-            + 0.5)
-            .clamp(0.0, 1.0);
-        let highland = crate::util::smoothstep(0.62, 1.0, range);
-        h += highland * land.powi(2) * RANGE_ELEVATION;
+        h += self.range_height(wx, wz, inland) * coast;
 
         // Fine detail everywhere, damped underwater (the sea floor is mostly
         // hidden anyway, and it's cheaper to keep it calm). Near the waterline
         // this is what breaks the shore into inlets and sandbars.
         let d = self.detail.get([wx as f64 * DETAIL_FREQ, wz as f64 * DETAIL_FREQ]) as f32;
-        h += d * DETAIL_ELEVATION * (0.25 + 0.75 * land);
+        h += d * DETAIL_ELEVATION * (0.25 + 0.75 * coast);
 
         h
+    }
+
+    /// Height contributed by mountain ranges at a point.
+    ///
+    /// Three factors decide it, and all three have to agree:
+    ///
+    /// * **presence** — a very low-frequency field, thresholded hard, so ranges
+    ///   occupy a few regions of the map instead of being its texture.
+    /// * **inland** — mountains are not allowed near the coast. Beaches and
+    ///   plains belong there, and a range rising straight out of the sea reads
+    ///   as a mistake.
+    /// * **ridge** — `1 - |noise|`. The crease where the noise crosses zero
+    ///   becomes a crest, and at this frequency that crest runs for kilometers.
+    ///
+    /// The crest is raised to a modest power to narrow it, and that is *all*.
+    /// It is deliberately not squared, and the noise is deliberately only two
+    /// octaves: stacking octaves onto a ridged field and squaring the result is
+    /// exactly what turned the first attempt at mountains into a map-wide
+    /// forest of spikes.
+    fn range_height(&self, x: f32, z: f32, inland: f32) -> f32 {
+        let allowed = crate::util::smoothstep(RANGE_INLAND_START, RANGE_INLAND_FULL, inland);
+        if allowed <= 0.0 {
+            return 0.0;
+        }
+
+        let presence = self
+            .presence
+            .get([x as f64 * RANGE_PRESENCE_FREQ, z as f64 * RANGE_PRESENCE_FREQ])
+            as f32
+            * 0.5
+            + 0.5;
+        let presence = crate::util::smoothstep(RANGE_PRESENCE_CUTOFF, 1.0, presence);
+        if presence <= 0.0 {
+            return 0.0;
+        }
+
+        let n = self.ranges.get([x as f64 * RANGE_FREQ, z as f64 * RANGE_FREQ]) as f32;
+        let crest = (1.0 - n.abs()).clamp(0.0, 1.0).powf(1.7);
+
+        crest * presence * allowed * RANGE_ELEVATION
+    }
+
+    /// Distance from the nearest coast, in meters.
+    ///
+    /// Public because it's the single most useful number for tuning geography:
+    /// `INLAND_FULL` and the mountain placement thresholds are all fractions of
+    /// it, and if no land on the map ever gets far enough from the sea, ranges
+    /// silently never appear.
+    pub fn inland_meters(&self, x: f32, z: f32) -> f32 {
+        match &self.map {
+            Some(map) => {
+                let (u, v) = self.to_map_uv(x, z);
+                let meters_per_pixel = self.half.x * 2.0 / map.width() as f32;
+                map.inland_pixels(u, v) * meters_per_pixel
+            }
+            // The fallback has no distance field, so approximate it from how
+            // solidly inland the coverage says we are.
+            None => {
+                crate::util::smoothstep(0.5, 1.0, self.land_coverage(x, z)) * INLAND_FULL
+            }
+        }
     }
 
     /// Moisture at a world position, 0 (arid) to 1 (lush). Drives biome color;
@@ -204,6 +274,21 @@ impl Terrain {
     /// How much of this point is land, 0 (open sea) to 1 (solidly inland).
     /// The authority on where the continents are.
     fn land_coverage(&self, x: f32, z: f32) -> f32 {
+        self.raw_coverage(x, z) * self.border_fade(x, z)
+    }
+
+    /// Pulls land under water at the very edge of the world.
+    ///
+    /// "The world ends in water, not a wall" is an invariant, and it has to
+    /// hold whatever the source image happens to show at its own margins — a
+    /// screenshot's toolbar and scale bar live exactly there. Kept tight to the
+    /// border so it trims furniture rather than real coastline.
+    fn border_fade(&self, x: f32, z: f32) -> f32 {
+        let d = (x.abs() / self.half.x).max(z.abs() / self.half.y);
+        crate::util::smoothstep(1.0, COAST_FADE_START, d)
+    }
+
+    fn raw_coverage(&self, x: f32, z: f32) -> f32 {
         match &self.map {
             Some(map) => {
                 let (u, v) = self.to_map_uv(x, z);
@@ -277,6 +362,7 @@ mod tests {
         let mut total = 0usize;
         let mut peak = f32::MIN;
         let mut trough = f32::MAX;
+        let mut deepest_inland = 0.0f32;
         let mut picture = String::new();
 
         // Each character covers tens of meters of ground, so a single sample
@@ -293,6 +379,8 @@ mod tests {
             for column in 0..COLUMNS {
                 let x = (column as f32 / (COLUMNS - 1) as f32 * 2.0 - 1.0) * half.x;
                 let z = (row as f32 / (rows - 1) as f32 * 2.0 - 1.0) * half.y;
+
+                deepest_inland = deepest_inland.max(terrain.inland_meters(x, z));
 
                 let mut h = 0.0;
                 for sz in 0..SUPERSAMPLE {
@@ -329,7 +417,8 @@ mod tests {
 
         let land_fraction = land as f32 / total as f32;
         println!(
-            "\nsource: {}\nworld: {:.0} x {:.0} m\nland: {:.0}%   low {:.0} m   peak {:.0} m\n\n{picture}",
+            "\nsource: {}\nworld: {:.0} x {:.0} m\nland: {:.0}%   low {:.0} m   peak {:.0} m\n\
+             furthest from any coast: {deepest_inland:.0} m (INLAND_FULL is {INLAND_FULL:.0} m)\n\n{picture}",
             if terrain.has_map() { "map image" } else { "procedural fallback" },
             half.x * 2.0,
             half.y * 2.0,
@@ -348,7 +437,7 @@ mod tests {
             // Shape-checking mode: the whole point is that land is featureless,
             // so the check is that it's genuinely flat rather than merely calm.
             assert!(
-                (peak - FLAT_LAND_HEIGHT).abs() < 0.5,
+                (peak - COAST_HEIGHT).abs() < 0.5,
                 "flat mode should top out at exactly the plateau height, got {peak:.1} m"
             );
         } else {
