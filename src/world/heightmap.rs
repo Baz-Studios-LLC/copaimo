@@ -127,6 +127,28 @@ impl HeightMap {
         self.sample(&self.offshore, u, v)
     }
 
+    /// Where the map is furthest from any sea, in image space.
+    ///
+    /// The heart of the largest landmass, and so where a massif belongs: a
+    /// mountain wants the most land around it, and the deepest interior is by
+    /// definition the point with the most. Found rather than chosen, so
+    /// redrawing the map moves the mountain to the new map's heartland instead
+    /// of stranding it in a bay.
+    pub fn deepest_inland(&self) -> (f32, f32) {
+        let mut best = 0.0;
+        let mut at = (0.5, 0.5);
+        for (i, &away) in self.inland.iter().enumerate() {
+            if away > best {
+                best = away;
+                at = (
+                    (i % self.width) as f32 / (self.width - 1) as f32,
+                    (i / self.width) as f32 / (self.height - 1) as f32,
+                );
+            }
+        }
+        at
+    }
+
     /// Normalized source brightness, for maps that carry real elevation.
     pub fn elevation(&self, u: f32, v: f32) -> f32 {
         self.sample(&self.elevation, u, v)

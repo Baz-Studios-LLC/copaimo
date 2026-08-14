@@ -134,7 +134,7 @@ pub const COAST_HEIGHT: f32 = 16.0;
 
 /// How much the land rises from the coast to the deep interior. Gives coastal
 /// plains that climb into uplands, which is where ranges then sit.
-pub const INLAND_RISE: f32 = 65.0;
+pub const INLAND_RISE: f32 = 28.0;
 
 /// Distance from the coast, in meters, at which land counts as fully inland.
 /// Everything geographic — the rise above, where mountains are allowed — is
@@ -155,7 +155,24 @@ pub const BASE_ELEVATION: f32 = 110.0;
 // ------------------------------------------------------------------ mountains
 
 /// Peak height a range can add on top of the inland rise.
-pub const RANGE_ELEVATION: f32 = 250.0;
+pub const RANGE_ELEVATION: f32 = 52.0;
+
+/// The one great mountain: how high it stands above the ground it sits on, and
+/// how far out its foot reaches.
+///
+/// The world is otherwise deliberately gentle — plains and hills you walk over
+/// rather than around. That makes ONE massif worth more than a map full of
+/// them: it's visible from most of the continent, it's what you navigate by,
+/// and it's somewhere you decide to go. `RANGE_ELEVATION` stays low so this
+/// reads as the exception it is.
+///
+/// It stands at the point furthest from any sea — the heart of the largest
+/// landmass. Found rather than chosen, so redrawing the map moves the mountain
+/// to the new map's interior instead of stranding it in a bay.
+///
+/// Set `MASSIF_HEIGHT` to 0 for a world with no such landmark.
+pub const MASSIF_HEIGHT: f32 = 340.0;
+pub const MASSIF_RADIUS: f32 = 950.0;
 
 /// Frequency of the ridge lines. Low, so a crest runs for kilometers — this is
 /// the number that decides whether you get mountain *ranges* or a rash of
@@ -328,6 +345,8 @@ mod handing_over {
              \"ocean_depth\": {OCEAN_DEPTH:?},\n  \
              \"base_elevation\": {BASE_ELEVATION:?},\n  \
              \"range_elevation\": {RANGE_ELEVATION:?},\n  \
+             \"massif_height\": {MASSIF_HEIGHT:?},\n  \
+             \"massif_radius\": {MASSIF_RADIUS:?},\n  \
              \"range_freq\": {RANGE_FREQ:?},\n  \
              \"range_presence_freq\": {RANGE_PRESENCE_FREQ:?},\n  \
              \"range_presence_cutoff\": {RANGE_PRESENCE_CUTOFF:?},\n  \

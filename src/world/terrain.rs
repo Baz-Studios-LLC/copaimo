@@ -43,6 +43,8 @@ pub struct Terrain {
     presence: Fbm<Perlin>,
     /// Which stretches of coast are sand and which are rock.
     shores: Fbm<Perlin>,
+    /// Where the one great mountain stands, if this world has one.
+    massif: Option<Vec2>,
     /// Which country is rugged and which is level.
     rugged: Fbm<Perlin>,
     /// Ground leveled for towns, and the roads graded between them.
@@ -97,6 +99,7 @@ impl Terrain {
                 .set_frequency(1.0)
                 .set_persistence(0.5),
             settlements: Settlements::nowhere(),
+            massif: None,
             detail: Fbm::<Perlin>::new(WORLD_SEED.wrapping_add(1))
                 .set_octaves(4)
                 .set_frequency(1.0),
@@ -106,6 +109,19 @@ impl Terrain {
             continent: Fbm::<Perlin>::new(WORLD_SEED.wrapping_add(5)).set_octaves(5),
             edits: RwLock::new(EditGrid::load(half)),
         };
+
+        // The great mountain goes in the heartland — the point furthest from any
+        // sea. Placed before the towns, so their ground is judged against a
+        // world that already has it and none of them ends up levelled onto its
+        // flank.
+        terrain.massif = terrain.map.as_ref().and_then(|map| {
+            (MASSIF_HEIGHT > 0.0).then(|| {
+                let (u, v) = map.deepest_inland();
+                let at = Vec2::new((u - 0.5) * half.x * 2.0, (v - 0.5) * half.y * 2.0);
+                info!("the great mountain stands at {:.0}, {:.0}", at.x, at.y);
+                at
+            })
+        });
 
         // Planned after the rest of the world exists, because choosing where a
         // town goes means asking how high and how steep the ground is there —
@@ -240,6 +256,9 @@ impl Terrain {
         // somewhere in particular rather than everywhere at once.
         let rugged = self.ruggedness(wx, wz);
 
+        // The one great mountain stands whatever the ruggedness field says: it
+        // is the exception the rest of the world is gentle in order to make.
+        h += self.massif_height(wx, wz) * coast;
         h += self.range_height(wx, wz, inland) * coast * rugged;
 
         // Fine detail, masked to the land — the sea floor is under water and
@@ -256,6 +275,34 @@ impl Terrain {
             * 0.5
             + 0.5;
         crate::util::smoothstep(RUGGED_LOW, RUGGED_HIGH, n)
+    }
+
+    /// Height contributed by the one great mountain.
+    ///
+    /// A broad shoulder easing up to a peak, not a cone: the falloff is raised
+    /// to a power so the foot spreads and the summit is the small part, which is
+    /// how a massif reads from a distance. The ridge field warps it so the
+    /// flanks have spurs and gullies rather than being a smooth dome, and that
+    /// warp is scaled by height, so the foot stays walkable while the top breaks
+    /// up.
+    fn massif_height(&self, x: f32, z: f32) -> f32 {
+        let Some(peak) = self.massif else {
+            return 0.0;
+        };
+        if MASSIF_HEIGHT <= 0.0 {
+            return 0.0;
+        }
+
+        let away = peak.distance(Vec2::new(x, z));
+        if away >= MASSIF_RADIUS {
+            return 0.0;
+        }
+
+        let rise = crate::util::smoothstep(MASSIF_RADIUS, 0.0, away).powf(1.9);
+        let ridge = self
+            .ranges
+            .get([x as f64 * RANGE_FREQ * 3.0, z as f64 * RANGE_FREQ * 3.0]) as f32;
+        rise * MASSIF_HEIGHT * (1.0 + ridge * 0.22 * rise)
     }
 
     /// Height contributed by mountain ranges at a point.
