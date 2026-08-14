@@ -23,6 +23,29 @@ on them yet — this is ground, prepared.
 You can wade to about your waist; past that the water turns you back. Boats come
 later.
 
+### Testing on macOS
+
+**Apple Silicon only** (M1 or later). The build is arm64; it will not run on an
+Intel Mac.
+
+Easiest route is the **Baz Studios launcher** — it installs the app and clears
+the download quarantine for you.
+
+Installing the `.tar.gz` by hand needs one extra step, because the app is
+**ad-hoc signed** rather than notarised. macOS quarantines anything downloaded
+and will say *"Ranger is damaged and can't be opened"* — it isn't damaged, it
+just isn't from an identified developer:
+
+```bash
+tar -xzf ranger-game-macos-aarch64.app.tar.gz
+xattr -dr com.apple.quarantine Ranger.app
+open Ranger.app
+```
+
+The world lives inside the bundle at `Ranger.app/Contents/MacOS/assets`, beside
+the binary. Keep it there — macOS launches an app with the working directory at
+`/`, so that folder is the only place the game can find its map.
+
 ### Playing it
 
 `WASD` to move, `Shift` to sprint, mouse to look, wheel to zoom. `F` for free-fly
