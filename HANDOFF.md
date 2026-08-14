@@ -10,7 +10,7 @@ what will bite you.
 
 | Folder | Repo | Branch | Version | What it is |
 | --- | --- | --- | --- | --- |
-| `Desktop/ranger-game` | `Baz-Studios-LLC/ranger-game` (private) | `main` | **v0.1.0** released | The game. Rust + **Bevy 0.16**, edition 2021 |
+| `Desktop/ranger-game` | `Baz-Studios-LLC/ranger-game` (**public**) | `main` | **v0.1.2** released | The game. Rust + **Bevy 0.16**, edition 2021 |
 | `Desktop/Opificium` | `Baz-Studios-LLC/Opificium` (public) | `master` | **v0.6.0** released | The studio's maker's bench. Rust + **Bevy 0.19**, edition 2024 |
 | `Desktop/baz-studios-launcher` | `Baz-Studios-LLC/baz-studios-launcher` | `main` | — | Tauri launcher; lists both |
 
@@ -165,12 +165,63 @@ ruggedness (level plains vs. mountain country), 6 cities + 14 towns on levelled
 ground joined by graded roads, a moving sea with a tide, wading limit. The
 terrain bench with 8 brushes, undo/redo, live re-meshing, whole-world view.
 
+**The world is deliberately FLAT.** Ranges are 52 m and the inland climb 28 m —
+plains and hills you cross, not terrain that stops you. Pokémon-like, by
+request. Against that sits **one massif**, 340 m and ~1 km across, standing
+wherever the map is furthest from any sea. It is *found, not chosen*, so
+redrawing the map moves it to the new heartland; it ignores the ruggedness field
+because it is the exception the rest of the world is gentle in order to make;
+and it is placed *before* towns so none is levelled onto its flank. Do not
+"fix" the flatness — it is the brief.
+
+**Both mouse buttons are tools at the terrain bench**, so the camera moved to
+**Shift**+drag and the drafting angles to Shift+1–6. That is why `camera.rs` is
+one of the five shared Opificium files this work touches.
+
 **Not started:** monsters, the ranch, battles, guild exams, cities as *places*
 (only their ground exists), 3D models (`assets/models/` is where they will go —
 everything is Bevy primitives now, each a straight swap).
 
-**Next, if wanted** (researched, not built): hydraulic erosion, terrace, stamp,
-brush falloff control, slope/height masks. Unreal and Unity both ship these.
+**Trees: built in Opificium, NOT YET IN THE GAME.** `tree.rs` grows them,
+`forest.rs` places them, `chunk.rs` plants them as children of their chunk, and
+PLANT on key 9 adds and clears. Ctrl+S keeps `edits.bin` and `forest.bin`
+together. 126 tests pass.
+
+**The port to the game is the next job**, and it is mechanical but real: the
+game needs its own `tree.rs` and `forest.rs` (Bevy 0.16, so no copy-paste — see
+the version note above), the same recipe fields in `config.rs` and its exporter,
+and trees spawned per chunk. Both must scatter identically or the forest differs
+between bench and game. The recipe already carries `tree_spacing`, `treeline`,
+`tree_scale_low/high`.
+
+**Also not done: shelf controls for how trees LOOK.** The knobs exist in the
+recipe and bark/leaf take the game's ramps; there is no UI to turn them without
+editing `world.json`.
+
+The design, so a fresh session does not redesign it:
+
+* **Auto-placed first, then adjustable.** Both programs work out a *base*
+  density from the ground itself — moisture, height under the treeline, gentle
+  slope, clear of the beach, and clear of the levelled ground under towns and
+  roads. Nobody hand-plants 16 km² of forest.
+* **A painted layer on top**, exactly the shape `edits.bin` already has: a grid
+  of signed bias in −1..+1 where **0 means leave the automatic answer alone**,
+  +1 forces forest and −1 forces cleared. Saved as `assets/world/forest.bin`,
+  written by the bench, read by the game. Same reasoning as offsets-not-heights:
+  re-tune the automatic placement and hand-painted woods stay where they were put.
+* **Scattered deterministically** from a hash of position, so both programs grow
+  the same forest with no list of trees passing between them.
+* **Geometry is grown, not modelled**: a tapered trunk, branches recursed off it
+  from the tree's own seed, then leaf clusters at the tips.
+* **A pool of variants, not a mesh per tree.** Thousands of unique meshes is not
+  affordable; ~16–24 grown variants, each instanced with its own rotation and
+  scale, reads as "every tree different" and costs almost nothing. This is a
+  deliberate trade and worth stating to the user rather than implying every
+  single tree is unique.
+
+**Next after that, if wanted** (researched, not built): hydraulic erosion,
+terrace, stamp, brush falloff control, slope/height masks. Unreal and Unity both
+ship these.
 
 ---
 
@@ -183,6 +234,8 @@ brush falloff control, slope/height masks. Unreal and Unity both ship these.
 - **The builder's 14 m floor grid draws at the terrain bench** — a speck inside an
   8 km world that pokes through ground at the origin. Reverted to keep out of
   `stage.rs`; one marker component would hide it.
-- **Peak height fell to ~125 m** when ruggedness was added, from 178 m. If ranges
-  feel meek, `RUGGED_HIGH` or `RANGE_ELEVATION`.
+- **`INLAND_FULL` must stay under the map's real deepest interior** (820 m on the
+  current map; the constant is 620 m). Set it above and *nothing counts as
+  inland*, so mountains silently never appear — no error, just a world of hills.
+  The ASCII map prints the real number; check it after any map swap.
 - **No icon for Ranger.** `packaging/Info.plist` names none on purpose.
