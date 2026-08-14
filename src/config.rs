@@ -102,8 +102,17 @@ pub const MAP_SEA_BLUE_MARGIN: i16 = 40;
 /// they are. Raise the radius or the pass count if thicker lines survive.
 pub const MASK_CLEAN_RADIUS: usize = 3;
 pub const MASK_CLEAN_PASSES: usize = 2;
-/// Softens the cleaned mask's hard edge into a coastal ramp.
-pub const MASK_BLUR_RADIUS: usize = 2;
+/// How far inland, in meters, the land takes to rise from the waterline to
+/// `COAST_HEIGHT`, and how far out to sea the floor takes to fall to
+/// `OCEAN_DEPTH`.
+///
+/// **These exist because a coast has to shelve.** Without them the whole drop
+/// from land to sea floor happened across a few meters, and no vertex grid can
+/// draw that: neighboring vertices land on opposite sides of it and every
+/// coastline comes out as a fence of vertical slats. Spread over a beach and a
+/// shelf, the change per cell is small and a coast reads as a coast.
+pub const BEACH_WIDTH: f32 = 90.0;
+pub const SHELF_WIDTH: f32 = 600.0;
 
 /// Smallest land blob kept, in map pixels. Anything smaller is deleted as
 /// furniture rather than geography — screenshots carry buttons, scale bars and
@@ -242,11 +251,12 @@ mod handing_over {
              \"sea_threshold\": {MAP_SEA_THRESHOLD:?},\n  \
              \"clean_radius\": {MASK_CLEAN_RADIUS},\n  \
              \"clean_passes\": {MASK_CLEAN_PASSES},\n  \
-             \"blur_radius\": {MASK_BLUR_RADIUS},\n  \
              \"min_island_pixels\": {MIN_ISLAND_PIXELS},\n  \
              \"coast_fade_start\": {COAST_FADE_START:?},\n  \
              \"coast_height\": {COAST_HEIGHT:?},\n  \
              \"inland_rise\": {INLAND_RISE:?},\n  \
+             \"beach_width\": {BEACH_WIDTH:?},\n  \
+             \"shelf_width\": {SHELF_WIDTH:?},\n  \
              \"inland_full\": {INLAND_FULL:?},\n  \
              \"ocean_depth\": {OCEAN_DEPTH:?},\n  \
              \"base_elevation\": {BASE_ELEVATION:?},\n  \

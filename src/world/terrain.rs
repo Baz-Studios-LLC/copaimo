@@ -136,22 +136,42 @@ impl Terrain {
         // pixel edges; with it, the shore wanders the way a real one does.
         let (wx, wz) = self.warp(x, z);
 
-        // Land or sea, from the cleaned mask. This alone decides the coastline.
-        let coast = crate::util::smoothstep(0.35, 0.68, self.land_coverage(wx, wz));
-        let mut h = SEA_LEVEL - OCEAN_DEPTH + (COAST_HEIGHT + OCEAN_DEPTH) * coast;
+        // Distance to the coast, positive inland and negative out to sea. The
+        // whole landscape is built on this one number.
+        let shore = self.shore_meters(wx, wz);
 
-        // Shape-checking mode stops here: one flat plateau, one flat shelf, and
-        // nothing else to look at but the outline of the continents. Hand edits
-        // are still added on top, so it's a canvas rather than a lock.
+        // The coast shelves BOTH ways, each at its own rate: the land climbs a
+        // beach's width to reach the shoreline height, and the floor falls a
+        // shelf's width to reach the depths. They meet at zero, the waterline.
+        //
+        // Anything faster than this cannot be drawn. The whole drop used to
+        // happen across the width of the mask's blur — a few meters — and
+        // neighboring vertices landed on opposite sides of it, so every
+        // coastline came out as a fence of vertical slats.
+        let mut h = if shore >= 0.0 {
+            SEA_LEVEL + COAST_HEIGHT * crate::util::smoothstep(0.0, BEACH_WIDTH, shore)
+        } else {
+            SEA_LEVEL - OCEAN_DEPTH * crate::util::smoothstep(0.0, SHELF_WIDTH, -shore)
+        };
+
+        // Shape-checking mode stops here: a beach, a shelf, and nothing else to
+        // look at but the outline of the continents. Hand edits are still added
+        // on top, so it's a canvas rather than a lock.
         if FLAT_WORLD {
             return h;
         }
 
-        // How far from the sea we are, as 0 at the shore to 1 deep inland.
-        // Everything below is placed against this, which is what makes the
-        // geography read as geography: plains by the water, uplands behind
-        // them, mountains in the interior.
-        let inland = (self.inland_meters(wx, wz) / INLAND_FULL).clamp(0.0, 1.0);
+        // 0 at the waterline, 1 once properly ashore. Everything generated is
+        // masked by it, so nothing pokes out of the sea beside a beach.
+        let coast = crate::util::smoothstep(0.0, BEACH_WIDTH, shore);
+        if coast <= 0.0 {
+            return h;
+        }
+
+        // How far inland, as 0 at the shore to 1 in the deep interior. This is
+        // what makes the geography read as geography: plains by the water,
+        // uplands behind them, mountains in the middle.
+        let inland = (shore / INLAND_FULL).clamp(0.0, 1.0);
 
         // The land climbs away from the coast.
         h += crate::util::smoothstep(0.0, 0.85, inland) * INLAND_RISE * coast;
@@ -164,13 +184,10 @@ impl Terrain {
 
         h += self.range_height(wx, wz, inland) * coast;
 
-        // Fine detail everywhere, damped underwater (the sea floor is mostly
-        // hidden anyway, and it's cheaper to keep it calm). Near the waterline
-        // this is what breaks the shore into inlets and sandbars.
+        // Fine detail, masked to the land — the sea floor is under water and
+        // mostly hidden, and keeping it calm is both cheaper and smoother.
         let d = self.detail.get([wx as f64 * DETAIL_FREQ, wz as f64 * DETAIL_FREQ]) as f32;
-        h += d * DETAIL_ELEVATION * (0.25 + 0.75 * coast);
-
-        h
+        h + d * DETAIL_ELEVATION * coast
     }
 
     /// Height contributed by mountain ranges at a point.
@@ -213,25 +230,41 @@ impl Terrain {
         crest * presence * allowed * RANGE_ELEVATION
     }
 
-    /// Distance from the nearest coast, in meters.
+    /// Distance to the coast in meters: **positive inland, negative out to sea**.
     ///
-    /// Public because it's the single most useful number for tuning geography:
-    /// `INLAND_FULL` and the mountain placement thresholds are all fractions of
-    /// it, and if no land on the map ever gets far enough from the sea, ranges
-    /// silently never appear.
-    pub fn inland_meters(&self, x: f32, z: f32) -> f32 {
-        match &self.map {
-            Some(map) => {
-                let (u, v) = self.to_map_uv(x, z);
-                let meters_per_pixel = self.half.x * 2.0 / map.width() as f32;
-                map.inland_pixels(u, v) * meters_per_pixel
-            }
-            // The fallback has no distance field, so approximate it from how
-            // solidly inland the coverage says we are.
-            None => {
-                crate::util::smoothstep(0.5, 1.0, self.land_coverage(x, z)) * INLAND_FULL
-            }
-        }
+    /// The one number the whole landscape is built on. It crosses zero exactly
+    /// at the shoreline and changes smoothly through it, which is what lets the
+    /// land rise and the sea floor fall at their own separate rates instead of
+    /// meeting at a cliff.
+    ///
+    /// Public because it's also the most useful number for tuning geography:
+    /// `INLAND_FULL` and the mountain thresholds are all fractions of it, and if
+    /// no land on the map ever gets far enough from the sea, ranges silently
+    /// never appear.
+    pub fn shore_meters(&self, x: f32, z: f32) -> f32 {
+        let Some(map) = &self.map else {
+            // No map: open sea everywhere, and the fallback noise supplies the
+            // land instead — see `fallback_elevation`.
+            return self.fallback_shore(x, z);
+        };
+        let (u, v) = self.to_map_uv(x, z);
+        let meters_per_pixel = self.half.x * 2.0 / map.width() as f32;
+        let shore = (map.inland_pixels(u, v) - map.offshore_pixels(u, v)) * meters_per_pixel;
+
+        // The world ends in water whatever the image shows at its own margins —
+        // a screenshot's UI chrome lives exactly there. Carried out to sea
+        // rather than merely lowered, so the border is ocean and not a shelf.
+        let fade = self.border_fade(x, z);
+        shore * fade - (1.0 - fade) * SHELF_WIDTH
+    }
+
+    /// A stand-in shore distance for the no-map fallback, from its noise field.
+    fn fallback_shore(&self, x: f32, z: f32) -> f32 {
+        let e = self.fallback_elevation(x, z);
+        // Rescaled around the waterline so it crosses zero at the same place the
+        // threshold does, and reaches full depth and full inland either side.
+        let t = (e - MAP_SEA_THRESHOLD) / MAP_SEA_THRESHOLD.max(1.0e-4);
+        (t * INLAND_FULL).clamp(-SHELF_WIDTH, INLAND_FULL) * self.border_fade(x, z)
     }
 
     /// Moisture at a world position, 0 (arid) to 1 (lush). Drives biome color;
@@ -273,12 +306,6 @@ impl Terrain {
         )
     }
 
-    /// How much of this point is land, 0 (open sea) to 1 (solidly inland).
-    /// The authority on where the continents are.
-    fn land_coverage(&self, x: f32, z: f32) -> f32 {
-        self.raw_coverage(x, z) * self.border_fade(x, z)
-    }
-
     /// Pulls land under water at the very edge of the world.
     ///
     /// "The world ends in water, not a wall" is an invariant, and it has to
@@ -288,25 +315,6 @@ impl Terrain {
     fn border_fade(&self, x: f32, z: f32) -> f32 {
         let d = (x.abs() / self.half.x).max(z.abs() / self.half.y);
         crate::util::smoothstep(1.0, COAST_FADE_START, d)
-    }
-
-    fn raw_coverage(&self, x: f32, z: f32) -> f32 {
-        match &self.map {
-            Some(map) => {
-                let (u, v) = self.to_map_uv(x, z);
-                map.coverage(u, v)
-            }
-            // The fallback has no separate mask; its elevation field crosses
-            // the same threshold, so rescale it around that into 0..1.
-            None => {
-                let e = self.fallback_elevation(x, z);
-                crate::util::smoothstep(
-                    MAP_SEA_THRESHOLD - 0.06,
-                    MAP_SEA_THRESHOLD + 0.06,
-                    e,
-                )
-            }
-        }
     }
 
     /// Broad elevation in 0..1, where 0 is the deepest ocean and 1 the highest
@@ -382,7 +390,7 @@ mod tests {
                 let x = (column as f32 / (COLUMNS - 1) as f32 * 2.0 - 1.0) * half.x;
                 let z = (row as f32 / (rows - 1) as f32 * 2.0 - 1.0) * half.y;
 
-                deepest_inland = deepest_inland.max(terrain.inland_meters(x, z));
+                deepest_inland = deepest_inland.max(terrain.shore_meters(x, z));
 
                 let mut h = 0.0;
                 for sz in 0..SUPERSAMPLE {

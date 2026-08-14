@@ -16,8 +16,8 @@
 use std::collections::VecDeque;
 
 use crate::config::{
-    HEIGHTMAP_PATH, MAP_SEA_BLUE_MARGIN, MAP_SEA_THRESHOLD, MASK_BLUR_RADIUS, MASK_CLEAN_PASSES,
-    MASK_CLEAN_RADIUS, MIN_ISLAND_PIXELS,
+    HEIGHTMAP_PATH, MAP_SEA_BLUE_MARGIN, MAP_SEA_THRESHOLD, MASK_CLEAN_PASSES, MASK_CLEAN_RADIUS,
+    MIN_ISLAND_PIXELS,
 };
 
 /// Colour difference above which an image counts as colored rather than
@@ -30,12 +30,11 @@ pub struct HeightMap {
     height: usize,
     /// Normalized brightness in 0..1, row-major, north row first.
     elevation: Vec<f32>,
-    /// Cleaned land coverage in 0..1. 0 is solidly sea, 1 solidly land, with a
-    /// soft band along the coast.
-    coverage: Vec<f32>,
-    /// Distance to the nearest sea pixel, in map pixels. 0 at and beyond the
-    /// coast, rising inland.
+    /// Distance to the nearest sea pixel, in map pixels. 0 at sea, rising inland.
     inland: Vec<f32>,
+    /// Distance to the nearest land pixel, in map pixels. 0 on land, rising out
+    /// to sea. Subtracted from `inland` this is a signed distance to the coast.
+    offshore: Vec<f32>,
     /// Whether `elevation` is meaningful relief rather than region fill colors.
     carries_elevation: bool,
 }
@@ -81,8 +80,8 @@ impl HeightMap {
 
         let (sea, carries_elevation) = classify_sea(&pixels, &elevation);
         let land = clean_mask(&sea, width, height);
-        let inland = inland_distance(&land, width, height);
-        let coverage = box_blur(&land, width, height, MASK_BLUR_RADIUS);
+        let inland = shore_distance(&land, width, height, false);
+        let offshore = shore_distance(&land, width, height, true);
 
         let land_fraction = land.iter().filter(|&&v| v == 1).count() as f32 / land.len() as f32;
         info!(
@@ -94,8 +93,8 @@ impl HeightMap {
             width,
             height,
             elevation,
-            coverage,
             inland,
+            offshore,
             carries_elevation,
         })
     }
@@ -118,14 +117,14 @@ impl HeightMap {
         self.width
     }
 
-    /// Cleaned land coverage, 0 (open sea) to 1 (solidly inland).
-    pub fn coverage(&self, u: f32, v: f32) -> f32 {
-        self.sample(&self.coverage, u, v)
-    }
-
     /// Distance from the nearest coast in map pixels, 0 at sea.
     pub fn inland_pixels(&self, u: f32, v: f32) -> f32 {
         self.sample(&self.inland, u, v)
+    }
+
+    /// Distance from the nearest land in map pixels, 0 on land.
+    pub fn offshore_pixels(&self, u: f32, v: f32) -> f32 {
+        self.sample(&self.offshore, u, v)
     }
 
     /// Normalized source brightness, for maps that carry real elevation.
@@ -272,24 +271,31 @@ fn drop_small_islands(land: &mut [u8], width: usize, height: usize) {
     }
 }
 
-/// Distance from every land pixel to the nearest sea pixel, in pixels.
+/// Distance from the coast, in pixels, measured one way.
 ///
-/// This is what makes mountain placement geographic rather than arbitrary:
-/// ranges belong in the interior of a landmass, with plains between them and
-/// the coast. A breadth-first sweep out from the water gives that directly, and
-/// costs one pass over the image at load.
-fn inland_distance(land: &[u8], width: usize, height: usize) -> Vec<f32> {
+/// `offshore` false gives each land pixel its distance from the sea — which is
+/// what makes mountain placement geographic rather than arbitrary, since ranges
+/// belong in the interior with plains between them and the coast. `offshore`
+/// true gives each sea pixel its distance from the land, which is what lets the
+/// sea floor fall away gradually instead of dropping off a step at the shore.
+///
+/// Together they form a signed distance to the coast, and that is what the
+/// terrain is actually built on. One sweep each, once, at load.
+fn shore_distance(land: &[u8], width: usize, height: usize, offshore: bool) -> Vec<f32> {
     let mut distance = vec![f32::MAX; land.len()];
     let mut queue = VecDeque::new();
 
-    // Every sea pixel is a source at distance zero. Land pixels on the image
-    // border seed too, so a continent running off the edge doesn't read as
-    // infinitely inland.
+    // Measuring starts from the far side: sea when measuring inland, land when
+    // measuring out to sea.
+    let source = u8::from(offshore);
     for y in 0..height {
         for x in 0..width {
             let index = y * width + x;
-            let edge = x == 0 || y == 0 || x == width - 1 || y == height - 1;
-            if land[index] == 0 || edge {
+            // Land running off the image border isn't infinitely inland, so the
+            // border seeds too — but only when measuring inland, or open sea at
+            // the map's edge would read as touching land.
+            let edge = !offshore && (x == 0 || y == 0 || x == width - 1 || y == height - 1);
+            if land[index] == source || edge {
                 distance[index] = 0.0;
                 queue.push_back(index);
             }
@@ -369,18 +375,6 @@ fn majority_filter(mask: &[u8], width: usize, height: usize, radius: usize) -> V
         for x in 0..width {
             let (total, area) = box_stats(&integral, width, height, x, y, radius);
             out[y * width + x] = u8::from(total * 2 > area);
-        }
-    }
-    out
-}
-
-fn box_blur(mask: &[u8], width: usize, height: usize, radius: usize) -> Vec<f32> {
-    let integral = integral_image(mask, width, height);
-    let mut out = vec![0.0f32; width * height];
-    for y in 0..height {
-        for x in 0..width {
-            let (total, area) = box_stats(&integral, width, height, x, y, radius);
-            out[y * width + x] = total as f32 / area as f32;
         }
     }
     out

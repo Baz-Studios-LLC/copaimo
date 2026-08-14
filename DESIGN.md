@@ -85,7 +85,16 @@ See `assets/world/README.md` for export guidance.
 
 Built in `src/world/terrain.rs`, in order:
 
-1. **Coast** — the cleaned land/sea mask. Decides the coastline and nothing else.
+1. **The shelving coast** — from the signed distance to the shore. The land
+   climbs `BEACH_WIDTH` to reach `COAST_HEIGHT`; the sea floor falls
+   `SHELF_WIDTH` to reach `OCEAN_DEPTH`. They meet at zero, the waterline.
+
+   > **Nothing may change height faster than the vertex grid can draw it.** The
+   > first version put the whole 76 m drop inside the few metres the mask blur
+   > spanned, so neighbouring vertices landed on opposite sides of it and every
+   > coastline rendered as a picket fence of vertical slats. If a cliff ever
+   > combs again, this is the first thing to check.
+
 2. **Inland rise** — the land climbs away from the sea, by distance from the
    nearest coast. Coastal plains that become uplands.
 3. **Mountain ranges** — see below.
@@ -148,8 +157,11 @@ Land/sea therefore comes from a **cleaned mask** built in four stages:
    furniture rather than geography — this is what removes a screenshot's buttons
    and scale bar. Real islands are far larger. Cropping the source is still the
    cleaner fix; this makes an uncropped one usable.
-4. **Blur** into a 0..1 coverage field, giving beaches that shelve rather than
-   drop off a step.
+4. **Sweep for distance to the coast**, twice: once from the sea inward, once
+   from the land outward. Subtracted, they give a **signed distance** — positive
+   inland, negative out to sea — that crosses zero exactly at the shoreline.
+   That single number is what the whole landscape is built on, and it is what
+   lets the coast shelve (see §4, *Height is layered*).
 
 ### Flat mode
 
@@ -382,6 +394,17 @@ assets/
 ---
 
 ## Change log
+
+**2026-08-14** — **Coastlines now shelve.** The whole drop from land to sea floor
+used to happen across the width of the mask's blur — a few metres — which no
+vertex grid can draw: neighbouring vertices landed on opposite sides of it and
+every cliff face came out as a fence of vertical slats. Replaced the blurred
+coverage field with a **signed distance to the coast** (a second breadth-first
+sweep, from the land out to sea, alongside the existing one), so the land climbs
+a beach's width and the floor falls a shelf's width, each at its own rate,
+meeting at the waterline. `MASK_BLUR_RADIUS` is gone; `BEACH_WIDTH` and
+`SHELF_WIDTH` replace it. Ported from Opificium's terrain bench and re-exported,
+so the two agree.
 
 **2026-08-14** — **The terrain tool moved out of this repository** into
 Opificium's new terrain bench (§5). The game keeps only the ability to *read*
