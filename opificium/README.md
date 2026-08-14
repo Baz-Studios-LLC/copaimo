@@ -22,6 +22,39 @@ file described here.
 
 A `.baz` is JSON. It is the editable drawing and the thing worth keeping.
 
+## The world is NOT in here
+
+This game's world lives at **`../assets/world`**, and that is the only copy of
+it. `opificium.json` names it under `"world"`, which is a **hint** and not a
+requirement: it saves the terrain bench a walk across the disk when you open
+this game, and nothing more.
+
+| path                        | who writes it | what it is                                    |
+| --------------------------- | ------------- | --------------------------------------------- |
+| `../assets/world/heightmap.png` | you       | the map the world's continents are traced from |
+| `../assets/world/world.json`    | the game  | every constant that turns that map into ground |
+| `../assets/world/edits.bin`     | the bench | ground sculpted by hand, as signed height offsets |
+
+It is not in this folder because a **world is not a project**. The other benches
+work on one game's authored content and are pointed at it when the app opens;
+the terrain bench is a tool you bring ground to, the way the kiln takes an
+image. It opens a world from its own shelf — any folder holding a
+`heightmap.png` will do — so the world sits with the game's other runtime assets,
+where the game loads it from, rather than being filed under the tool that shapes
+it.
+
+**`world.json` is the one to be careful with.** A maker sculpts *offsets* — how
+far the ground moved — and the game adds those to ground it generates itself. If
+the bench and the game disagree about what was underneath by so much as a metre,
+every hill placed at the bench sits at the wrong height in the game, and nothing
+on screen says why. The game re-exports it with:
+
+```bash
+cargo test export_world_for_opificium -- --ignored --nocapture
+```
+
+Run that whenever a world-shaping constant changes.
+
 ## The palette, the kinds and the marks
 
 `data/palette.json` is the one file the game really must provide, or the bench
