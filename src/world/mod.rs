@@ -1,6 +1,8 @@
 //! The world: terrain generation, chunk streaming, and the sea.
 
 pub mod biome;
+pub mod forest;
+pub mod tree;
 pub mod chunk;
 pub mod edit;
 pub mod heightmap;
@@ -83,7 +85,10 @@ impl Plugin for WorldPlugin {
         app.insert_resource(TerrainSource(Arc::new(terrain)))
             .insert_resource(bounds)
             .init_resource::<stream::ChunkMap>()
-            .add_systems(Startup, (chunk::setup_material, water::spawn_water))
+            .add_systems(
+                Startup,
+                (chunk::setup_material, water::spawn_water, stream::grow_the_grove),
+            )
             .add_systems(
                 Update,
                 (

@@ -32,6 +32,10 @@ pub const HEIGHTMAP_PATH: &str = "assets/world/heightmap.png";
 /// Where hand-sculpted terrain edits are saved, relative to the crate root.
 pub const EDITS_PATH: &str = "assets/world/edits.bin";
 
+/// Woods planted or cleared at Opificium's terrain bench. Read-only here — the
+/// game reads what the bench writes and never plants.
+pub const FOREST_PATH: &str = "assets/world/forest.bin";
+
 /// Resolution of the hand-edit layer, in meters per cell. Fine enough to shape
 /// an individual hill, coarse enough that the whole world's edit layer is a few
 /// megabytes and can be copied cheaply.
@@ -156,6 +160,27 @@ pub const BASE_ELEVATION: f32 = 110.0;
 
 /// Peak height a range can add on top of the inland rise.
 pub const RANGE_ELEVATION: f32 = 52.0;
+
+// ------------------------------------------------------------------- the woods
+
+/// Meters between the slots a tree may stand in.
+///
+/// The single knob for how thick a forest is. Trees go up as the **square** of
+/// it, so 14 m is a quarter the trees of 7 m — reach for this first.
+///
+/// **Must match Opificium's `tree_spacing`.** Both programs work the forest out
+/// from scratch and never exchange a list of trees, so a difference here gives
+/// the bench one forest and the game another, silently.
+pub const TREE_SPACING: f32 = 14.0;
+
+/// Height at which trees give out. Below `MASSIF_HEIGHT`, so the great mountain
+/// stands bare above its own treeline.
+pub const TREELINE: f32 = 150.0;
+
+/// How much bigger or smaller than grown a planted tree may be, so a stand has
+/// young trees and old ones in it.
+pub const TREE_SCALE_LOW: f32 = 0.75;
+pub const TREE_SCALE_HIGH: f32 = 1.35;
 
 // -------------------------------------------------------------------- the ranch
 

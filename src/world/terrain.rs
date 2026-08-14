@@ -61,6 +61,8 @@ pub struct Terrain {
     /// the brush is writing on the main thread. Reads are short and uncontended
     /// in the common case; writes only happen on the frames you're sculpting.
     edits: RwLock<EditGrid>,
+    /// Woods planted at the bench. Read once at load and never written here.
+    forest: crate::world::forest::Painted,
 }
 
 impl Terrain {
@@ -108,6 +110,7 @@ impl Terrain {
             warp_z: Perlin::new(WORLD_SEED.wrapping_add(4)),
             continent: Fbm::<Perlin>::new(WORLD_SEED.wrapping_add(5)).set_octaves(5),
             edits: RwLock::new(EditGrid::load(half)),
+            forest: crate::world::forest::Painted::load(half),
         };
 
         // The great mountain goes in the heartland — the point furthest from any
@@ -138,6 +141,84 @@ impl Terrain {
             terrain.settlements.roads_len()
         );
         terrain
+    }
+
+    /// How many cells of woods the bench planted. Zero means either nothing has
+    /// been planted or `forest.bin` was refused — the startup log says which.
+    pub fn planted_cells(&self) -> usize {
+        self.forest.painted_cells()
+    }
+
+    /// Every tree standing in a patch of ground.
+    ///
+    /// Worked out from the ground and the painted layer rather than looked up in
+    /// a list, so a chunk plants on its own, on any thread, in any order — and
+    /// Opificium planting the same patch gets the same trees. Nothing about a
+    /// tree is stored anywhere.
+    ///
+    /// **Twin of Opificium's `World::trees_in`.** Every constant and every salt
+    /// below is part of the contract; see `HANDOFF.md`.
+    pub fn trees_in(&self, low: Vec2, high: Vec2) -> Vec<crate::world::forest::Planted> {
+        use crate::world::forest;
+
+        let step = TREE_SPACING.max(1.0);
+        // A world-wide lattice, not a per-chunk one, so a tree doesn't move when
+        // the chunk boundaries around it change.
+        let first = (low / step).floor().as_ivec2();
+        let last = (high / step).ceil().as_ivec2();
+
+        let mut standing = Vec::new();
+        for slot_z in first.y..=last.y {
+            for slot_x in first.x..=last.x {
+                // Jittered off the lattice, or the wood comes out in rows.
+                let jitter = Vec2::new(
+                    forest::chance(slot_x, slot_z, 1) - 0.5,
+                    forest::chance(slot_x, slot_z, 2) - 0.5,
+                ) * step
+                    * 0.85;
+                let at = Vec2::new(slot_x as f32 * step, slot_z as f32 * step) + jitter;
+                if at.x < low.x || at.x >= high.x || at.y < low.y || at.y >= high.y {
+                    continue;
+                }
+
+                let shore = self.shore_meters(at.x, at.y);
+                if shore < 25.0 {
+                    continue;
+                }
+                let height = self.height(at.x, at.y);
+                let slope = 1.0 - self.normal(at.x, at.y, step * 0.5).y;
+                let levelled = self
+                    .settlements
+                    .level(at)
+                    .map(|(_, weight)| weight)
+                    .unwrap_or(0.0);
+
+                let natural = forest::natural_density(
+                    self.moisture(at.x, at.y),
+                    height,
+                    slope,
+                    shore,
+                    levelled,
+                    TREELINE,
+                );
+                let density = forest::density(natural, self.forest.at(at.x, at.y));
+                if density <= 0.0 || forest::chance(slot_x, slot_z, 3) > density {
+                    continue;
+                }
+
+                standing.push(forest::Planted {
+                    at: Vec3::new(at.x, height, at.y),
+                    variety: (forest::chance(slot_x, slot_z, 4)
+                        * crate::world::tree::VARIETIES as f32)
+                        as usize
+                        % crate::world::tree::VARIETIES,
+                    turn: forest::chance(slot_x, slot_z, 5) * std::f32::consts::TAU,
+                    scale: TREE_SCALE_LOW
+                        + (TREE_SCALE_HIGH - TREE_SCALE_LOW) * forest::chance(slot_x, slot_z, 6),
+                });
+            }
+        }
+        standing
     }
 
     /// Where the towns are: level ground waiting for a settlement.

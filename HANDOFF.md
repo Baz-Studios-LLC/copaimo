@@ -94,6 +94,28 @@ disk, never a requirement.
 
 ---
 
+## The working rule: the bench and the game move together
+
+**Anything added to Opificium gets ported to the game in the same pass.** Not
+later, not next session. The two are halves of one thing — the bench writes what
+the game reads — and a bench feature with no game counterpart is a feature
+nobody can play.
+
+This is not automatic and cannot be: **they share no code**, different Bevy
+majors, separate repositories. Only FILES pass between them. So "it was added in
+Opificium" never means the game has it — `forest.bin` carries where woods were
+painted, and the game still needed its own tree grower, its own scatter, and its
+own renderer before a single tree appeared.
+
+When porting anything that both programs compute independently, write the
+pinning test: take literal numbers OUT of one program and assert them in the
+other. `forest::the_scatter_matches_the_bench_exactly` is the pattern, and
+Opificium's ignored `print_the_scatter` exists to produce those numbers. Do not
+recompute the expected values with a second copy of the same arithmetic — it
+will agree with itself no matter how wrong it is.
+
+---
+
 ## Invariants — things that broke and must not break again
 
 1. **Nothing may change height faster than the vertex grid can draw it.** Coastlines

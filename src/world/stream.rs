@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use bevy::tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task};
 
 use crate::config::{MAX_PENDING_CHUNKS, VIEW_CHUNKS};
+use crate::config::CHUNK_SIZE;
 use crate::world::chunk::{build_mesh, chunk_at, chunk_origin, Chunk, TerrainMaterial};
 use crate::world::terrain::TerrainSource;
 use crate::world::{StreamAnchor, WorldBounds};
@@ -106,12 +107,14 @@ pub fn spawn_chunk_mesh(
     commands.entity(entity).insert(PendingChunk(task));
 }
 
-/// Attaches finished meshes to their chunk entities.
+/// Attaches finished meshes to their chunk entities, and plants their trees.
 pub fn collect_chunks(
     mut commands: Commands,
     material: Option<Res<TerrainMaterial>>,
+    grove: Option<Res<Grove>>,
+    terrain: Res<TerrainSource>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut pending: Query<(Entity, &mut PendingChunk)>,
+    mut pending: Query<(Entity, &mut PendingChunk, &Chunk)>,
 ) {
     // The shared material is created in Startup; on the very first frames a
     // task could finish before it exists, so hold the mesh until it does.
@@ -119,7 +122,7 @@ pub fn collect_chunks(
         return;
     };
 
-    for (entity, mut task) in &mut pending {
+    for (entity, mut task, chunk) in &mut pending {
         let Some(mesh) = block_on(future::poll_once(&mut task.0)) else {
             continue;
         };
@@ -127,7 +130,94 @@ pub fn collect_chunks(
             .entity(entity)
             .remove::<PendingChunk>()
             .insert((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material.0.clone())));
+
+        // Trees are children of the chunk they stand on, so they stream in with
+        // that ground and go away with it — no separate bookkeeping, and no wood
+        // left standing over a hole where a chunk used to be.
+        //
+        // Planted once, because in the game a chunk is meshed once and never
+        // re-meshed. Opificium re-cuts ground under the brush and has to clear
+        // the old trees first; nothing here does, so nothing here needs to.
+        let Some(grove) = &grove else {
+            continue;
+        };
+        let low = chunk_origin(chunk.0);
+        let high = low + CHUNK_SIZE;
+
+        for tree in terrain.trees_in(low, high) {
+            let Some((wood, leaves)) = grove.trees.get(tree.variety) else {
+                continue;
+            };
+            // Placed relative to the chunk, whose own transform already carries
+            // it out to where it stands in the world.
+            let stance = Transform::from_xyz(tree.at.x - low.x, tree.at.y, tree.at.z - low.y)
+                .with_rotation(Quat::from_rotation_y(tree.turn))
+                .with_scale(Vec3::splat(tree.scale));
+
+            commands.entity(entity).with_children(|chunk| {
+                chunk
+                    .spawn((
+                        Mesh3d(wood.clone()),
+                        MeshMaterial3d(grove.bark.clone()),
+                        stance,
+                    ))
+                    .with_children(|trunk| {
+                        trunk.spawn((
+                            Mesh3d(leaves.clone()),
+                            MeshMaterial3d(grove.leaf.clone()),
+                            Transform::IDENTITY,
+                        ));
+                    });
+            });
+        }
     }
+}
+
+/// The grown trees, and what they are painted with.
+///
+/// One set for the whole world: a forest plants these many times over rather
+/// than growing a mesh apiece. A forest is tens of thousands of trees and a mesh
+/// each is not affordable — the memory is the least of it and the draw calls are
+/// the rest.
+#[derive(Resource)]
+pub struct Grove {
+    pub trees: Vec<(Handle<Mesh>, Handle<Mesh>)>,
+    pub bark: Handle<StandardMaterial>,
+    pub leaf: Handle<StandardMaterial>,
+}
+
+/// Grows the world's trees once, at startup.
+pub fn grow_the_grove(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let trees = (0..crate::world::tree::VARIETIES as u32)
+        .map(|seed| {
+            let tree = crate::world::tree::grow(seed);
+            (meshes.add(tree.wood), meshes.add(tree.leaves))
+        })
+        .collect();
+
+    commands.insert_resource(Grove {
+        trees,
+        bark: materials.add(StandardMaterial {
+            base_color: Srgba::rgb(0.29, 0.21, 0.15).into(),
+            perceptual_roughness: 0.95,
+            reflectance: 0.03,
+            ..default()
+        }),
+        leaf: materials.add(StandardMaterial {
+            base_color: Srgba::rgb(0.20, 0.38, 0.19).into(),
+            perceptual_roughness: 0.9,
+            reflectance: 0.04,
+            // Lit from both sides: a canopy left dark underneath reads as a rock
+            // rather than as foliage.
+            double_sided: true,
+            cull_mode: None,
+            ..default()
+        }),
+    });
 }
 
 /// Despawns chunks the viewer has left behind.
