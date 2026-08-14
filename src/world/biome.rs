@@ -63,7 +63,7 @@ fn linear(r: f32, g: f32, b: f32) -> Vec3 {
 /// * `height` — meters relative to sea level
 /// * `slope`  — 0 for dead flat, approaching 1 for a vertical face
 /// * `moisture` — 0 arid, 1 lush
-pub fn surface_color(height: f32, slope: f32, moisture: f32) -> [f32; 4] {
+pub fn surface_color(height: f32, slope: f32, moisture: f32, character: f32) -> [f32; 4] {
     let p = &*PALETTE;
 
     // Underwater, by **depth**: dark in the deep, lightening as it shallows.
@@ -84,11 +84,21 @@ pub fn surface_color(height: f32, slope: f32, moisture: f32) -> [f32; 4] {
 
     let mut color = if height >= SEA_LEVEL { capped } else { underwater };
 
-    // The beach, hugging the waterline from both sides and fading out with
-    // height rather than ending at a line — a hard edge here traces every coast
-    // on the map and reads as ink rather than as sand.
-    let beach = 1.0 - smoothstep(BEACH_FULL, BEACH_GONE, (height - SEA_LEVEL).abs());
-    color = color.lerp(p.sand, beach);
+    // The shoreline band: how close to the waterline this is, fading out with
+    // height from both sides rather than ending at a line.
+    let shoreline = 1.0 - smoothstep(BEACH_FULL, BEACH_GONE, (height - SEA_LEVEL).abs());
+
+    // What the band is *made of* is the point. Sand is not the default state of
+    // a coast — it needs somewhere for sediment to settle, which means a gentle
+    // shore, and it changes along the coast rather than being true of the whole
+    // map. Where those don't hold, the sea meets rock instead. A world with
+    // every continent outlined in sand reads as a drawing of a map, not ground.
+    let gentle = 1.0 - smoothstep(0.06, 0.22, slope);
+    let sandy = shoreline * character * gentle;
+    let stony = shoreline * (1.0 - character * gentle);
+
+    color = color.lerp(p.rock, stony * 0.7);
+    color = color.lerp(p.sand, sandy);
 
     // Steep ground is bare rock no matter what biome it sits in — this is what
     // makes cliffs and mountainsides read as stone instead of vertical lawn.

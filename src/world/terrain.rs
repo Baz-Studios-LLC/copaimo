@@ -40,6 +40,8 @@ pub struct Terrain {
     ranges: Fbm<Perlin>,
     /// Much broader field deciding which regions are mountainous at all.
     presence: Fbm<Perlin>,
+    /// Which stretches of coast are sand and which are rock.
+    shores: Fbm<Perlin>,
     detail: Fbm<Perlin>,
     moisture: Fbm<Perlin>,
     warp_x: Perlin,
@@ -78,6 +80,10 @@ impl Terrain {
                 .set_frequency(1.0)
                 .set_persistence(0.45),
             presence: Fbm::<Perlin>::new(WORLD_SEED.wrapping_add(7))
+                .set_octaves(2)
+                .set_frequency(1.0)
+                .set_persistence(0.5),
+            shores: Fbm::<Perlin>::new(WORLD_SEED.wrapping_add(9))
                 .set_octaves(2)
                 .set_frequency(1.0)
                 .set_persistence(0.5),
@@ -265,6 +271,25 @@ impl Terrain {
         // threshold does, and reaches full depth and full inland either side.
         let t = (e - MAP_SEA_THRESHOLD) / MAP_SEA_THRESHOLD.max(1.0e-4);
         (t * INLAND_FULL).clamp(-SHELF_WIDTH, INLAND_FULL) * self.border_fade(x, z)
+    }
+
+    /// What KIND of coast this stretch is: 0 rock, 1 sand.
+    ///
+    /// Sand is not the default state of a shoreline. A coast is beach where the
+    /// sea has somewhere to put sediment and rock where it has not, and which it
+    /// is changes *along* the coast rather than being true of the whole map. A
+    /// world with every continent outlined in sand reads as a drawing of a map
+    /// rather than as ground.
+    ///
+    /// Low frequency, so a beach runs the better part of a kilometer and then
+    /// gives way, instead of speckling.
+    pub fn shore_character(&self, x: f32, z: f32) -> f32 {
+        let n = self
+            .shores
+            .get([x as f64 * SHORE_FREQ, z as f64 * SHORE_FREQ]) as f32
+            * 0.5
+            + 0.5;
+        crate::util::smoothstep(0.40, 0.62, n)
     }
 
     /// Moisture at a world position, 0 (arid) to 1 (lush). Drives biome color;

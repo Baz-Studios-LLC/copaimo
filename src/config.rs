@@ -194,6 +194,13 @@ pub const SNOW_LINE: f32 = 210.0;
 pub const DETAIL_FREQ: f64 = 0.009;
 /// Frequency of the moisture field that decides dry plains vs. lush forest.
 pub const MOISTURE_FREQ: f64 = 0.000_9;
+/// How often the character of the coast changes — beach here, rock there. Low,
+/// so a beach runs the better part of a kilometer before giving way.
+///
+/// Not exported in `world.json`: this decides how the ground is *colored*, and
+/// color has no bearing on the offsets sculpted at the bench. Opificium keeps
+/// the same number so the two look alike, but nothing breaks if they drift.
+pub const SHORE_FREQ: f64 = 0.000_6;
 /// Frequency of the warp applied to map lookups. Nudges the sampled position
 /// slightly so coastlines wiggle naturally instead of showing the map image's
 /// straight pixel edges.
