@@ -23,6 +23,7 @@ use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 use crate::config::*;
 use crate::world::edit::EditGrid;
 use crate::world::heightmap::HeightMap;
+use crate::world::settle::{Settlements, Site};
 
 /// Shared handle to the terrain. `Arc` because chunk meshes are built on
 /// background threads and each task needs a cheap clone of the generator.
@@ -42,6 +43,10 @@ pub struct Terrain {
     presence: Fbm<Perlin>,
     /// Which stretches of coast are sand and which are rock.
     shores: Fbm<Perlin>,
+    /// Which country is rugged and which is level.
+    rugged: Fbm<Perlin>,
+    /// Ground leveled for towns, and the roads graded between them.
+    settlements: Settlements,
     detail: Fbm<Perlin>,
     moisture: Fbm<Perlin>,
     warp_x: Perlin,
@@ -66,7 +71,7 @@ impl Terrain {
         let half = Vec2::new(WORLD_WIDTH * 0.5, WORLD_WIDTH / aspect * 0.5);
         let map_carries_elevation = map.as_ref().is_some_and(HeightMap::carries_elevation);
 
-        Self {
+        let mut terrain = Self {
             map,
             map_carries_elevation,
             half,
@@ -87,6 +92,11 @@ impl Terrain {
                 .set_octaves(2)
                 .set_frequency(1.0)
                 .set_persistence(0.5),
+            rugged: Fbm::<Perlin>::new(WORLD_SEED.wrapping_add(13))
+                .set_octaves(2)
+                .set_frequency(1.0)
+                .set_persistence(0.5),
+            settlements: Settlements::nowhere(),
             detail: Fbm::<Perlin>::new(WORLD_SEED.wrapping_add(1))
                 .set_octaves(4)
                 .set_frequency(1.0),
@@ -95,7 +105,28 @@ impl Terrain {
             warp_z: Perlin::new(WORLD_SEED.wrapping_add(4)),
             continent: Fbm::<Perlin>::new(WORLD_SEED.wrapping_add(5)).set_octaves(5),
             edits: RwLock::new(EditGrid::load(half)),
-        }
+        };
+
+        // Planned after the rest of the world exists, because choosing where a
+        // town goes means asking how high and how steep the ground is there —
+        // and answered with `raw_height`, which knows nothing of settlements, so
+        // this never reads back its own output.
+        terrain.settlements = Settlements::plan(
+            half,
+            &|at| terrain.raw_height(at.x, at.y),
+            &|at| terrain.shore_meters(at.x, at.y),
+        );
+        info!(
+            "planned {} places and {} roads between them",
+            terrain.settlements.sites().len(),
+            terrain.settlements.roads_len()
+        );
+        terrain
+    }
+
+    /// Where the towns are: level ground waiting for a settlement.
+    pub fn sites(&self) -> &[Site] {
+        self.settlements.sites()
     }
 
     /// How many cells of hand-sculpted ground loaded. Zero means either that
@@ -137,6 +168,21 @@ impl Terrain {
     /// based on what the ground was doing underneath, and they run while
     /// holding the edit lock — so they must not read back through it.
     pub fn base_height(&self, x: f32, z: f32) -> f32 {
+        let h = self.raw_height(x, z);
+        // Towns stand on level ground and roads are graded between them, so the
+        // last word on generated height belongs to whatever has been leveled.
+        match self.settlements.level(Vec2::new(x, z)) {
+            Some((target, pull)) => h + (target - h) * pull,
+            None => h,
+        }
+    }
+
+    /// The generated ground before any of it is leveled for people.
+    ///
+    /// Separate because planning where a town goes has to ask how high and how
+    /// steep the ground is there, and asking `base_height` would be reading back
+    /// the leveling it is in the middle of deciding.
+    fn raw_height(&self, x: f32, z: f32) -> f32 {
         // Nudge the lookup position by a low-frequency noise field. Without
         // this, a coastline traced from the image reads as a straight run of
         // pixel edges; with it, the shore wanders the way a real one does.
@@ -188,12 +234,28 @@ impl Terrain {
             h += self.macro_elevation(wx, wz) * BASE_ELEVATION * coast;
         }
 
-        h += self.range_height(wx, wz, inland) * coast;
+        // How rugged this country is, 0 plain to 1 mountainous. Mountains and
+        // fine detail are both scaled by it, so most of the world is level
+        // enough to walk, farm and put a forest on, and the rough ground is
+        // somewhere in particular rather than everywhere at once.
+        let rugged = self.ruggedness(wx, wz);
+
+        h += self.range_height(wx, wz, inland) * coast * rugged;
 
         // Fine detail, masked to the land — the sea floor is under water and
         // mostly hidden, and keeping it calm is both cheaper and smoother.
         let d = self.detail.get([wx as f64 * DETAIL_FREQ, wz as f64 * DETAIL_FREQ]) as f32;
-        h + d * DETAIL_ELEVATION * coast
+        h + d * DETAIL_ELEVATION * coast * (PLAINS_RELIEF + (1.0 - PLAINS_RELIEF) * rugged)
+    }
+
+    /// How rugged the country is here: 0 level plain, 1 full relief.
+    fn ruggedness(&self, x: f32, z: f32) -> f32 {
+        let n = self
+            .rugged
+            .get([x as f64 * RUGGED_FREQ, z as f64 * RUGGED_FREQ]) as f32
+            * 0.5
+            + 0.5;
+        crate::util::smoothstep(RUGGED_LOW, RUGGED_HIGH, n)
     }
 
     /// Height contributed by mountain ranges at a point.
@@ -453,13 +515,24 @@ mod tests {
         let land_fraction = land as f32 / total as f32;
         println!(
             "\nsource: {}\nworld: {:.0} x {:.0} m\nland: {:.0}%   low {:.0} m   peak {:.0} m\n\
-             furthest from any coast: {deepest_inland:.0} m (INLAND_FULL is {INLAND_FULL:.0} m)\n\n{picture}",
+             furthest from any coast: {deepest_inland:.0} m (INLAND_FULL is {INLAND_FULL:.0} m)\n\
+             places: {} cities, {} towns, {} roads\n\n{picture}",
             if terrain.has_map() { "map image" } else { "procedural fallback" },
             half.x * 2.0,
             half.y * 2.0,
             land_fraction * 100.0,
             trough,
             peak,
+            terrain.sites().iter().filter(|s| s.city).count(),
+            terrain.sites().iter().filter(|s| !s.city).count(),
+            terrain.settlements.roads_len(),
+        );
+
+        assert!(
+            terrain.sites().len() == CITIES + TOWNS,
+            "every city and town should have found ground: wanted {}, placed {}",
+            CITIES + TOWNS,
+            terrain.sites().len()
         );
 
         assert!(

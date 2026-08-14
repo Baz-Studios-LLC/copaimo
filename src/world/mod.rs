@@ -4,6 +4,7 @@ pub mod biome;
 pub mod chunk;
 pub mod edit;
 pub mod heightmap;
+pub mod settle;
 pub mod stream;
 pub mod terrain;
 pub mod water;
@@ -86,6 +87,7 @@ impl Plugin for WorldPlugin {
             .add_systems(
                 Update,
                 (
+                    water::move_water,
                     stream::queue_chunks,
                     stream::collect_chunks,
                     stream::unload_chunks,

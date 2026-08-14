@@ -395,6 +395,32 @@ assets/
 
 ## Change log
 
+**2026-08-14** — **Level ground, places, roads and moving water.** Three things:
+
+*Somewhere level to put anything.* A very low-frequency **ruggedness** field now
+scales both the mountains and the fine detail, so most of the world is plain
+enough for forest, farmland and walking and the rough country is somewhere in
+particular rather than everywhere at once. Before this every square metre of the
+map was equally lumpy, which leaves nowhere for anything to happen.
+
+*Places, and the roads between them.* `world/settle.rs` plans **6 cities and 14
+towns** from the seed, rejecting anywhere that is on the beach, up a mountain,
+already a hillside, or too close to a place already placed. Each gets level
+ground with a skirt easing back into the land. They are then joined by a
+**minimum spanning tree** — the smallest set of roads that still leaves every
+place reachable from every other — and each road is *graded*, climbing steadily
+from one end's height to the other's so it can be walked and carted. No
+buildings: this is ground, prepared.
+
+*The sea moves.* A slow **tide** (±0.55 m over 26 s) plus three layers of swell
+running at different angles. The tide is the important half — on a coast that
+shelves over hundreds of metres, half a metre of vertical travel walks the
+waterline a long way up the beach and back, so the water visibly approaches and
+recedes. `WADE_DEPTH` now blocks the *step* into deep water as well as clamping
+standing height, so the ranger can paddle at a beach and is turned back by the
+sea rather than by an invisible wall. Only the step *into* deeper water is
+refused, so anyone who ends up out there can always walk home.
+
 **2026-08-14** — **Coastlines now shelve.** The whole drop from land to sea floor
 used to happen across the width of the mask's blur — a few metres — which no
 vertex grid can draw: neighbouring vertices landed on opposite sides of it and

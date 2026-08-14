@@ -28,9 +28,13 @@ const SPRINT_SPEED: f32 = 15.0;
 const TURN_RATE: f32 = 12.0;
 /// Standing eye-to-toe height, used to keep the body clear of the ground.
 const LEG_HEIGHT: f32 = 0.9;
-/// The ranger wades rather than sinking: this is how far below sea level they
-/// can stand before the ground is treated as too deep to walk on.
-const WADE_DEPTH: f32 = 1.2;
+/// How deep the ranger may wade, in metres below sea level.
+///
+/// The sea is not walkable in the base game — it is for boats. This is both how
+/// far they can stand into it and how far they can *walk* into it: one number,
+/// so the depth they are held at and the depth they are turned back at can never
+/// disagree and leave them bobbing at a line they cannot cross.
+const WADE_DEPTH: f32 = 1.4;
 
 #[derive(Component)]
 pub struct Player;
@@ -180,7 +184,18 @@ pub fn move_player(
             WALK_SPEED
         };
         let next = transform.translation + direction * speed * time.delta_secs();
-        transform.translation = bounds.clamp(next, 2.0);
+        let next = bounds.clamp(next, 2.0);
+
+        // The sea is for boats. Rather than an invisible wall at the waterline —
+        // which reads as a bug, and stops you paddling at a beach at all — the
+        // ranger wades until the water is about knee-to-waist and is then turned
+        // back by it. Only the step INTO deep water is refused, so someone who
+        // somehow ends up out there can always walk home.
+        let depth = SEA_LEVEL - terrain.height(next.x, next.z);
+        let here = SEA_LEVEL - terrain.height(transform.translation.x, transform.translation.z);
+        if depth <= WADE_DEPTH || depth < here {
+            transform.translation = next;
+        }
 
         // Ease into the new facing instead of snapping, so quick direction
         // changes read as a turn rather than a teleport.

@@ -117,6 +117,23 @@ fn update_hud(
     // Whether the ground sculpted at Opificium's terrain bench actually loaded.
     // Worth a line: a mismatched or missing edits.bin is refused rather than
     // applied, and without this the only sign is one line in the startup log.
+    // The nearest place with level ground waiting for it. Navigation aid for
+    // now, and the thing to walk toward once settlements are actually built.
+    let here = Vec2::new(position.x, position.z);
+    let nearest = terrain
+        .sites()
+        .iter()
+        .map(|site| (site.at.distance(here), site))
+        .min_by(|a, b| a.0.total_cmp(&b.0));
+    let nearest = match nearest {
+        Some((away, site)) => format!(
+            "{} {:.0} m",
+            if site.city { "city" } else { "town" },
+            away
+        ),
+        None => "none planned".to_string(),
+    };
+
     let sculpted = match terrain.sculpted_cells() {
         0 => "none".to_string(),
         cells => format!("{cells} cells"),
@@ -132,6 +149,7 @@ fn update_hud(
          position: {:.0}, {:.0}\n\
          altitude: {height:.1} m   slope: {slope:.2}   moisture: {moisture:.2}\n\
          chunks: {} loaded, {} building   sculpted: {sculpted}\n\
+         nearest: {nearest}\n\
          \n\
          WASD move · Shift sprint · mouse look · wheel zoom\n\
          F free-fly (Space/Ctrl up-down) · F3 hide\n\

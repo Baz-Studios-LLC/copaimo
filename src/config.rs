@@ -221,6 +221,64 @@ pub const CONTINENT_FREQ: f64 = 0.000_35;
 /// the border so it trims furniture without eating real coastline.
 pub const COAST_FADE_START: f32 = 0.95;
 
+// ----------------------------------------------------------- level ground
+
+/// How much of the world is rugged, and how much is level.
+///
+/// A very low-frequency field, thresholded: below `RUGGED_LOW` the ground is
+/// plain — flat enough for forest, farmland and walking — and only above
+/// `RUGGED_HIGH` does it get the full detail and the mountains.
+///
+/// Without this every square meter of the map was equally lumpy, which leaves
+/// nowhere for anything to happen. A world needs somewhere level to put things.
+pub const RUGGED_FREQ: f64 = 0.000_25;
+pub const RUGGED_LOW: f32 = 0.38;
+pub const RUGGED_HIGH: f32 = 0.72;
+/// Relief left in the flattest country, so plains still read as ground rather
+/// than as a table.
+pub const PLAINS_RELIEF: f32 = 0.12;
+
+// ------------------------------------------------------------- settlements
+
+/// How many of each kind of place gets ground leveled for it. Cities hold the
+/// Ranger Guild exams; towns are the smaller places between them.
+pub const CITIES: usize = 6;
+pub const TOWNS: usize = 14;
+
+/// How far the level ground reaches at each, in meters.
+pub const CITY_RADIUS: f32 = 190.0;
+pub const TOWN_RADIUS: f32 = 95.0;
+
+/// How far apart they must stand.
+pub const CITY_SPACING: f32 = 1_100.0;
+pub const TOWN_SPACING: f32 = 420.0;
+
+/// How far the leveling eases back into the surrounding land, so a town sits
+/// *in* the ground rather than on a plinth.
+pub const SITE_SKIRT: f32 = 140.0;
+
+/// A site must be at least this far inland, below this height, and on ground no
+/// steeper than this — people build where the living is, and leveling a
+/// hillside would leave a scar visible from orbit.
+pub const SITE_MIN_INLAND: f32 = 70.0;
+pub const SITE_MAX_HEIGHT: f32 = 130.0;
+pub const SITE_MAX_SLOPE: f32 = 0.13;
+
+/// Half-width of the graded road between sites, and its shoulders.
+pub const ROAD_WIDTH: f32 = 9.0;
+pub const ROAD_SKIRT: f32 = 26.0;
+
+// ------------------------------------------------------------------- water
+
+/// How far the tide carries the waterline up and down, in meters, and how long
+/// a full cycle takes.
+///
+/// Small on purpose: the coast shelves over hundreds of meters, so half a meter
+/// of tide walks the shoreline a good way up the beach and back. That travel is
+/// the point — a sea that only ripples reads as glass with a texture on it.
+pub const TIDE: f32 = 0.55;
+pub const TIDE_PERIOD: f32 = 26.0;
+
 // ------------------------------------------------- handing this to the bench
 
 /// Writes `assets/world/world.json`, the recipe Opificium's terrain bench reads.
@@ -277,6 +335,22 @@ mod handing_over {
              \"detail_freq\": {DETAIL_FREQ:?},\n  \
              \"warp_strength\": {WARP_STRENGTH:?},\n  \
              \"warp_freq\": {WARP_FREQ:?},\n  \
+             \"rugged_freq\": {RUGGED_FREQ:?},\n  \
+             \"rugged_low\": {RUGGED_LOW:?},\n  \
+             \"rugged_high\": {RUGGED_HIGH:?},\n  \
+             \"plains_relief\": {PLAINS_RELIEF:?},\n  \
+             \"cities\": {CITIES},\n  \
+             \"towns\": {TOWNS},\n  \
+             \"city_radius\": {CITY_RADIUS:?},\n  \
+             \"town_radius\": {TOWN_RADIUS:?},\n  \
+             \"city_spacing\": {CITY_SPACING:?},\n  \
+             \"town_spacing\": {TOWN_SPACING:?},\n  \
+             \"site_skirt\": {SITE_SKIRT:?},\n  \
+             \"site_min_inland\": {SITE_MIN_INLAND:?},\n  \
+             \"site_max_height\": {SITE_MAX_HEIGHT:?},\n  \
+             \"site_max_slope\": {SITE_MAX_SLOPE:?},\n  \
+             \"road_width\": {ROAD_WIDTH:?},\n  \
+             \"road_skirt\": {ROAD_SKIRT:?},\n  \
              \"flat\": {FLAT_WORLD}\n\
              }}\n"
         );
