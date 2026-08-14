@@ -204,3 +204,71 @@ pub const CONTINENT_FREQ: f64 = 0.000_35;
 /// own edges — a screenshot's UI chrome lives exactly there. Kept very close to
 /// the border so it trims furniture without eating real coastline.
 pub const COAST_FADE_START: f32 = 0.95;
+
+// ------------------------------------------------- handing this to the bench
+
+/// Writes `assets/world/world.json`, the recipe Opificium's terrain bench reads.
+///
+/// **Run this whenever a number above changes:**
+///
+/// ```text
+/// cargo test export_world_for_opificium -- --ignored --nocapture
+/// ```
+///
+/// The bench and the game must agree about the generated ground EXACTLY. A
+/// maker sculpts *offsets* — how far the ground moved — and the game adds those
+/// to ground it generates itself. If the two disagree about what was underneath
+/// by so much as a meter, every hill placed at the bench sits at the wrong
+/// height in the game, and nothing on screen says why.
+///
+/// So the numbers travel as data rather than being written down twice, exactly
+/// as a palette does. Ignored by default because it writes a file, and a plain
+/// `cargo test` should not.
+#[cfg(test)]
+mod handing_over {
+    use super::*;
+
+    #[test]
+    #[ignore = "writes assets/world/world.json"]
+    fn export_world_for_opificium() {
+        // Hand-written rather than derived, so this file needs no serde
+        // dependency and the shape stays visible beside the numbers it carries.
+        // Field names are Opificium's `terrain::ground::Recipe`.
+        let json = format!(
+            "{{\n  \
+             \"width\": {WORLD_WIDTH:?},\n  \
+             \"seed\": {WORLD_SEED},\n  \
+             \"sea_blue_margin\": {MAP_SEA_BLUE_MARGIN},\n  \
+             \"sea_threshold\": {MAP_SEA_THRESHOLD:?},\n  \
+             \"clean_radius\": {MASK_CLEAN_RADIUS},\n  \
+             \"clean_passes\": {MASK_CLEAN_PASSES},\n  \
+             \"blur_radius\": {MASK_BLUR_RADIUS},\n  \
+             \"min_island_pixels\": {MIN_ISLAND_PIXELS},\n  \
+             \"coast_fade_start\": {COAST_FADE_START:?},\n  \
+             \"coast_height\": {COAST_HEIGHT:?},\n  \
+             \"inland_rise\": {INLAND_RISE:?},\n  \
+             \"inland_full\": {INLAND_FULL:?},\n  \
+             \"ocean_depth\": {OCEAN_DEPTH:?},\n  \
+             \"base_elevation\": {BASE_ELEVATION:?},\n  \
+             \"range_elevation\": {RANGE_ELEVATION:?},\n  \
+             \"range_freq\": {RANGE_FREQ:?},\n  \
+             \"range_presence_freq\": {RANGE_PRESENCE_FREQ:?},\n  \
+             \"range_presence_cutoff\": {RANGE_PRESENCE_CUTOFF:?},\n  \
+             \"range_inland_start\": {RANGE_INLAND_START:?},\n  \
+             \"range_inland_full\": {RANGE_INLAND_FULL:?},\n  \
+             \"detail_elevation\": {DETAIL_ELEVATION:?},\n  \
+             \"detail_freq\": {DETAIL_FREQ:?},\n  \
+             \"warp_strength\": {WARP_STRENGTH:?},\n  \
+             \"warp_freq\": {WARP_FREQ:?},\n  \
+             \"flat\": {FLAT_WORLD}\n\
+             }}\n"
+        );
+
+        let road = std::path::Path::new(HEIGHTMAP_PATH)
+            .parent()
+            .expect("the map lives in a folder")
+            .join("world.json");
+        std::fs::write(&road, json).expect("the world folder should be writable");
+        println!("wrote {}", road.display());
+    }
+}

@@ -114,6 +114,13 @@ fn update_hud(
     } else {
         "procedural fallback"
     };
+    // Whether the ground sculpted at Opificium's terrain bench actually loaded.
+    // Worth a line: a mismatched or missing edits.bin is refused rather than
+    // applied, and without this the only sign is one line in the startup log.
+    let sculpted = match terrain.sculpted_cells() {
+        0 => "none".to_string(),
+        cells => format!("{cells} cells"),
+    };
     let mode = match *mode {
         CameraMode::Follow => "follow",
         CameraMode::Fly => "free-fly (F)",
@@ -124,7 +131,7 @@ fn update_hud(
          world: {:.0} x {:.0} m   source: {source}\n\
          position: {:.0}, {:.0}\n\
          altitude: {height:.1} m   slope: {slope:.2}   moisture: {moisture:.2}\n\
-         chunks: {} loaded, {} building\n\
+         chunks: {} loaded, {} building   sculpted: {sculpted}\n\
          \n\
          WASD move · Shift sprint · mouse look · wheel zoom\n\
          F free-fly (Space/Ctrl up-down) · F3 hide\n\

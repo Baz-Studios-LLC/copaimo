@@ -15,10 +15,9 @@ Rust + Bevy 0.16.
 cargo run
 ```
 
-The main menu leads to two modes:
+The main menu leads to **Explore World** — walk the map as the ranger.
 
-* **Explore World** — walk the map as the ranger
-* **Terrain Tool** — sculpt the world's shape
+The world's shape is *sculpted elsewhere*; see below.
 
 ## Current state
 
@@ -30,19 +29,34 @@ hand with the terrain tool on top of it.
 
 Not started yet: cities, the ranch, monsters, battles, guild exams.
 
-## The terrain tool
+## Shaping the world
 
-A separate mode with six brushes (raise, lower, smooth, flatten, path,
-roughen), undo/redo, live chunk re-meshing and a world overview.
+Terrain is sculpted at the **terrain bench in
+[Opificium](https://github.com/Baz-Studios-LLC/Opificium)**, the studio's
+maker's bench. This game only *reads* what the bench writes.
 
-Edits are stored as **signed height offsets** on top of the generated terrain,
-so re-rolling the noise or swapping the map image never moves hand-placed
-geography. `Ctrl+S` saves them to `assets/world/edits.bin`.
+```bash
+opificium /path/to/ranger-game/opificium
+```
 
-The tool is `src/editor/` plus `src/world/edit.rs` and is deliberately free of
-any dependency on the rest of the game, with a view to reusing it across
-projects. What it needs from a host project is listed at the top of
-`src/editor/mod.rs`.
+Two programs, no shared code, only files:
+
+| File | Direction | What it is |
+| --- | --- | --- |
+| `assets/world/heightmap.png` | game → bench | The map the world is drawn from |
+| `assets/world/world.json` | game → bench | The recipe — every constant in `config.rs` that shapes the ground |
+| `assets/world/edits.bin` | bench → game | Sculpted ground, as signed height offsets |
+
+Offsets rather than absolute heights, so re-rolling the noise or redrawing the
+map never moves hand-placed geography.
+
+**Re-export the recipe whenever a world-shaping constant changes**, or the bench
+and the game will disagree about the ground underneath and every sculpted hill
+will sit at the wrong height:
+
+```bash
+cargo test export_world_for_opificium -- --ignored --nocapture
+```
 
 ## Documentation
 

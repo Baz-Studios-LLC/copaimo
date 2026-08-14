@@ -14,13 +14,14 @@
 //!   * `player` — the ranger and their character controller
 //!   * `camera` — third-person orbit rig, plus free-fly
 //!   * `menu`   — the main menu
-//!   * `editor` — the terrain sculpting tool
+//!
+//! The terrain is *sculpted* in Opificium, the studio's maker's bench, not here
+//! — the game only reads what that writes. See `DESIGN.md`.
 //!   * `sky`    — sun, ambient light, fog
 //!   * `hud`    — the F3 debug overlay
 
 mod camera;
 mod config;
-mod editor;
 mod hud;
 mod menu;
 mod player;
@@ -52,7 +53,6 @@ fn main() {
             player::PlayerPlugin,
             camera::CameraPlugin,
             menu::MenuPlugin,
-            editor::EditorPlugin,
             hud::HudPlugin,
         ))
         .run();

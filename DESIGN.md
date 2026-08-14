@@ -240,92 +240,56 @@ there is no crack and no lighting seam.
 
 ## 5. The terrain tool
 
-A **separate mode, entered from the main menu** — not something toggled inside
-the game. A brush follows the crosshair across the ground and reshapes it. This
-is how authored geography gets into the world: generation produces a plausible
-landscape, but only a person can put *this mountain, here*.
+**It is not in this repository.** Terrain is sculpted at the **terrain bench in
+[Opificium](https://github.com/Baz-Studios-LLC/Opificium)**, the studio's maker's
+bench, which every Baz Studios game shares. The game only *reads* what the bench
+writes.
 
-### Tools
+Open this game there:
 
-| Key | Tool | What it's for |
+```bash
+opificium /path/to/ranger-game/opificium
+```
+
+`opificium/opificium.json` names the project; everything else takes its default,
+which puts the world at `assets/world` — where it already is.
+
+### What passes between them
+
+Two programs, no shared code, only files. The layout of each is written down in
+Opificium's `FORMATS.md`.
+
+| File | Direction | What it is |
 | --- | --- | --- |
-| `1` | Raise | Push ground up |
-| `2` | Lower | Pull ground down |
-| `3` | Smooth | Average out bumps |
-| `4` | Flatten | Level to where you clicked, soft dish profile |
-| `5` | Path | Level with a **flat bed and short shoulders** — roads, trails, terraces, pads for buildings |
-| `6` | Roughen | Add fractal detail, for breaking up ground sculpted too smooth |
+| `assets/world/heightmap.png` | game → bench | The map the world is drawn from |
+| `assets/world/world.json` | game → bench | The recipe: every number in `config.rs` that shapes the ground |
+| `assets/world/edits.bin` | bench → game | Sculpted ground, as signed height offsets |
 
-Right mouse inverts the current tool, so raising and lowering are one gesture
-rather than a mode switch. Path draws a second inner ring showing where its flat
-bed ends, since placing a road accurately depends on seeing that edge.
+`world.json` is exported by a test in `config.rs`:
 
-### Undo
+```bash
+cargo test export_world_for_opificium -- --ignored --nocapture
+```
 
-`Ctrl+Z` / `Ctrl+Y`, up to 64 strokes. A stroke is one press-to-release drag,
-not one frame — a two-hundred-frame drag undoes in one step. Each stroke records
-only the cells it touched and the value each held *before the stroke began*, so
-memory is bounded by area painted rather than by world size, and replaying
-backwards lands on the right ground.
+> **Run it whenever a world-shaping constant changes.** The bench and the game
+> must agree about the *generated* ground exactly. A maker sculpts offsets — how
+> far the ground moved — and the game adds those to ground it generates itself.
+> If the two disagree about what was underneath by so much as a metre, every
+> hill placed at the bench sits at the wrong height here, and nothing on screen
+> says why.
 
-### Interface
+`edits.bin` whose grid or world size doesn't match is **refused, not stretched** —
+offsets landing in the wrong places would be worse than none. The F3 overlay
+shows how many sculpted cells actually loaded, so a refusal is visible without
+reading the log.
 
-The tool is intended to be used across projects, so it's built as a tool rather
-than a debug overlay.
+### Why it moved out
 
-| | |
-| --- | --- |
-| Sidebar | Tools, brush settings, live cursor readout, edit state, shortcuts — all in one column, sectioned by thin rules |
-| Meters | Radius and strength show as bars as well as numbers, scaled **logarithmically** to match how the wheel changes them; a linear bar would sit pinned near zero across most of the useful range |
-| Unsaved mark | A dot in the header rather than the word "unsaved", so it reads at a glance and never reflows the layout |
-| Confirmations | Saves, undo and redo raise a brief toast. Silent success is wrong for a tool — pressing `Ctrl+S` and seeing nothing is indistinguishable from a dead shortcut. Undo with an empty history says so |
-| World overview | Top-down render of the entire map with a camera marker, redrawn on a background thread once the edit layer has been quiet for a moment |
-
-**Glyph constraint.** Bevy embeds a subset font covering little more than ASCII;
-`·` and `—` render as empty boxes. The UI is therefore plain ASCII, and builds
-its structure out of real layout — rule nodes, meter bars, boxed keycaps —
-rather than punctuation. Dropping a `.ttf` at `assets/fonts/ui.ttf` restyles the
-whole tool; see that folder's README. Don't reintroduce typographic characters
-into UI strings on the assumption a font will be there.
-
-### Reuse in other projects
-
-The tool is `src/editor/` plus `src/world/edit.rs`, and neither knows anything
-about rangers or monsters. What it needs from a host project is listed at the
-top of `editor/mod.rs` and is deliberately narrow: a heightfield to read, an
-offset grid to write, a way to invalidate meshes over a rectangle, and a camera
-to aim from. Its styling is all in `editor/theme.rs`, so restyling for another
-project is one file. Lifting it into its own crate is a mechanical move when a
-second project wants it — worth doing then, not before.
-
-### Edits are offsets, not absolute heights
-
-The hand-edit layer (`src/world/edit.rs`) is a grid of **signed height offsets in
-meters** at 4 m resolution, added on top of whatever the generator produced.
-
-Storing offsets rather than absolute heights is what lets the two coexist:
-re-roll the noise, retune a constant or swap the map image entirely, and
-hand-placed hills stay where you put them, riding on the new ground. If they
-stored absolute heights, every generator change would fight the sculpting.
-
-### How it behaves
-
-| | |
-| --- | --- |
-| Brush shape | Smoothstep falloff from center to rim, so strokes blend in rather than leaving a disc. Path is the exception — flat to 70% of its radius, then quick shoulders |
-| Directional tools | Raise, Lower and Roughen push at a fixed speed in m/s |
-| Converging tools | Smooth, Flatten and Path blend toward a target at a fixed rate |
-| Smooth | Blends toward the average *finished* height nearby — computed in a scratch buffer so cells don't smooth against values already smoothed this tick |
-| Flatten / Path | Level to the height where the stroke began, so one drag makes one plane instead of chasing the ground |
-| Live re-mesh | Affected chunks rebuild through the same background task path streaming uses, keeping the old mesh on screen until the new one lands |
-| Throttling | A chunk already rebuilding is skipped, so painting self-limits to mesh build time |
-
-Edits live in memory until **`Ctrl+S`** writes them to `assets/world/edits.bin`.
-A save file that doesn't match the current world size is **refused, not
-stretched** — the offsets would land in the wrong places.
-
-The tool always uses free-fly, since sculpting from the follow camera means
-aiming past your own ranger.
+It was built here first, as a mode behind this game's main menu, and worked. It
+moved because the tool is not this game's: Opificium is where the studio's
+authoring lives, and a sculpting tool that only one game can run is one every
+other game has to rebuild. Keeping it in both would have meant the same tool
+twice, in two Bevy versions, drifting apart.
 
 ## 6. Invariants
 
@@ -418,6 +382,15 @@ assets/
 ---
 
 ## Change log
+
+**2026-08-14** — **The terrain tool moved out of this repository** into
+Opificium's new terrain bench (§5). The game keeps only the ability to *read*
+`edits.bin`; `src/editor/` is gone and `src/world/edit.rs` is now a reader with
+no brushes in it. Added `opificium/opificium.json` so the bench can open this
+game, and an exporter for `assets/world/world.json` so the two programs cannot
+drift about how the ground underneath is generated. The F3 overlay now reports
+how many sculpted cells actually loaded, since a mismatched `edits.bin` is
+refused rather than applied.
 
 **2026-08-13** — Switched the land/sea test from brightness to **blue channel
 dominance**, which fixed the map's place names being cut into the terrain as

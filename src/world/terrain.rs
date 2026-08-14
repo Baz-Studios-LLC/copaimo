@@ -92,9 +92,11 @@ impl Terrain {
         }
     }
 
-    /// The hand-edit layer, for the sculpting tool to read and write.
-    pub fn edits(&self) -> &RwLock<EditGrid> {
-        &self.edits
+    /// How many cells of hand-sculpted ground loaded. Zero means either that
+    /// nothing has been sculpted yet or that `edits.bin` was refused — the
+    /// startup log says which.
+    pub fn sculpted_cells(&self) -> usize {
+        self.edits.read().map_or(0, |edits| edits.sculpted_cells())
     }
 
     /// Half-extents of the world in meters. X is east/west, Y is north/south.
