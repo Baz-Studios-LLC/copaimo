@@ -518,11 +518,14 @@ fn refresh_readouts(
             });
     // Both layers, because the key reaches into either — a readout that only
     // watched the ground would say "nothing to undo" with a wood still standing.
-    let (woods_undo, woods_redo) = terrain
-        .woods()
-        .read()
-        .map_or((false, false), |woods| (woods.can_undo(), woods.can_redo()));
+    let (woods_undo, woods_redo, woods_unsaved) =
+        terrain.woods().read().map_or((false, false, false), |woods| {
+            (woods.can_undo(), woods.can_redo(), woods.unsaved)
+        });
     let (undo_depth, redo_depth) = (ground_undo || woods_undo, ground_redo || woods_redo);
+    // Either layer. The dot watched the ground alone, so an afternoon's planting
+    // could sit unwritten under a panel saying everything was saved.
+    let is_unsaved = is_unsaved || woods_unsaved;
 
     for mut background in &mut unsaved {
         background.0 = if is_unsaved { UNSAVED } else { Color::NONE };

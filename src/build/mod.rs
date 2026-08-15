@@ -223,6 +223,26 @@ pub fn raise(
     building
 }
 
+/// The material every building wears.
+///
+/// White, because the shader multiplies it by the mesh's vertex colours and the
+/// bench already looked every colour up from this game's palette — so leaving it
+/// white paints exactly what the drawing said. The same bargain the terrain
+/// makes with its biome colours.
+fn building_cloth(lets_light_through: bool) -> StandardMaterial {
+    StandardMaterial {
+        base_color: Color::WHITE,
+        perceptual_roughness: if lets_light_through { 0.25 } else { 0.88 },
+        reflectance: if lets_light_through { 0.5 } else { 0.05 },
+        alpha_mode: if lets_light_through {
+            AlphaMode::Blend
+        } else {
+            AlphaMode::Opaque
+        },
+        ..default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,25 +314,5 @@ mod tests {
             high.z,
             plan.half_d
         );
-    }
-}
-
-/// The material every building wears.
-///
-/// White, because the shader multiplies it by the mesh's vertex colours and the
-/// bench already looked every colour up from this game's palette — so leaving it
-/// white paints exactly what the drawing said. The same bargain the terrain
-/// makes with its biome colours.
-fn building_cloth(lets_light_through: bool) -> StandardMaterial {
-    StandardMaterial {
-        base_color: Color::WHITE,
-        perceptual_roughness: if lets_light_through { 0.25 } else { 0.88 },
-        reflectance: if lets_light_through { 0.5 } else { 0.05 },
-        alpha_mode: if lets_light_through {
-            AlphaMode::Blend
-        } else {
-            AlphaMode::Opaque
-        },
-        ..default()
     }
 }

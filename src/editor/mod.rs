@@ -261,6 +261,16 @@ fn paint(
         Layer::Ground
     };
 
+    // Changing tool mid-drag moves the stroke to the other layer. Closing the
+    // old one and opening a new one keeps both undoable; without it the rest of
+    // the drag wrote to a layer with no group open and could not be taken back.
+    if painting && brush.stroking && layer != brush.strokes {
+        close_stroke(&terrain, brush.strokes);
+        let closed = brush.strokes;
+        brush.stroked(closed);
+        brush.stroking = false;
+    }
+
     if painting && !brush.stroking {
         match layer {
             Layer::Ground => {
@@ -281,18 +291,7 @@ fn paint(
         // Closed against the layer the stroke OPENED on, not the one selected
         // now — the tool can be changed mid-drag, and closing the wrong layer
         // would leave a group open forever and lose the drag.
-        match brush.strokes {
-            Layer::Ground => {
-                if let Ok(mut edits) = terrain.edits().write() {
-                    edits.end_stroke();
-                }
-            }
-            Layer::Woods => {
-                if let Ok(mut woods) = terrain.woods().write() {
-                    woods.end_stroke();
-                }
-            }
-        }
+        close_stroke(&terrain, brush.strokes);
         let closed = brush.strokes;
         brush.stroked(closed);
         brush.stroking = false;
@@ -337,6 +336,22 @@ fn paint(
     };
 
     invalidate_area(&mut commands, &terrain, &chunks, &busy, patch);
+}
+
+/// Closes an undo group on whichever layer it was opened on.
+fn close_stroke(terrain: &TerrainSource, layer: Layer) {
+    match layer {
+        Layer::Ground => {
+            if let Ok(mut edits) = terrain.edits().write() {
+                edits.end_stroke();
+            }
+        }
+        Layer::Woods => {
+            if let Ok(mut woods) = terrain.woods().write() {
+                woods.end_stroke();
+            }
+        }
+    }
 }
 
 /// The ramp: click once for the foot, once for the head, and a graded run is
@@ -419,7 +434,11 @@ fn history(
     // Which layer to reach into. Undoing takes the last stroke off the end;
     // redoing puts one back, so it goes to whichever layer would be next.
     let layer = if undo {
-        brush.order.pop()
+        // Read, don't take. If the layer turns out to have nothing left — its
+        // own history is shallower than this record — the record is stale and
+        // consuming it would silently shift every earlier undo onto the wrong
+        // layer. It is dropped below, once the undo is known to have happened.
+        brush.order.last().copied()
     } else {
         let ground = terrain.edits().read().is_ok_and(|edits| edits.can_redo());
         let woods = terrain.woods().read().is_ok_and(|woods| woods.can_redo());
@@ -452,10 +471,12 @@ fn history(
 
     match patch {
         Some(patch) => {
-            if !undo {
-                if let Some(layer) = layer {
-                    brush.stroked(layer);
+            match (undo, layer) {
+                (true, _) => {
+                    brush.order.pop();
                 }
+                (false, Some(layer)) => brush.stroked(layer),
+                (false, None) => {}
             }
             toast.show(match (undo, layer) {
                 // Named, because taking back a hillside and taking back a wood
@@ -577,10 +598,10 @@ fn save_edits(
         crate::world::edit::save(&mut edits).map(|()| edits.sculpted_cells())
     };
     let woods = {
-        let Ok(painted) = terrain.woods().read() else {
+        let Ok(mut painted) = terrain.woods().write() else {
             return;
         };
-        crate::world::forest::save(&painted).map(|()| painted.painted_cells())
+        crate::world::forest::save(&mut painted).map(|()| painted.painted_cells())
     };
 
     match (ground, woods) {

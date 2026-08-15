@@ -55,10 +55,14 @@ pub fn load(half: Vec2) -> Painted {
 /// The bench once had a writer, a passing round-trip test, and nothing calling
 /// it — so an afternoon's planting went away on restart. Saving the ground and
 /// saving the woods happen together, in one keystroke, for that reason.
-pub fn save(painted: &Painted) -> io::Result<()> {
+pub fn save(painted: &mut Painted) -> io::Result<()> {
     let path = Path::new(FOREST_PATH);
     if let Some(folder) = path.parent() {
         std::fs::create_dir_all(folder)?;
     }
-    std::fs::write(path, painted.to_bytes())
+    std::fs::write(path, painted.to_bytes())?;
+    // Only once the bytes have actually landed — the crate has no way to know
+    // whether they did, so it doesn't guess.
+    painted.mark_saved();
+    Ok(())
 }

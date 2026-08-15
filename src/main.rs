@@ -15,10 +15,21 @@
 //!   * `camera` — third-person orbit rig, plus free-fly
 //!   * `menu`   — the main menu
 //!
-//! The terrain is *sculpted* in Opificium, the studio's maker's bench, not here
-//! — the game only reads what that writes. See `DESIGN.md`.
+//!   * `editor` — the terrain tool, driving `terrain-core`'s brush
+//!   * `build`  — buildings baked at Opificium's builder, stood on the ground
 //!   * `sky`    — sun, ambient light, fog
 //!   * `hud`    — the F3 debug overlay
+//!
+//! The world generation, the brush and the trees all live in `terrain-core`,
+//! which Opificium's terrain bench links too — so ground shaped in either place
+//! is shaped identically. See `DESIGN.md`.
+
+// Two clippy lints fire on the shape of Bevy itself rather than on anything
+// wrong here, and contorting the code to quiet them would cost more than they
+// are worth. A system's parameters ARE its dependencies, so a system that
+// touches eight things takes eight arguments; and a filtered `Query` is a type
+// by construction, so naming an alias for each one buries what it selects.
+#![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
 mod build;
 mod camera;

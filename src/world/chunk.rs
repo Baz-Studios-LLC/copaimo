@@ -23,7 +23,7 @@ use crate::world::terrain::Terrain;
 /// per-chunk world content — trees, rocks, later encounters — will be spawned
 /// as children of the chunk and needs to know where it is.
 #[derive(Component)]
-pub struct Chunk(#[allow(dead_code)] pub IVec2);
+pub struct Chunk(pub IVec2);
 
 /// One shared material for every chunk — all the color variety comes from
 /// vertex colors, so there is no reason to allocate a material per chunk.
@@ -70,16 +70,42 @@ pub fn build_mesh(terrain: &Terrain, coord: IVec2) -> Mesh {
     let mut colors = Vec::with_capacity(count);
     let mut uvs = Vec::with_capacity(count);
 
+    // Heights on a grid one vertex wider than the chunk on every side.
+    //
+    // The extra ring is what lets a normal be a central difference over heights
+    // already asked for, instead of four MORE terrain evaluations per vertex.
+    // Each one runs the map lookup, the domain warp and half a dozen octaves of
+    // noise, so the old five-samples-per-vertex made chunk building four times
+    // the work it needed to be: 21,125 evaluations a chunk, against 4,489 now.
+    //
+    // Still seamless, which is the property that matters. A normal here is a
+    // function of world position and the fixed step alone — never of which chunk
+    // is asking — so two chunks meeting at a vertex compute the same one.
+    let padded = side + 2;
+    let mut heights = vec![0.0_f32; padded * padded];
+    for pz in 0..padded {
+        for px in 0..padded {
+            let world = origin + Vec2::new(px as f32 - 1.0, pz as f32 - 1.0) * step;
+            heights[pz * padded + px] = terrain.height(world.x, world.y);
+        }
+    }
+    let sampled = |px: usize, pz: usize| heights[pz * padded + px];
+
     for iz in 0..side {
         for ix in 0..side {
             let local = Vec2::new(ix as f32 * step, iz as f32 * step);
             let world = origin + local;
+            // The vertex's own place in the padded grid, one in from its edge.
+            let (px, pz) = (ix + 1, iz + 1);
 
-            let height = terrain.height(world.x, world.y);
-            // Half a grid cell is the right epsilon here: fine enough to catch
-            // the detail the mesh can actually represent, coarse enough not to
-            // amplify noise the vertices don't sample.
-            let normal = terrain.normal(world.x, world.y, step * 0.5);
+            let height = sampled(px, pz);
+            // Over a whole grid step rather than the half-step the old analytic
+            // form used. A full step is what the mesh's own facets span, so this
+            // is the slope the surface actually has rather than one sampled
+            // finer than anything drawn can show.
+            let slope_x = sampled(px + 1, pz) - sampled(px - 1, pz);
+            let slope_z = sampled(px, pz + 1) - sampled(px, pz - 1);
+            let normal = Vec3::new(-slope_x, 2.0 * step, -slope_z).normalize();
             let slope = 1.0 - normal.y;
             let moisture = terrain.moisture(world.x, world.y);
             let character = terrain.shore_character(world.x, world.y);
