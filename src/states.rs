@@ -42,7 +42,12 @@ impl Plugin for StatesPlugin {
             .add_systems(OnEnter(AppState::Menu), apply_cursor)
             .add_systems(OnEnter(AppState::Playing), apply_cursor)
             .add_systems(OnEnter(AppState::Editing), apply_cursor)
-            .add_systems(Update, escape_to_menu.run_if(not(in_state(AppState::Menu))));
+            // Not in the terrain tool: it guards ESC itself, because leaving
+            // with an afternoon's shaping unwritten should say so first.
+            .add_systems(
+                Update,
+                escape_to_menu.run_if(in_state(AppState::Playing)),
+            );
     }
 }
 

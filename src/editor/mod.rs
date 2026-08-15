@@ -27,7 +27,7 @@
 
 mod minimap;
 mod theme;
-mod ui;
+pub mod ui;
 
 use bevy::prelude::*;
 
@@ -50,6 +50,14 @@ pub const MAX_RADIUS: f32 = 500.0;
 /// Radius changes by a proportion per wheel notch rather than a fixed number of
 /// meters, so it feels the same whether you're shaping a mound or a range.
 const RADIUS_STEP: f32 = 1.15;
+
+/// How long unsaved work sits before it writes itself.
+///
+/// A crash, a stray Alt+F4, or simply forgetting is the one failure this tool
+/// can inflict that cannot be undone, and an afternoon of shaping is a real
+/// afternoon. Two minutes is short enough to lose nothing worth mourning and
+/// long enough never to interrupt a stroke.
+const AUTOSAVE_AFTER: f32 = 120.0;
 
 /// How fast PATH wears the ground bare, against how fast it grades.
 ///
@@ -138,28 +146,76 @@ impl Brush {
     }
 }
 
+/// Whether the maker is holding the cursor free to reach the panels.
+///
+/// Sculpting captures the cursor — it has to, the brush aims down the view ray
+/// and mouse-look needs the pointer out of the way. But an 8 km world cannot be
+/// crossed by flying and hoping, and the overview on the right is the only thing
+/// that knows where anything is. So ALT lets go: the pointer comes back, the
+/// view stops turning, and the brush stops painting until it is released.
+///
+/// A modifier rather than a mode, because reaching for the map is a moment
+/// inside the work and not a change of what you are doing.
+#[derive(Resource, Default, Deref)]
+pub struct CursorFree(pub bool);
+
+/// Seconds of unsaved work, and whether leaving has already been questioned.
+#[derive(Resource, Default)]
+pub struct Keeping {
+    unsaved_for: f32,
+    /// Set when ESC was pressed with work outstanding. A second press leaves.
+    asked: bool,
+}
+
 pub struct EditorPlugin;
 
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Brush>()
+            .init_resource::<CursorFree>()
+            .init_resource::<Keeping>()
             .add_plugins((ui::EditorUiPlugin, minimap::MinimapPlugin))
             .add_systems(OnEnter(AppState::Editing), enter_editor)
             .add_systems(
                 Update,
                 (
+                    hold_to_reach,
                     aim_brush,
                     adjust_brush,
                     paint,
                     lay_ramp,
                     history,
                     save_edits,
+                    keep_the_work,
                     draw_brush,
                 )
                     .chain()
                     .run_if(in_state(AppState::Editing)),
             );
     }
+}
+
+/// ALT frees the pointer for as long as it is held.
+fn hold_to_reach(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut free: ResMut<CursorFree>,
+    mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
+) {
+    let wanted = keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
+    if wanted == free.0 {
+        return;
+    }
+    free.0 = wanted;
+
+    let Some(mut window) = windows.iter_mut().next() else {
+        return;
+    };
+    window.cursor_options.grab_mode = if wanted {
+        bevy::window::CursorGrabMode::None
+    } else {
+        bevy::window::CursorGrabMode::Confined
+    };
+    window.cursor_options.visible = wanted;
 }
 
 fn enter_editor(mut camera: ResMut<CameraMode>) {
@@ -257,8 +313,13 @@ fn paint(
     busy: Query<(), With<PendingChunk>>,
     grove: Option<Res<Grove>>,
     standing: Query<Option<&Children>, With<Chunk>>,
+    free: Res<CursorFree>,
     mut brush: ResMut<Brush>,
 ) {
+    // The pointer is out reaching for a panel, not aimed at the ground.
+    if free.0 {
+        return;
+    }
     // Laid between two clicked points, not dragged. `lay_ramp` has it.
     if brush.how.is_two_point() {
         return;
@@ -428,10 +489,11 @@ fn lay_ramp(
     terrain: Res<TerrainSource>,
     chunks: Res<ChunkMap>,
     busy: Query<(), With<PendingChunk>>,
+    free: Res<CursorFree>,
     mut brush: ResMut<Brush>,
     mut toast: ResMut<ui::Toast>,
 ) {
-    if !brush.how.is_two_point() {
+    if free.0 || !brush.how.is_two_point() {
         return;
     }
 
@@ -655,11 +717,10 @@ fn draw_brush(mut gizmos: Gizmos, terrain: Res<TerrainSource>, brush: Res<Brush>
         return;
     };
 
-    // Drawn as a ring of short segments sampled at ground height rather than a
-    // flat circle, so on a slope it wraps the terrain and you can see exactly
-    // what the stroke will cover.
+    // Rings sampled at ground height rather than a flat circle, so on a slope
+    // the brush wraps the terrain and you can see exactly what a stroke covers.
     const SEGMENTS: usize = 72;
-    let color = theme::tool_color(brush.how);
+    let colour = theme::tool_color(brush.how);
 
     let point_at = |index: usize, radius: f32| {
         let angle = index as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
@@ -668,37 +729,70 @@ fn draw_brush(mut gizmos: Gizmos, terrain: Res<TerrainSource>, brush: Res<Brush>
         Vec3::new(x, terrain.height(x, z) + 0.4, z)
     };
 
-    let mut ring = |radius: f32, color: Color| {
+    let mut ring = |radius: f32, colour: Color| {
         let mut previous = point_at(0, radius);
         for index in 1..=SEGMENTS {
             let next = point_at(index, radius);
-            gizmos.line(previous, next, color);
+            gizmos.line(previous, next, colour);
             previous = next;
         }
     };
 
-    ring(brush.radius, color);
-    // Path has a flat bed out to 70% of its radius; showing that inner edge is
-    // the difference between placing a road accurately and guessing.
-    if brush.how == Brushing::Path {
-        ring(brush.radius * 0.7, color.with_alpha(0.45));
+    // The rim, and then where the brush is still pulling hard.
+    //
+    // A single outline says where a stroke STOPS and nothing about what it does
+    // in between — and every tool here fades from the middle out, so the edge is
+    // the one part that barely moves. Rings drawn at fixed fractions of the
+    // brush's own falloff make the shape of it visible: bunched near the rim for
+    // a soft dish, out at the shoulder for a road's flat bed.
+    ring(brush.radius, colour);
+    for strength in FALLOFF_RINGS {
+        let radius = falloff_radius(brush.how, brush.radius, strength);
+        if radius <= 0.5 {
+            continue;
+        }
+        // Dimmer the weaker the brush is there, so the gradient reads as one.
+        ring(radius, colour.with_alpha(0.18 + strength * 0.42));
     }
 
-    // A short mast at the center, so the brush is findable when the ring falls
+    // A short mast at the centre, so the brush is findable when the ring falls
     // out of view behind a rise.
-    gizmos.line(hit, hit + Vec3::Y * 3.0, color);
+    gizmos.line(hit, hit + Vec3::Y * 3.0, colour);
 
     // Half a ramp is invisible otherwise: the first click lands somewhere behind
     // you and there is nothing on screen saying a run is waiting on its far end.
     if let Some(from) = brush.ramp_from {
-        gizmos.line(from, from + Vec3::Y * 6.0, color);
-        gizmos.line(from, hit, color.with_alpha(0.7));
+        gizmos.line(from, from + Vec3::Y * 6.0, colour);
+        gizmos.line(from, hit, colour.with_alpha(0.7));
     }
+}
+
+/// Where the brush is still pulling this hard, as fractions of full strength.
+const FALLOFF_RINGS: [f32; 3] = [0.25, 0.5, 0.75];
+
+/// The radius at which a tool's falloff has fallen to `strength`.
+///
+/// Solved by bisection rather than by inverting each curve. There are two curves
+/// today and inverting them by hand would be two more places to keep in step
+/// with `Brushing::falloff` — which is private, and rightly so. Sixteen steps
+/// over a monotonic curve is exact to well under a pixel and runs once a frame.
+fn falloff_radius(how: Brushing, radius: f32, strength: f32) -> f32 {
+    let (mut near, mut far) = (0.0, radius);
+    for _ in 0..16 {
+        let middle = (near + far) * 0.5;
+        if how.strength_at(middle, radius) > strength {
+            near = middle;
+        } else {
+            far = middle;
+        }
+    }
+    (near + far) * 0.5
 }
 
 fn save_edits(
     keys: Res<ButtonInput<KeyCode>>,
     terrain: Res<TerrainSource>,
+    mut keeping: ResMut<Keeping>,
     mut toast: ResMut<ui::Toast>,
 ) {
     let pressed_save = keys.just_pressed(KeyCode::KeyS)
@@ -706,6 +800,8 @@ fn save_edits(
     if !pressed_save {
         return;
     }
+    keeping.unsaved_for = 0.0;
+    keeping.asked = false;
 
     // Ground and woods together, in one keystroke. They were separate once and
     // planting quietly failed to survive a restart; a maker who has just spent
@@ -746,6 +842,86 @@ fn save_edits(
         (_, _, Err(why)) => {
             error!("could not save the worn surface: {why}");
             toast.show("Surface not saved - see log");
+        }
+    }
+}
+
+/// Whether any layer is holding work that is not on disk.
+fn anything_outstanding(terrain: &TerrainSource) -> bool {
+    let ground = terrain.edits().read().is_ok_and(|edits| edits.unsaved);
+    let woods = terrain.woods().read().is_ok_and(|woods| woods.unsaved);
+    let worn = terrain.surface().read().is_ok_and(|worn| worn.unsaved);
+    ground || woods || worn
+}
+
+/// Writes every layer, and says what it wrote.
+fn write_everything(terrain: &TerrainSource) -> Result<(usize, usize, usize), String> {
+    let cells = {
+        let mut edits = terrain.edits().write().map_err(|_| "ground locked".to_string())?;
+        crate::world::edit::save(&mut edits).map_err(|why| why.to_string())?;
+        edits.sculpted_cells()
+    };
+    let planted = {
+        let mut woods = terrain.woods().write().map_err(|_| "woods locked".to_string())?;
+        crate::world::forest::save(&mut woods).map_err(|why| why.to_string())?;
+        woods.painted_cells()
+    };
+    let laid = {
+        let mut worn = terrain.surface().write().map_err(|_| "surface locked".to_string())?;
+        crate::world::surface::save(&mut worn).map_err(|why| why.to_string())?;
+        worn.painted_cells()
+    };
+    Ok((cells, planted, laid))
+}
+
+/// Keeps the work: writes it on its own after a while, and refuses to let ESC
+/// throw it away without saying so.
+///
+/// The one failure this tool can inflict that no undo reaches is losing the
+/// afternoon — to a crash, to a stray keypress, or to walking away. Neither half
+/// of this is clever and both are the difference between a tool people trust and
+/// one they back up by hand.
+fn keep_the_work(
+    time: Res<Time>,
+    keys: Res<ButtonInput<KeyCode>>,
+    terrain: Res<TerrainSource>,
+    mut keeping: ResMut<Keeping>,
+    mut next: ResMut<NextState<AppState>>,
+    mut toast: ResMut<ui::Toast>,
+) {
+    let outstanding = anything_outstanding(&terrain);
+    if !outstanding {
+        keeping.unsaved_for = 0.0;
+        keeping.asked = false;
+    } else {
+        keeping.unsaved_for += time.delta_secs();
+    }
+
+    // ESC with work outstanding asks once. A second press leaves anyway —
+    // it is the maker's world and their decision, and a dialog that cannot be
+    // dismissed is worse than a lost afternoon.
+    if keys.just_pressed(KeyCode::Escape) {
+        if outstanding && !keeping.asked {
+            keeping.asked = true;
+            toast.show("Unsaved - Ctrl+S to keep it, Esc again to leave");
+        } else {
+            next.set(AppState::Menu);
+        }
+        return;
+    }
+
+    if !outstanding || keeping.unsaved_for < AUTOSAVE_AFTER {
+        return;
+    }
+    keeping.unsaved_for = 0.0;
+    match write_everything(&terrain) {
+        Ok((cells, planted, laid)) => {
+            info!("kept the work: {cells} sculpted, {planted} planted, {laid} surfaced");
+            toast.show("Kept the work");
+        }
+        Err(why) => {
+            error!("could not keep the work: {why}");
+            toast.show("Autosave failed - see log");
         }
     }
 }

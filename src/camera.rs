@@ -34,6 +34,24 @@ const GROUND_CLEARANCE: f32 = 2.0;
 
 const FLY_SPEED: f32 = 70.0;
 const FLY_BOOST: f32 = 5.0;
+/// How far the fly speed can be wound either side of its default.
+const MIN_FLY_SCALE: f32 = 0.15;
+const MAX_FLY_SCALE: f32 = 12.0;
+const FLY_SCALE_STEP: f32 = 1.3;
+
+/// A standing multiplier on how fast free-fly moves.
+///
+/// An 8 km world is crossed at two speeds and neither is one number: picking
+/// over a coastline wants metres a second, getting to the far continent wants
+/// hundreds. Shift boosts for a moment; this is the setting you leave alone.
+#[derive(Resource, Deref)]
+pub struct FlySpeed(pub f32);
+
+impl Default for FlySpeed {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
 
 #[derive(Component)]
 pub struct MainCamera;
@@ -70,12 +88,14 @@ pub struct CameraPlugin;
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CameraMode>()
+            .init_resource::<FlySpeed>()
             .init_resource::<Orbit>()
             .add_systems(Startup, spawn_camera)
             .add_systems(
                 Update,
                 (
                     toggle_modes,
+                    set_fly_speed,
                     orbit_input,
                     // Runs after the ranger has moved this frame, so the camera
                     // never trails a frame behind them.
@@ -114,11 +134,28 @@ fn toggle_modes(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<CameraMode>) {
     }
 }
 
+fn set_fly_speed(keys: Res<ButtonInput<KeyCode>>, mut speed: ResMut<FlySpeed>) {
+    // Proportional, like the brush radius: winding it up feels the same whether
+    // you are at a crawl or crossing an ocean.
+    if keys.just_pressed(KeyCode::Equal) {
+        speed.0 = (speed.0 * FLY_SCALE_STEP).min(MAX_FLY_SCALE);
+    }
+    if keys.just_pressed(KeyCode::Minus) {
+        speed.0 = (speed.0 / FLY_SCALE_STEP).max(MIN_FLY_SCALE);
+    }
+}
+
 fn orbit_input(
     motion: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
+    free: Option<Res<crate::editor::CursorFree>>,
     mut orbit: ResMut<Orbit>,
 ) {
+    // The pointer has been let go to reach a panel. Moving it there must not
+    // swing the view, exactly as in the menu.
+    if free.is_some_and(|free| free.0) {
+        return;
+    }
     if motion.delta != Vec2::ZERO {
         orbit.yaw -= motion.delta.x * MOUSE_SENSITIVITY;
         orbit.pitch = (orbit.pitch - motion.delta.y * MOUSE_SENSITIVITY)
@@ -137,6 +174,7 @@ fn drive_camera(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     mode: Res<CameraMode>,
+    speed: Res<FlySpeed>,
     orbit: Res<Orbit>,
     terrain: Res<TerrainSource>,
     players: Query<&Transform, (With<Player>, Without<MainCamera>)>,
@@ -186,10 +224,13 @@ fn drive_camera(
             if keys.any_pressed([KeyCode::KeyA, KeyCode::ArrowLeft]) {
                 input -= right;
             }
-            if keys.pressed(KeyCode::Space) {
+            if keys.any_pressed([KeyCode::Space, KeyCode::KeyE]) {
                 input += Vec3::Y;
             }
-            if keys.pressed(KeyCode::ControlLeft) {
+            // Q rather than Ctrl. Ctrl is half the terrain tool's shortcuts —
+            // Ctrl+S, Ctrl+Z, Ctrl+Y — so descending on it meant the camera
+            // dropped a little every time the ground was saved.
+            if keys.pressed(KeyCode::KeyQ) {
                 input -= Vec3::Y;
             }
 
@@ -198,7 +239,8 @@ fn drive_camera(
             } else {
                 1.0
             };
-            camera.translation += input.normalize_or_zero() * FLY_SPEED * boost * time.delta_secs();
+            camera.translation +=
+                input.normalize_or_zero() * FLY_SPEED * speed.0 * boost * time.delta_secs();
             camera.rotation = rotation;
         }
     }

@@ -46,6 +46,10 @@ struct MinimapMarker;
 #[derive(Component)]
 struct MinimapRoot;
 
+/// The box the world is drawn in, so a click on it can be turned into a place.
+#[derive(Component)]
+struct MinimapFrame;
+
 /// A finished overview: raw RGBA and the dimensions it was rendered at.
 #[derive(Component)]
 struct MinimapTask(Task<(UVec2, Vec<u8>)>);
@@ -59,7 +63,8 @@ impl Plugin for MinimapPlugin {
             .add_systems(OnExit(AppState::Editing), despawn_panel)
             .add_systems(
                 Update,
-                (track_edits, collect_redraw, place_marker).run_if(in_state(AppState::Editing)),
+                (track_edits, collect_redraw, place_marker, fly_to_click)
+                    .run_if(in_state(AppState::Editing)),
             );
     }
 }
@@ -114,11 +119,15 @@ fn spawn_panel(mut commands: Commands, font: Res<UiFont>, terrain: Res<TerrainSo
             // The image and the marker share a parent so the marker can be
             // positioned as a straight percentage of the map's own box.
             panel
-                .spawn(Node {
-                    width: Val::Px(size.x as f32),
-                    height: Val::Px(size.y as f32),
-                    ..default()
-                })
+                .spawn((
+                    MinimapFrame,
+                    Button,
+                    Node {
+                        width: Val::Px(size.x as f32),
+                        height: Val::Px(size.y as f32),
+                        ..default()
+                    },
+                ))
                 .with_children(|frame| {
                     frame.spawn((
                         MinimapImage,
@@ -145,8 +154,67 @@ fn spawn_panel(mut commands: Commands, font: Res<UiFont>, terrain: Res<TerrainSo
                         BackgroundColor(Color::srgb(1.0, 0.30, 0.35)),
                     ));
                 });
+
+            panel.spawn((
+                Text::new("hold ALT, click to fly there"),
+                font.at(10.0),
+                TextColor(TEXT_DIM),
+            ));
         });
 }
+
+/// Flies the camera to wherever the overview was clicked.
+///
+/// An 8 km world crossed by pointing the nose and holding W is the single worst
+/// thing about shaping one — a minute of flying to reach a coastline, and
+/// another to get back. The map already knows where everything is; this makes it
+/// answer.
+///
+/// Only while ALT holds the pointer free, which is also when the brush is not
+/// painting, so a click can mean one thing or the other and never both.
+fn fly_to_click(
+    buttons: Res<ButtonInput<MouseButton>>,
+    free: Res<crate::editor::CursorFree>,
+    terrain: Res<TerrainSource>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    frames: Query<(&ComputedNode, &GlobalTransform), With<MinimapFrame>>,
+    mut cameras: Query<&mut Transform, With<MainCamera>>,
+    mut toast: ResMut<crate::editor::ui::Toast>,
+) {
+    if !free.0 || !buttons.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let (Some(window), Some((frame, at)), Some(mut camera)) = (
+        windows.iter().next(),
+        frames.iter().next(),
+        cameras.iter_mut().next(),
+    ) else {
+        return;
+    };
+    let Some(pointer) = window.cursor_position() else {
+        return;
+    };
+
+    // The node's own box, in the same screen pixels the cursor is given in.
+    let size = frame.size();
+    let corner = at.translation().truncate() - size * 0.5;
+    let within = (pointer - corner) / size;
+    if within.x < 0.0 || within.x > 1.0 || within.y < 0.0 || within.y > 1.0 {
+        return;
+    }
+
+    let half = terrain.half();
+    let world = (within * 2.0 - Vec2::ONE) * half;
+    // Held well clear of whatever is underneath, so arriving inside a mountain
+    // is not a thing that can happen.
+    let above = terrain.height(world.x, world.y).max(0.0) + ARRIVAL_HEIGHT;
+    camera.translation = Vec3::new(world.x, above, world.y);
+
+    toast.show(format!("Flew to {:.0}, {:.0}", world.x, world.y));
+}
+
+/// How high above the ground a jump leaves the camera.
+const ARRIVAL_HEIGHT: f32 = 180.0;
 
 fn despawn_panel(mut commands: Commands, roots: Query<Entity, With<MinimapRoot>>) {
     for entity in &roots {

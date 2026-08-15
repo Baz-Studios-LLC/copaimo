@@ -219,8 +219,11 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
                 ("RMB", "invert brush"),
                 ("Wheel", "brush radius"),
                 ("[ ]", "brush strength"),
+                ("Alt", "free pointer, click map"),
+                ("Q E", "fly down / up"),
+                ("- =", "fly speed"),
                 ("Ctrl Z", "undo / Ctrl Y redo"),
-                ("Ctrl S", "save ground, woods, roads"),
+                ("Ctrl S", "save all three layers"),
                 ("Esc", "back to menu"),
             ] {
                 shortcut_row(body, font, keys, action);
