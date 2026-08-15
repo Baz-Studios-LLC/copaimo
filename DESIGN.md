@@ -528,6 +528,31 @@ assets/
 
 ## Change log
 
+**2026-08-14** — **Trees that look like trees.** Three faults, and the middle one
+was a real bug.
+
+*Branches all pointed up.* Limb directions were built in **world** space — the
+lean measured from Y — so every sub-branch re-aimed at vertical however its
+parent was heading. A limb growing sideways had children that turned straight
+back up, which is why a canopy came out as a fan of parallel canes. Directions
+are built in the parent's own frame now, and each limb is drawn in two lengths
+with a sweep back toward the light, because a straight limb reads as a spoke.
+
+*Trunks were canes.* Girth was absolute and tapered to a fifth of itself over the
+whole height in one tube, so a twelve-metre tree stood on something the width of
+a broom handle. Girth comes from height, the taper leaves a third at the crown,
+and the trunk is drawn in segments so it holds its girth low and leans as it
+climbs. It stops at 78% and lets the crown take over instead of standing out of
+the leaves as a bare pole.
+
+*Every tree looked the same.* Spread is drawn first and the limb count and length
+follow from it, so the pool keeps spires **and** spreading trees rather than
+averaging into twenty of one tree — 2.2 m to 12.4 m across, on trunks from 0.23 m
+to 0.95 m. Leaf clusters are half the size with three per limb end, since a
+canopy is read by its edge and one boulder at a tip has almost none. And each
+tree draws its own place in a leaf-colour range: **one material for the whole
+forest** was doing more to flatten a wood than any of the shaping.
+
 **2026-08-14** — **Buildings can come in from the bench** (§6). `src/build/`
 reads a baked `assets/buildings/<name>.json` — the boxes Opificium's builder
 resolves a drawing down to, colours already looked up — welds them into one mesh

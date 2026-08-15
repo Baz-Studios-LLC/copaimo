@@ -153,7 +153,7 @@ pub fn collect_chunks(
         let high = low + CHUNK_SIZE;
 
         for tree in terrain.trees_in(low, high) {
-            let Some((wood, leaves)) = grove.trees.get(tree.variety) else {
+            let Some(variety) = grove.trees.get(tree.variety) else {
                 continue;
             };
             // Placed relative to the chunk, whose own transform already carries
@@ -165,14 +165,14 @@ pub fn collect_chunks(
             commands.entity(entity).with_children(|chunk| {
                 chunk
                     .spawn((
-                        Mesh3d(wood.clone()),
+                        Mesh3d(variety.wood.clone()),
                         MeshMaterial3d(grove.bark.clone()),
                         stance,
                     ))
                     .with_children(|trunk| {
                         trunk.spawn((
-                            Mesh3d(leaves.clone()),
-                            MeshMaterial3d(grove.leaf.clone()),
+                            Mesh3d(variety.leaves.clone()),
+                            MeshMaterial3d(variety.leaf.clone()),
                             Transform::IDENTITY,
                         ));
                     });
@@ -189,10 +189,25 @@ pub fn collect_chunks(
 /// the rest.
 #[derive(Resource)]
 pub struct Grove {
-    pub trees: Vec<(Handle<Mesh>, Handle<Mesh>)>,
+    /// Wood, leaves, and the green this variety wears.
+    pub trees: Vec<Variety>,
     pub bark: Handle<StandardMaterial>,
+}
+
+pub struct Variety {
+    pub wood: Handle<Mesh>,
+    pub leaves: Handle<Mesh>,
     pub leaf: Handle<StandardMaterial>,
 }
+
+/// The range a leaf can be, dark to light.
+///
+/// Every tree in the world used to share ONE material, so a wood of twenty
+/// different shapes was twenty shapes in a single flat green — which flattened
+/// it more than any amount of shaping could make up for. The tree draws where it
+/// sits in this range for itself, so the bench and the game colour it alike.
+const LEAF_DARK: Srgba = Srgba::rgb(0.13, 0.28, 0.13);
+const LEAF_LIGHT: Srgba = Srgba::rgb(0.38, 0.55, 0.24);
 
 /// Grows the world's trees once, at startup.
 pub fn grow_the_grove(
@@ -203,7 +218,25 @@ pub fn grow_the_grove(
     let trees = (0..terrain_core::tree::VARIETIES as u32)
         .map(|seed| {
             let tree = terrain_core::tree::grow(seed);
-            (meshes.add(as_mesh(&tree.wood)), meshes.add(as_mesh(&tree.leaves)))
+            let green = LinearRgba::from(LEAF_DARK)
+                .to_vec4()
+                .lerp(LinearRgba::from(LEAF_LIGHT).to_vec4(), tree.tint);
+            Variety {
+                wood: meshes.add(as_mesh(&tree.wood)),
+                leaves: meshes.add(as_mesh(&tree.leaves)),
+                // A material apiece. Twenty of them is nothing — the meshes were
+                // always twenty, and this is what makes them look like twenty.
+                leaf: materials.add(StandardMaterial {
+                    base_color: LinearRgba::from_vec4(green).into(),
+                    perceptual_roughness: 0.9,
+                    reflectance: 0.04,
+                    // Lit from both sides: a canopy left dark underneath reads as
+                    // a rock rather than as foliage.
+                    double_sided: true,
+                    cull_mode: None,
+                    ..default()
+                }),
+            }
         })
         .collect();
 
@@ -213,16 +246,6 @@ pub fn grow_the_grove(
             base_color: Srgba::rgb(0.29, 0.21, 0.15).into(),
             perceptual_roughness: 0.95,
             reflectance: 0.03,
-            ..default()
-        }),
-        leaf: materials.add(StandardMaterial {
-            base_color: Srgba::rgb(0.20, 0.38, 0.19).into(),
-            perceptual_roughness: 0.9,
-            reflectance: 0.04,
-            // Lit from both sides: a canopy left dark underneath reads as a rock
-            // rather than as foliage.
-            double_sided: true,
-            cull_mode: None,
             ..default()
         }),
     });
