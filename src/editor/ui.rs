@@ -192,7 +192,9 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
         .with_children(|body| {
             body.spawn(section(font, "TOOLS"));
             for (index, how) in Brushing::ALL.iter().enumerate() {
-                tool_row(body, font, index + 1, *how);
+                // Nine tools on 1-9 and the tenth on 0, where the keyboard puts
+                // it — not on a key called "10".
+                tool_row(body, font, (index + 1) % 10, *how);
             }
             tool_saying(body, font);
 

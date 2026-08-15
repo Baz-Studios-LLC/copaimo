@@ -283,7 +283,7 @@ fn adjust_brush(
         brush.strength = (brush.strength / STRENGTH_STEP).max(MIN_STRENGTH);
     }
 
-    const TOOL_KEYS: [KeyCode; 9] = [
+    const TOOL_KEYS: [KeyCode; 10] = [
         KeyCode::Digit1,
         KeyCode::Digit2,
         KeyCode::Digit3,
@@ -293,6 +293,8 @@ fn adjust_brush(
         KeyCode::Digit7,
         KeyCode::Digit8,
         KeyCode::Digit9,
+        // Reverting sits on 0, past the nine that make things.
+        KeyCode::Digit0,
     ];
     for (key, how) in TOOL_KEYS.iter().zip(Brushing::ALL) {
         if keys.just_pressed(*key) {
@@ -336,7 +338,9 @@ fn paint(
     // it was so undo can find it again.
     let layer = if brush.how.is_planting() {
         Layer::Woods
-    } else if brush.how.is_surfacing() {
+    } else if brush.how.is_surfacing() || brush.how.is_reverting() {
+        // Reverting takes back both halves of a road. Putting the ground back
+        // and leaving the dirt on top of it has not put anything back.
         Layer::Road
     } else {
         Layer::Ground
@@ -433,6 +437,13 @@ fn paint(
             worn.paint_with(at, brush.radius, bare * SURFACING_RATE, |away, radius| {
                 crate::util::smoothstep(radius, radius * 0.7, away)
             });
+        }
+    }
+    // And reverting takes it off again — faded to nothing rather than painted
+    // green, so what is left is the biome's own answer and not another opinion.
+    if how.is_reverting() {
+        if let Ok(mut worn) = terrain.surface().write() {
+            worn.fade(at, brush.radius, amount);
         }
     }
 

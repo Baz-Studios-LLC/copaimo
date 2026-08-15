@@ -58,7 +58,7 @@ pub const PANEL_WIDTH: f32 = 300.0;
 /// in the world — so the ring under your crosshair always matches the
 /// highlighted row without having to read anything.
 ///
-/// The same nine colours the bench gives them, in the same order: it names them
+/// The bench's own colours for the nine it shares, in the same order: it names them
 /// out of the open game's palette (`grass`, `cloth-rust`, `earth`, `foliage`)
 /// and this names them in figures, but a maker moving between the two should
 /// never have to re-learn which colour means ERODE.
@@ -76,6 +76,9 @@ pub fn tool_color(how: Brushing) -> Color {
         // shelf and one moves earth while the other grows woods, so telling them
         // apart at a glance matters more than either being pretty.
         Brushing::Plant => Color::srgb(0.34, 0.68, 0.36),
+        // Grey, and the only one on the shelf that is. Every other tool makes
+        // something and wears a colour; this one takes making back out.
+        Brushing::Revert => Color::srgb(0.72, 0.74, 0.78),
     }
 }
 
