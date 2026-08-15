@@ -56,8 +56,9 @@ Starting monster cap: **3**, rising with each certification.
 | Terrain tool | ✅ Built — see §5 |
 | Player controller | ✅ Placeholder body, real movement |
 | Camera (follow + free-fly) | ✅ Built |
+| Buildings from the bench | ✅ Reader built — see §6. No street layout |
 | 3D models | 🔷 Pending — `assets/models/`, swaps in over primitives |
-| Cities & towns | 🔷 Not started |
+| Cities & towns | 🔷 Ground only. One building per site, no layout |
 | The ranch | 🔷 Not started |
 | Monsters | 🔷 Not started |
 | Turn-based battles | 🔷 Not started |
@@ -369,7 +370,72 @@ itself — is only reachable by undoing.
   Towns, quotas and roads have to agree, and nothing enforces it. It is the
   obvious next thing to move into `terrain-core`.
 
-## 6. Invariants
+## 6. Buildings
+
+Houses, signs and bridges are the same thing: **boxes**. They are drawn at
+Opificium's builder on a sixteenth-metre lattice, painted from this game's own
+palette ramps, and baked to `assets/buildings/<name>.json` with
+`cargo test bake_the_works -- --ignored`. `src/build/` reads that; nothing here
+draws a building.
+
+Trees are *not* buildings — they are grown in `terrain-core` from a hash of
+position, twenty varieties, no files. Drawing them at the bench would make them
+heavier, fewer and all alike.
+
+### One mesh per building
+
+A house is fifty-odd boxes and four colours. Given a mesh each that would be
+fifty draws for one building and hundreds for a street, so every box is welded
+into one mesh with its colour carried per vertex — the same bargain the terrain
+makes, and the shared white material lets the bench's colours through exactly as
+drawn. Glass gets a second mesh, because what lets light through has to be drawn
+after what is behind it and one mesh can only be one or the other.
+
+### The four shapes, and the thing to watch
+
+`box`, `wedge` (a gable's prism), `ridge` (the same turned to run lengthwise) and
+`cut:<low>x<high>` (a face cut back at each end), plus `hip:<x>x<z>` for a hip
+roof with a deck. `cut`'s runs are **signed**: positive takes the top back,
+negative the bottom, and that is the whole trick — top at one end and bottom at
+the other leaves the ends parallel, which is what a diagonal brace is.
+
+**Opificium draws these from its own code and shares none of it.** A shape is
+only the same shape in both because it is written out twice, which is exactly the
+arrangement `terrain-core` exists to kill. It has not been done for buildings.
+The shapes are pure geometry over vectors and would move cleanly, and the day one
+of these disagrees is the day to move them.
+
+Every face is wound by comparing where it sits against the middle of its box,
+rather than by hand. A wrong winding is invisible until something is lit from the
+wrong side, and there are twenty-six of them across the four shapes.
+
+### An unknown form refuses the building
+
+Not a box — a beam the two programs disagree about. Refusing the file and naming
+the form says so; substituting a cuboid would put a solid block where a cut brace
+belongs and read as a fault in the drawing. One bad file costs its own building
+and no others.
+
+### Where they stand
+
+One per town site, at its middle, on the height the site was levelled to. **That
+is not a village** — laying out a street is its own job and is not started — but
+the sites already exist as levelled ground with a centre and a size, so a drawing
+reaches the world the moment it is baked. A building reaching past its site's
+levelled ground is counted and warned about once, because one end on a hillside
+reads as a broken building rather than as a site too small for it.
+
+`assets/buildings/house-cottage.json` is **hand-written, not baked** — a stand-in
+that uses all four shapes so the geometry has something to prove itself against
+before any real drawing exists. Replace it with real bakes.
+
+Read but not yet used: `stage` (what a box IS, enough to raise a building in
+order), `levels` and `phases` (upgrades, and the steps of raising one),
+`half_w`/`half_d`/`high` (the plot a village clears), and the `marks` that say a
+place has a door. The marks are spawned as child entities regardless, so whatever
+comes to use them asks the world rather than re-reading the files.
+
+## 7. Invariants
 
 Things that must stay true. Breaking one is a bug, not a tuning choice.
 
@@ -392,7 +458,7 @@ Things that must stay true. Breaking one is a bug, not a tuning choice.
 - **No copy-paste.** Shared logic lives in one place — `util.rs` for math,
   `WorldBounds` for extents, `Terrain` for the heightfield.
 
-## 7. Controls
+## 8. Controls
 
 | Input | Action |
 | --- | --- |
@@ -424,7 +490,7 @@ menu is asking to be clicked.
 Free-fly is a development tool for reading the map from above. It streams real
 terrain rather than a special case, so what you inspect is what ships.
 
-## 8. Project layout
+## 9. Project layout
 
 ```
 src/
@@ -461,6 +527,26 @@ assets/
 ---
 
 ## Change log
+
+**2026-08-14** — **Buildings can come in from the bench** (§6). `src/build/`
+reads a baked `assets/buildings/<name>.json` — the boxes Opificium's builder
+resolves a drawing down to, colours already looked up — welds them into one mesh
+with the colour per vertex, and stands one at each town site. Houses, signs and
+bridges are all the same thing to it; only `kind` tells them apart.
+
+All five shapes are drawn here: `box`, `wedge`, `ridge`, `cut` and `hip`.
+Opificium draws them from its own code and shares none of it, so **this is
+written twice on purpose and knowingly** — the note in §6 says when to move them
+into a crate. Windings are decided from the geometry rather than by hand, since
+there are twenty-six of them and a wrong one is invisible until something is lit
+from the wrong side.
+
+`house-cottage.json` ships hand-written, using all four forms, so the geometry
+has something to prove itself against before a real drawing exists. Writing it
+caught two things: a bounding sphere per box buried a cottage two hundred
+millimetres underground (its nine-metre ridge cap's sphere reaches below the
+ground it sits four metres above), and the cap itself was longer than the roof it
+sat on.
 
 **2026-08-14** — **The terrain tool is back in the game**, as *Shape the World*
 on the main menu (§5) — and the brush it drives is now

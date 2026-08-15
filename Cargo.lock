@@ -4051,6 +4051,8 @@ dependencies = [
  "bevy",
  "image",
  "noise",
+ "serde",
+ "serde_json",
  "terrain-core",
 ]
 

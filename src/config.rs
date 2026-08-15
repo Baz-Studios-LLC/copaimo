@@ -35,6 +35,10 @@ pub const EDITS_PATH: &str = "assets/world/edits.bin";
 /// Woods planted or cleared here or at Opificium's terrain bench.
 pub const FOREST_PATH: &str = "assets/world/forest.bin";
 
+/// Buildings baked at Opificium's builder — houses, signs, bridges, all boxes.
+/// Read at startup; an absent folder is a game whose buildings are not drawn yet.
+pub const BUILDINGS_DIR: &str = "assets/buildings";
+
 /// Resolution of the hand-edit layer, in meters per cell. Fine enough to shape
 /// an individual hill, coarse enough that the whole world's edit layer is a few
 /// megabytes and can be copied cheaply.

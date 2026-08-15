@@ -16,6 +16,11 @@ noise = "0.9"
 # before the first frame), and Bevy's image assets are loaded asynchronously
 # and normally live GPU-side only. Version matches the one Bevy 0.16 uses.
 image = "0.25"
+# Reads the buildings baked at Opificium's builder. The same pair that bench
+# writes them with, so the two ends of `assets/buildings/*.json` are parsed by
+# the same code even though nothing is shared between the programs.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 # The world generation this game and Opificium's terrain bench BOTH run.
 #

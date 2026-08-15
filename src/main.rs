@@ -20,6 +20,7 @@
 //!   * `sky`    — sun, ambient light, fog
 //!   * `hud`    — the F3 debug overlay
 
+mod build;
 mod camera;
 mod config;
 mod editor;
@@ -51,6 +52,9 @@ fn main() {
             // needs to ask how high the ground is.
             world::WorldPlugin,
             sky::SkyPlugin,
+            // After the world: buildings stand on ground it decides the height
+            // of, at sites it decides the places of.
+            build::BuildingPlugin,
             player::PlayerPlugin,
             camera::CameraPlugin,
             menu::MenuPlugin,
