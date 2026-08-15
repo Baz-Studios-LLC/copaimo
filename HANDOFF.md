@@ -119,6 +119,33 @@ chance of the two disagreeing — you change the ground and you are standing on 
   that want a standalone tool. **Do not gut it** — it is released (v0.6.0), other
   people work in that repo, and it is not in the way.
 
+### STARTED — on branch `editor-returns`
+
+The restore is done and does **not** compile. `main` is green; the work is
+parked. Pick it up with `git checkout editor-returns`.
+
+Already done on that branch: `src/editor/` restored from `e2b7373^`, retinted to
+Opificium's palette (near-black panels, gold, bone text) with Cinzel and EB
+Garamond copied into `assets/fonts/` under their OFL licences,
+`AppState::Editing` and the "Shape the World" menu entry back, plugin
+registered.
+
+**The one blocker, and it is the crate move already planned above:** when the
+tool left, this game's `src/world/edit.rs` was cut down to a READ-ONLY reader of
+`edits.bin`. It has no `BrushOp`, no `Stamp`, no `Sculpt` — no way to *write*
+ground at all. The restored editor needs all three, and eleven compile errors all
+say so.
+
+So the order is:
+
+1. Move Opificium's `src/terrain/edit.rs` into `terrain-core` (`Sculpt`,
+   `Brushing`, `Stamp`, undo, `slump`, `ramp`). Swap its one `Rect` for a corner
+   pair, as `Painted::paint` already does. It is otherwise engine-free.
+2. Point the game's `world/edit.rs` at the crate, keeping the file-path and
+   logging parts here — the same thin-adapter shape `world/forest.rs` now has.
+3. `cargo check` on `editor-returns` and work the list down.
+4. Point Opificium at the crate too and delete its copies, per the working rule.
+
 ### Recovering the old editor rather than rewriting it
 
 The in-game editor was deleted in **`e2b7373`** ("The terrain tool moves to
