@@ -62,6 +62,7 @@ enum Readout {
     Ground,
     Edited,
     Planted,
+    Surfaced,
     History,
 }
 
@@ -209,6 +210,7 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
             body.spawn(section(font, "EDITS"));
             value_row(body, font, "Sculpted", Readout::Edited);
             value_row(body, font, "Planted", Readout::Planted);
+            value_row(body, font, "Surfaced", Readout::Surfaced);
             value_row(body, font, "History", Readout::History);
 
             body.spawn(rule());
@@ -218,7 +220,7 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
                 ("Wheel", "brush radius"),
                 ("[ ]", "brush strength"),
                 ("Ctrl Z", "undo / Ctrl Y redo"),
-                ("Ctrl S", "save ground and woods"),
+                ("Ctrl S", "save ground, woods, roads"),
                 ("Esc", "back to menu"),
             ] {
                 shortcut_row(body, font, keys, action);
@@ -522,10 +524,18 @@ fn refresh_readouts(
         terrain.woods().read().map_or((false, false, false), |woods| {
             (woods.can_undo(), woods.can_redo(), woods.unsaved)
         });
-    let (undo_depth, redo_depth) = (ground_undo || woods_undo, ground_redo || woods_redo);
-    // Either layer. The dot watched the ground alone, so an afternoon's planting
+    let (worn_undo, worn_redo, worn_unsaved) =
+        terrain
+            .surface()
+            .read()
+            .map_or((false, false, false), |worn| {
+                (worn.can_undo(), worn.can_redo(), worn.unsaved)
+            });
+    let undo_depth = ground_undo || woods_undo || worn_undo;
+    let redo_depth = ground_redo || woods_redo || worn_redo;
+    // ANY layer. The dot watched the ground alone, so an afternoon's planting
     // could sit unwritten under a panel saying everything was saved.
-    let is_unsaved = is_unsaved || woods_unsaved;
+    let is_unsaved = is_unsaved || woods_unsaved || worn_unsaved;
 
     for mut background in &mut unsaved {
         background.0 = if is_unsaved { UNSAVED } else { Color::NONE };
@@ -553,6 +563,7 @@ fn refresh_readouts(
             },
             Readout::Edited => format!("{cells} cells"),
             Readout::Planted => format!("{} cells", terrain.planted_cells()),
+            Readout::Surfaced => format!("{} cells", terrain.worn_cells()),
             Readout::History => match (undo_depth, redo_depth) {
                 (false, _) => "nothing to undo".to_string(),
                 (true, true) => "undo and redo ready".to_string(),

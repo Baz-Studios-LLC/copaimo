@@ -31,6 +31,8 @@ const BEACH_GONE: f32 = 6.0;
 
 struct Palette {
     silt: Vec3,
+    /// Bare earth, for roads and yards and the worn ground round a door.
+    dirt: Vec3,
     shallow: Vec3,
     sand: Vec3,
     dry_grass: Vec3,
@@ -43,6 +45,9 @@ struct Palette {
 
 static PALETTE: LazyLock<Palette> = LazyLock::new(|| Palette {
     silt: linear(0.09, 0.15, 0.22),
+    // Warm and mid — a cart road in daylight, not mud and not sand. Reads as
+    // earth against both the dry and the lush grass it has to sit between.
+    dirt: linear(0.40, 0.31, 0.20),
     shallow: linear(0.22, 0.38, 0.46),
     sand: linear(0.74, 0.68, 0.50),
     dry_grass: linear(0.54, 0.55, 0.30),
@@ -63,7 +68,13 @@ fn linear(r: f32, g: f32, b: f32) -> Vec3 {
 /// * `height` — meters relative to sea level
 /// * `slope`  — 0 for dead flat, approaching 1 for a vertical face
 /// * `moisture` — 0 arid, 1 lush
-pub fn surface_color(height: f32, slope: f32, moisture: f32, character: f32) -> [f32; 4] {
+pub fn surface_color(
+    height: f32,
+    slope: f32,
+    moisture: f32,
+    character: f32,
+    worn: f32,
+) -> [f32; 4] {
     let p = &*PALETTE;
 
     // Underwater, by **depth**: dark in the deep, lightening as it shallows.
@@ -103,6 +114,22 @@ pub fn surface_color(height: f32, slope: f32, moisture: f32, character: f32) -> 
     // Steep ground is bare rock no matter what biome it sits in — this is what
     // makes cliffs and mountainsides read as stone instead of vertical lawn.
     color = color.lerp(p.rock, smoothstep(0.34, 0.62, slope));
+
+    // What somebody DECIDED the ground is, last of all — a road is a road
+    // whatever the climate says should be growing there, and it is laid over
+    // the biome rather than argued with it.
+    //
+    // Only above the waterline: a road painted into the sea would be a stripe
+    // of dirt floating on the water, and refusing it here costs nothing.
+    if worn > 0.0 && height >= SEA_LEVEL {
+        // Not to the full colour at full bias. Ground wears to bare earth with
+        // grass still coming through at the edges of the ruts, and a road laid
+        // as flat paint reads as a decal on the landscape.
+        color = color.lerp(p.dirt, (worn * 0.86).clamp(0.0, 1.0));
+    } else if worn < 0.0 {
+        // Forced green: whatever the biome had, grown back over.
+        color = color.lerp(p.lush_grass, (-worn * 0.7).clamp(0.0, 1.0));
+    }
 
     [color.x, color.y, color.z, 1.0]
 }

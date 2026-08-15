@@ -272,6 +272,7 @@ fn render(terrain: &Terrain, size: UVec2) -> Vec<u8> {
                 slope,
                 terrain.moisture(x, z),
                 terrain.shore_character(x, z),
+                terrain.worn(x, z),
             );
 
             // `surface_color` returns linear; the texture is sRGB.

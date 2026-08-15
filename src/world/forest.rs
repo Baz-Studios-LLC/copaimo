@@ -27,11 +27,11 @@ pub fn load(half: Vec2) -> Painted {
     let path = Path::new(FOREST_PATH);
     if !path.exists() {
         // The ordinary case for a world nobody has planted. Not news.
-        return Painted::empty(half);
+        return terrain_core::forest::empty(half);
     }
 
     match std::fs::read(path) {
-        Ok(bytes) => match Painted::read(&bytes, half) {
+        Ok(bytes) => match terrain_core::forest::read(&bytes, half) {
             Ok(painted) => {
                 info!("planted woods: {} cells from {}", painted.painted_cells(), path.display());
                 painted
@@ -40,12 +40,12 @@ pub fn load(half: Vec2) -> Painted {
             // is worse than none, and nothing on screen would say why.
             Err(why) => {
                 warn!("{}: {why} - taking the ground's own answer", path.display());
-                Painted::empty(half)
+                terrain_core::forest::empty(half)
             }
         },
         Err(why) => {
             warn!("{}: {why} - taking the ground's own answer", path.display());
-            Painted::empty(half)
+            terrain_core::forest::empty(half)
         }
     }
 }

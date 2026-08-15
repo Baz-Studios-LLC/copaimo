@@ -109,10 +109,11 @@ pub fn build_mesh(terrain: &Terrain, coord: IVec2) -> Mesh {
             let slope = 1.0 - normal.y;
             let moisture = terrain.moisture(world.x, world.y);
             let character = terrain.shore_character(world.x, world.y);
+            let worn = terrain.worn(world.x, world.y);
 
             positions.push([local.x, height, local.y]);
             normals.push([normal.x, normal.y, normal.z]);
-            colors.push(surface_color(height, slope, moisture, character));
+            colors.push(surface_color(height, slope, moisture, character, worn));
             uvs.push([ix as f32 / quads as f32, iz as f32 / quads as f32]);
         }
     }

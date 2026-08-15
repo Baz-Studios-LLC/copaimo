@@ -51,6 +51,14 @@ pub const MAX_RADIUS: f32 = 500.0;
 /// meters, so it feels the same whether you're shaping a mound or a range.
 const RADIUS_STEP: f32 = 1.15;
 
+/// How fast PATH wears the ground bare, against how fast it grades.
+///
+/// Higher than the grading rate on purpose: a road should LOOK like a road
+/// within a second of holding the brush on it, where levelling the bumps out
+/// underneath is allowed to take longer. Tied to the same stroke either way, so
+/// one press takes back both.
+const SURFACING_RATE: f32 = 2.5;
+
 pub const MIN_STRENGTH: f32 = 2.0;
 pub const MAX_STRENGTH: f32 = 150.0;
 const STRENGTH_STEP: f32 = 1.25;
@@ -91,6 +99,13 @@ pub struct Brush {
 enum Layer {
     Ground,
     Woods,
+    /// A road: PATH grades the ground AND wears it bare, so one gesture writes
+    /// two layers and one press has to take back both.
+    ///
+    /// Its own variant rather than a flag on `Ground`, because the two stacks
+    /// have to stay in step: opening a surface group for every RAISE stroke
+    /// would leave undo popping a road that was never laid.
+    Road,
 }
 
 /// As deep as either layer's own history. Beyond this the layer has forgotten
@@ -260,6 +275,8 @@ fn paint(
     // it was so undo can find it again.
     let layer = if brush.how.is_planting() {
         Layer::Woods
+    } else if brush.how.is_surfacing() {
+        Layer::Road
     } else {
         Layer::Ground
     };
@@ -284,6 +301,14 @@ fn paint(
             Layer::Woods => {
                 if let Ok(mut woods) = terrain.woods().write() {
                     woods.begin_stroke();
+                }
+            }
+            Layer::Road => {
+                if let Ok(mut edits) = terrain.edits().write() {
+                    edits.begin_stroke();
+                }
+                if let Ok(mut worn) = terrain.surface().write() {
+                    worn.begin_stroke();
                 }
             }
         }
@@ -338,6 +363,18 @@ fn paint(
         })
     };
 
+    // A graded strip of grass is a lawn. What makes it a road is that it is
+    // WORN, so PATH lays surface over exactly the ground it just graded — flat
+    // across the bed and quick at the shoulders, the same profile it cuts.
+    if how.is_surfacing() {
+        if let Ok(mut worn) = terrain.surface().write() {
+            let bare = if inverted { -amount } else { amount };
+            worn.paint_with(at, brush.radius, bare * SURFACING_RATE, |away, radius| {
+                crate::util::smoothstep(radius, radius * 0.7, away)
+            });
+        }
+    }
+
     // Woods or ground, whichever the stroke touched. Sending planting through
     // the mesh rebuild is what made it look like it did nothing.
     if how.is_planting() {
@@ -365,6 +402,15 @@ fn close_stroke(terrain: &TerrainSource, layer: Layer) {
         Layer::Woods => {
             if let Ok(mut woods) = terrain.woods().write() {
                 woods.end_stroke();
+            }
+        }
+        Layer::Road => {
+            // Both, together — a road is one thing to whoever laid it.
+            if let Ok(mut edits) = terrain.edits().write() {
+                edits.end_stroke();
+            }
+            if let Ok(mut worn) = terrain.surface().write() {
+                worn.end_stroke();
             }
         }
     }
@@ -482,6 +528,27 @@ fn history(
                 woods.redo()
             }
         }),
+        Some(Layer::Road) => {
+            let ground = terrain.edits().write().ok().and_then(|mut edits| {
+                if undo {
+                    edits.undo()
+                } else {
+                    edits.redo()
+                }
+            });
+            let wear = terrain.surface().write().ok().and_then(|mut worn| {
+                if undo {
+                    worn.undo()
+                } else {
+                    worn.redo()
+                }
+            });
+            // Whichever of the two moved, and both if both did.
+            match (ground, wear) {
+                (Some(a), Some(b)) => Some((a.0.min(b.0), a.1.max(b.1))),
+                (only, None) | (None, only) => only,
+            }
+        }
         None => None,
     };
 
@@ -655,20 +722,30 @@ fn save_edits(
         };
         crate::world::forest::save(&mut painted).map(|()| painted.painted_cells())
     };
+    let worn = {
+        let Ok(mut painted) = terrain.surface().write() else {
+            return;
+        };
+        crate::world::surface::save(&mut painted).map(|()| painted.painted_cells())
+    };
 
-    match (ground, woods) {
-        (Ok(cells), Ok(planted)) => {
-            info!("saved {cells} sculpted cells and {planted} planted");
-            toast.show(format!("Saved {cells} sculpted, {planted} planted"));
+    match (ground, woods, worn) {
+        (Ok(cells), Ok(planted), Ok(laid)) => {
+            info!("saved {cells} sculpted, {planted} planted, {laid} surfaced");
+            toast.show(format!("Saved {cells} sculpted, {planted} planted, {laid} surfaced"));
         }
         // Said separately, because which one failed decides what was lost.
-        (Err(why), _) => {
+        (Err(why), _, _) => {
             error!("could not save the sculpted ground: {why}");
             toast.show("Ground not saved - see log");
         }
-        (_, Err(why)) => {
+        (_, Err(why), _) => {
             error!("could not save the planted woods: {why}");
             toast.show("Woods not saved - see log");
+        }
+        (_, _, Err(why)) => {
+            error!("could not save the worn surface: {why}");
+            toast.show("Surface not saved - see log");
         }
     }
 }

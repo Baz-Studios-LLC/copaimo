@@ -35,6 +35,9 @@ pub const EDITS_PATH: &str = "assets/world/edits.bin";
 /// Woods planted or cleared here or at Opificium's terrain bench.
 pub const FOREST_PATH: &str = "assets/world/forest.bin";
 
+/// What the ground is made of where somebody laid it: roads, yards, worn earth.
+pub const SURFACE_PATH: &str = "assets/world/surface.bin";
+
 /// Buildings baked at Opificium's builder — houses, signs, bridges, all boxes.
 /// Read at startup; an absent folder is a game whose buildings are not drawn yet.
 pub const BUILDINGS_DIR: &str = "assets/buildings";

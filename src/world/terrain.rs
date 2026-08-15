@@ -65,6 +65,9 @@ pub struct Terrain {
     /// ground is: chunks read it on background threads while the Plant brush
     /// writes on the main one.
     forest: RwLock<crate::world::forest::Painted>,
+    /// What the ground is made of where somebody said so. Same bargain as the
+    /// woods: read on background threads, written by the brush on the main one.
+    surface: RwLock<crate::world::surface::Painted>,
 }
 
 impl Terrain {
@@ -113,6 +116,7 @@ impl Terrain {
             continent: Fbm::<Perlin>::new(WORLD_SEED.wrapping_add(5)).set_octaves(5),
             edits: RwLock::new(crate::world::edit::load(half)),
             forest: RwLock::new(crate::world::forest::load(half)),
+            surface: RwLock::new(crate::world::surface::load(half)),
         };
 
         // The great mountain goes in the heartland — the point furthest from any
@@ -163,6 +167,23 @@ impl Terrain {
     /// The painted woods, for the Plant brush. Same bargain as [`Self::edits`].
     pub fn woods(&self) -> &RwLock<crate::world::forest::Painted> {
         &self.forest
+    }
+
+    /// What the ground is made of, for the Path brush.
+    pub fn surface(&self) -> &RwLock<crate::world::surface::Painted> {
+        &self.surface
+    }
+
+    /// How worn to bare earth the ground is at a point, -1 to 1.
+    ///
+    /// Zero is the biome's own answer, and that is almost the whole world.
+    pub fn worn(&self, x: f32, z: f32) -> f32 {
+        self.surface.read().map_or(0.0, |worn| worn.at(x, z))
+    }
+
+    /// How many cells of surface a maker has laid.
+    pub fn worn_cells(&self) -> usize {
+        self.surface.read().map_or(0, |worn| worn.painted_cells())
     }
 
     /// Every tree standing in a patch of ground.

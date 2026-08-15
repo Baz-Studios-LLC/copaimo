@@ -7,6 +7,7 @@ pub mod edit;
 pub mod heightmap;
 pub mod settle;
 pub mod stream;
+pub mod surface;
 pub mod terrain;
 pub mod water;
 
