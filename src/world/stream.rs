@@ -14,7 +14,7 @@ use bevy::tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task};
 use crate::config::{MAX_PENDING_CHUNKS, VIEW_CHUNKS};
 use crate::config::CHUNK_SIZE;
 use crate::world::chunk::{build_mesh, chunk_at, chunk_origin, Chunk, TerrainMaterial};
-use crate::world::terrain::TerrainSource;
+use crate::world::terrain::{Terrain, TerrainSource};
 use crate::world::{StreamAnchor, WorldBounds};
 
 /// Which chunk coordinates currently have an entity, loaded or still building.
@@ -131,53 +131,71 @@ pub fn collect_chunks(
             .remove::<PendingChunk>()
             .insert((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material.0.clone())));
 
-        // Trees are children of the chunk they stand on, so they stream in with
-        // that ground and go away with it — no separate bookkeeping, and no wood
-        // left standing over a hole where a chunk used to be.
-        //
-        // Cleared before replanting, because a chunk is no longer meshed only
-        // once: the sculpting mode re-cuts the ground under the brush, and every
-        // pass through here would otherwise leave the old wood behind — doubling
-        // the trees on each stroke, with the earlier ones hanging at the height
-        // the hill used to be.
-        if let Some(standing) = standing {
-            for tree in standing.iter() {
-                commands.entity(tree).despawn();
-            }
-        }
-
         let Some(grove) = &grove else {
             continue;
         };
-        let low = chunk_origin(chunk.0);
-        let high = low + CHUNK_SIZE;
+        plant_chunk(&mut commands, entity, chunk.0, standing, &terrain, grove);
+    }
+}
 
-        for tree in terrain.trees_in(low, high) {
-            let Some(variety) = grove.trees.get(tree.variety) else {
-                continue;
-            };
-            // Placed relative to the chunk, whose own transform already carries
-            // it out to where it stands in the world.
-            let stance = Transform::from_xyz(tree.at.x - low.x, tree.at.y, tree.at.z - low.y)
-                .with_rotation(Quat::from_rotation_y(tree.turn))
-                .with_scale(Vec3::splat(tree.scale));
-
-            commands.entity(entity).with_children(|chunk| {
-                chunk
-                    .spawn((
-                        Mesh3d(variety.wood.clone()),
-                        MeshMaterial3d(grove.bark.clone()),
-                        stance,
-                    ))
-                    .with_children(|trunk| {
-                        trunk.spawn((
-                            Mesh3d(variety.leaves.clone()),
-                            MeshMaterial3d(variety.leaf.clone()),
-                            Transform::IDENTITY,
-                        ));
-                    });
-            });
+/// Clears whatever wood a chunk carries and grows what stands there now.
+///
+/// Trees are children of the chunk they stand on, so they stream in with that
+/// ground and go away with it — no separate bookkeeping, and no wood left
+/// standing over a hole where a chunk used to be.
+///
+/// Cleared before replanting, because a chunk is no longer planted only once:
+/// the sculpting mode re-cuts the ground under the brush, and every pass would
+/// otherwise leave the old wood behind — doubling the trees on each stroke, with
+/// the earlier ones hanging at the height the hill used to be.
+///
+/// Separate from meshing on purpose. **Planting does not move the ground**, so
+/// rebuilding a chunk's mesh to show a new tree is a hundred thousand wasted
+/// terrain samples — and worse, it goes through the same one-rebuild-at-a-time
+/// throttle the brush uses, so a wide planting stroke found most of its chunks
+/// busy and dropped them. Trees appeared slowly, or not at all.
+pub fn plant_chunk(
+    commands: &mut Commands,
+    entity: Entity,
+    coord: IVec2,
+    standing: Option<&Children>,
+    terrain: &Terrain,
+    grove: &Grove,
+) {
+    if let Some(standing) = standing {
+        for tree in standing.iter() {
+            commands.entity(tree).despawn();
         }
+    }
+
+    let low = chunk_origin(coord);
+    let high = low + CHUNK_SIZE;
+
+    for tree in terrain.trees_in(low, high) {
+        let Some(variety) = grove.trees.get(tree.variety) else {
+            continue;
+        };
+        // Placed relative to the chunk, whose own transform already carries it
+        // out to where it stands in the world.
+        let stance = Transform::from_xyz(tree.at.x - low.x, tree.at.y, tree.at.z - low.y)
+            .with_rotation(Quat::from_rotation_y(tree.turn))
+            .with_scale(Vec3::splat(tree.scale));
+
+        commands.entity(entity).with_children(|chunk| {
+            chunk
+                .spawn((
+                    Mesh3d(variety.wood.clone()),
+                    MeshMaterial3d(grove.bark.clone()),
+                    stance,
+                ))
+                .with_children(|trunk| {
+                    trunk.spawn((
+                        Mesh3d(variety.leaves.clone()),
+                        MeshMaterial3d(variety.leaf.clone()),
+                        Transform::IDENTITY,
+                    ));
+                });
+        });
     }
 }
 

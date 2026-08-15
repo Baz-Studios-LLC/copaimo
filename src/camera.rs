@@ -125,10 +125,11 @@ fn orbit_input(
             .clamp(-PITCH_LIMIT, PITCH_LIMIT);
     }
 
-    // In the terrain tool the wheel sizes the brush instead of the camera.
-    if scroll.delta.y != 0.0 {
-        orbit.distance =
-            (orbit.distance - scroll.delta.y * ZOOM_SPEED).clamp(MIN_DISTANCE, MAX_DISTANCE);
+    // Notches rather than raw delta: a trackpad reports a whole flick in pixels,
+    // which as a raw number throws the camera to one end of its range and back.
+    let notches = crate::util::wheel_notches(&scroll);
+    if notches != 0.0 {
+        orbit.distance = (orbit.distance - notches * ZOOM_SPEED).clamp(MIN_DISTANCE, MAX_DISTANCE);
     }
 }
 

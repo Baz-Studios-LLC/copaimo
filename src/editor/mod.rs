@@ -35,7 +35,8 @@ use crate::camera::{CameraMode, MainCamera};
 use crate::config::{CHUNK_SIZE, EDIT_CELL};
 use crate::states::AppState;
 use crate::world::edit::{Brushing, Patch, Stamp};
-use crate::world::stream::{spawn_chunk_mesh, ChunkMap, PendingChunk};
+use crate::world::chunk::Chunk;
+use crate::world::stream::{plant_chunk, spawn_chunk_mesh, ChunkMap, Grove, PendingChunk};
 use crate::world::terrain::{Terrain, TerrainSource};
 
 /// How far the brush can reach from the camera, in meters.
@@ -199,9 +200,9 @@ fn adjust_brush(
     scroll: Res<bevy::input::mouse::AccumulatedMouseScroll>,
     mut brush: ResMut<Brush>,
 ) {
-    if scroll.delta.y != 0.0 {
-        let factor = RADIUS_STEP.powf(scroll.delta.y);
-        brush.radius = (brush.radius * factor).clamp(MIN_RADIUS, MAX_RADIUS);
+    let notches = crate::util::wheel_notches(&scroll);
+    if notches != 0.0 {
+        brush.radius = (brush.radius * RADIUS_STEP.powf(notches)).clamp(MIN_RADIUS, MAX_RADIUS);
     }
 
     if keys.just_pressed(KeyCode::BracketRight) {
@@ -239,6 +240,8 @@ fn paint(
     terrain: Res<TerrainSource>,
     chunks: Res<ChunkMap>,
     busy: Query<(), With<PendingChunk>>,
+    grove: Option<Res<Grove>>,
+    standing: Query<Option<&Children>, With<Chunk>>,
     mut brush: ResMut<Brush>,
 ) {
     // Laid between two clicked points, not dragged. `lay_ramp` has it.
@@ -335,7 +338,20 @@ fn paint(
         })
     };
 
-    invalidate_area(&mut commands, &terrain, &chunks, &busy, patch);
+    // Woods or ground, whichever the stroke touched. Sending planting through
+    // the mesh rebuild is what made it look like it did nothing.
+    if how.is_planting() {
+        regrow_area(
+            &mut commands,
+            &terrain,
+            &chunks,
+            grove.as_deref(),
+            &standing,
+            patch,
+        );
+    } else {
+        invalidate_area(&mut commands, &terrain, &chunks, &busy, patch);
+    }
 }
 
 /// Closes an undo group on whichever layer it was opened on.
@@ -510,25 +526,61 @@ fn invalidate_area(
     busy: &Query<(), With<PendingChunk>>,
     patch: Patch,
 ) {
+    for (entity, coord) in chunks_over(chunks, patch) {
+        // Already rebuilding: skip rather than queue a second task. This is what
+        // throttles painting — a chunk rebuilds as fast as it can and no faster,
+        // however many frames the stroke lasts.
+        if busy.contains(entity) {
+            continue;
+        }
+        spawn_chunk_mesh(commands, entity, terrain, coord);
+    }
+}
+
+/// Regrows the wood over a rectangle, leaving the ground alone.
+///
+/// Planting does not move earth, so sending it through `invalidate_area` meant
+/// rebuilding a whole chunk mesh — a hundred thousand terrain samples — to show
+/// one tree. Worse, it went through the same one-rebuild-at-a-time throttle the
+/// brush uses, so a wide stroke found most of its chunks busy and dropped them
+/// entirely. Trees appeared slowly, or not at all.
+fn regrow_area(
+    commands: &mut Commands,
+    terrain: &TerrainSource,
+    chunks: &ChunkMap,
+    grove: Option<&Grove>,
+    standing: &Query<Option<&Children>, With<Chunk>>,
+    patch: Patch,
+) {
+    let Some(grove) = grove else {
+        return;
+    };
+    for (entity, coord) in chunks_over(chunks, patch) {
+        let wood = standing.get(entity).ok().flatten();
+        plant_chunk(commands, entity, coord, wood, terrain, grove);
+    }
+}
+
+/// The loaded chunks a world-space rectangle touches.
+///
+/// The edit layer is sampled bilinearly, so a change influences one cell beyond
+/// its own bounds — hence the margin, without which chunk seams would drift
+/// apart along the edge of a stroke.
+fn chunks_over(chunks: &ChunkMap, patch: Patch) -> Vec<(Entity, IVec2)> {
     let (min, max) = patch;
     let low = ((min - EDIT_CELL) / CHUNK_SIZE).floor().as_ivec2();
     let high = ((max + EDIT_CELL) / CHUNK_SIZE).floor().as_ivec2();
 
+    let mut touched = Vec::new();
     for z in low.y..=high.y {
         for x in low.x..=high.x {
             let coord = IVec2::new(x, z);
-            let Some(&entity) = chunks.loaded.get(&coord) else {
-                continue;
-            };
-            // Already rebuilding: skip rather than queue a second task. This is
-            // what throttles painting — a chunk rebuilds as fast as it can and
-            // no faster, however many frames the stroke lasts.
-            if busy.contains(entity) {
-                continue;
+            if let Some(&entity) = chunks.loaded.get(&coord) {
+                touched.push((entity, coord));
             }
-            spawn_chunk_mesh(commands, entity, terrain, coord);
         }
     }
+    touched
 }
 
 fn draw_brush(mut gizmos: Gizmos, terrain: Res<TerrainSource>, brush: Res<Brush>) {
