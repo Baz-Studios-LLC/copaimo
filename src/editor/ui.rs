@@ -9,7 +9,8 @@ use bevy::prelude::*;
 use bevy::text::LineBreak;
 
 use crate::editor::theme::{
-    self, keycap, rule, section, tool_color, UiFont, ACCENT, PANEL, PANEL_WIDTH, ROW_ACTIVE, TEXT,
+    self, keycap, rule, section, tool_color, UiFont, ACCENT, PANEL, PANEL_WIDTH, ROW_ACTIVE, RULE,
+    TEXT,
     TEXT_DIM, TEXT_MUTED, UNSAVED,
 };
 use crate::editor::Brush;
@@ -46,6 +47,10 @@ struct ToolRow(Brushing);
 
 #[derive(Component)]
 struct ToolLabel(Brushing);
+
+/// The caption under the palette, saying what the tool in hand does.
+#[derive(Component)]
+struct ToolSaying;
 
 /// A live value in the sidebar. One component and one system rather than a
 /// marker type per field.
@@ -123,9 +128,20 @@ fn spawn_sidebar(mut commands: Commands, font: Res<UiFont>) {
                 top: Val::Px(16.0),
                 width: Val::Px(PANEL_WIDTH),
                 flex_direction: FlexDirection::Column,
+                // Nothing leaves the panel, whatever is put in it. Text that
+                // overruns is a layout mistake to fix at the source — but a
+                // shelf whose writing runs out over the world does not look
+                // like a tool, and no future addition should be able to do it
+                // by accident.
+                overflow: Overflow::clip(),
+                // A hairline edge. Without one the panel is a dark rectangle
+                // that fades into whatever is behind it, and where a tool stops
+                // and the world starts is exactly what should never be vague.
+                border: UiRect::all(Val::Px(1.0)),
                 ..default()
             },
             BackgroundColor(PANEL),
+            BorderColor(RULE),
         ))
         .with_children(|panel| {
             header(panel, &font);
@@ -177,6 +193,7 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
             for (index, how) in Brushing::ALL.iter().enumerate() {
                 tool_row(body, font, index + 1, *how);
             }
+            tool_saying(body, font);
 
             body.spawn(rule());
             body.spawn(section(font, "BRUSH"));
@@ -229,23 +246,38 @@ fn tool_row(parent: &mut ChildSpawnerCommands, font: &UiFont, number: usize, how
                 Text::new(how.name().to_string()),
                 font.at(13.0),
                 TextColor(TEXT_MUTED),
-                // Fixed width so the hints line up in a column and the row can
-                // never reflow mid-word.
-                Node {
-                    width: Val::Px(66.0),
-                    ..default()
-                },
                 TextLayout {
                     linebreak: LineBreak::NoWrap,
                     ..default()
                 },
             ));
-            row.spawn((
-                Text::new(how.said().to_string()),
+        });
+}
+
+/// What the chosen tool does, in a line of its own under the palette.
+///
+/// It used to sit beside every name at once. Nine descriptions in a column
+/// three hundred pixels wide could not fit and did not wrap, so half of them ran
+/// out over the world — and a shelf you cannot read the edge of does not look
+/// like a tool. One line, for the tool in hand, is what a bench actually needs:
+/// the names are the palette and this is the caption.
+fn tool_saying(parent: &mut ChildSpawnerCommands, font: &UiFont) {
+    parent
+        .spawn(Node {
+            width: Val::Percent(100.0),
+            padding: UiRect::new(Val::Px(6.0), Val::Px(6.0), Val::Px(6.0), Val::Px(2.0)),
+            ..default()
+        })
+        .with_children(|line| {
+            line.spawn((
+                ToolSaying,
+                Text::new(""),
                 font.at(12.0),
                 TextColor(TEXT_DIM),
-                TextLayout {
-                    linebreak: LineBreak::NoWrap,
+                // Wrapping, unlike the names: a caption is prose and the panel
+                // is the width it is.
+                Node {
+                    width: Val::Percent(100.0),
                     ..default()
                 },
             ));
@@ -417,7 +449,18 @@ fn refresh_tools(
     brush: Res<Brush>,
     mut rows: Query<(&ToolRow, &mut BackgroundColor)>,
     mut labels: Query<(&ToolLabel, &mut TextColor)>,
+    mut saying: Query<(&mut Text, &mut TextColor), (With<ToolSaying>, Without<ToolLabel>)>,
 ) {
+    for (mut text, mut colour) in &mut saying {
+        let said = brush.how.said();
+        if **text != said {
+            **text = said.to_string();
+        }
+        // Tinted with the tool, so the caption, the highlighted row and the ring
+        // on the ground are all one colour and none of them has to be read.
+        colour.0 = tool_color(brush.how).with_alpha(0.75);
+    }
+
     for (row, mut background) in &mut rows {
         background.0 = if row.0 == brush.how {
             ROW_ACTIVE
