@@ -21,7 +21,7 @@ use bevy::prelude::*;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 
 use crate::config::*;
-use crate::world::edit::EditGrid;
+use crate::world::edit::Sculpt;
 use crate::world::heightmap::HeightMap;
 use crate::world::settle::{Settlements, Site};
 
@@ -60,9 +60,11 @@ pub struct Terrain {
     /// Behind a lock because chunk meshes are built on background threads while
     /// the brush is writing on the main thread. Reads are short and uncontended
     /// in the common case; writes only happen on the frames you're sculpting.
-    edits: RwLock<EditGrid>,
-    /// Woods planted at the bench. Read once at load and never written here.
-    forest: crate::world::forest::Painted,
+    edits: RwLock<Sculpt>,
+    /// Woods planted here or at the bench. Behind a lock for the same reason the
+    /// ground is: chunks read it on background threads while the Plant brush
+    /// writes on the main one.
+    forest: RwLock<crate::world::forest::Painted>,
 }
 
 impl Terrain {
@@ -109,8 +111,8 @@ impl Terrain {
             warp_x: Perlin::new(WORLD_SEED.wrapping_add(3)),
             warp_z: Perlin::new(WORLD_SEED.wrapping_add(4)),
             continent: Fbm::<Perlin>::new(WORLD_SEED.wrapping_add(5)).set_octaves(5),
-            edits: RwLock::new(EditGrid::load(half)),
-            forest: crate::world::forest::load(half),
+            edits: RwLock::new(crate::world::edit::load(half)),
+            forest: RwLock::new(crate::world::forest::load(half)),
         };
 
         // The great mountain goes in the heartland — the point furthest from any
@@ -143,10 +145,24 @@ impl Terrain {
         terrain
     }
 
-    /// How many cells of woods the bench planted. Zero means either nothing has
-    /// been planted or `forest.bin` was refused — the startup log says which.
+    /// How many cells of woods are painted. Zero means either nothing has been
+    /// planted or `forest.bin` was refused — the startup log says which.
     pub fn planted_cells(&self) -> usize {
-        self.forest.painted_cells()
+        self.forest.read().map_or(0, |woods| woods.painted_cells())
+    }
+
+    /// The hand-sculpted ground, for the mode that shapes it.
+    ///
+    /// Handed out as the lock rather than its contents: the brush holds a write
+    /// lock across a whole stroke, and everything else takes a read lock for the
+    /// length of one height query.
+    pub fn edits(&self) -> &RwLock<Sculpt> {
+        &self.edits
+    }
+
+    /// The painted woods, for the Plant brush. Same bargain as [`Self::edits`].
+    pub fn woods(&self) -> &RwLock<crate::world::forest::Painted> {
+        &self.forest
     }
 
     /// Every tree standing in a patch of ground.
@@ -168,6 +184,12 @@ impl Terrain {
         // the chunk boundaries around it change.
         let first = (low / step).floor().as_ivec2();
         let last = (high / step).ceil().as_ivec2();
+
+        // Taken once for the whole patch rather than per slot. A chunk asks
+        // about thousands of them, and a poisoned lock is no reason to stop
+        // drawing trees — the ground's own answer stands, exactly as it would
+        // for a world nobody has planted.
+        let painted = self.forest.read().ok();
 
         let mut standing = Vec::new();
         for slot_z in first.y..=last.y {
@@ -203,7 +225,8 @@ impl Terrain {
                     levelled,
                     TREELINE,
                 );
-                let density = forest::density(natural, self.forest.at(at.x, at.y));
+                let bias = painted.as_ref().map_or(0.0, |woods| woods.at(at.x, at.y));
+                let density = forest::density(natural, bias);
                 if density <= 0.0 || forest::chance(slot_x, slot_z, 3) > density {
                     continue;
                 }
@@ -253,7 +276,7 @@ impl Terrain {
     pub fn height(&self, x: f32, z: f32) -> f32 {
         let generated = self.base_height(x, z);
         match self.edits.read() {
-            Ok(edits) => generated + edits.sample(x, z),
+            Ok(edits) => generated + edits.at(x, z),
             // A poisoned lock means a sculpting operation panicked. The
             // generated world is still perfectly valid, so keep drawing it
             // rather than taking the game down with it.

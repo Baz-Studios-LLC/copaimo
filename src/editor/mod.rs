@@ -9,12 +9,19 @@
 //! machinery that streaming uses — the old mesh stays on screen until the new
 //! one is ready, so the ground never blinks out from under you.
 //!
+//! **Where the brush itself lives.** Not here — in `terrain-core`, which
+//! Opificium's terrain bench runs too. This module is the *mode*: aiming, the
+//! gestures, the panel, and telling chunks to mesh again. That split is why the
+//! tool could come back into the game at all, and it is how the studios do it:
+//! the editor is built on top of the runtime, and the shaping code exists once.
+//!
 //! **Reuse.** This module plus `world/edit.rs` is the tool. Everything it needs
 //! from the host project is narrow and listed here, so pointing it at another
 //! world is a matter of supplying these rather than untangling it:
 //!
 //! * a heightfield to raycast and read — `Terrain::height` / `base_height`
 //! * an offset grid to write — `Terrain::edits`
+//! * a painted forest layer — `Terrain::woods`
 //! * a way to invalidate meshes over a rectangle — `invalidate_area` below
 //! * a camera to aim from — any entity with a `GlobalTransform`
 
@@ -27,7 +34,7 @@ use bevy::prelude::*;
 use crate::camera::{CameraMode, MainCamera};
 use crate::config::{CHUNK_SIZE, EDIT_CELL};
 use crate::states::AppState;
-use crate::world::edit::{BrushOp, Stamp};
+use crate::world::edit::{Brushing, Patch, Stamp};
 use crate::world::stream::{spawn_chunk_mesh, ChunkMap, PendingChunk};
 use crate::world::terrain::{Terrain, TerrainSource};
 
@@ -47,16 +54,14 @@ pub const MIN_STRENGTH: f32 = 2.0;
 pub const MAX_STRENGTH: f32 = 150.0;
 const STRENGTH_STEP: f32 = 1.25;
 
-/// Blend rate per second for the tools that converge on a target rather than
-/// pushing at a fixed speed.
-const BLEND_RATE: f32 = 4.0;
-
 #[derive(Resource)]
 pub struct Brush {
     pub radius: f32,
-    /// Vertical speed in meters per second for the directional tools.
+    /// What strength means depends on the tool — meters per second to the ones
+    /// that push, a blend fraction to the ones that level, a settling pace to
+    /// erosion. `Brushing::rate` is the one place that decides which.
     pub strength: f32,
-    pub op: BrushOp,
+    pub how: Brushing,
     /// Where the brush is currently pointed, if it's on the ground at all.
     pub hit: Option<Vec3>,
     /// Height captured when a levelling stroke began, so the whole stroke
@@ -64,6 +69,10 @@ pub struct Brush {
     flatten_target: f32,
     /// Whether a stroke is currently open, for undo grouping.
     stroking: bool,
+    /// The first end of a ramp, once it has been clicked. A ramp is laid
+    /// between two points rather than dragged, so it needs somewhere to
+    /// remember the first one.
+    pub ramp_from: Option<Vec3>,
 }
 
 impl Default for Brush {
@@ -71,10 +80,11 @@ impl Default for Brush {
         Self {
             radius: 40.0,
             strength: 25.0,
-            op: BrushOp::Raise,
+            how: Brushing::Raise,
             hit: None,
             flatten_target: 0.0,
             stroking: false,
+            ramp_from: None,
         }
     }
 }
@@ -88,7 +98,15 @@ impl Plugin for EditorPlugin {
             .add_systems(OnEnter(AppState::Editing), enter_editor)
             .add_systems(
                 Update,
-                (aim_brush, adjust_brush, paint, history, save_edits, draw_brush)
+                (
+                    aim_brush,
+                    adjust_brush,
+                    paint,
+                    lay_ramp,
+                    history,
+                    save_edits,
+                    draw_brush,
+                )
                     .chain()
                     .run_if(in_state(AppState::Editing)),
             );
@@ -160,17 +178,23 @@ fn adjust_brush(
         brush.strength = (brush.strength / STRENGTH_STEP).max(MIN_STRENGTH);
     }
 
-    const TOOL_KEYS: [KeyCode; 6] = [
+    const TOOL_KEYS: [KeyCode; 9] = [
         KeyCode::Digit1,
         KeyCode::Digit2,
         KeyCode::Digit3,
         KeyCode::Digit4,
         KeyCode::Digit5,
         KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
     ];
-    for (key, op) in TOOL_KEYS.iter().zip(BrushOp::ALL) {
+    for (key, how) in TOOL_KEYS.iter().zip(Brushing::ALL) {
         if keys.just_pressed(*key) {
-            brush.op = op;
+            brush.how = how;
+            // Half a ramp with a different tool selected would lay itself from
+            // wherever it was left the next time the tool came back around.
+            brush.ramp_from = None;
         }
     }
 }
@@ -184,14 +208,26 @@ fn paint(
     busy: Query<(), With<PendingChunk>>,
     mut brush: ResMut<Brush>,
 ) {
-    // Right button inverts the stroke, so raising and lowering are the same
-    // gesture rather than a mode switch.
+    // Laid between two clicked points, not dragged. `lay_ramp` has it.
+    if brush.how.is_two_point() {
+        return;
+    }
+
+    // Right button inverts the stroke, so raising and lowering — and planting
+    // and clearing — are one gesture rather than a mode switch.
     let inverted = buttons.pressed(MouseButton::Right);
     let painting = buttons.pressed(MouseButton::Left) || inverted;
 
     // Open and close the undo group around the whole drag, so a stroke lasting
     // two hundred frames undoes in one step rather than two hundred.
-    if painting && !brush.stroking {
+    //
+    // Not for planting: that writes to the woods, which keep no history at all,
+    // so opening a group over the GROUND for it would only push empty strokes
+    // onto a stack the ground's own undo reads. Undo remains the ground's, and
+    // means the same thing whichever tool happens to be selected — planting and
+    // clearing simply aren't on it yet.
+    let on_the_ground = !brush.how.is_planting();
+    if painting && !brush.stroking && on_the_ground {
         if let Ok(mut edits) = terrain.edits().write() {
             edits.begin_stroke();
         }
@@ -208,36 +244,94 @@ fn paint(
         return;
     };
 
-    let op = match (brush.op, inverted) {
-        (BrushOp::Raise, true) => BrushOp::Lower,
-        (BrushOp::Lower, true) => BrushOp::Raise,
-        (op, _) => op,
+    let how = match (brush.how, inverted) {
+        (Brushing::Raise, true) => Brushing::Lower,
+        (Brushing::Lower, true) => Brushing::Raise,
+        (how, _) => how,
     };
+    let amount = how.rate(brush.strength, time.delta_secs());
+    let at = Vec2::new(hit.x, hit.z);
 
-    let amount = if op.is_directional() {
-        brush.strength * time.delta_secs()
+    // Planting touches the woods and never the ground. A brush that moved earth
+    // as well would dig a hole every time somebody grew a stand of trees.
+    let patch = if how.is_planting() {
+        let Ok(mut woods) = terrain.woods().write() else {
+            return;
+        };
+        // Negative bias clears, and zero leaves the ground's own answer alone —
+        // which is why the right button thins a wood rather than paving it.
+        woods.paint(at, brush.radius, if inverted { -amount } else { amount })
     } else {
-        BLEND_RATE * time.delta_secs()
-    };
-
-    let area = {
         let Ok(mut edits) = terrain.edits().write() else {
             return;
         };
         // Reads the generator directly, never back through the edit layer —
         // that would deadlock against the write lock held right here.
-        let base = |p: Vec2| terrain.base_height(p.x, p.y);
+        let under = |p: Vec2| terrain.base_height(p.x, p.y);
         edits.apply(&Stamp {
-            center: Vec2::new(hit.x, hit.z),
+            centre: at,
             radius: brush.radius,
-            op,
+            how,
             amount,
             target: brush.flatten_target,
-            base: &base,
+            under: &under,
         })
     };
 
-    invalidate_area(&mut commands, &terrain, &chunks, &busy, area);
+    invalidate_area(&mut commands, &terrain, &chunks, &busy, patch);
+}
+
+/// The ramp: click once for the foot, once for the head, and a graded run is
+/// laid between them in a single stroke.
+///
+/// A gesture of its own because the levelling brushes pull toward ONE height,
+/// which is right for a town square and useless for a road up a hillside. The
+/// right button cancels a half-placed one.
+fn lay_ramp(
+    mut commands: Commands,
+    buttons: Res<ButtonInput<MouseButton>>,
+    terrain: Res<TerrainSource>,
+    chunks: Res<ChunkMap>,
+    busy: Query<(), With<PendingChunk>>,
+    mut brush: ResMut<Brush>,
+    mut toast: ResMut<ui::Toast>,
+) {
+    if !brush.how.is_two_point() {
+        return;
+    }
+
+    if buttons.just_pressed(MouseButton::Right) && brush.ramp_from.take().is_some() {
+        toast.show("Ramp cancelled");
+        return;
+    }
+    if !buttons.just_pressed(MouseButton::Left) {
+        return;
+    }
+    let Some(hit) = brush.hit else {
+        return;
+    };
+
+    let Some(from) = brush.ramp_from.take() else {
+        brush.ramp_from = Some(hit);
+        toast.show("Ramp: now click the far end");
+        return;
+    };
+
+    let patch = {
+        let Ok(mut edits) = terrain.edits().write() else {
+            return;
+        };
+        let under = |p: Vec2| terrain.base_height(p.x, p.y);
+        // Laid inside a stroke of its own so one press takes the whole run back,
+        // the same as a drag with any other tool.
+        edits.begin_stroke();
+        let patch = edits.ramp(from, hit, brush.radius, &under);
+        edits.end_stroke();
+        patch
+    };
+
+    toast.show(format!("Ramp laid, {:.0} m", from.distance(hit)));
+    invalidate_area(&mut commands, &terrain, &chunks, &busy, patch);
 }
 
 fn history(
@@ -298,10 +392,11 @@ fn invalidate_area(
     terrain: &TerrainSource,
     chunks: &ChunkMap,
     busy: &Query<(), With<PendingChunk>>,
-    area: Rect,
+    patch: Patch,
 ) {
-    let low = ((area.min - EDIT_CELL) / CHUNK_SIZE).floor().as_ivec2();
-    let high = ((area.max + EDIT_CELL) / CHUNK_SIZE).floor().as_ivec2();
+    let (min, max) = patch;
+    let low = ((min - EDIT_CELL) / CHUNK_SIZE).floor().as_ivec2();
+    let high = ((max + EDIT_CELL) / CHUNK_SIZE).floor().as_ivec2();
 
     for z in low.y..=high.y {
         for x in low.x..=high.x {
@@ -329,7 +424,7 @@ fn draw_brush(mut gizmos: Gizmos, terrain: Res<TerrainSource>, brush: Res<Brush>
     // flat circle, so on a slope it wraps the terrain and you can see exactly
     // what the stroke will cover.
     const SEGMENTS: usize = 72;
-    let color = theme::tool_color(brush.op);
+    let color = theme::tool_color(brush.how);
 
     let point_at = |index: usize, radius: f32| {
         let angle = index as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
@@ -350,13 +445,20 @@ fn draw_brush(mut gizmos: Gizmos, terrain: Res<TerrainSource>, brush: Res<Brush>
     ring(brush.radius, color);
     // Path has a flat bed out to 70% of its radius; showing that inner edge is
     // the difference between placing a road accurately and guessing.
-    if brush.op == BrushOp::Path {
+    if brush.how == Brushing::Path {
         ring(brush.radius * 0.7, color.with_alpha(0.45));
     }
 
     // A short mast at the center, so the brush is findable when the ring falls
     // out of view behind a rise.
     gizmos.line(hit, hit + Vec3::Y * 3.0, color);
+
+    // Half a ramp is invisible otherwise: the first click lands somewhere behind
+    // you and there is nothing on screen saying a run is waiting on its far end.
+    if let Some(from) = brush.ramp_from {
+        gizmos.line(from, from + Vec3::Y * 6.0, color);
+        gizmos.line(from, hit, color.with_alpha(0.7));
+    }
 }
 
 fn save_edits(
@@ -370,18 +472,35 @@ fn save_edits(
         return;
     }
 
-    let Ok(mut edits) = terrain.edits().write() else {
-        return;
+    // Ground and woods together, in one keystroke. They were separate once and
+    // planting quietly failed to survive a restart; a maker who has just spent
+    // an afternoon on a hillside should not have to know there are two files.
+    let ground = {
+        let Ok(mut edits) = terrain.edits().write() else {
+            return;
+        };
+        crate::world::edit::save(&mut edits).map(|()| edits.sculpted_cells())
     };
-    match edits.save() {
-        Ok(()) => {
-            let cells = edits.sculpted_cells();
-            info!("saved terrain edits ({cells} cells)");
-            toast.show(format!("Saved {cells} cells"));
+    let woods = {
+        let Ok(painted) = terrain.woods().read() else {
+            return;
+        };
+        crate::world::forest::save(&painted).map(|()| painted.painted_cells())
+    };
+
+    match (ground, woods) {
+        (Ok(cells), Ok(planted)) => {
+            info!("saved {cells} sculpted cells and {planted} planted");
+            toast.show(format!("Saved {cells} sculpted, {planted} planted"));
         }
-        Err(err) => {
-            error!("could not save terrain edits: {err}");
-            toast.show("Save failed - see log");
+        // Said separately, because which one failed decides what was lost.
+        (Err(why), _) => {
+            error!("could not save the sculpted ground: {why}");
+            toast.show("Ground not saved - see log");
+        }
+        (_, Err(why)) => {
+            error!("could not save the planted woods: {why}");
+            toast.show("Woods not saved - see log");
         }
     }
 }

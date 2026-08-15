@@ -114,7 +114,7 @@ pub fn collect_chunks(
     grove: Option<Res<Grove>>,
     terrain: Res<TerrainSource>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut pending: Query<(Entity, &mut PendingChunk, &Chunk)>,
+    mut pending: Query<(Entity, &mut PendingChunk, &Chunk, Option<&Children>)>,
 ) {
     // The shared material is created in Startup; on the very first frames a
     // task could finish before it exists, so hold the mesh until it does.
@@ -122,7 +122,7 @@ pub fn collect_chunks(
         return;
     };
 
-    for (entity, mut task, chunk) in &mut pending {
+    for (entity, mut task, chunk, standing) in &mut pending {
         let Some(mesh) = block_on(future::poll_once(&mut task.0)) else {
             continue;
         };
@@ -135,9 +135,17 @@ pub fn collect_chunks(
         // that ground and go away with it — no separate bookkeeping, and no wood
         // left standing over a hole where a chunk used to be.
         //
-        // Planted once, because in the game a chunk is meshed once and never
-        // re-meshed. Opificium re-cuts ground under the brush and has to clear
-        // the old trees first; nothing here does, so nothing here needs to.
+        // Cleared before replanting, because a chunk is no longer meshed only
+        // once: the sculpting mode re-cuts the ground under the brush, and every
+        // pass through here would otherwise leave the old wood behind — doubling
+        // the trees on each stroke, with the earlier ones hanging at the height
+        // the hill used to be.
+        if let Some(standing) = standing {
+            for tree in standing.iter() {
+                commands.entity(tree).despawn();
+            }
+        }
+
         let Some(grove) = &grove else {
             continue;
         };

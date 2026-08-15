@@ -9,12 +9,12 @@ use bevy::prelude::*;
 use bevy::text::LineBreak;
 
 use crate::editor::theme::{
-    self, keycap, rule, section, tool_color, UiFont, PANEL, PANEL_WIDTH, ROW_ACTIVE, TEXT,
+    self, keycap, rule, section, tool_color, UiFont, ACCENT, PANEL, PANEL_WIDTH, ROW_ACTIVE, TEXT,
     TEXT_DIM, TEXT_MUTED, UNSAVED,
 };
 use crate::editor::Brush;
 use crate::states::AppState;
-use crate::world::edit::BrushOp;
+use crate::world::edit::Brushing;
 use crate::world::terrain::TerrainSource;
 
 /// How long a confirmation stays on screen, and how long it takes to fade.
@@ -42,10 +42,10 @@ impl Toast {
 struct EditorUiRoot;
 
 #[derive(Component)]
-struct ToolRow(BrushOp);
+struct ToolRow(Brushing);
 
 #[derive(Component)]
-struct ToolLabel(BrushOp);
+struct ToolLabel(Brushing);
 
 /// A live value in the sidebar. One component and one system rather than a
 /// marker type per field.
@@ -56,6 +56,7 @@ enum Readout {
     Position,
     Ground,
     Edited,
+    Planted,
     History,
 }
 
@@ -145,7 +146,9 @@ fn header(panel: &mut ChildSpawnerCommands, font: &UiFont) {
             BackgroundColor(theme::HEADER),
         ))
         .with_children(|bar| {
-            bar.spawn((Text::new("TERRAIN TOOL"), font.at(14.0), TextColor(TEXT)));
+            // Gold on near-black, lettered in Cinzel: the bench's own header,
+            // so a maker crossing between the two programs sees one workshop.
+            bar.spawn((Text::new("TERRAIN TOOL"), font.at(14.0), TextColor(ACCENT)));
             // A dot rather than the word "unsaved": it reads at a glance and
             // never changes the layout as it appears and disappears.
             bar.spawn((
@@ -171,8 +174,8 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
         })
         .with_children(|body| {
             body.spawn(section(font, "TOOLS"));
-            for (index, op) in BrushOp::ALL.iter().enumerate() {
-                tool_row(body, font, index + 1, *op);
+            for (index, how) in Brushing::ALL.iter().enumerate() {
+                tool_row(body, font, index + 1, *how);
             }
 
             body.spawn(rule());
@@ -188,6 +191,7 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
             body.spawn(rule());
             body.spawn(section(font, "EDITS"));
             value_row(body, font, "Sculpted", Readout::Edited);
+            value_row(body, font, "Planted", Readout::Planted);
             value_row(body, font, "History", Readout::History);
 
             body.spawn(rule());
@@ -197,7 +201,7 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
                 ("Wheel", "brush radius"),
                 ("[ ]", "brush strength"),
                 ("Ctrl Z", "undo / Ctrl Y redo"),
-                ("Ctrl S", "save edits"),
+                ("Ctrl S", "save ground and woods"),
                 ("Esc", "back to menu"),
             ] {
                 shortcut_row(body, font, keys, action);
@@ -205,10 +209,10 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
         });
 }
 
-fn tool_row(parent: &mut ChildSpawnerCommands, font: &UiFont, number: usize, op: BrushOp) {
+fn tool_row(parent: &mut ChildSpawnerCommands, font: &UiFont, number: usize, how: Brushing) {
     parent
         .spawn((
-            ToolRow(op),
+            ToolRow(how),
             Node {
                 width: Val::Percent(100.0),
                 align_items: AlignItems::Center,
@@ -221,8 +225,8 @@ fn tool_row(parent: &mut ChildSpawnerCommands, font: &UiFont, number: usize, op:
         .with_children(|row| {
             keycap(row, font, &number.to_string());
             row.spawn((
-                ToolLabel(op),
-                Text::new(op.name().to_string()),
+                ToolLabel(how),
+                Text::new(how.name().to_string()),
                 font.at(13.0),
                 TextColor(TEXT_MUTED),
                 // Fixed width so the hints line up in a column and the row can
@@ -237,7 +241,7 @@ fn tool_row(parent: &mut ChildSpawnerCommands, font: &UiFont, number: usize, op:
                 },
             ));
             row.spawn((
-                Text::new(op.hint().to_string()),
+                Text::new(how.said().to_string()),
                 font.at(12.0),
                 TextColor(TEXT_DIM),
                 TextLayout {
@@ -415,14 +419,14 @@ fn refresh_tools(
     mut labels: Query<(&ToolLabel, &mut TextColor)>,
 ) {
     for (row, mut background) in &mut rows {
-        background.0 = if row.0 == brush.op {
+        background.0 = if row.0 == brush.how {
             ROW_ACTIVE
         } else {
             Color::NONE
         };
     }
     for (label, mut color) in &mut labels {
-        color.0 = if label.0 == brush.op {
+        color.0 = if label.0 == brush.how {
             tool_color(label.0)
         } else {
             TEXT_MUTED
@@ -447,7 +451,7 @@ fn refresh_meters(brush: Res<Brush>, mut meters: Query<(&Meter, &mut Node, &mut 
             }
         };
         node.width = Val::Percent(fraction * 100.0);
-        color.0 = tool_color(brush.op);
+        color.0 = tool_color(brush.how);
     }
 }
 
@@ -477,7 +481,12 @@ fn refresh_readouts(
     for (readout, mut text) in &mut readouts {
         **text = match readout {
             Readout::Radius => format!("{:.0} m", brush.radius),
-            Readout::Strength => format!("{:.0} m/s", brush.strength),
+            // No unit, because there isn't one: strength is metres per second to
+            // the tools that push, a blend fraction to the ones that level, and
+            // a settling pace to erosion. `Brushing::rate` is the single place
+            // that decides which, and naming a unit here would be a second copy
+            // of that decision, free to drift from it.
+            Readout::Strength => format!("{:.0}", brush.strength),
             Readout::Position => match brush.hit {
                 Some(hit) => format!("{:.0}, {:.0}", hit.x, hit.z),
                 None => "off world".to_string(),
@@ -490,6 +499,7 @@ fn refresh_readouts(
                 None => "-".to_string(),
             },
             Readout::Edited => format!("{cells} cells"),
+            Readout::Planted => format!("{} cells", terrain.planted_cells()),
             Readout::History => match (undo_depth, redo_depth) {
                 (false, _) => "nothing to undo".to_string(),
                 (true, true) => "undo and redo ready".to_string(),

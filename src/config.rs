@@ -32,14 +32,17 @@ pub const HEIGHTMAP_PATH: &str = "assets/world/heightmap.png";
 /// Where hand-sculpted terrain edits are saved, relative to the crate root.
 pub const EDITS_PATH: &str = "assets/world/edits.bin";
 
-/// Woods planted or cleared at Opificium's terrain bench. Read-only here — the
-/// game reads what the bench writes and never plants.
+/// Woods planted or cleared here or at Opificium's terrain bench.
 pub const FOREST_PATH: &str = "assets/world/forest.bin";
 
 /// Resolution of the hand-edit layer, in meters per cell. Fine enough to shape
 /// an individual hill, coarse enough that the whole world's edit layer is a few
 /// megabytes and can be copied cheaply.
-pub const EDIT_CELL: f32 = 4.0;
+///
+/// Taken from the shared crate rather than written down again: it is the shape
+/// of a file two programs both read and write, so a second copy of the number
+/// is a second chance to disagree.
+pub const EDIT_CELL: f32 = terrain_core::sculpt::CELL;
 
 /// Seed for the detail noise layers. Change it to reshuffle local terrain
 /// without changing the continent outline (which comes from the image).

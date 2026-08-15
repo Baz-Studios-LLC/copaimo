@@ -252,30 +252,44 @@ there is no crack and no lighting seam.
 
 ## 5. The terrain tool
 
-**It is not in this repository.** Terrain is sculpted at the **terrain bench in
-[Opificium](https://github.com/Baz-Studios-LLC/Opificium)**, the studio's maker's
-bench, which every Baz Studios game shares. The game only *reads* what the bench
-writes.
+**Shape the World**, from the main menu. Nine brushes on keys 1–9: raise, lower,
+smooth, flatten, path, roughen, erode, ramp, plant. Left button applies, right
+inverts, the wheel sizes the brush, `[` and `]` set its strength, `Ctrl+Z` and
+`Ctrl+Y` take strokes back and put them again, `Ctrl+S` writes ground and woods
+together. Chunks under the brush re-mesh live and replant as they do.
 
-Open Opificium, go to **BENCH → THE TERRAIN**, press **OPEN A WORLD…** and pick
-`assets/world/heightmap.png`. The folder it sits in is the world; the bench
-remembers it between sessions.
+The **same tool is also a bench in [Opificium](https://github.com/Baz-Studios-LLC/Opificium)**,
+the studio's maker's bench, for shaping a world without opening the game.
 
-A world is **not an Opificium project**. The other benches work on one game's
-authored content and are pointed at it when the app opens; the terrain bench is
-a tool you bring ground to, the way you bring an image to the kiln. Nothing in
-this repository needs an `opificium.json`.
+### The brush belongs to neither of them
 
-### What passes between them
+It lives in **[`terrain-core`](https://github.com/Baz-Studios-LLC/terrain-core)**,
+a crate with no engine in it, which both programs link. So does the world
+generation, the forest scatter and the tree growing. That is the whole
+arrangement: two programs, one answer about what the ground is.
 
-Two programs, no shared code, only files. The layout of each is written down in
-Opificium's `FORMATS.md`.
+It was not always. The generation was written twice and the copies had to agree
+exactly — a digit out of place in a hash gave the bench one world and the game
+another, with no error and nothing failing. It was held together by tests pinning
+literal numbers copied from one program into the other. Written once, they cannot
+disagree at all.
+
+This is what the studios do: the editor is built **on top of the game's own
+runtime**, not beside it, and the world code exists once. `src/editor/` here is
+the *mode* — aiming, gestures, the panel, telling chunks to mesh again. None of
+it shapes ground; it drives something that does.
+
+### What passes between the two programs
+
+Files, and only files. The layout of each is written down in Opificium's
+`FORMATS.md`.
 
 | File | Direction | What it is |
 | --- | --- | --- |
 | `assets/world/heightmap.png` | game → bench | The map the world is drawn from |
 | `assets/world/world.json` | game → bench | The recipe: every number in `config.rs` that shapes the ground |
-| `assets/world/edits.bin` | bench → game | Sculpted ground, as signed height offsets |
+| `assets/world/edits.bin` | both ways | Sculpted ground, as signed height offsets |
+| `assets/world/forest.bin` | both ways | Painted woods, as signed bias — zero leaves the ground's own answer alone |
 
 `world.json` is exported by a test in `config.rs`:
 
@@ -295,6 +309,10 @@ cargo test export_world_for_opificium -- --ignored --nocapture
 ```
 sculpt at Opificium  →  Ctrl+S  →  assets/world/edits.bin  →  next launch
 ```
+
+Sculpting *here* needs no such trip — the mode writes the same file the game read
+at startup, and the ground under the brush is already the ground you are standing
+on. The bench route is for shaping a world without opening the game at all.
 
 The game reads `edits.bin` **once, at startup**. So:
 
@@ -316,13 +334,28 @@ offsets landing in the wrong places would be worse than none. The F3 overlay
 shows how many sculpted cells actually loaded, so a refusal is visible without
 reading the log.
 
-### Why it moved out
+### Why it left, and why it came back
 
-It was built here first, as a mode behind this game's main menu, and worked. It
-moved because the tool is not this game's: Opificium is where the studio's
-authoring lives, and a sculpting tool that only one game can run is one every
-other game has to rebuild. Keeping it in both would have meant the same tool
-twice, in two Bevy versions, drifting apart.
+It was built here first, as a mode behind this game's main menu. It moved out
+because a sculpting tool only one game can run is one every other game has to
+rebuild — Opificium is where the studio's authoring lives.
+
+That was right about the tool and wrong about the *code*. Moving the mode moved
+the world generation with it, and the world generation is what the game is made
+of, so it existed twice: two programs on two Bevy versions, kept in step by hand.
+
+`terrain-core` is the answer to that, and once it existed the mode could come
+home. Shaping ground you are standing in, at the height you will walk it, beats
+shaping it in another program and relaunching to see. Both are still true at
+once — the bench is there when a world wants shaping on its own.
+
+### Not done yet
+
+* **Planting has no undo.** The woods keep no history, so `Ctrl+Z` is the
+  ground's alone whichever tool is selected. Clearing what you planted is the way
+  back, and it is not the same thing.
+* **Nothing about a tree's *look*** can be changed here. The knobs are exported in
+  `world.json`; no shelf reads them.
 
 ## 6. Invariants
 
@@ -395,26 +428,50 @@ src/
     biome.rs     height + slope + moisture → surface color
     chunk.rs     chunk mesh construction
     stream.rs    background generation, load and unload
-    edit.rs      the hand-sculpted offset layer, and its save format
+    edit.rs      where edits.bin lives — the brush itself is in terrain-core
+    forest.rs    where forest.bin lives — the scatter is in terrain-core too
     water.rs     the sea
   player.rs      the ranger and their controller
   camera.rs      orbit follow rig + free-fly
   editor/
-    mod.rs       the terrain tool: raycast, brush, undo, live re-mesh
+    mod.rs       the terrain mode: raycast, gestures, live re-mesh
     theme.rs     its visual language: palette, font, shared fragments
     ui.rs        sidebar, live readouts, confirmation toasts
     minimap.rs   the world overview and camera marker
   sky.rs         sun, ambient, fog constants
   hud.rs         F3 debug overlay
 assets/
-  world/         heightmap.png (the map), edits.bin (hand-sculpted offsets)
+  world/         heightmap.png (the map), edits.bin (ground), forest.bin (woods)
   models/        3D models, as they're made
-  fonts/         optional ui.ttf for the terrain tool
+  fonts/         Cinzel for the terrain tool, with its licence beside it
 ```
 
 ---
 
 ## Change log
+
+**2026-08-14** — **The terrain tool is back in the game**, as *Shape the World*
+on the main menu (§5) — and the brush it drives is now
+[`terrain-core`](https://github.com/Baz-Studios-LLC/terrain-core)'s, the same one
+Opificium's bench drives. Nine tools rather than the six it left with: **erode**
+(thermal, material moves and is never invented or lost), **ramp** (click two
+points for a graded run) and **plant** (paint woods, right button clears) came
+back with it, wearing the bench's colours and its Cinzel-on-near-black look.
+
+The blockage was the crate move, and the crate is the point of it: `Sculpt`,
+`Brushing` and `Stamp` moved out of Opificium into `terrain-core` with the engine
+taken out — bytes in and out instead of paths, no logging, and a pair of corners
+where a `Rect` used to be. `src/world/edit.rs` here is now the thin adapter that
+knows where this game keeps its file, the same shape `world/forest.rs` already
+had. **This is the AAA arrangement**: the editor is built on top of the runtime
+and the world code exists once.
+
+Two things fell out of it. Chunks re-mesh under the brush, which they never did
+before, so `collect_chunks` now **clears a chunk's trees before replanting** —
+without it every stroke doubled the wood and left the old trees hanging at the
+height the hill used to be. And `Ctrl+S` saves **ground and woods together**,
+because they are one afternoon's work and a maker should not have to know there
+are two files.
 
 **2026-08-14** — **Level ground, places, roads and moving water.** Three things:
 
