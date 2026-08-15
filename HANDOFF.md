@@ -12,6 +12,7 @@ what will bite you.
 | --- | --- | --- | --- | --- |
 | `Desktop/ranger-game` | `Baz-Studios-LLC/ranger-game` (**public**) | `main` | **v0.1.2** released | The game. Rust + **Bevy 0.16**, edition 2021 |
 | `Desktop/Opificium` | `Baz-Studios-LLC/Opificium` (public) | `master` | **v0.6.0** released | The studio's maker's bench. Rust + **Bevy 0.19**, edition 2024 |
+| `Desktop/terrain-core` | `Baz-Studios-LLC/terrain-core` (public) | **`master`** | — | The world generation and sculpting brush **both** link. No engine named |
 | `Desktop/baz-studios-launcher` | `Baz-Studios-LLC/baz-studios-launcher` | `main` | — | Tauri launcher; lists both |
 
 **Two different Bevy majors.** Code does not move between them by copy-paste.
@@ -28,7 +29,11 @@ had to be rebased onto.
 
 ## The game ↔ bench contract
 
-They **share no code, only files**. Documented in Opificium's `FORMATS.md`.
+They share **`terrain-core`** — the world generation, the forest scatter, the
+tree growing and the sculpting brush — and otherwise only **files**, documented
+in Opificium's `FORMATS.md`. A change to the crate reaches both with
+`cargo update -p terrain-core`; anything not in the crate still has to be
+written twice.
 
 | File | Direction | What |
 | --- | --- | --- |
@@ -94,55 +99,54 @@ disk, never a requirement.
 
 ---
 
-## DECIDED: the editor comes back into the game
+## DONE: the editor is back in the game
 
-**This is the next architectural job, and it reverses an earlier decision.**
+**This reversed an earlier decision, and it is finished.** *Shape the World*, on
+the main menu, nine brushes on keys 1–9.
 
-The terrain tool started in the game, moved out to Opificium mid-session, and is
-coming back — because that is what studios actually do. Unreal's Landscape and
+The terrain tool started in the game, moved out to Opificium mid-session, and
+came back — because that is what studios actually do. Unreal's Landscape and
 Unity's terrain are runtime systems the editor wraps tooling around, gated behind
 `WITH_EDITOR` / `#if UNITY_EDITOR` and stripped from shipping builds. The editor
 is built ON TOP of the game, one codebase. What moves between editor and game is
 data, never logic.
 
-Sculpting in the game means no file round-trip, no second app to launch, and no
-chance of the two disagreeing — you change the ground and you are standing on it.
+How it ended up:
 
-### The shape it should take
+* **`terrain-core`** holds everything about the world *including* the editing
+  operations — `sculpt::{Sculpt, Brushing, Stamp}`, the undo stack, `slump`,
+  `ramp` — alongside generation, the forest scatter and the tree growing. It
+  names no engine and must stay that way.
+* **`ranger-game`** has its terrain mode back in `src/editor/`, which is the
+  *mode* only: aiming, gestures, the panel, telling chunks to mesh again. It
+  shapes nothing itself. `src/world/edit.rs` is the thin adapter that knows where
+  this game keeps `edits.bin`, the same shape `world/forest.rs` has.
+* **`Opificium`** keeps its terrain bench, now on the crate too, with its own
+  copies deleted (~1,600 lines) — PR
+  [Opificium#2](https://github.com/Baz-Studios-LLC/Opificium/pull/2). **Do not
+  gut it** — it is released (v0.6.0), other people work in that repo, and it is
+  not in the way.
 
-* **`terrain-core`** holds everything about the world, including the *editing
-  operations* — the brushes, the stamps, undo. It already holds generation.
-  It names no engine and must stay that way.
-* **`ranger-game`** gets its terrain mode back, running those operations directly
-  on its own live world.
-* **`Opificium`** keeps its terrain bench, also on `terrain-core`, for projects
-  that want a standalone tool. **Do not gut it** — it is released (v0.6.0), other
-  people work in that repo, and it is not in the way.
+### The one thing that will bite a future move
 
-### Recovering the old editor rather than rewriting it
+`terrain-core` asks for glam as a **range** (`>=0.29, <0.33`), never a pin. The
+whole crate rests on its `Vec2` being the engine's `Vec2` — Bevy re-exports
+glam's — and every Bevy release carries its own glam. Bevy 0.16 has 0.29, Bevy
+0.19 has 0.32. Pinned to either, the other program links a second glam and the
+compiler spends two dozen errors insisting `Vec2` is not `Vec2`. **Widen the
+upper bound when either program moves to a newer Bevy.**
 
-The in-game editor was deleted in **`e2b7373`** ("The terrain tool moves to
-Opificium"). `e2b7373^` still has all of it:
+### Still open in the tool
 
-```bash
-git show e2b7373^:src/editor/mod.rs      # brushes, gestures, chunk re-cut
-git show e2b7373^:src/editor/ui.rs       # the sidebar
-git show e2b7373^:src/editor/minimap.rs  # world overview
-git show e2b7373^:src/editor/theme.rs
-git checkout e2b7373^ -- src/editor      # bring the lot back
-```
-
-It was written for Bevy 0.16 against this game, so it should mostly still fit.
-What it will need: the newer brushes (Erode, Ramp, Plant) which only ever existed
-in Opificium, and `AppState::Editing` plus its menu entry, both removed in a
-later commit.
-
-### What to move into the crate
-
-Opificium's `src/terrain/edit.rs` is the sculpting layer — `Sculpt`, `Brushing`,
-`Stamp`, the undo stack, `slump`, `ramp`. It is already almost engine-free; it
-uses `Vec2`/`Vec3` (glam) and one `Rect` (swap for a corner pair, as
-`Painted::paint` already does). That file is the bulk of the work.
+* **Planting has no undo.** The woods keep no history, so `Ctrl+Z` is the
+  ground's alone whichever tool is selected. Clearing is the way back.
+* **Nothing about a tree's look** can be adjusted; the knobs ride in `world.json`
+  and no shelf reads them.
+* **`settle.rs` is still written twice** — towns, quotas and roads exist in both
+  programs and must agree. It is the obvious next thing to move into the crate,
+  and the ranch fields (`ranch_x`, `ranch_z`, `ranch_radius`) the game exports
+  are a live example: Opificium's `Recipe` does not read them, so the bench does
+  not level the ranch shelf.
 
 ---
 
@@ -153,18 +157,23 @@ later, not next session. The two are halves of one thing — the bench writes wh
 the game reads — and a bench feature with no game counterpart is a feature
 nobody can play.
 
-This is not automatic and cannot be: **they share no code**, different Bevy
-majors, separate repositories. Only FILES pass between them. So "it was added in
-Opificium" never means the game has it — `forest.bin` carries where woods were
-painted, and the game still needed its own tree grower, its own scatter, and its
-own renderer before a single tree appeared.
+This got much easier, and for the part that is now shared it is automatic: the
+world generation, the forest scatter, the tree growing and the sculpting brush
+all live in `terrain-core` and **both programs link it**. Change the crate, push
+it, `cargo update -p terrain-core` on both sides, and they cannot disagree.
 
-When porting anything that both programs compute independently, write the
-pinning test: take literal numbers OUT of one program and assert them in the
-other. `forest::the_scatter_matches_the_bench_exactly` is the pattern, and
-Opificium's ignored `print_the_scatter` exists to produce those numbers. Do not
-recompute the expected values with a second copy of the same arithmetic — it
-will agree with itself no matter how wrong it is.
+It is not automatic for anything else. Different Bevy majors, separate
+repositories, and only FILES pass between them otherwise — a bench feature whose
+logic is not in the crate still needs writing twice, and `settle.rs` is exactly
+that today.
+
+**For anything that stays written twice**, write the pinning test: take literal
+numbers OUT of one program and assert them in the other. Do not recompute the
+expected values with a second copy of the same arithmetic — it will agree with
+itself no matter how wrong it is. And do not invent the numbers, which is how
+that pattern was first got wrong here: every "expected" value was a guess, and
+every one was wrong. Better still, move the thing into the crate and delete the
+question.
 
 ---
 
@@ -221,14 +230,28 @@ whatever branch is checked out, no release or launcher involved.
 
 ---
 
-## Terrain bench controls
+## Terrain controls
 
-`1`–`8` tools · drag applies · right-drag inverts · `[` `]` radius · `-` `=` strength
+Same nine tools in both places, in the same order, wearing the same colours.
+
+**In the game** — *Shape the World* from the main menu:
+
+`1`–`9` tools · drag applies · right-drag inverts · wheel sizes the brush ·
+`[` `]` strength · `Ctrl+Z`/`Ctrl+Y` undo/redo · `Ctrl+S` saves ground **and**
+woods · `Esc` back to the menu. The camera is free-fly and mouse-look, the way
+the rest of the game flies.
+
+**At the bench** (Opificium):
+
+`1`–`9` tools · drag applies · right-drag inverts · `[` `]` radius · `-` `=` strength
 `Shift`+drag turns the eye · `Shift`+`1`–`6` drafting angles · middle-drag pans · wheel zooms
 `Ctrl+Z`/`Ctrl+Y` undo/redo · `Ctrl+S` saves
 
-**Shift is the camera at this bench** because both mouse buttons are tools.
-Ramp (`8`) is *clicked*, not dragged: start, far end, right-click abandons.
+**Shift is the camera at the bench** because both mouse buttons are tools; the
+game has no such problem, since mouse-look needs no button.
+
+Ramp (`8`) is *clicked* in both, not dragged: start, far end, right-click
+abandons. Plant (`9`) paints woods and never moves earth — right button clears.
 
 ---
 
@@ -236,8 +259,10 @@ Ramp (`8`) is *clicked*, not dragged: start, far end, right-click abandons.
 
 **Done:** the world — map-driven continents, shelving coasts, varied shorelines,
 ruggedness (level plains vs. mountain country), 6 cities + 14 towns on levelled
-ground joined by graded roads, a moving sea with a tide, wading limit. The
-terrain bench with 8 brushes, undo/redo, live re-meshing, whole-world view.
+ground joined by graded roads, a moving sea with a tide, wading limit,
+procedurally grown woods. The terrain tool with 9 brushes, undo/redo, live
+re-meshing and whole-world view — **in the game and at the bench**, both driving
+the same brush out of `terrain-core`.
 
 **The world is deliberately FLAT.** Ranges are 52 m and the inland climb 28 m —
 plains and hills you cross, not terrain that stops you. Pokémon-like, by
@@ -256,77 +281,54 @@ one of the five shared Opificium files this work touches.
 (only their ground exists), 3D models (`assets/models/` is where they will go —
 everything is Bevy primitives now, each a straight swap).
 
-**Trees: built in Opificium, NOT YET IN THE GAME.** `tree.rs` grows them,
-`forest.rs` places them, `chunk.rs` plants them as children of their chunk, and
-PLANT on key 9 adds and clears. Ctrl+S keeps `edits.bin` and `forest.bin`
-together. 126 tests pass.
+**Trees: in both, and grown by the same code.** `terrain_core::tree` grows them,
+`terrain_core::forest` places them, and each program plants them as children of
+their chunk. PLANT on key 9 adds and clears in either place. `Ctrl+S` keeps
+`edits.bin` and `forest.bin` together.
 
-**The port to the game is the next job**, and it is mechanical but real: the
-game needs its own `tree.rs` and `forest.rs` (Bevy 0.16, so no copy-paste — see
-the version note above), the same recipe fields in `config.rs` and its exporter,
-and trees spawned per chunk. Both must scatter identically or the forest differs
-between bench and game. The recipe already carries `tree_spacing`, `treeline`,
-`tree_scale_low/high`.
+### What used to be the sharp edge, and no longer is
 
-### Porting the forest: what must agree EXACTLY
+Where trees stand was written twice, and its failure was silent: both programs
+worked the forest out from scratch, never exchanged a list of trees, and a digit
+out of place in the hash gave the bench one forest and the game another with
+nothing to point at. It was held together by a page of things that had to match
+exactly — the scatter multipliers, the six salts *in order*, the world-wide slot
+lattice, the order `Draw` draws a tree's numbers in, every rejection rule — and
+by tests pinning literal values copied between the programs.
 
-This is the sharp edge, and its failure is silent. Both programs work the forest
-out from scratch and never exchange a list of trees. If any of the following
-differs by so much as a digit, the bench shows one forest and the game grows
-another — no error, no failing test, nothing to point at. Copy these, do not
-retype them.
+**That page is now `terrain-core`.** One implementation, so there is nothing to
+keep in step. The constants are still load-bearing — changing `chance()` moves
+every wood in every world already planted — and the crate guards them with
+`the_scatter_is_what_it_has_always_been`, but it guards them against *accident*
+rather than against the other program.
 
-**The scatter hash** — `forest::chance(x, z, salt)`, multipliers
-`0x8da6_b343`, `0xd8163841`, `0xcb1a_b31f`, then the same three-round mix
-(`>>16`, `*0x7feb_352d`, `>>15`, `*0x846c_a68b`, `>>16`) divided by `u32::MAX`.
+What still has to agree is the RECIPE, because each side reads its own
+`world.json`: `tree_spacing` 14.0, `treeline` 150.0, `tree_scale_low` 0.75,
+`tree_scale_high` 1.35. Re-export it whenever a world-shaping constant changes.
 
-**The salts, in this order and no other.** 1 and 2 are the jitter off the
-lattice, 3 the density roll, 4 the variety, 5 the turn, 6 the scale. Renumbering
-them reshuffles the whole forest.
-
-**The slot lattice is world-wide, not per chunk** — `floor(position /
-tree_spacing)` in world space. Anchor it to a chunk and every tree moves when
-the chunk boundaries do.
-
-**The tree seeds.** `tree::grow(seed)` for `seed` in `0..VARIETIES`, and `Draw`
-must draw its numbers in the SAME ORDER — height, foot, taper, sides, limbs,
-limbs_from, spread, limb_length, forks, leaf. Reorder those lines and every tree
-in the pool changes shape.
-
-**The recipe fields**, already exported: `tree_spacing` 14.0, `treeline` 150.0,
-`tree_scale_low` 0.75, `tree_scale_high` 1.35.
-
-**The rejection rules**, in `natural_density` and the guards around it: shore
-< 25 m rejects, then moisture, treeline, slope and levelled ground multiply.
-
-A test worth writing on the game side: plant a known patch and assert the tree
-count and the first few positions against numbers taken from the bench. That
-turns a silent divergence into a red test.
-
-**Also not done: shelf controls for how trees LOOK.** The knobs exist in the
-recipe and bark/leaf take the game's ramps; there is no UI to turn them without
-editing `world.json`.
+**Not done: shelf controls for how trees LOOK.** The knobs exist in the recipe
+and bark/leaf take the game's ramps; there is no UI to turn them without editing
+`world.json`.
 
 The design, so a fresh session does not redesign it:
 
-* **Auto-placed first, then adjustable.** Both programs work out a *base*
-  density from the ground itself — moisture, height under the treeline, gentle
-  slope, clear of the beach, and clear of the levelled ground under towns and
-  roads. Nobody hand-plants 16 km² of forest.
-* **A painted layer on top**, exactly the shape `edits.bin` already has: a grid
-  of signed bias in −1..+1 where **0 means leave the automatic answer alone**,
-  +1 forces forest and −1 forces cleared. Saved as `assets/world/forest.bin`,
-  written by the bench, read by the game. Same reasoning as offsets-not-heights:
-  re-tune the automatic placement and hand-painted woods stay where they were put.
-* **Scattered deterministically** from a hash of position, so both programs grow
-  the same forest with no list of trees passing between them.
+* **Auto-placed first, then adjustable.** The base density comes from the ground
+  itself — moisture, height under the treeline, gentle slope, clear of the beach,
+  and clear of the levelled ground under towns and roads. Nobody hand-plants
+  16 km² of forest.
+* **A painted layer on top**, exactly the shape `edits.bin` has: signed bias in
+  −1..+1 where **0 means leave the automatic answer alone**. Same reasoning as
+  offsets-not-heights: re-tune the automatic placement and hand-painted woods
+  stay where they were put.
+* **Scattered deterministically** from a hash of position, so no list of trees
+  passes between the programs.
 * **Geometry is grown, not modelled**: a tapered trunk, branches recursed off it
   from the tree's own seed, then leaf clusters at the tips.
 * **A pool of variants, not a mesh per tree.** Thousands of unique meshes is not
-  affordable; ~16–24 grown variants, each instanced with its own rotation and
-  scale, reads as "every tree different" and costs almost nothing. This is a
-  deliberate trade and worth stating to the user rather than implying every
-  single tree is unique.
+  affordable; 20 grown variants, each instanced with its own rotation and scale,
+  reads as "every tree different" and costs almost nothing. This is a deliberate
+  trade and worth stating to the user rather than implying every single tree is
+  unique.
 
 **Next after that, if wanted** (researched, not built): hydraulic erosion,
 terrace, stamp, brush falloff control, slope/height masks. Unreal and Unity both
