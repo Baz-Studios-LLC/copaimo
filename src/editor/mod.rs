@@ -69,11 +69,32 @@ pub struct Brush {
     flatten_target: f32,
     /// Whether a stroke is currently open, for undo grouping.
     stroking: bool,
+    /// Which layer the open stroke was started on. The tool can change
+    /// mid-drag, so closing goes by this rather than by what is selected now.
+    strokes: Layer,
     /// The first end of a ramp, once it has been clicked. A ramp is laid
     /// between two points rather than dragged, so it needs somewhere to
     /// remember the first one.
     pub ramp_from: Option<Vec3>,
+    /// Which layer each stroke went to, oldest first.
+    ///
+    /// The ground and the woods keep their own histories, and neither can know
+    /// about the other. Undo means "take back the last thing I did", so
+    /// something has to remember what that was — otherwise pressing it after
+    /// planting silently reaches past the wood and takes back a hillside.
+    order: Vec<Layer>,
 }
+
+/// Which of the two painted layers a stroke touched.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Layer {
+    Ground,
+    Woods,
+}
+
+/// As deep as either layer's own history. Beyond this the layer has forgotten
+/// the stroke anyway, so remembering that it happened would only mislead.
+const ORDER_DEPTH: usize = 64;
 
 impl Default for Brush {
     fn default() -> Self {
@@ -84,7 +105,19 @@ impl Default for Brush {
             hit: None,
             flatten_target: 0.0,
             stroking: false,
+            strokes: Layer::Ground,
             ramp_from: None,
+            order: Vec::new(),
+        }
+    }
+}
+
+impl Brush {
+    /// Remembers that a stroke landed, so undo knows where to look.
+    fn stroked(&mut self, layer: Layer) {
+        self.order.push(layer);
+        if self.order.len() > ORDER_DEPTH {
+            self.order.remove(0);
         }
     }
 }
@@ -219,24 +252,49 @@ fn paint(
     let painting = buttons.pressed(MouseButton::Left) || inverted;
 
     // Open and close the undo group around the whole drag, so a stroke lasting
-    // two hundred frames undoes in one step rather than two hundred.
-    //
-    // Not for planting: that writes to the woods, which keep no history at all,
-    // so opening a group over the GROUND for it would only push empty strokes
-    // onto a stack the ground's own undo reads. Undo remains the ground's, and
-    // means the same thing whichever tool happens to be selected — planting and
-    // clearing simply aren't on it yet.
-    let on_the_ground = !brush.how.is_planting();
-    if painting && !brush.stroking && on_the_ground {
-        if let Ok(mut edits) = terrain.edits().write() {
-            edits.begin_stroke();
+    // two hundred frames undoes in one step rather than two hundred. Whichever
+    // layer the tool writes to keeps its own, and `brush.order` remembers which
+    // it was so undo can find it again.
+    let layer = if brush.how.is_planting() {
+        Layer::Woods
+    } else {
+        Layer::Ground
+    };
+
+    if painting && !brush.stroking {
+        match layer {
+            Layer::Ground => {
+                if let Ok(mut edits) = terrain.edits().write() {
+                    edits.begin_stroke();
+                }
+            }
+            Layer::Woods => {
+                if let Ok(mut woods) = terrain.woods().write() {
+                    woods.begin_stroke();
+                }
+            }
         }
         brush.stroking = true;
+        brush.strokes = layer;
         brush.flatten_target = brush.hit.map_or(0.0, |hit| hit.y);
     } else if !painting && brush.stroking {
-        if let Ok(mut edits) = terrain.edits().write() {
-            edits.end_stroke();
+        // Closed against the layer the stroke OPENED on, not the one selected
+        // now — the tool can be changed mid-drag, and closing the wrong layer
+        // would leave a group open forever and lose the drag.
+        match brush.strokes {
+            Layer::Ground => {
+                if let Ok(mut edits) = terrain.edits().write() {
+                    edits.end_stroke();
+                }
+            }
+            Layer::Woods => {
+                if let Ok(mut woods) = terrain.woods().write() {
+                    woods.end_stroke();
+                }
+            }
         }
+        let closed = brush.strokes;
+        brush.stroked(closed);
         brush.stroking = false;
     }
 
@@ -330,6 +388,7 @@ fn lay_ramp(
         patch
     };
 
+    brush.stroked(Layer::Ground);
     toast.show(format!("Ramp laid, {:.0} m", from.distance(hit)));
     invalidate_area(&mut commands, &terrain, &chunks, &busy, patch);
 }
@@ -340,6 +399,7 @@ fn history(
     terrain: Res<TerrainSource>,
     chunks: Res<ChunkMap>,
     busy: Query<(), With<PendingChunk>>,
+    mut brush: ResMut<Brush>,
     mut toast: ResMut<ui::Toast>,
 ) {
     let control = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
@@ -356,21 +416,56 @@ fn history(
         return;
     }
 
-    let area = {
-        let Ok(mut edits) = terrain.edits().write() else {
-            return;
-        };
-        if undo {
-            edits.undo()
-        } else {
-            edits.redo()
+    // Which layer to reach into. Undoing takes the last stroke off the end;
+    // redoing puts one back, so it goes to whichever layer would be next.
+    let layer = if undo {
+        brush.order.pop()
+    } else {
+        let ground = terrain.edits().read().is_ok_and(|edits| edits.can_redo());
+        let woods = terrain.woods().read().is_ok_and(|woods| woods.can_redo());
+        // Only one can be ambiguous, and only after undoing across both. The
+        // ground wins that tie because it is what most of the work is.
+        match (ground, woods) {
+            (true, _) => Some(Layer::Ground),
+            (false, true) => Some(Layer::Woods),
+            (false, false) => None,
         }
     };
 
-    match area {
-        Some(area) => {
-            toast.show(if undo { "Undone" } else { "Redone" });
-            invalidate_area(&mut commands, &terrain, &chunks, &busy, area);
+    let patch = match layer {
+        Some(Layer::Ground) => terrain.edits().write().ok().and_then(|mut edits| {
+            if undo {
+                edits.undo()
+            } else {
+                edits.redo()
+            }
+        }),
+        Some(Layer::Woods) => terrain.woods().write().ok().and_then(|mut woods| {
+            if undo {
+                woods.undo()
+            } else {
+                woods.redo()
+            }
+        }),
+        None => None,
+    };
+
+    match patch {
+        Some(patch) => {
+            if !undo {
+                if let Some(layer) = layer {
+                    brush.stroked(layer);
+                }
+            }
+            toast.show(match (undo, layer) {
+                // Named, because taking back a hillside and taking back a wood
+                // look nothing alike and the wood may be behind you.
+                (true, Some(Layer::Woods)) => "Planting undone",
+                (true, _) => "Undone",
+                (false, Some(Layer::Woods)) => "Planting redone",
+                (false, _) => "Redone",
+            });
+            invalidate_area(&mut commands, &terrain, &chunks, &busy, patch);
         }
         // Say so rather than doing nothing — a dead shortcut and an empty
         // history look identical otherwise.

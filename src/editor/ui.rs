@@ -461,7 +461,7 @@ fn refresh_readouts(
     mut readouts: Query<(&Readout, &mut Text)>,
     mut unsaved: Query<&mut BackgroundColor, With<UnsavedMark>>,
 ) {
-    let (cells, is_unsaved, undo_depth, redo_depth) =
+    let (cells, is_unsaved, ground_undo, ground_redo) =
         terrain
             .edits()
             .read()
@@ -473,6 +473,13 @@ fn refresh_readouts(
                     edits.can_redo(),
                 )
             });
+    // Both layers, because the key reaches into either — a readout that only
+    // watched the ground would say "nothing to undo" with a wood still standing.
+    let (woods_undo, woods_redo) = terrain
+        .woods()
+        .read()
+        .map_or((false, false), |woods| (woods.can_undo(), woods.can_redo()));
+    let (undo_depth, redo_depth) = (ground_undo || woods_undo, ground_redo || woods_redo);
 
     for mut background in &mut unsaved {
         background.0 = if is_unsaved { UNSAVED } else { Color::NONE };

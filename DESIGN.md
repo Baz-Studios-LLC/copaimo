@@ -349,13 +349,25 @@ home. Shaping ground you are standing in, at the height you will walk it, beats
 shaping it in another program and relaunching to see. Both are still true at
 once — the bench is there when a world wants shaping on its own.
 
+### Undo reaches into both layers
+
+The ground and the woods keep separate histories and neither can know about the
+other, so the mode remembers the **order** strokes landed in and sends `Ctrl+Z`
+to whichever layer the last one touched. Undo means "take back the last thing I
+did" or it means nothing.
+
+Clearing what you planted is not a substitute, which is why this was worth
+building rather than documenting away: clearing *writes* negative bias, forcing
+bare ground and holding it bare. Zero — no decision, the ground answering for
+itself — is only reachable by undoing.
+
 ### Not done yet
 
-* **Planting has no undo.** The woods keep no history, so `Ctrl+Z` is the
-  ground's alone whichever tool is selected. Clearing what you planted is the way
-  back, and it is not the same thing.
 * **Nothing about a tree's *look*** can be changed here. The knobs are exported in
   `world.json`; no shelf reads them.
+* **`world/settle.rs` is still written twice**, once here and once at the bench.
+  Towns, quotas and roads have to agree, and nothing enforces it. It is the
+  obvious next thing to move into `terrain-core`.
 
 ## 6. Invariants
 
@@ -472,6 +484,14 @@ without it every stroke doubled the wood and left the old trees hanging at the
 height the hill used to be. And `Ctrl+S` saves **ground and woods together**,
 because they are one afternoon's work and a maker should not have to know there
 are two files.
+
+Then **planting learned to be taken back**. It shipped in the pass above with no
+history at all, so `Ctrl+Z` after growing a wood either did nothing or reached
+past it and took back a hillside. The ground and the woods want the *same* undo,
+so it is written once as `terrain_core`'s `History` and both layers own one;
+`Sculpt` lost about forty lines to it. The mode remembers which layer each stroke
+went to, so the key means "the last thing I did" rather than "the last thing I
+did to the ground".
 
 **2026-08-14** — **Level ground, places, roads and moving water.** Three things:
 

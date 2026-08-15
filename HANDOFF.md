@@ -138,8 +138,6 @@ upper bound when either program moves to a newer Bevy.**
 
 ### Still open in the tool
 
-* **Planting has no undo.** The woods keep no history, so `Ctrl+Z` is the
-  ground's alone whichever tool is selected. Clearing is the way back.
 * **Nothing about a tree's look** can be adjusted; the knobs ride in `world.json`
   and no shelf reads them.
 * **`settle.rs` is still written twice** — towns, quotas and roads exist in both
