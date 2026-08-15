@@ -94,6 +94,58 @@ disk, never a requirement.
 
 ---
 
+## DECIDED: the editor comes back into the game
+
+**This is the next architectural job, and it reverses an earlier decision.**
+
+The terrain tool started in the game, moved out to Opificium mid-session, and is
+coming back — because that is what studios actually do. Unreal's Landscape and
+Unity's terrain are runtime systems the editor wraps tooling around, gated behind
+`WITH_EDITOR` / `#if UNITY_EDITOR` and stripped from shipping builds. The editor
+is built ON TOP of the game, one codebase. What moves between editor and game is
+data, never logic.
+
+Sculpting in the game means no file round-trip, no second app to launch, and no
+chance of the two disagreeing — you change the ground and you are standing on it.
+
+### The shape it should take
+
+* **`terrain-core`** holds everything about the world, including the *editing
+  operations* — the brushes, the stamps, undo. It already holds generation.
+  It names no engine and must stay that way.
+* **`ranger-game`** gets its terrain mode back, running those operations directly
+  on its own live world.
+* **`Opificium`** keeps its terrain bench, also on `terrain-core`, for projects
+  that want a standalone tool. **Do not gut it** — it is released (v0.6.0), other
+  people work in that repo, and it is not in the way.
+
+### Recovering the old editor rather than rewriting it
+
+The in-game editor was deleted in **`e2b7373`** ("The terrain tool moves to
+Opificium"). `e2b7373^` still has all of it:
+
+```bash
+git show e2b7373^:src/editor/mod.rs      # brushes, gestures, chunk re-cut
+git show e2b7373^:src/editor/ui.rs       # the sidebar
+git show e2b7373^:src/editor/minimap.rs  # world overview
+git show e2b7373^:src/editor/theme.rs
+git checkout e2b7373^ -- src/editor      # bring the lot back
+```
+
+It was written for Bevy 0.16 against this game, so it should mostly still fit.
+What it will need: the newer brushes (Erode, Ramp, Plant) which only ever existed
+in Opificium, and `AppState::Editing` plus its menu entry, both removed in a
+later commit.
+
+### What to move into the crate
+
+Opificium's `src/terrain/edit.rs` is the sculpting layer — `Sculpt`, `Brushing`,
+`Stamp`, the undo stack, `slump`, `ramp`. It is already almost engine-free; it
+uses `Vec2`/`Vec3` (glam) and one `Rect` (swap for a corner pair, as
+`Painted::paint` already does). That file is the bulk of the work.
+
+---
+
 ## The working rule: the bench and the game move together
 
 **Anything added to Opificium gets ported to the game in the same pass.** Not
