@@ -1,6 +1,14 @@
 [package]
 name = "ranger-game"
-version = "0.1.0"
+# Kept in step with the released tag by hand. The workflow takes the version
+# from the tag, not from here, so this being stale costs nothing but reads as a
+# lie in `cargo` output.
+#
+# PATCH by default, and mean it. This is a long game and almost nothing that
+# happens in a session is a minor version: a release that adds forests, the
+# terrain tool and a building reader is still 0.1.x. Save the bigger numbers for
+# when the game is a different game.
+version = "0.1.3"
 edition = "2021"
 
 [dependencies]

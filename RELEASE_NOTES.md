@@ -1,27 +1,34 @@
-## The world
+## Woods, a ranch, and the terrain tool back in the game
 
-There is a world to walk and nothing yet to do in it — no monsters, no ranch, no
-guild exams. What this release is for is judging the ground.
+Still a world to walk and nothing yet to do in it — no monsters, no battles, no
+guild exams. What this release adds is things standing *on* the ground, and the
+means to shape it without leaving.
 
-**An 8 km continent**, traced from a hand-drawn map and streamed as you go. The
-map decides where the land is; everything on it is generated from that, and the
-whole of it ends in open ocean rather than at a wall.
+**Forests.** Trees are grown rather than modelled: a trunk that tapers and leans,
+limbs that fork off it at their own angles, leaf clusters at the ends. Twenty
+varieties from 6 m to 17 m, spires through to broad spreading trees, each wearing
+its own green. Where they stand is decided by the ground itself — moisture, slope,
+height under the treeline, and clear of beaches, roads and the levelled ground
+under towns.
 
-**Coasts that shelve.** Land climbs a beach's width from the waterline; the sea
-floor falls away over a shelf. Some stretches are sand, some are rock — a coast
-is beach where the sea has somewhere to put sediment, and stone where it hasn't.
+**A flatter country with one mountain.** Most of the map is plains and hills you
+cross rather than terrain that stops you. Against that stands a single massif,
+340 m and about a kilometre across, in whatever part of the map is furthest from
+the sea. It is *found*, not placed — redraw the map and it moves to the new
+heartland.
 
-**Level country, and mountains where mountains belong.** Most of the map is plain
-enough for forest, farmland and walking. Ranges sit inland, along ridge lines,
-never rising straight out of the sea.
+**The ranch.** Your farm's ground is levelled on the north-west coast, and you
+now start there rather than in the middle of nowhere.
 
-**Six cities and fourteen towns**, each with ground levelled for it, joined by
-graded roads that climb steadily enough to be walked and carted. Nothing is built
-on them yet — this is ground, prepared.
+**Shape the World**, on the main menu. The terrain tool is back in the game: nine
+brushes — raise, lower, smooth, flatten, path, roughen, erode, ramp and plant —
+with live re-meshing under the brush, undo and redo, and a whole-world view. It
+is the same tool as Opificium's terrain bench, driving the same code, so ground
+shaped in either place is shaped identically.
 
-**A sea that moves**, with a tide that walks the waterline up the beach and back.
-You can wade to about your waist; past that the water turns you back. Boats come
-later.
+**Buildings can come in from the bench.** Houses, signs and bridges drawn at
+Opificium's builder can be read and stood on the ground. One goes up at each town
+site for now — laying out a street is a job for later.
 
 ### Testing on macOS
 
@@ -51,10 +58,15 @@ to see the shape of the place. `F3` hides the overlay. `Esc` for the menu.
 
 ### Shaping it
 
-The world is sculpted in **[Opificium](https://github.com/Baz-Studios-LLC/Opificium)**,
-the studio's maker's bench, at its terrain bench — not in the game. This build
-reads what that writes.
+**Shape the World** from the main menu. `1`–`9` pick a tool, drag to apply, right
+drag inverts, the wheel sizes the brush and `[` `]` set its strength. `Ctrl+Z`
+and `Ctrl+Y` take strokes back and put them again; `Ctrl+S` saves the ground and
+the woods together. Ramp is *clicked* rather than dragged — one end, then the
+other.
 
-**Since v0.1.0:** the menu's Terrain Tool button is gone. Sculpting moved out to
-the bench, and the button had been left behind pointing at a mode with nothing in
-it. See `DESIGN.md` for how a change at the bench reaches the game.
+Sculpting is read at startup, so relaunch to walk what you shaped. An installed
+build has its own copy of the world, so shaping one does not change the other.
+
+The same tool is also a bench in
+**[Opificium](https://github.com/Baz-Studios-LLC/Opificium)**, for shaping a
+world without opening the game. See `DESIGN.md`.
