@@ -13,17 +13,24 @@ pub enum AppState {
     #[default]
     Menu,
     /// Walking the world as the ranger.
-    ///
-    /// The only mode there is. There was a third — the terrain sculpting tool —
-    /// and it moved out to Opificium, the studio's maker's bench. The game reads
-    /// the ground that writes; it does not shape it. See `DESIGN.md`.
     Playing,
+    /// Shaping the ground, in the game, on the live world.
+    ///
+    /// It lived here, moved out to Opificium, and came back — because that is
+    /// how studios do it. Unreal's Landscape and Unity's terrain are runtime
+    /// systems the editor wraps tooling around, one codebase, editor-only parts
+    /// stripped from shipping builds. Sculpting in the game means no file
+    /// round-trip and no second program to keep in step: you change the ground
+    /// and you are standing on it.
+    ///
+    /// Opificium keeps its own bench for other projects. Both run `terrain-core`.
+    Editing,
 }
 
 impl AppState {
     /// Whether this state drives a first-person-style cursor grab.
     fn captures_cursor(self) -> bool {
-        matches!(self, AppState::Playing)
+        matches!(self, AppState::Playing | AppState::Editing)
     }
 }
 
@@ -34,6 +41,7 @@ impl Plugin for StatesPlugin {
         app.init_state::<AppState>()
             .add_systems(OnEnter(AppState::Menu), apply_cursor)
             .add_systems(OnEnter(AppState::Playing), apply_cursor)
+            .add_systems(OnEnter(AppState::Editing), apply_cursor)
             .add_systems(Update, escape_to_menu.run_if(not(in_state(AppState::Menu))));
     }
 }
