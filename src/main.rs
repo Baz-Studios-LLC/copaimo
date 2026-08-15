@@ -22,6 +22,7 @@
 
 mod camera;
 mod config;
+mod editor;
 mod hud;
 mod menu;
 mod player;
@@ -53,6 +54,7 @@ fn main() {
             player::PlayerPlugin,
             camera::CameraPlugin,
             menu::MenuPlugin,
+            editor::EditorPlugin,
             hud::HudPlugin,
         ))
         .run();

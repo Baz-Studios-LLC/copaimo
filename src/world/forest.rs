@@ -11,6 +11,7 @@
 
 use bevy::log::{info, warn};
 use bevy::prelude::*;
+use std::io;
 use std::path::Path;
 
 use crate::config::FOREST_PATH;
@@ -47,4 +48,17 @@ pub fn load(half: Vec2) -> Painted {
             Painted::empty(half)
         }
     }
+}
+
+/// Writes the planted woods back.
+///
+/// The bench once had a writer, a passing round-trip test, and nothing calling
+/// it — so an afternoon's planting went away on restart. Saving the ground and
+/// saving the woods happen together, in one keystroke, for that reason.
+pub fn save(painted: &Painted) -> io::Result<()> {
+    let path = Path::new(FOREST_PATH);
+    if let Some(folder) = path.parent() {
+        std::fs::create_dir_all(folder)?;
+    }
+    std::fs::write(path, painted.to_bytes())
 }

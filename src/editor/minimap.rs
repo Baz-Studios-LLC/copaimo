@@ -1,0 +1,292 @@
+//! World overview for the terrain tool.
+//!
+//! An 8 km world is far too big to navigate by flying and hoping. This renders
+//! the whole map top-down, marks where the camera is, and refreshes itself as
+//! you sculpt — so you can see the coastline you're shaping in context instead
+//! of only ever seeing the few hundred meters in front of you.
+//!
+//! It's built on a background thread, the same as chunk meshes. Sampling the
+//! heightfield tens of thousands of times is far too slow for a frame, and a
+//! tool that hitches every time it updates is a tool people stop trusting.
+
+use bevy::asset::RenderAssetUsages;
+use bevy::prelude::*;
+use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use bevy::tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task};
+
+use crate::camera::MainCamera;
+use crate::editor::theme::{self, UiFont, TEXT_DIM, TEXT_MUTED};
+use crate::states::AppState;
+use crate::world::biome::surface_color;
+use crate::world::terrain::{Terrain, TerrainSource};
+
+/// Width of the rendered overview in pixels. The height follows the world's
+/// aspect ratio.
+const WIDTH: u32 = 256;
+
+/// How long the edit layer must sit unchanged before the overview redraws.
+/// Without this it would queue a rebuild on every frame of a drag.
+const QUIET_PERIOD: f32 = 1.2;
+
+#[derive(Resource, Default)]
+struct Minimap {
+    /// Sculpted-cell count at the last redraw, for spotting changes.
+    last_cells: usize,
+    /// Seconds since the edit layer last changed.
+    quiet: f32,
+    building: bool,
+}
+
+#[derive(Component)]
+struct MinimapImage;
+
+#[derive(Component)]
+struct MinimapMarker;
+
+#[derive(Component)]
+struct MinimapRoot;
+
+/// A finished overview: raw RGBA and the dimensions it was rendered at.
+#[derive(Component)]
+struct MinimapTask(Task<(UVec2, Vec<u8>)>);
+
+pub struct MinimapPlugin;
+
+impl Plugin for MinimapPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<Minimap>()
+            .add_systems(OnEnter(AppState::Editing), (spawn_panel, request_redraw))
+            .add_systems(OnExit(AppState::Editing), despawn_panel)
+            .add_systems(
+                Update,
+                (track_edits, collect_redraw, place_marker).run_if(in_state(AppState::Editing)),
+            );
+    }
+}
+
+/// Pixel dimensions of the overview for a world of the given half-extents.
+fn dimensions(half: Vec2) -> UVec2 {
+    let height = (WIDTH as f32 * half.y / half.x).round().max(1.0) as u32;
+    UVec2::new(WIDTH, height)
+}
+
+fn spawn_panel(mut commands: Commands, font: Res<UiFont>, terrain: Res<TerrainSource>) {
+    let size = dimensions(terrain.half());
+
+    commands
+        .spawn((
+            MinimapRoot,
+            Node {
+                position_type: PositionType::Absolute,
+                right: Val::Px(16.0),
+                top: Val::Px(16.0),
+                flex_direction: FlexDirection::Column,
+                padding: UiRect::all(Val::Px(10.0)),
+                row_gap: Val::Px(7.0),
+                ..default()
+            },
+            BackgroundColor(theme::PANEL),
+        ))
+        .with_children(|panel| {
+            panel
+                .spawn(Node {
+                    // Sized to the map below rather than 100%: the panel's own
+                    // width is driven by its content, so a percentage width
+                    // here would collapse to the text and leave the title and
+                    // the scale label touching.
+                    width: Val::Px(size.x as f32),
+                    justify_content: JustifyContent::SpaceBetween,
+                    ..default()
+                })
+                .with_children(|bar| {
+                    bar.spawn((
+                        Text::new("WORLD OVERVIEW"),
+                        font.at(11.0),
+                        TextColor(TEXT_DIM),
+                    ));
+                    bar.spawn((
+                        Text::new(format!("{:.0} km", terrain.half().x * 2.0 / 1000.0)),
+                        font.at(11.0),
+                        TextColor(TEXT_MUTED),
+                    ));
+                });
+
+            // The image and the marker share a parent so the marker can be
+            // positioned as a straight percentage of the map's own box.
+            panel
+                .spawn(Node {
+                    width: Val::Px(size.x as f32),
+                    height: Val::Px(size.y as f32),
+                    ..default()
+                })
+                .with_children(|frame| {
+                    frame.spawn((
+                        MinimapImage,
+                        ImageNode::new(Handle::default()),
+                        Node {
+                            width: Val::Percent(100.0),
+                            height: Val::Percent(100.0),
+                            ..default()
+                        },
+                    ));
+                    frame.spawn((
+                        MinimapMarker,
+                        Node {
+                            position_type: PositionType::Absolute,
+                            width: Val::Px(7.0),
+                            height: Val::Px(7.0),
+                            margin: UiRect {
+                                left: Val::Px(-3.5),
+                                top: Val::Px(-3.5),
+                                ..default()
+                            },
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgb(1.0, 0.30, 0.35)),
+                    ));
+                });
+        });
+}
+
+fn despawn_panel(mut commands: Commands, roots: Query<Entity, With<MinimapRoot>>) {
+    for entity in &roots {
+        commands.entity(entity).despawn();
+    }
+}
+
+/// Queues a background render of the whole world.
+fn request_redraw(mut commands: Commands, terrain: Res<TerrainSource>, mut state: ResMut<Minimap>) {
+    if state.building {
+        return;
+    }
+    state.building = true;
+
+    let generator = terrain.0.clone();
+    let size = dimensions(terrain.half());
+    let task = AsyncComputeTaskPool::get().spawn(async move { (size, render(&generator, size)) });
+    commands.spawn(MinimapTask(task));
+}
+
+/// Redraws once the edit layer has been quiet for a moment.
+fn track_edits(
+    commands: Commands,
+    time: Res<Time>,
+    terrain: Res<TerrainSource>,
+    mut state: ResMut<Minimap>,
+) {
+    let cells = terrain
+        .edits()
+        .read()
+        .map_or(state.last_cells, |edits| edits.sculpted_cells());
+
+    if cells != state.last_cells {
+        state.last_cells = cells;
+        state.quiet = 0.0;
+        return;
+    }
+
+    // Only counts once there's something to redraw for.
+    if state.quiet >= QUIET_PERIOD {
+        return;
+    }
+    state.quiet += time.delta_secs();
+    if state.quiet >= QUIET_PERIOD {
+        request_redraw(commands, terrain, state);
+    }
+}
+
+fn collect_redraw(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    mut state: ResMut<Minimap>,
+    mut tasks: Query<(Entity, &mut MinimapTask)>,
+    mut targets: Query<&mut ImageNode, With<MinimapImage>>,
+) {
+    for (entity, mut task) in &mut tasks {
+        let Some((size, pixels)) = block_on(future::poll_once(&mut task.0)) else {
+            continue;
+        };
+        commands.entity(entity).despawn();
+        state.building = false;
+
+        let image = images.add(Image::new(
+            Extent3d {
+                width: size.x,
+                height: size.y,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            pixels,
+            TextureFormat::Rgba8UnormSrgb,
+            RenderAssetUsages::RENDER_WORLD,
+        ));
+
+        // Swapping the handle rather than mutating in place: the old image is
+        // released as soon as nothing points at it, and there's no window where
+        // the texture is half-written.
+        for mut node in &mut targets {
+            node.image = image.clone();
+        }
+    }
+}
+
+fn place_marker(
+    terrain: Res<TerrainSource>,
+    cameras: Query<&GlobalTransform, With<MainCamera>>,
+    mut markers: Query<&mut Node, With<MinimapMarker>>,
+) {
+    let (Some(camera), Some(mut marker)) = (cameras.iter().next(), markers.iter_mut().next())
+    else {
+        return;
+    };
+
+    let half = terrain.half();
+    let position = camera.translation();
+    let u = ((position.x + half.x) / (half.x * 2.0)).clamp(0.0, 1.0);
+    let v = ((position.z + half.y) / (half.y * 2.0)).clamp(0.0, 1.0);
+
+    marker.left = Val::Percent(u * 100.0);
+    marker.top = Val::Percent(v * 100.0);
+}
+
+/// Samples the world into RGBA pixels. Pure and thread-safe.
+fn render(terrain: &Terrain, size: UVec2) -> Vec<u8> {
+    let half = terrain.half();
+    let mut pixels = Vec::with_capacity((size.x * size.y * 4) as usize);
+
+    // One pixel is tens of meters, so the normal is taken over that same
+    // distance — a 1 m epsilon would report slopes the map can't show.
+    let epsilon = (half.x * 2.0 / size.x as f32) * 0.5;
+
+    for py in 0..size.y {
+        for px in 0..size.x {
+            let x = (px as f32 / (size.x - 1) as f32 * 2.0 - 1.0) * half.x;
+            let z = (py as f32 / (size.y - 1) as f32 * 2.0 - 1.0) * half.y;
+
+            let height = terrain.height(x, z);
+            let slope = 1.0 - terrain.normal(x, z, epsilon).y;
+            // The same classification the terrain itself uses, so the overview
+            // reads as the world rather than as a separate diagram.
+            let color = surface_color(
+                height,
+                slope,
+                terrain.moisture(x, z),
+                terrain.shore_character(x, z),
+            );
+
+            // `surface_color` returns linear; the texture is sRGB.
+            let encode = |linear: f32| {
+                let srgba = LinearRgba::rgb(linear, linear, linear);
+                (Srgba::from(srgba).red.clamp(0.0, 1.0) * 255.0) as u8
+            };
+            pixels.extend_from_slice(&[
+                encode(color[0]),
+                encode(color[1]),
+                encode(color[2]),
+                255,
+            ]);
+        }
+    }
+
+    pixels
+}
