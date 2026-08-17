@@ -475,16 +475,40 @@ impl Terrain {
             return 0.0;
         }
 
+        // Foothills reach well past the mountain itself, so it does not stand up
+        // out of a plain like a boil. Everything below is shaped inside this.
+        let reach = MASSIF_RADIUS * MASSIF_SKIRT;
         let away = peak.distance(Vec2::new(x, z));
-        if away >= MASSIF_RADIUS {
+        if away >= reach {
             return 0.0;
         }
 
-        let rise = crate::util::smoothstep(MASSIF_RADIUS, 0.0, away).powf(1.9);
-        let ridge = self
-            .ranges
+        // The mass itself: a dome, and on its own that is exactly the fault —
+        // a smooth radial bump with no slope anywhere steep enough to shed its
+        // snow, which is why it read as one white pimple.
+        let body = crate::util::smoothstep(MASSIF_RADIUS, 0.0, away).powf(1.9);
+
+        // What makes it a mountain instead. `1 - |noise|` creases sharply where
+        // the field crosses zero, and those creases run for hundreds of metres —
+        // so the flanks come out as spurs with gullies between them rather than
+        // as a shell. Multiplied, not added, so the gullies cut INTO the mass and
+        // the ridges keep its height.
+        let crease = 1.0
+            - self
+                .ranges
+                .get([x as f64 * RANGE_FREQ * 6.0, z as f64 * RANGE_FREQ * 6.0])
+                .abs() as f32;
+        let spurs = 1.0 - MASSIF_RELIEF * (1.0 - crease.powf(1.5));
+
+        // And the shoulders it sits on, reaching out past the mountain into
+        // broken high ground.
+        let hills = crate::util::smoothstep(reach, MASSIF_RADIUS * 0.4, away);
+        let rough = self
+            .rugged
             .get([x as f64 * RANGE_FREQ * 3.0, z as f64 * RANGE_FREQ * 3.0]) as f32;
-        rise * MASSIF_HEIGHT * (1.0 + ridge * 0.22 * rise)
+        let skirt = hills * hills * MASSIF_FOOTHILLS * (0.7 + 0.5 * rough);
+
+        MASSIF_HEIGHT * (body * spurs + skirt)
     }
 
     /// Height contributed by mountain ranges at a point.
@@ -810,6 +834,49 @@ mod tests {
     /// Run with `cargo test -- --nocapture` to see the map. This is the fastest
     /// way to tell whether a new map image or a tuning change did what you
     /// expected, without waiting on a window.
+    #[test]
+    fn the_mountain_is_a_mountain_and_not_a_dome() {
+        // It came out as one smooth white pimple: a radial bump with no slope
+        // anywhere steep enough to shed its snow, standing straight up off a
+        // plain. Both halves of that are measurable.
+        let terrain = Terrain::new();
+        let Some(peak) = terrain.massif else {
+            return;
+        };
+
+        // Walked round the mountain at a fixed radius, the height must VARY —
+        // a dome gives the same answer all the way round.
+        let ring = MASSIF_RADIUS * 0.45;
+        let heights: Vec<f32> = (0..72)
+            .map(|step| {
+                let turn = step as f32 / 72.0 * std::f32::consts::TAU;
+                let at = peak + Vec2::new(turn.cos(), turn.sin()) * ring;
+                terrain.height(at.x, at.y)
+            })
+            .collect();
+        let high = heights.iter().copied().fold(f32::MIN, f32::max);
+        let low = heights.iter().copied().fold(f32::MAX, f32::min);
+        assert!(
+            high - low > MASSIF_HEIGHT * 0.15,
+            "the flanks vary by {:.0} m, which is a dome",
+            high - low
+        );
+
+        // And there is rock on it, not just snow. A dome is too gentle
+        // everywhere to expose any.
+        let climate = terrain.climate();
+        let mut rock = 0;
+        for step in 0..400 {
+            let turn = step as f32 * 2.4;
+            let out = (step as f32 / 400.0) * MASSIF_RADIUS;
+            let at = peak + Vec2::new(turn.cos(), turn.sin()) * out;
+            if Biome::of(terrain.ground_at(at.x, at.y), &climate) == Biome::Rock {
+                rock += 1;
+            }
+        }
+        assert!(rock > 10, "only {rock} of 400 samples on the mountain are rock");
+    }
+
     #[test]
     fn the_water_finds_its_way_to_the_sea() {
         // Rivers are FOUND, so the only way to know the finding worked on this
