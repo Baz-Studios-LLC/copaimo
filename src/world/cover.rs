@@ -252,6 +252,9 @@ fn dress(terrain: &Terrain, low: Vec2) -> Geometry {
                 scale,
                 sprigs::chance(slot_x, slot_z, sprigs::SALT_SHADE),
                 sprigs::chance(slot_x, slot_z, sprigs::SALT_PETAL),
+                // How deep into the thicket this one is: fuller, wider and
+                // darker the further in, so a patch reads as a mass.
+                patch,
             );
         }
     }
@@ -304,12 +307,20 @@ mod tests {
         assert_eq!(mesh.colours.len(), vertices);
 
         // The ceiling that matters. Twenty-five chunks are dressed at once, so
-        // this is a twenty-fifth of the budget for the whole of it — at forty
-        // thousand a chunk that is a million vertices of grass on screen, which
-        // is what a stylised world can afford and not much more. If this trips,
-        // the lever is COVER_CHUNKS or the crate's SPACING, in that order.
+        // this is a twenty-fifth of the budget for the whole of it.
+        //
+        // It was forty thousand, and that was set when grass still cast shadows —
+        // when every one of these vertices was submitted five times over, once
+        // for the main pass and again for each of the four cascades. It is drawn
+        // once now, so the same frame buys a great deal more of it, and the extra
+        // went into making the patches thick enough to lose a monster in.
+        //
+        // Seventy thousand is about 1.75 million vertices of grass on screen,
+        // drawn once. Measured at 48 fps against 49 before the grass grew, which
+        // is the evidence this number rests on rather than the arithmetic. If it
+        // trips, the lever is COVER_CHUNKS or the crate's SPACING, in that order.
         assert!(
-            vertices < 40_000,
+            vertices < 70_000,
             "a dressed chunk costs {vertices} vertices, which is too many"
         );
         // And it has to actually be growing something, or the test proves nothing.
