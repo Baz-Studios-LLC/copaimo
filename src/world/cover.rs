@@ -315,12 +315,24 @@ mod tests {
         // once now, so the same frame buys a great deal more of it, and the extra
         // went into making the patches thick enough to lose a monster in.
         //
-        // Seventy thousand is about 1.75 million vertices of grass on screen,
-        // drawn once. Measured at 48 fps against 49 before the grass grew, which
-        // is the evidence this number rests on rather than the arithmetic. If it
-        // trips, the lever is COVER_CHUNKS or the crate's SPACING, in that order.
+        // Eighty-five thousand is a little over two million vertices of grass on
+        // screen, drawn once.
+        //
+        // Raised twice now, and each time on a measurement rather than on the
+        // arithmetic. Going from 47,000 a chunk to 73,000 — half as much grass
+        // again — moved the frame from 48.3 fps to 48.7 and the main pass from
+        // 6.69 ms to 6.41: nothing, twice, in opposite directions. This machine
+        // is not vertex-bound at this scale, and the honest reading of the number
+        // is that grass is no longer where the frame goes.
+        //
+        // Which is exactly why the ceiling is kept rather than dropped. It is not
+        // guarding the GPU any more, it is guarding against a change that
+        // multiplies the count by ten without anybody noticing — SPACING is a
+        // square law, and halving it quadruples this. If it trips, the lever is
+        // COVER_CHUNKS or the crate's SPACING, in that order, and MEASURE before
+        // moving this line again.
         assert!(
-            vertices < 70_000,
+            vertices < 85_000,
             "a dressed chunk costs {vertices} vertices, which is too many"
         );
         // And it has to actually be growing something, or the test proves nothing.

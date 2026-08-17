@@ -538,6 +538,12 @@ this is meant to be somewhere a wild monster can be without being seen, and
 somewhere you can tell from across a field where it starts and stops. A blade is
 one triangle, which makes thickness the cheapest kind of detail in the world.
 
+Thickened once more after that — spacing to a metre and two more blades on every
+tuft deep in a patch, since once every slot carries a tuft the only levers left
+are closer slots and fuller ones. Half as much grass again for **48.7 fps against
+48.3**, and a main pass that got *faster*: this machine is not vertex-bound at
+this scale, and grass is no longer where the frame goes.
+
 Costed 48 fps against 49, because grass stopped casting shadows first. That is
 the whole trade: it used to be submitted five times over — main pass plus four
 cascades — to show a smudge under something a hand tall, and spending that
