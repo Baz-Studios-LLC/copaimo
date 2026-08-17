@@ -716,6 +716,13 @@ impl Terrain {
         // reaches the coast, so without this every hollow in a beach within reach
         // of a river mouth drew its own slab of river on top of the sea's own —
         // which is exactly the sheets of water lying on dry sand.
+        // Standing in a whole BED, not on a bank. The cut alone could not say
+        // this — it reaches several times a channel's width — so slabs of river
+        // kept appearing out on flat grass wherever the level happened to clear
+        // the ground.
+        if self.rivers.bed_at(x, z) < 0.85 {
+            return None;
+        }
         let real_channel = cut > CHANNEL_LEAST;
         let above_the_sea = water > SEA_LEVEL + 0.2;
         if !real_channel || !above_the_sea {

@@ -348,3 +348,54 @@ ship these.
   inland*, so mountains silently never appear — no error, just a world of hills.
   The ASCII map prints the real number; check it after any map swap.
 - **No icon for Ranger.** `packaging/Info.plist` names none on purpose.
+
+---
+
+## Where it got to, 2026-08-17
+
+The world is the whole of what exists. No monsters, battles, ranch or exams.
+Released through **v0.1.6**; `main` is ahead of it by a run of fixes.
+
+### What the world has
+
+Biomes (`terrain-core/src/biome.rs`) answer what kind of place any point is —
+water, shore, grass, forest, desert, rock, snow, settled — and everything hangs
+off that: seven tree species growing where they belong, grass and flowers and
+scrub, and later which monsters live where. Rivers are FOUND by flow
+accumulation, not placed. Day and night follow the player's own clock. Roads are
+authored with PATH; the generator no longer lays them (`LINK_TOWNS_WITH_ROADS`).
+
+### The three lessons that keep repeating
+
+**Measure the world, not a fixture.** Every real fault this week was found by a
+test that loaded the actual world and counted something — 23 cells of channel,
+0 vertices of cover, a 13.8 m lake, 1,119 water samples down to 181. Fixture
+tests passed throughout and found none of them.
+
+**A shape that reads wrong is usually the wrong shape, not the wrong number.**
+Clouds and leaves were jittered octahedra; no amount of scaling or recolouring
+was going to fix a shard. Same for stars, which were literally triangles.
+
+**Flat worlds break assumptions.** This world is deliberately flat, and that is
+what broke drainage (no cell had a lower neighbour), river surfaces (bank ground
+sits at bed height), and the tide (a smoothstep beach has zero slope at the
+waterline). Anything reasoning about slope needs checking against flat ground.
+
+### Known open
+
+* **Cloud shadows.** Deferred deliberately. Clouds are `NotShadowCaster` — at
+  165 m they would need the cascades stretched past anything useful, so it wants
+  a custom pass.
+* **Trees may still be floating.** Reported twice. `drawn_height` was meant to
+  fix it — trees now sit on the bilinear surface the renderer draws rather than
+  the true height — and the last screenshots still looked wrong, though the
+  open-ended limbs were confusing the picture. Verify before doing more.
+* **`assets/world/edits.bin`** is modified in the working tree — the maker's own
+  sculpting, left uncommitted for them to judge.
+
+### Working rules
+
+PATCH versions only, however big a session felt. Push the crate before the game
+and `cargo update -p terrain-core`. Never tag with red tests — check the exit
+code, do not pipe through `tail`. The shell's working directory drifts between
+the two repos; `cd` explicitly in every command.
