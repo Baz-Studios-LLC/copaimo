@@ -337,7 +337,25 @@ pub const SITE_MAX_SLOPE: f32 = 0.13;
 
 /// Half-width of the graded road between sites, and its shoulders.
 pub const ROAD_WIDTH: f32 = 9.0;
-pub const ROAD_SKIRT: f32 = 26.0;
+/// How far a road eases back into the land either side of its bed.
+///
+/// Wider than it was. A road that follows the country cuts far less than one
+/// graded on a straight line, but where it still cuts, twenty-six metres was
+/// not enough to blend the wall — the eye reads that as a trench side.
+pub const ROAD_SKIRT: f32 = 44.0;
+
+/// Metres between height samples along a road when it is graded.
+pub const ROAD_STEP: f32 = 22.0;
+
+/// The steepest a road is allowed to climb, as a rise over its run.
+///
+/// About one in eight. Steep enough to cross real country without levelling
+/// half of it, gentle enough that a cart could take it.
+pub const ROAD_GRADE: f32 = 0.13;
+
+/// How many times the grading walks the profile. Each pass moves height between
+/// neighbours; a handful converges and more buys nothing.
+pub const GRADE_PASSES: usize = 24;
 
 // ------------------------------------------------------------------- water
 
