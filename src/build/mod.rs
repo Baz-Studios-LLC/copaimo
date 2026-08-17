@@ -39,6 +39,7 @@ use bevy::prelude::*;
 pub use plan::Plan;
 
 use crate::config::BUILDINGS_DIR;
+use crate::shade::{shaded, Shaded};
 use crate::states::AppState;
 use crate::world::terrain::TerrainSource;
 
@@ -137,7 +138,7 @@ fn raise_the_sites(
     terrain: Res<TerrainSource>,
     standing: Query<Entity, With<Raised>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<Shaded>>,
 ) {
     if catalogue.0.is_empty() {
         return;
@@ -190,7 +191,7 @@ pub fn raise(
     plan: &Plan,
     stance: Transform,
     meshes: &mut Assets<Mesh>,
-    cloth: (Handle<StandardMaterial>, Handle<StandardMaterial>),
+    cloth: (Handle<Shaded>, Handle<Shaded>),
 ) -> Entity {
     let (solid, glass) = shape::raise(plan);
     let (opaque_cloth, glazing) = cloth;
@@ -240,8 +241,8 @@ pub fn raise(
 /// bench already looked every colour up from this game's palette — so leaving it
 /// white paints exactly what the drawing said. The same bargain the terrain
 /// makes with its biome colours.
-fn building_cloth(lets_light_through: bool) -> StandardMaterial {
-    StandardMaterial {
+fn building_cloth(lets_light_through: bool) -> Shaded {
+    shaded(StandardMaterial {
         base_color: Color::WHITE,
         perceptual_roughness: if lets_light_through { 0.25 } else { 0.88 },
         reflectance: if lets_light_through { 0.5 } else { 0.05 },
@@ -251,7 +252,7 @@ fn building_cloth(lets_light_through: bool) -> StandardMaterial {
             AlphaMode::Opaque
         },
         ..default()
-    }
+    })
 }
 
 #[cfg(test)]

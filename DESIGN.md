@@ -516,9 +516,11 @@ src/
     theme.rs     its visual language: palette, font, shared fragments
     ui.rs        sidebar, live readouts, confirmation toasts
     minimap.rs   the world overview and camera marker
-  sky.rs         sun, ambient, fog constants
+  sky.rs         sun, moon, stars, clouds, and the player's own clock
+  shade.rs       the material everything solid wears, and the cloud shadows on it
   hud.rs         F3 debug overlay
 assets/
+  shaders/       cloud_shade.wgsl — standard shading plus how much sky a point sees
   world/         heightmap.png (the map), edits.bin (ground), forest.bin (woods)
   models/        3D models, as they're made
   fonts/         Cinzel for the terrain tool, with its licence beside it
@@ -527,6 +529,44 @@ assets/
 ---
 
 ## Change log
+
+**2026-08-17** — **Cloud shadows, cast by the actual clouds.** The clouds
+overhead now put shade on the ground, and it is theirs: one soft disc per cloud,
+placed where the sun's own line through that cloud strikes the land. Stand in a
+patch of shade, look up, and the cloud casting it is there. The usual way to do
+this is scrolling noise, which looks right until somebody checks.
+
+They are not cast by the engine's shadow pass and cannot be — a caster at 165 m
+would need the cascades stretched past anything useful for the world underneath.
+They are laid on in the material instead, which is why there now IS one material:
+`Shaded`, worn by the ground, the grass, the trunks, the leaves, the water, the
+walls and the ranger alike. A cloud shadow that stopped at the edge of the grass
+would be worse than none.
+
+Almost nothing is sent to the GPU for it. A cloud's drift is a speed times the
+clock, so the shader works out where each one is for itself; the only thing ever
+rewritten is the sun's slant, a few times a minute as it climbs. The sky wraps
+around the viewer, which makes it a tile repeated in every direction — so the
+copy of a cloud that shades a point is whichever one it is nearest to, found by
+rounding the gap away in whole tiles rather than by checking nine neighbours.
+
+Shadows fade out through the morning and evening. A cloud two hundred metres up
+with the sun near the horizon casts more than a kilometre sideways, which is
+true and useless: the shade over your head would belong to a cloud you cannot
+see. It is also the hour when the light is too flat to read a shadow by.
+
+They shade a sixth of the ground, which is a clear day with weather crossing it,
+and a test measures that off the real sky rather than a fixture — cloud count,
+scale and ceiling have all been tuned by eye for how they look UP there, and
+every one of them moves the ground too.
+
+**Every triangle in a tree is now wound on its own account.** The last seven
+inverted faces of a spruce — and twelve of a willow — were the second triangle of
+a quad that the first triangle had decided for. A quad is two triangles, and
+where a limb turns through an elbow they do not face the same way. The winding
+lives in one place now and every triangle goes through it, walls, caps and leaves
+alike, so there is nowhere left for the question to be answered on something
+else's behalf. The guard drops from "under one in two hundred" to none.
 
 **2026-08-15** — **The world knows what kind of place it is.** Eight biomes —
 water, shore, grassland, forest, desert, rock, snow, settled — classified in

@@ -381,15 +381,21 @@ what broke drainage (no cell had a lower neighbour), river surfaces (bank ground
 sits at bed height), and the tide (a smoothstep beach has zero slope at the
 waterline). Anything reasoning about slope needs checking against flat ground.
 
+**Ask the question where the answer is used.** The last seven inverted faces
+survived two fixes because both decided the winding for a whole TUBE or a whole
+QUAD, and the thing that gets culled is a triangle. Deciding on behalf of
+something larger than the unit that consumes the decision is the bug.
+
 ### Known open
 
-* **Cloud shadows.** Deferred deliberately. Clouds are `NotShadowCaster` — at
-  165 m they would need the cascades stretched past anything useful, so it wants
-  a custom pass.
 * **Trees may still be floating.** Reported twice. `drawn_height` was meant to
   fix it — trees now sit on the bilinear surface the renderer draws rather than
   the true height — and the last screenshots still looked wrong, though the
   open-ended limbs were confusing the picture. Verify before doing more.
+* **B0004 on chunk children.** `stream.rs` spawns a chunk with `Transform` and
+  no `Visibility`, then hangs meshes off it — Bevy warns that inherited
+  visibility is inconsistent. Harmless while nothing hides a chunk; it will not
+  stay harmless. Pre-existing, unrelated to anything recent.
 * **`assets/world/edits.bin`** is modified in the working tree — the maker's own
   sculpting, left uncommitted for them to judge.
 

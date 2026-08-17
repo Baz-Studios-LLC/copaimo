@@ -20,6 +20,7 @@ use bevy::pbr::{CascadeShadowConfigBuilder, NotShadowCaster, NotShadowReceiver};
 use bevy::prelude::*;
 
 use crate::config::{CLOUDS, CLOUD_CEILING, CLOUD_DRIFT, CLOUD_SCALE, CLOUD_SPREAD, STARS};
+use crate::shade::{Caster, CloudShadows};
 use crate::world::StreamAnchor;
 
 /// What time the world thinks it is, and whether that is the player's time.
@@ -83,6 +84,8 @@ struct Stars;
 /// Marks a cloud, so the drift can find them.
 #[derive(Component)]
 struct Cloud {
+    /// Where it stood when the world began, before any drift.
+    origin: Vec2,
     /// Metres per second, its own, so a sky does not move as one sheet.
     speed: f32,
 }
@@ -236,8 +239,16 @@ fn spawn_clouds(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let shapes: Vec<Handle<Mesh>> = (0..terrain_core::cloud::VARIETIES as u32)
-        .map(|seed| meshes.add(crate::world::stream::as_coloured_mesh(&terrain_core::cloud::grow(seed))))
+    // Each shape, and how much ground it shades. See `shade::footprint`.
+    let shapes: Vec<(Handle<Mesh>, f32)> = (0..terrain_core::cloud::VARIETIES as u32)
+        .map(|seed| {
+            let shape = terrain_core::cloud::grow(seed);
+            let reach = crate::shade::footprint(&shape);
+            (
+                meshes.add(crate::world::stream::as_coloured_mesh(&shape)),
+                reach,
+            )
+        })
         .collect();
 
     let skin = materials.add(StandardMaterial {
@@ -251,6 +262,8 @@ fn spawn_clouds(
     });
     commands.insert_resource(CloudSkin(skin.clone()));
 
+    let mut casters = Vec::with_capacity(CLOUDS);
+
     for index in 0..CLOUDS {
         // Spread over a square that the drift wraps them around, at a height
         // that varies a little so the ceiling is not a plane.
@@ -261,24 +274,37 @@ fn spawn_clouds(
         let size = (0.7 + terrain_core::forest::chance(index as i32, 0, 25) * 1.1) * CLOUD_SCALE;
         let speed = CLOUD_DRIFT * (0.6 + terrain_core::forest::chance(index as i32, 0, 26) * 0.8);
 
+        let (shape, reach) = &shapes[index % shapes.len()];
+        let origin = Vec2::new(across * CLOUD_SPREAD, along * CLOUD_SPREAD);
+        let height = CLOUD_CEILING + lift * CLOUD_CEILING * 0.35;
+
+        casters.push(Caster {
+            origin,
+            height,
+            radius: reach * size,
+            speed,
+        });
+
         commands.spawn((
-            Cloud { speed },
-            Mesh3d(shapes[index % shapes.len()].clone()),
+            Cloud { origin, speed },
+            Mesh3d(shape.clone()),
             MeshMaterial3d(skin.clone()),
-            Transform::from_xyz(
-                across * CLOUD_SPREAD,
-                CLOUD_CEILING + lift * CLOUD_CEILING * 0.35,
-                along * CLOUD_SPREAD,
-            )
-            .with_rotation(Quat::from_rotation_y(turn))
-            .with_scale(Vec3::splat(size)),
-            // Neither casting nor catching. A cloud four hundred metres up would
-            // need the shadow cascades stretched past anything useful to cast
-            // properly, and catching one from the ground below is meaningless.
+            Transform::from_xyz(origin.x, height, origin.y)
+                .with_rotation(Quat::from_rotation_y(turn))
+                .with_scale(Vec3::splat(size)),
+            // Neither casting nor catching, and it is not that they cast no
+            // shadow — see `shade`, which lays their shadows on the ground
+            // directly. It is that the engine's own shadow pass cannot do it: a
+            // caster two hundred metres up needs the cascades stretched past
+            // anything useful for the world underneath.
             NotShadowCaster,
             NotShadowReceiver,
         ));
     }
+
+    // What the ground needs to know about the sky. Written once — the drift is
+    // arithmetic the shader can do for itself.
+    commands.insert_resource(CloudShadows(casters));
 }
 
 /// Hangs the moon and scatters the stars.
@@ -437,28 +463,27 @@ fn drift_clouds(
     let Some(anchor) = anchors.iter().next() else {
         return;
     };
-    let middle = anchor.translation();
-    let half = CLOUD_SPREAD * 0.5;
+    let here = Vec2::new(anchor.translation().x, anchor.translation().z);
+    let elapsed = time.elapsed_secs();
 
     for (cloud, mut place) in &mut clouds {
-        place.translation.x += cloud.speed * time.delta_secs();
+        // Worked out from the clock rather than nudged along each frame.
+        //
+        // The shadow this cloud lays on the ground is drawn from exactly this
+        // arithmetic, inside the shader — see `shade`. Two things that have to
+        // agree about where a cloud is should not be two different sums, and an
+        // accumulating one drifts away from a computed one over an afternoon.
+        let drifted = cloud.origin + Vec2::new(cloud.speed * elapsed, 0.0);
 
-        // Wrapped around the viewer rather than around the world. There are
-        // eighty of these and the world is eight kilometres across, so scattering
-        // them over the whole of it would leave the sky empty; keeping them in a
-        // box that follows means the sky is always dressed and the count stays
-        // small.
-        let offset = place.translation - middle;
-        if offset.x > half {
-            place.translation.x -= CLOUD_SPREAD;
-        } else if offset.x < -half {
-            place.translation.x += CLOUD_SPREAD;
-        }
-        if offset.z > half {
-            place.translation.z -= CLOUD_SPREAD;
-        } else if offset.z < -half {
-            place.translation.z += CLOUD_SPREAD;
-        }
+        // Wrapped around the viewer rather than around the world. Thirty clouds
+        // over eight kilometres of world would leave the sky empty; a box that
+        // follows you keeps it dressed wherever you stand, and the count small.
+        //
+        // Which makes the sky a tile repeated in every direction — and the copy
+        // you can see is whichever one you are nearest to.
+        let wrapped = drifted - CLOUD_SPREAD * ((drifted - here) / CLOUD_SPREAD).round();
+        place.translation.x = wrapped.x;
+        place.translation.z = wrapped.y;
     }
 }
 
@@ -492,7 +517,10 @@ const STAR_SIZE: f32 = 0.75;
 const SUN_STEP: f32 = 0.0035;
 
 /// How far south the sun's arc leans, so it is not a perfect overhead sweep.
-const SOUTHING: f32 = 0.35;
+///
+/// Public because the cloud shadows have to lean the same way — a shadow thrown
+/// along a different line from the light that throws it is worse than none.
+pub const SOUTHING: f32 = 0.35;
 
 const DAY_LUX: f32 = 11_000.0;
 /// Moonlight. Weak, and not as weak as it was: a night nobody can see the ground

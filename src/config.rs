@@ -156,6 +156,32 @@ pub const CLOUD_SCALE: f32 = 4.5;
 /// than traffic — a cloud should cross the sky in minutes, not seconds.
 pub const CLOUD_DRIFT: f32 = 3.5;
 
+/// How much light a cloud's shadow takes off the ground under it.
+///
+/// A third, and it is meant to be read as weather passing rather than as dusk
+/// arriving. The shade lands on everything a surface receives — sun and sky
+/// both, which is what a cloud actually blocks — so it goes further than a third
+/// of the sunlight would on its own.
+pub const CLOUD_SHADE: f32 = 0.35;
+
+/// Where a shadow's soft rim begins, as a share of its radius.
+///
+/// A cloud does not have an edge; it has a place where it runs out. Two hundred
+/// metres of air blurs whatever is left of that, so the outer two thirds of a
+/// shadow is all rim. Anything crisper reads as a painted circle on the grass.
+pub const CLOUD_SHADE_SOFT: f32 = 0.35;
+
+/// The sun heights the shadows fade in and out across.
+///
+/// Cloud shadows are a midday thing here, and that is honest rather than a
+/// dodge. A cloud a couple of hundred metres up with the sun near the horizon
+/// casts its shadow more than a kilometre sideways — so the shade over your head
+/// belongs to a cloud you cannot see, and the cloud you CAN see is shading
+/// somewhere off past the hills. It is also the hour when the light is flattest
+/// and a shadow on the ground reads least.
+pub const CLOUD_SHADE_FROM: f32 = 0.08;
+pub const CLOUD_SHADE_TO: f32 = 0.30;
+
 /// How many stars fill the night sky.
 ///
 /// One mesh holds all of them — a star apiece would be a thousand entities to

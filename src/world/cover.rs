@@ -28,6 +28,7 @@ use terrain_core::cover::{self as sprigs, Sprig};
 use terrain_core::Geometry;
 
 use crate::config::{CHUNK_SIZE, COVER_CHUNKS, MAX_PENDING_COVER};
+use crate::shade::{shaded, Shaded};
 use crate::world::chunk::{chunk_at, chunk_origin, Chunk};
 use crate::world::stream::{as_coloured_mesh, ChunkMap};
 use crate::world::terrain::{Biome, Terrain, TerrainSource};
@@ -43,10 +44,10 @@ pub struct PendingCover(Task<Geometry>);
 
 /// The one material every tuft in the world wears.
 #[derive(Resource, Deref)]
-pub struct CoverMaterial(pub Handle<StandardMaterial>);
+pub struct CoverMaterial(pub Handle<Shaded>);
 
-pub fn setup_material(mut commands: Commands, mut materials: ResMut<Assets<StandardMaterial>>) {
-    let handle = materials.add(StandardMaterial {
+pub fn setup_material(mut commands: Commands, mut materials: ResMut<Assets<Shaded>>) {
+    let handle = materials.add(shaded(StandardMaterial {
         // White, so the greens the crate baked into the vertices come through
         // exactly as mixed — the same bargain the terrain makes with its biome
         // colours.
@@ -58,7 +59,7 @@ pub fn setup_material(mut commands: Commands, mut materials: ResMut<Assets<Stand
         double_sided: true,
         cull_mode: None,
         ..default()
-    });
+    }));
     commands.insert_resource(CoverMaterial(handle));
 }
 

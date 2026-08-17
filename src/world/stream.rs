@@ -13,6 +13,7 @@ use bevy::tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task};
 
 use crate::config::{MAX_PENDING_CHUNKS, VIEW_CHUNKS};
 use crate::config::CHUNK_SIZE;
+use crate::shade::{shaded, Shaded};
 use crate::world::chunk::{build_chunk, chunk_at, chunk_origin, Chunk, TerrainMaterial};
 use crate::world::terrain::{Terrain, TerrainSource};
 use crate::world::{StreamAnchor, WorldBounds};
@@ -236,8 +237,8 @@ pub struct Grove {
 pub struct Variety {
     pub wood: Handle<Mesh>,
     pub leaves: Handle<Mesh>,
-    pub leaf: Handle<StandardMaterial>,
-    pub bark: Handle<StandardMaterial>,
+    pub leaf: Handle<Shaded>,
+    pub bark: Handle<Shaded>,
 }
 
 /// The range a leaf can be, dark to light.
@@ -261,7 +262,7 @@ const BARK_PALE: Srgba = Srgba::rgb(0.82, 0.80, 0.74);
 pub fn grow_the_grove(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<Shaded>>,
 ) {
     let trees = (0..terrain_core::tree::VARIETIES as u32)
         .map(|seed| {
@@ -285,7 +286,7 @@ pub fn grow_the_grove(
                 leaves: meshes.add(as_mesh(&tree.leaves)),
                 // A material apiece. Twenty of them is nothing — the meshes were
                 // always twenty, and this is what makes them look like twenty.
-                leaf: materials.add(StandardMaterial {
+                leaf: materials.add(shaded(StandardMaterial {
                     base_color: LinearRgba::from_vec4(green).into(),
                     perceptual_roughness: 0.9,
                     reflectance: 0.04,
@@ -294,13 +295,13 @@ pub fn grow_the_grove(
                     double_sided: true,
                     cull_mode: None,
                     ..default()
-                }),
-                bark: materials.add(StandardMaterial {
+                })),
+                bark: materials.add(shaded(StandardMaterial {
                     base_color: LinearRgba::from_vec4(wood_colour).into(),
                     perceptual_roughness: 0.95,
                     reflectance: 0.03,
                     ..default()
-                }),
+                })),
             }
         })
         .collect();
@@ -376,13 +377,10 @@ pub struct RiverSurface;
 
 /// The one material every river wears.
 #[derive(Resource, Deref)]
-pub struct RiverMaterial(pub Handle<StandardMaterial>);
+pub struct RiverMaterial(pub Handle<Shaded>);
 
-pub fn setup_river_material(
-    mut commands: Commands,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    let handle = materials.add(StandardMaterial {
+pub fn setup_river_material(mut commands: Commands, mut materials: ResMut<Assets<Shaded>>) {
+    let handle = materials.add(shaded(StandardMaterial {
         // Darker and greener than the sea, which is what inland water looks
         // like: it is shallow, it is over mud rather than over depth, and it
         // carries what it has washed off the land.
@@ -395,6 +393,6 @@ pub fn setup_river_material(
         double_sided: true,
         cull_mode: None,
         ..default()
-    });
+    }));
     commands.insert_resource(RiverMaterial(handle));
 }

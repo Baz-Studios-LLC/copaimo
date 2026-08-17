@@ -18,6 +18,7 @@
 //!   * `editor` — the terrain tool, driving `terrain-core`'s brush
 //!   * `build`  — buildings baked at Opificium's builder, stood on the ground
 //!   * `sky`    — sun, ambient light, fog
+//!   * `shade`  — the material everything solid is made of, and cloud shadows
 //!   * `hud`    — the F3 debug overlay
 //!
 //! The world generation, the brush and the trees all live in `terrain-core`,
@@ -38,6 +39,7 @@ mod editor;
 mod hud;
 mod menu;
 mod player;
+mod shade;
 mod sky;
 mod states;
 mod util;
@@ -59,6 +61,9 @@ fn main() {
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_plugins((
             states::StatesPlugin,
+            // Before anything that builds a material, because it is what
+            // registers the material the whole world is made of.
+            shade::ShadePlugin,
             // World first so the terrain resource exists before anything that
             // needs to ask how high the ground is.
             world::WorldPlugin,

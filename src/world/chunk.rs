@@ -14,6 +14,7 @@ use bevy::prelude::*;
 use bevy::render::mesh::{Indices, PrimitiveTopology};
 
 use crate::config::{CHUNK_QUADS, CHUNK_SIZE, RIVER_QUADS};
+use crate::shade::{shaded, Shaded};
 use crate::world::biome::surface_color;
 use crate::world::terrain::Terrain;
 
@@ -28,10 +29,10 @@ pub struct Chunk(pub IVec2);
 /// One shared material for every chunk — all the color variety comes from
 /// vertex colors, so there is no reason to allocate a material per chunk.
 #[derive(Resource, Deref)]
-pub struct TerrainMaterial(pub Handle<StandardMaterial>);
+pub struct TerrainMaterial(pub Handle<Shaded>);
 
-pub fn setup_material(mut commands: Commands, mut materials: ResMut<Assets<StandardMaterial>>) {
-    let handle = materials.add(StandardMaterial {
+pub fn setup_material(mut commands: Commands, mut materials: ResMut<Assets<Shaded>>) {
+    let handle = materials.add(shaded(StandardMaterial {
         // White base: the PBR shader multiplies this by the mesh's vertex
         // colors, so leaving it white lets the biome palette come through
         // exactly as authored.
@@ -39,7 +40,7 @@ pub fn setup_material(mut commands: Commands, mut materials: ResMut<Assets<Stand
         perceptual_roughness: 0.94,
         reflectance: 0.06,
         ..default()
-    });
+    }));
     commands.insert_resource(TerrainMaterial(handle));
 }
 

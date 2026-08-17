@@ -15,6 +15,7 @@ use bevy::prelude::*;
 
 use crate::camera::{CameraMode, MainCamera};
 use crate::config::{RANCH_AT, SEA_LEVEL};
+use crate::shade::{shaded, Shaded};
 use crate::states::AppState;
 use crate::util::facing_quat;
 use crate::world::terrain::TerrainSource;
@@ -83,7 +84,7 @@ fn find_spawn(terrain: &TerrainSource, bounds: &WorldBounds) -> Vec3 {
 fn spawn_player(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<Shaded>>,
     terrain: Res<TerrainSource>,
     bounds: Res<WorldBounds>,
 ) {
@@ -102,11 +103,11 @@ fn spawn_player(
     info!("ranger spawning at {:.0}, {:.0}", spawn.x, spawn.z);
 
     let mut solid = |r: f32, g: f32, b: f32| {
-        materials.add(StandardMaterial {
+        materials.add(shaded(StandardMaterial {
             base_color: Srgba::rgb(r, g, b).into(),
             perceptual_roughness: 0.8,
             ..default()
-        })
+        }))
     };
     let coat = solid(0.22, 0.34, 0.24);
     let skin = solid(0.80, 0.62, 0.48);

@@ -21,6 +21,7 @@ use bevy::prelude::*;
 use bevy::render::mesh::VertexAttributeValues;
 
 use crate::config::{SEA_LEVEL, TIDE, TIDE_PERIOD};
+use crate::shade::{shaded, Shaded};
 use crate::world::terrain::TerrainSource;
 
 #[derive(Component)]
@@ -57,14 +58,14 @@ pub fn sea_height(at: Vec2, seconds: f32) -> f32 {
 pub fn spawn_water(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<Shaded>>,
     terrain: Res<TerrainSource>,
 ) {
     // Four times the world's longest axis: far enough that the surface's own
     // edge is always out of sight, whichever coast you're standing on.
     let size = terrain.half().max_element() * 4.0;
 
-    let material = materials.add(StandardMaterial {
+    let material = materials.add(shaded(StandardMaterial {
         base_color: Srgba::new(0.05, 0.26, 0.40, 0.80).into(),
         perceptual_roughness: 0.08,
         reflectance: 0.45,
@@ -73,7 +74,7 @@ pub fn spawn_water(
         // camera dips below it in the shallows.
         cull_mode: None,
         ..default()
-    });
+    }));
 
     commands.spawn((
         Water,
