@@ -92,6 +92,33 @@ pub const COVER_CHUNKS: i32 = 2;
 /// How many chunks may be having their cover built at once.
 pub const MAX_PENDING_COVER: usize = 6;
 
+/// How far natural objects reach from the viewer, in chunks.
+///
+/// Shorter than the horizon and longer than the grass. A metre-wide boulder is
+/// sub-pixel long before the terrain under it runs out, so drawing it at the
+/// horizon is work with nothing to show for it — but it is a good deal bigger
+/// than a blade of grass, so it earns further than cover does.
+///
+/// Three chunks is about 450 m. This is the first knob to turn if the frame rate
+/// wants headroom: the cost goes as the square of it.
+pub const PROP_CHUNKS: i32 = 3;
+
+/// Metres between slots on the litter lattice.
+///
+/// One object per slot at most, and most slots come up empty — how many actually
+/// land is `terrain_core::prop::density` for the biome, which is a half in a wood
+/// and a seventh in open grass.
+pub const PROP_SPACING: f32 = 11.0;
+
+/// How much bigger or smaller than grown an object is stood.
+///
+/// On top of the three sizes each kind is grown at, so that two boulders of the
+/// same variety side by side are still not the same boulder.
+pub const PROP_SCALE: (f32, f32) = (0.8, 1.3);
+
+/// How many chunks may be having their litter built at once.
+pub const MAX_PENDING_PROPS: usize = 6;
+
 /// Whether the world carves rivers into itself at all.
 ///
 /// **Off.** Kept as a switch rather than torn out, the same bargain the roads

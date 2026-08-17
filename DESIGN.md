@@ -501,6 +501,7 @@ src/
   util.rs        shared math (smoothstep, facing)
   world/
     mod.rs       WorldPlugin, WorldBounds
+    prop.rs      boulders, bushes, logs — welded per chunk, own draw radius
     heightmap.rs loads and samples the source map image
     terrain.rs   the heightfield — the single source of truth
     biome.rs     height + slope + moisture → surface color
@@ -529,6 +530,27 @@ assets/
 ---
 
 ## Change log
+
+**2026-08-17 (last)** — **The world has things lying about in it.** Eight kinds
+of natural object — boulders, scree, bushes, stumps, fallen logs, dead standing
+snags, cactus and dry brush — three sizes of each, keyed to the biome they belong
+in. A wood gets its floor of wreckage, bare rock sheds stone, dry country grows
+cactus and dead sticks, the shore gets driftwood. A landscape of ground and trees
+reads as a golf course; the litter is what tells you where you are, and later
+what tells a monster where it lives.
+
+**Welded, not planted, and that is the whole of why it is free.** A tree is
+spawned as its own entity because it wears one material for bark and another for
+leaves. A prop carries its colour in its vertices instead, so a chunk's worth of
+them is stamped into ONE mesh — fifty objects in one draw call rather than fifty,
+which matters twice over because every caster is submitted again for every shadow
+cascade. Measured: 43.9 fps with them against 42.1 without, and **nineteen extra
+entities** in the whole radius.
+
+**Its own draw radius**, three chunks, about 450 m — shorter than the horizon and
+longer than the grass, because a metre-wide boulder is sub-pixel well before the
+terrain under it runs out. `PROP_CHUNKS` is the first knob if the frame rate ever
+wants headroom back; the cost goes as its square.
 
 **2026-08-17 (later still)** — **The frame rate was the shadows.** Four cascades
 reaching nine hundred metres meant every one of them redrew the whole visible

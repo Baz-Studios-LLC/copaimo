@@ -6,6 +6,7 @@ pub mod chunk;
 pub mod cover;
 pub mod edit;
 pub mod heightmap;
+pub mod prop;
 pub mod settle;
 pub mod stream;
 pub mod surface;
@@ -91,6 +92,7 @@ impl Plugin for WorldPlugin {
                 (
                     chunk::setup_material,
                     cover::setup_material,
+                    prop::setup_props,
                     stream::setup_river_material,
                     water::spawn_water,
                     stream::grow_the_grove,
@@ -108,6 +110,9 @@ impl Plugin for WorldPlugin {
                     cover::dress_chunks,
                     cover::collect_cover,
                     cover::undress_chunks,
+                    prop::litter_chunks,
+                    prop::collect_props,
+                    prop::clear_chunks,
                 )
                     .chain(),
             );
