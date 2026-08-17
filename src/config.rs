@@ -202,6 +202,16 @@ pub const MASK_CLEAN_PASSES: usize = 2;
 /// coastline comes out as a fence of vertical slats. Spread over a beach and a
 /// shelf, the change per cell is small and a coast reads as a coast.
 pub const BEACH_WIDTH: f32 = 90.0;
+
+/// How much of the shore's rise is a quadratic toe rather than a smoothstep.
+///
+/// The fix for a sea that walked up the sand. A smoothstep is flat at both ends,
+/// so the ground had no slope at all exactly where the water meets it — and how
+/// far a tide sweeps is its height over that slope. Mixing in a curve that has
+/// slope at the bottom and none at the top gives the shore about six degrees at
+/// the waterline, which is a beach, and leaves the top of the ramp flat so there
+/// is no crease where it meets the land.
+pub const BEACH_TOE: f32 = 0.3;
 pub const SHELF_WIDTH: f32 = 600.0;
 
 /// Smallest land blob kept, in map pixels. Anything smaller is deleted as
@@ -512,17 +522,18 @@ pub const GRADE_PASSES: usize = 24;
 /// where the tide is. Dividing by almost nothing is what made a hand's depth of
 /// tide walk the sea metres up the sand.
 ///
-/// A third of what it was, which cuts the sweep to a third. The real fix is to
-/// give the beach a slope where it meets the water — a linear term under the
-/// smoothstep — but that moves every coastline in the world and wants looking at
-/// rather than reasoning about.
+/// The beach has a slope at the waterline now (see `BEACH_TOE`), so this no
+/// longer divides by almost nothing: at about six degrees, this height of tide
+/// walks the waterline roughly a metre. That reads as a tide. It was cut to a
+/// third while the shore was still flat at the water, and can afford to come
+/// back up now that it is not.
 ///
 /// The coast shelves over hundreds of meters, so the water's
 /// horizontal travel is its vertical travel divided by a gradient of about a
 /// tenth — every centimeter of tide is ten centimeters of beach. At half a meter
 /// the sea drew back a good fifteen meters and stranded the shallows, which
 /// reads as a lake emptying rather than as a shore.
-pub const TIDE: f32 = 0.06;
+pub const TIDE: f32 = 0.12;
 pub const TIDE_PERIOD: f32 = 20.0;
 
 // ------------------------------------------------- handing this to the bench

@@ -21,6 +21,32 @@ use bevy::prelude::*;
 use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 
 use crate::config::*;
+
+/// How the shore rises from the waterline, 0 at the water to 1 at full height.
+///
+/// **It has to have slope where it meets the water.** This was a plain
+/// smoothstep, and a smoothstep's derivative is zero at BOTH ends — so the ground
+/// was very nearly horizontal exactly at the waterline. How far a tide sweeps is
+/// its height divided by that slope, and dividing by almost nothing walked the
+/// sea metres up the sand for a hand's depth of tide.
+///
+/// So a quadratic ease-out is mixed in. It has real slope at the water and none
+/// at the top, which is the shape a beach actually is — steepest where the waves
+/// work it, flattening as it meets the land. Mixing rather than replacing keeps
+/// the top of the ramp flat, so there is still no crease where the beach gives
+/// way to the inland rise.
+///
+/// The other half of the reason a smoothstep was there in the first place is
+/// unchanged and still matters: nothing may change height faster than the vertex
+/// grid can draw, or a coastline combs into vertical slats. This is gentler than
+/// that limit everywhere.
+fn beach_ramp(along: f32) -> f32 {
+    let t = along.clamp(0.0, 1.0);
+    let eased = crate::util::smoothstep(0.0, 1.0, t);
+    // 1 - (1-t)^2: slope of two at the water, nothing at the top.
+    let toe = 1.0 - (1.0 - t) * (1.0 - t);
+    eased * (1.0 - BEACH_TOE) + toe * BEACH_TOE
+}
 use crate::world::edit::Sculpt;
 pub use terrain_core::biome::{Biome, Climate, Ground as BiomeGround};
 use crate::world::heightmap::HeightMap;
@@ -373,9 +399,9 @@ impl Terrain {
         // neighboring vertices landed on opposite sides of it, so every
         // coastline came out as a fence of vertical slats.
         let mut h = if shore >= 0.0 {
-            SEA_LEVEL + COAST_HEIGHT * crate::util::smoothstep(0.0, BEACH_WIDTH, shore)
+            SEA_LEVEL + COAST_HEIGHT * beach_ramp(shore / BEACH_WIDTH)
         } else {
-            SEA_LEVEL - OCEAN_DEPTH * crate::util::smoothstep(0.0, SHELF_WIDTH, -shore)
+            SEA_LEVEL - OCEAN_DEPTH * beach_ramp(-shore / SHELF_WIDTH)
         };
 
         // Shape-checking mode stops here: a beach, a shelf, and nothing else to
@@ -639,6 +665,8 @@ impl Terrain {
 
     /// The height of the ground as it is actually DRAWN, not as it truly is.
     ///
+    /// (See `beach_ramp` below for the shape of the shore itself.)
+    ///
     /// A chunk mesh is a grid of quads two metres apart, so between its vertices
     /// the surface is a flat triangle — and on any ground that bulges, that
     /// triangle sits BELOW the real height. Anything placed at the real height
@@ -805,6 +833,49 @@ mod tests {
         }
         assert!(deepest > 0.5, "no channel was cut anywhere: {deepest:.2} m");
         assert!(wet > 0, "every channel came out dry");
+    }
+
+    #[test]
+    fn the_shore_has_a_slope_where_the_water_meets_it() {
+        // The whole reason for the toe. A smoothstep is flat at BOTH ends, so the
+        // ground had no slope at all exactly at the waterline — and how far a tide
+        // sweeps is its height over that slope. Dividing by almost nothing walked
+        // the sea metres up the sand.
+        let slope_at = |along: f32| {
+            let step = 1.0e-3;
+            (beach_ramp(along + step) - beach_ramp(along)) / step
+        };
+
+        let at_the_water = slope_at(0.0);
+        assert!(
+            at_the_water > 0.4,
+            "the shore is flat where the water meets it: {at_the_water:.3}"
+        );
+
+        // How far the tide actually walks, in metres of sand.
+        let rise = COAST_HEIGHT / BEACH_WIDTH * at_the_water;
+        let sweep = TIDE / rise;
+        assert!(
+            sweep < 3.0,
+            "the tide walks {sweep:.1} m up the beach, which is too far"
+        );
+        assert!(sweep > 0.2, "and it should still be visible: {sweep:.2} m");
+
+        // Flat at the TOP, though, or there is a crease where the beach gives way
+        // to the land behind it.
+        assert!(
+            slope_at(0.999) < 0.15,
+            "a crease at the top of the beach: {:.3}",
+            slope_at(0.999)
+        );
+
+        // And still monotonic, or a coastline steps.
+        let mut last = -1.0;
+        for step in 0..=100 {
+            let here = beach_ramp(step as f32 / 100.0);
+            assert!(here >= last, "the ramp goes backwards at {step}");
+            last = here;
+        }
     }
 
     #[test]
