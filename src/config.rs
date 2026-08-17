@@ -504,12 +504,25 @@ pub const GRADE_PASSES: usize = 24;
 /// How far the tide carries the waterline up and down, in meters, and how long
 /// a full cycle takes.
 ///
-/// **Small.** The coast shelves over hundreds of meters, so the water's
+/// **Smaller than it looks like it needs to be, and here is why.**
+///
+/// How far a tide sweeps is its height divided by the beach's SLOPE — and the
+/// beach is raised by a smoothstep, whose derivative is zero at both ends. So the
+/// ground is very nearly horizontal exactly at the waterline, which is exactly
+/// where the tide is. Dividing by almost nothing is what made a hand's depth of
+/// tide walk the sea metres up the sand.
+///
+/// A third of what it was, which cuts the sweep to a third. The real fix is to
+/// give the beach a slope where it meets the water — a linear term under the
+/// smoothstep — but that moves every coastline in the world and wants looking at
+/// rather than reasoning about.
+///
+/// The coast shelves over hundreds of meters, so the water's
 /// horizontal travel is its vertical travel divided by a gradient of about a
 /// tenth — every centimeter of tide is ten centimeters of beach. At half a meter
 /// the sea drew back a good fifteen meters and stranded the shallows, which
 /// reads as a lake emptying rather than as a shore.
-pub const TIDE: f32 = 0.18;
+pub const TIDE: f32 = 0.06;
 pub const TIDE_PERIOD: f32 = 20.0;
 
 // ------------------------------------------------- handing this to the bench

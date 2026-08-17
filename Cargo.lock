@@ -4689,7 +4689,7 @@ dependencies = [
 [[package]]
 name = "terrain-core"
 version = "0.1.0"
-source = "git+https://github.com/Baz-Studios-LLC/terrain-core#cc8a86831590e22ed6f5e5d0348921d8009c75a7"
+source = "git+https://github.com/Baz-Studios-LLC/terrain-core#0fdd9f8ae72b2d2c6fbe0196c5f110c900472675"
 dependencies = [
  "glam",
  "noise",
