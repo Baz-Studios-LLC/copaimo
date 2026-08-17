@@ -115,6 +115,13 @@ pub const RIVER_QUADS: u32 = 16;
 /// all put sheets of it across whole beaches.
 pub const CHANNEL_LEAST: f32 = 0.45;
 
+/// How deep the water stands in the middle of a channel, in metres.
+///
+/// Shallow on purpose. The surface is drawn relative to the bed beneath it, so
+/// this is how far it can ever be off the ground — which means it can never be
+/// seen hanging in the air, whatever the terrain under it does.
+pub const RIVER_DEPTH: f32 = 0.7;
+
 // ---------------------------------------------------------------------- sky
 
 /// How many clouds hang over the world at once.
@@ -278,7 +285,15 @@ pub const TREELINE: f32 = 150.0;
 /// Between `TREELINE` and `MASSIF_HEIGHT`, so the great mountain wears a cap and
 /// nothing else in the world reaches one. A range at `RANGE_ELEVATION` never gets
 /// close, which is the point — snow should mean THE mountain.
-pub const SNOWLINE: f32 = 250.0;
+///
+/// Lowered from 250. At that height only the last quarter of the mountain was
+/// white, and now that its flanks are cut into spurs and gullies rather than a
+/// smooth shell, the snow had almost nothing to sit on — it read as a dusting on
+/// a summit rather than as high country. At 165 it comes well down the spurs and
+/// onto the shoulders, and the treeline at 150 still sits below it, so there is a
+/// band of bare rock between the last trees and the first snow. That band is what
+/// makes high ground look high.
+pub const SNOWLINE: f32 = 165.0;
 
 /// Slope past which ground is bare stone rather than anything growing.
 pub const ROCK_SLOPE: f32 = 0.62;

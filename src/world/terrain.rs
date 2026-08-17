@@ -726,42 +726,37 @@ impl Terrain {
     /// nothing that would read one — so a river is a surface at a height, the
     /// same as the sea is.
     pub fn river_surface(&self, x: f32, z: f32) -> Option<f32> {
-        let (cut, water) = self.rivers.at(x, z);
-        // Three things have to be true, and only the middle one used to be asked.
+        // Water that FOLLOWS ITS BED, rather than a level held across a channel.
         //
-        // A REAL channel, not the outer fringe of a bank. Banks reach several
-        // times the channel's width — up to a hundred and fifty metres — and a
-        // fifty-millimetre cut that far out is dry ground. Asking only that
-        // something was cut painted water across whole beaches.
+        // Held-level water is right in physics and wrong here, and three attempts
+        // to make it behave failed the same way each time. A level is flat; the
+        // ground under it is not; and every disagreement between them shows as a
+        // sheet of water floating over a hillside. Tightening what counted as a
+        // channel only made the sheets smaller and more scattered.
         //
-        // Water standing above the ground, which is what makes it water.
-        //
-        // And ABOVE THE SEA. A channel's surface is held at sea level once it
-        // reaches the coast, so without this every hollow in a beach within reach
-        // of a river mouth drew its own slab of river on top of the sea's own —
-        // which is exactly the sheets of water lying on dry sand.
-        // Standing in a whole BED, not on a bank. The cut alone could not say
-        // this — it reaches several times a channel's width — so slabs of river
-        // kept appearing out on flat grass wherever the level happened to clear
-        // the ground.
-        if self.rivers.bed_at(x, z) < 0.85 {
+        // So the surface sits a fixed shallow depth above the bed it is in. It
+        // cannot float, because it is defined relative to the ground beneath it —
+        // no threshold to tune and no disagreement possible. A river running
+        // visibly downhill is not quite what water does, but at this scale nobody
+        // reads the gradient of a stream and everybody reads a slab hanging in
+        // the air.
+        let bed = self.rivers.bed_at(x, z);
+        if bed < 0.5 {
             return None;
         }
-        let real_channel = cut > CHANNEL_LEAST;
-        let above_the_sea = water > SEA_LEVEL + 0.2;
-        if !real_channel || !above_the_sea {
+        let (cut, _) = self.rivers.at(x, z);
+        if cut < CHANNEL_LEAST {
             return None;
         }
 
-        // And no deeper than the channel that holds it.
-        //
-        // A channel's level is stamped across its banks, and where the ground
-        // falls away under that stamp the level goes with it — thirteen metres
-        // of standing water on one flank, which is a lake and not a river. Water
-        // fills the cut it made, so its depth cannot much exceed that cut.
         let ground = self.drawn_height(x, z);
-        let depth = water - ground;
-        (depth > 0.0 && depth < cut + 1.0).then_some(water)
+        if ground < SEA_LEVEL + 0.2 {
+            // The sea already draws this, and two surfaces in one place flicker.
+            return None;
+        }
+        // Deepest in the middle of the bed, tapering to nothing at its edge, so a
+        // river meets its bank instead of ending in a step.
+        Some(ground + RIVER_DEPTH * bed)
     }
 
     /// Applies the coastline domain warp.
@@ -989,9 +984,13 @@ mod tests {
                 );
                 // And it must be shallow enough to be a river rather than a lake
                 // spread over a plain.
+                // Never far off the ground, because it is DEFINED relative to
+                // it now. This used to allow twelve metres and still caught a
+                // lake; there is nothing left for it to catch, which is the
+                // point of drawing water this way.
                 assert!(
-                    water - ground < 12.0,
-                    "water {:.1} m deep at {:.0}, {:.0} is not a channel",
+                    water - ground <= RIVER_DEPTH + 0.01,
+                    "water {:.2} m above its own bed at {:.0}, {:.0}",
                     water - ground,
                     at.x,
                     at.y
