@@ -370,6 +370,19 @@ pub const ROAD_WIDTH: f32 = 9.0;
 /// not enough to blend the wall — the eye reads that as a trench side.
 pub const ROAD_SKIRT: f32 = 44.0;
 
+/// How far a cutting's sides are battered, per metre of its depth.
+///
+/// The fixed skirt above is what turned roads into gorges. A road that has to
+/// cross a ridge holds its grade and cuts through, which is what a road does —
+/// but the cut has to resolve into the land over a FIXED forty-four metres
+/// however deep it is, so a thirty-metre cut came out with thirty-four-degree
+/// walls. That reads as a canyon somebody blasted, not a road somebody built.
+///
+/// Real cuttings are battered in proportion to their depth, because soil has an
+/// angle it will hold. Three metres of skirt per metre of depth is about
+/// eighteen degrees — a slope you can walk up, and a cut you can see is a cut.
+pub const ROAD_BATTER: f32 = 3.0;
+
 /// Metres between height samples along a road when it is graded.
 pub const ROAD_STEP: f32 = 22.0;
 

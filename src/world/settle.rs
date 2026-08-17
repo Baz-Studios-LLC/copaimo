@@ -229,7 +229,12 @@ impl Settlements {
     ///
     /// `None` where nothing is near, which is nearly everywhere — this is on the
     /// hot path and its job is mostly to say no quickly.
-    pub fn level(&self, at: Vec2) -> Option<(f32, f32)> {
+    /// The height this place has been levelled to, and how strongly.
+    ///
+    /// `ground` is what the generator would have made here, and it is needed for
+    /// roads: how far a cutting's sides have to reach depends on how deep the cut
+    /// is, and only the caller knows the ground it is cutting into.
+    pub fn level(&self, at: Vec2, ground: f32) -> Option<(f32, f32)> {
         let (x, y) = self.cell_of(at);
         let cell = self.cells.get((y * self.cells_across + x) as usize)?;
         if cell.is_empty() {
@@ -256,7 +261,12 @@ impl Settlements {
                 // A road climbs steadily from one end to the other, so it can be
                 // walked and a cart can use it.
                 let height = road.height_at(along);
-                (height, smoothstep(ROAD_WIDTH + ROAD_SKIRT, ROAD_WIDTH, away))
+                // And its sides are battered in proportion to the cut. A fixed
+                // skirt had to resolve a thirty-metre cut over forty-four metres,
+                // which is a gorge; widening with the depth turns the same cut
+                // into a slope you can walk up.
+                let skirt = road_skirt(ground - height);
+                (height, smoothstep(ROAD_WIDTH + skirt, ROAD_WIDTH, away))
             };
             if pull <= weight {
                 continue;
@@ -270,6 +280,16 @@ impl Settlements {
 
         (weight > 0.0).then_some((target, weight))
     }
+}
+
+/// How far a cutting's sides reach, for a cut of a given depth.
+///
+/// The fix for roads that came out as gorges. A fixed skirt has to resolve
+/// however deep a cut is over the same distance, so the deeper the cut the
+/// steeper its walls — thirty metres over forty-four is thirty-four degrees, and
+/// the eye reads that as blasted rock rather than a road.
+fn road_skirt(depth: f32) -> f32 {
+    ROAD_SKIRT + depth.abs() * ROAD_BATTER
 }
 
 impl Road {
@@ -421,6 +441,49 @@ fn unit(seed: u32, n: u32) -> f32 {
 #[cfg(test)]
 mod roads {
     use super::*;
+
+    /// The steepest the side of a cutting is allowed to be, as a rise over run.
+    /// About twenty-five degrees — steeper than that and it reads as a wall.
+    const WALKABLE: f32 = 0.47;
+
+    /// The slope of a cutting's wall, for a cut of a given depth.
+    ///
+    /// The cut resolves from the edge of the bed out to the end of the skirt, so
+    /// its average wall slope is the depth over that reach.
+    fn wall_slope(depth: f32) -> f32 {
+        depth / road_skirt(depth)
+    }
+
+    #[test]
+    fn a_cutting_is_battered_rather_than_cut_square() {
+        // What the complaint was: roads between towns arriving as gorges. A road
+        // holding its grade across a ridge cuts through, which is what a road
+        // does; the fault was that the cut blended back into the land over a
+        // FIXED forty-four metres however deep it was.
+        for depth in [2.0_f32, 5.0, 10.0, 20.0, 30.0, 45.0, 60.0] {
+            let slope = wall_slope(depth);
+            assert!(
+                slope <= WALKABLE,
+                "a {depth:.0} m cut has {slope:.2} walls, over {:.0} m of skirt",
+                road_skirt(depth)
+            );
+        }
+    }
+
+    #[test]
+    fn the_fixed_skirt_really_was_the_gorge() {
+        // Kept as the reason the constant exists, so nobody has to take the claim
+        // on trust: with no batter at all, a deep cut is a trench.
+        let square = 30.0 / ROAD_SKIRT;
+        assert!(
+            square > WALKABLE * 1.4,
+            "the old fixed skirt should be demonstrably too steep: {square:.2}"
+        );
+        assert!(
+            wall_slope(30.0) < square * 0.5,
+            "battering should at least halve it"
+        );
+    }
 
     /// A steep hill between two towns, both down at ten metres.
     fn hill(at: Vec2) -> f32 {
