@@ -528,6 +528,50 @@ assets/
 
 ## Change log
 
+**2026-08-15** — **The world knows what kind of place it is.** Eight biomes —
+water, shore, grassland, forest, desert, rock, snow, settled — classified in
+`terrain-core` from five signals the game answers for: height, slope, moisture,
+distance to the coast, and how much a settlement has levelled the ground. Both
+the game and Opificium's bench ask the same question and get the same answer,
+which is what makes "this monster lives in forests" mean one thing.
+
+The **order** of the questions is the rule, most-physical first. Under the
+waterline nothing else is worth asking, so a drowned forest is water. A levelled
+town on a hillside is a town — asked before the slope, or wild things would live
+in the middle of a settlement. A beach is measured from the coast and not from its
+height, because a clifftop ten metres up is not a beach and a sandbar is.
+
+`Biome::of` answers with ONE kind, because habitat is a yes or no. `confidence`
+answers *how strongly*, for everything downstream that should fade rather than
+switch. Both read the same thresholds, so a boundary you can see is the boundary
+that decides what lives there. Those thresholds are a `Climate` — a world's own
+numbers, exported in `world.json` — not constants, because the same generation
+with the desert threshold moved is a wetter continent.
+
+Measuring it caught two faults immediately. Above the treeline read as **grass**,
+so the world contained *no rock at all* and anything meant to live in the
+mountains had nowhere to be. And the graded skirt around a town counted as
+settled, which made a fifth of the land somebody's.
+
+What the world is made of now, sampled on a 160 × 160 grid:
+
+| | share of world | share of land |
+| --- | --- | --- |
+| Water | 63.0% | — |
+| Grassland | 9.9% | 27% |
+| Forest | 8.5% | 23% |
+| Settled | 7.8% | 21% |
+| Desert | 4.8% | 13% |
+| Shore | 4.4% | 12% |
+| Rock | 1.0% | 2.7% |
+| Snow | 0.8% | 2.2% |
+
+Shown on the F3 overlay and in the terrain tool's panel, both with the confidence,
+because tuning a climate means standing in one and reading the number.
+
+**Not done:** rivers. `Water` covers them the moment they exist, but nothing
+generates them — that needs downhill flow, and it is its own job.
+
 **2026-08-14** — **Trees that look like trees.** Three faults, and the middle one
 was a real bug.
 

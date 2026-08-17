@@ -22,6 +22,7 @@ use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 
 use crate::config::*;
 use crate::world::edit::Sculpt;
+pub use terrain_core::biome::{Biome, Climate, Ground as BiomeGround};
 use crate::world::heightmap::HeightMap;
 use crate::world::settle::{Settlements, Site};
 
@@ -537,6 +538,53 @@ impl Terrain {
         (m * 0.5 + 0.5).clamp(0.0, 1.0)
     }
 
+    /// The thresholds that decide what sort of world this is.
+    ///
+    /// Built from `config.rs` rather than taken from the crate's defaults, so the
+    /// numbers a maker tunes live with every other number that shapes the ground —
+    /// and travel to the bench in `world.json` with them.
+    pub fn climate(&self) -> Climate {
+        Climate {
+            shore_within: SHORE_WITHIN,
+            treeline: TREELINE,
+            snowline: SNOWLINE,
+            rock_above: ROCK_SLOPE,
+            desert_below: DESERT_MOISTURE,
+            forest_above: FOREST_MOISTURE,
+            settled_above: SETTLED_LEVELLING,
+        }
+    }
+
+    /// Everything about a point that decides what kind of place it is.
+    ///
+    /// Gathered once because it is five separate questions of the terrain and
+    /// three different callers want the answer to all of them — the biome, the
+    /// species of tree, and later what lives here.
+    pub fn ground_at(&self, x: f32, z: f32) -> BiomeGround {
+        BiomeGround {
+            height: self.height(x, z),
+            slope: 1.0 - self.normal(x, z, 2.0).y,
+            moisture: self.moisture(x, z),
+            shore: self.shore_meters(x, z),
+            levelled: self
+                .settlements
+                .level(Vec2::new(x, z))
+                .map(|(_, weight)| weight)
+                .unwrap_or(0.0),
+        }
+    }
+
+    /// What kind of place this is.
+    pub fn biome(&self, x: f32, z: f32) -> Biome {
+        Biome::of(self.ground_at(x, z), &self.climate())
+    }
+
+    /// How strongly this ground reads as its own kind, 0 at a boundary to 1 well
+    /// inside one. For anything that should fade rather than switch.
+    pub fn biome_confidence(&self, x: f32, z: f32) -> f32 {
+        Biome::confidence(self.ground_at(x, z), &self.climate())
+    }
+
     /// Surface normal from central differences on the heightfield.
     ///
     /// Computed analytically rather than from mesh triangles on purpose: it
@@ -775,5 +823,50 @@ mod ranch_tests {
             "the bench read 22.9 m here and the game reads {height:.1} m - \
              the two are not building the same ground"
         );
+    }
+}
+
+#[cfg(test)]
+mod biomes {
+    use super::*;
+
+    /// What the world is actually made of, and whether every kind of place is
+    /// somewhere a monster could be found.
+    ///
+    /// `cargo test the_world_holds_every_biome -- --nocapture` prints the shares.
+    #[test]
+    fn the_world_holds_every_biome() {
+        let terrain = Terrain::new();
+        let half = terrain.half();
+        let sea = terrain.climate();
+
+        let mut tally = std::collections::BTreeMap::new();
+        const STEPS: i32 = 160;
+        for iz in 0..STEPS {
+            for ix in 0..STEPS {
+                let at = Vec2::new(
+                    (ix as f32 / (STEPS - 1) as f32 * 2.0 - 1.0) * half.x,
+                    (iz as f32 / (STEPS - 1) as f32 * 2.0 - 1.0) * half.y,
+                );
+                let kind = Biome::of(terrain.ground_at(at.x, at.y), &sea);
+                *tally.entry(kind.name()).or_insert(0usize) += 1;
+            }
+        }
+
+        let total = (STEPS * STEPS) as f32;
+        for (name, count) in &tally {
+            println!("{name:>10}: {:>5.1}%", *count as f32 / total * 100.0);
+        }
+
+        // Land kinds a monster is meant to live in must actually exist on the
+        // map. A habitat with no ground in it is a species with nowhere to be.
+        for wanted in [
+            Biome::Water.name(),
+            Biome::Shore.name(),
+            Biome::Grass.name(),
+            Biome::Forest.name(),
+        ] {
+            assert!(tally.contains_key(wanted), "no {wanted} anywhere in the world");
+        }
     }
 }

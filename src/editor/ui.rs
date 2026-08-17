@@ -60,6 +60,7 @@ enum Readout {
     Strength,
     Position,
     Ground,
+    Place,
     Edited,
     Planted,
     Surfaced,
@@ -207,6 +208,7 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
             body.spawn(section(font, "CURSOR"));
             value_row(body, font, "Position", Readout::Position);
             value_row(body, font, "Ground", Readout::Ground);
+            value_row(body, font, "Place", Readout::Place);
 
             body.spawn(rule());
             body.spawn(section(font, "EDITS"));
@@ -564,6 +566,17 @@ fn refresh_readouts(
                     let slope = 1.0 - terrain.normal(hit.x, hit.z, 1.0).y;
                     format!("{:.1} m   slope {slope:.2}", hit.y)
                 }
+                None => "-".to_string(),
+            },
+            // What kind of place the brush is over, and how sure. Tuning a
+            // climate means standing in it and reading this: "Desert 0.08" says
+            // the boundary is right here.
+            Readout::Place => match brush.hit {
+                Some(hit) => format!(
+                    "{} {:.2}",
+                    terrain.biome(hit.x, hit.z).name(),
+                    terrain.biome_confidence(hit.x, hit.z)
+                ),
                 None => "-".to_string(),
             },
             Readout::Edited => format!("{cells} cells"),

@@ -187,6 +187,32 @@ pub const TREE_SPACING: f32 = 14.0;
 /// stands bare above its own treeline.
 pub const TREELINE: f32 = 150.0;
 
+/// Height at which the tops turn to snow.
+///
+/// Between `TREELINE` and `MASSIF_HEIGHT`, so the great mountain wears a cap and
+/// nothing else in the world reaches one. A range at `RANGE_ELEVATION` never gets
+/// close, which is the point — snow should mean THE mountain.
+pub const SNOWLINE: f32 = 250.0;
+
+/// Slope past which ground is bare stone rather than anything growing.
+pub const ROCK_SLOPE: f32 = 0.62;
+
+/// Moisture below which land is desert, and above which it closes into forest.
+///
+/// These two decide what sort of continent this is. Widening the gap makes a
+/// world of open grassland; closing it makes everywhere either wood or sand.
+pub const DESERT_MOISTURE: f32 = 0.38;
+pub const FOREST_MOISTURE: f32 = 0.58;
+
+/// Metres from the coast within which ground counts as beach.
+///
+/// The same number the forest already refuses to grow inside, named once so the
+/// treeline of a beach and the edge of the shore biome cannot drift apart.
+pub const SHORE_WITHIN: f32 = 25.0;
+
+/// How much levelling makes ground somebody's rather than nobody's.
+pub const SETTLED_LEVELLING: f32 = 0.62;
+
 /// How much bigger or smaller than grown a planted tree may be, so a stand has
 /// young trees and old ones in it.
 pub const TREE_SCALE_LOW: f32 = 0.75;
@@ -449,6 +475,14 @@ mod handing_over {
              \"site_max_slope\": {SITE_MAX_SLOPE:?},\n  \
              \"road_width\": {ROAD_WIDTH:?},\n  \
              \"road_skirt\": {ROAD_SKIRT:?},\n  \
+             \"road_step\": {ROAD_STEP:?},\n  \
+             \"road_grade\": {ROAD_GRADE:?},\n  \
+             \"shore_within\": {SHORE_WITHIN:?},\n  \
+             \"snowline\": {SNOWLINE:?},\n  \
+             \"rock_slope\": {ROCK_SLOPE:?},\n  \
+             \"desert_moisture\": {DESERT_MOISTURE:?},\n  \
+             \"forest_moisture\": {FOREST_MOISTURE:?},\n  \
+             \"settled_levelling\": {SETTLED_LEVELLING:?},\n  \
              \"flat\": {FLAT_WORLD}\n\
              }}\n"
         );

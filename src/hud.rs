@@ -143,21 +143,30 @@ fn update_hud(
         CameraMode::Fly => "free-fly (F)",
     };
 
+    // What kind of place this is, and how sure. The confidence is the useful
+    // half while tuning a climate: standing somewhere that says "Desert 0.08"
+    // means the boundary is right there, which is what you want to know when
+    // deciding whether the deserts are big enough to travel to.
+    let biome = terrain.biome(position.x, position.z);
+    let sure = terrain.biome_confidence(position.x, position.z);
+
     **text = format!(
         "{fps:.0} fps   camera: {mode}\n\
          world: {:.0} x {:.0} m   source: {source}\n\
          position: {:.0}, {:.0}\n\
          altitude: {height:.1} m   slope: {slope:.2}   moisture: {moisture:.2}\n\
+         here: {} ({sure:.2} sure)\n\
          chunks: {} loaded, {} building   sculpted: {sculpted}\n\
          nearest: {nearest}\n\
          \n\
          WASD move · Shift sprint · mouse look · wheel zoom\n\
-         F free-fly (Space/Ctrl up-down) · F3 hide\n\
+         F free-fly (Q/E down-up, -/= speed) · F3 hide\n\
          Esc back to menu",
         WORLD_WIDTH,
         bounds.half.y * 2.0,
         position.x,
         position.z,
+        biome.name(),
         chunks.loaded.len(),
         pending.iter().count(),
     );
