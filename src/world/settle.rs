@@ -51,6 +51,15 @@ struct Road {
     /// twenty-six to blend the walls. A road follows the land and cuts only what
     /// it must to stay walkable.
     profile: Vec<f32>,
+    /// How deep the road cuts at each of those same stations: the ground it was
+    /// graded through, minus the height it settled on.
+    ///
+    /// Kept rather than worked out on demand, and that is the point. How far a
+    /// cutting's sides have to reach depends on how deep it is — but if "how
+    /// deep" is measured at the point being ASKED about, the pull varies across
+    /// the section and the surface comes out scalloped. Measured along the road
+    /// instead, a section is one clean ramp.
+    cuts: Vec<f32>,
 }
 
 /// Everything levelled, with a coarse grid over it so a height lookup only ever
@@ -167,7 +176,15 @@ impl Settlements {
             }
         }
 
-        let roads = link(&sites, ground);
+        // Only if the world is still laying its own. Kept as a switch rather than
+        // torn out: the grading is tested and a maker may want a linked network
+        // again, but a hand-laid road beats a generated one every time because
+        // somebody is looking at the country while they lay it.
+        let roads = if LINK_TOWNS_WITH_ROADS {
+            link(&sites, ground)
+        } else {
+            Vec::new()
+        };
         let mut settlements = Settlements {
             sites,
             roads,
@@ -193,7 +210,9 @@ impl Settlements {
             let reach = site.radius + SITE_SKIRT;
             filings.push((i as u16, site.at - reach, site.at + reach));
         }
-        let road_reach = ROAD_WIDTH + ROAD_SKIRT;
+        // The widest a road can ever pull, not the narrowest. Filing them by the
+        // unbattered skirt is what put a wall down each side of every one.
+        let road_reach = ROAD_WIDTH + ROAD_MAX_SKIRT;
         let offset = self.sites.len() as u16;
         for (i, road) in self.roads.iter().enumerate() {
             let low = road.from.min(road.to) - road_reach;
@@ -230,11 +249,7 @@ impl Settlements {
     /// `None` where nothing is near, which is nearly everywhere — this is on the
     /// hot path and its job is mostly to say no quickly.
     /// The height this place has been levelled to, and how strongly.
-    ///
-    /// `ground` is what the generator would have made here, and it is needed for
-    /// roads: how far a cutting's sides have to reach depends on how deep the cut
-    /// is, and only the caller knows the ground it is cutting into.
-    pub fn level(&self, at: Vec2, ground: f32) -> Option<(f32, f32)> {
+    pub fn level(&self, at: Vec2) -> Option<(f32, f32)> {
         let (x, y) = self.cell_of(at);
         let cell = self.cells.get((y * self.cells_across + x) as usize)?;
         if cell.is_empty() {
@@ -265,7 +280,10 @@ impl Settlements {
                 // skirt had to resolve a thirty-metre cut over forty-four metres,
                 // which is a gorge; widening with the depth turns the same cut
                 // into a slope you can walk up.
-                let skirt = road_skirt(ground - height);
+                // From the road's own recorded cut at this point ALONG it, not
+                // from the ground at the point being asked about — that made the
+                // pull vary across a section and scalloped the sides.
+                let skirt = road_skirt(road.cut_at(along));
                 (height, smoothstep(ROAD_WIDTH + skirt, ROAD_WIDTH, away))
             };
             if pull <= weight {
@@ -289,20 +307,34 @@ impl Settlements {
 /// steeper its walls — thirty metres over forty-four is thirty-four degrees, and
 /// the eye reads that as blasted rock rather than a road.
 fn road_skirt(depth: f32) -> f32 {
-    ROAD_SKIRT + depth.abs() * ROAD_BATTER
+    (ROAD_SKIRT + depth.abs() * ROAD_BATTER).min(ROAD_MAX_SKIRT)
+}
+
+/// Reads a value sampled along a road, between its stations.
+///
+/// One reader for the height and the cut both, because they are sampled at the
+/// same stations and a second copy of this arithmetic is a second chance for the
+/// two to be read out of step with each other.
+fn read_along(sampled: &[f32], along: f32) -> f32 {
+    if sampled.len() < 2 {
+        return sampled.first().copied().unwrap_or(0.0);
+    }
+    let last = sampled.len() - 1;
+    let step = (along.clamp(0.0, 1.0) * last as f32).min(last as f32 - 1.0e-4);
+    let low = step.floor() as usize;
+    let t = step - low as f32;
+    sampled[low] * (1.0 - t) + sampled[low + 1] * t
 }
 
 impl Road {
     /// The graded height a fraction of the way along, read between samples.
     fn height_at(&self, along: f32) -> f32 {
-        if self.profile.len() < 2 {
-            return self.profile.first().copied().unwrap_or(0.0);
-        }
-        let last = self.profile.len() - 1;
-        let step = (along.clamp(0.0, 1.0) * last as f32).min(last as f32 - 1.0e-4);
-        let low = step.floor() as usize;
-        let t = step - low as f32;
-        self.profile[low] * (1.0 - t) + self.profile[low + 1] * t
+        read_along(&self.profile, along)
+    }
+
+    /// How deep the road cuts at a point along it.
+    fn cut_at(&self, along: f32) -> f32 {
+        read_along(&self.cuts, along)
     }
 
     /// Distance to this road, and how far along it was, 0 to 1.
@@ -352,8 +384,21 @@ fn link(sites: &[Site], ground: &dyn Fn(Vec2) -> f32) -> Vec<Road> {
         let Some((_, from, to)) = best else { break };
         joined[to] = true;
         let (foot, head) = (sites[from].at, sites[to].at);
+        let profile = grade(ground, foot, head, sites[from].height, sites[to].height);
+        // The ground it was graded through, minus where it settled. Taken here
+        // because this is where the ground function is to hand — `level` has no
+        // way to ask, and asking at the sample point is what scalloped the sides.
+        let cuts = profile
+            .iter()
+            .enumerate()
+            .map(|(step, held)| {
+                let along = step as f32 / (profile.len() - 1).max(1) as f32;
+                ground(foot.lerp(head, along)) - held
+            })
+            .collect();
         roads.push(Road {
-            profile: grade(ground, foot, head, sites[from].height, sites[to].height),
+            profile,
+            cuts,
             from: foot,
             to: head,
         });

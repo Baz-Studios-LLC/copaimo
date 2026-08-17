@@ -79,6 +79,19 @@ pub const VIEW_CHUNKS: i32 = 9;
 /// the work spike on first load and when the player moves fast.
 pub const MAX_PENDING_CHUNKS: usize = 24;
 
+/// How far ground cover reaches from the viewer, in chunks.
+///
+/// Far short of `VIEW_CHUNKS`, and deliberately. Terrain streams to the horizon
+/// because that is what a horizon is; grass cannot follow it — a chunk holds two
+/// thousand tufts, so dressing the streamed world would be seven hundred
+/// thousand of them. It would also be wasted, since a forty-centimetre blade is
+/// invisible past a hundred metres. Two chunks is about 320 m of dressed ground,
+/// which is further than anyone can tell.
+pub const COVER_CHUNKS: i32 = 2;
+
+/// How many chunks may be having their cover built at once.
+pub const MAX_PENDING_COVER: usize = 6;
+
 // ------------------------------------------------------------------ elevation
 
 /// Water surface height. Everything is measured relative to this, so "y < 0 is
@@ -382,6 +395,33 @@ pub const ROAD_SKIRT: f32 = 44.0;
 /// angle it will hold. Three metres of skirt per metre of depth is about
 /// eighteen degrees — a slope you can walk up, and a cut you can see is a cut.
 pub const ROAD_BATTER: f32 = 3.0;
+
+/// Whether the world lays its own roads between towns.
+///
+/// **Off, because roads are authored now.** The generator's roads were the source
+/// of the gorges: a graded run holds its grade across a ridge and cuts through,
+/// and however carefully the sides are battered the result is a machine's answer
+/// to a question that wants a person's. The PATH brush lays a road that follows
+/// the country because somebody is looking at the country while they lay it.
+///
+/// The machinery below is kept, tested, and one word from returning — this is a
+/// switch rather than a deletion, so turning towns back into a linked network is
+/// changing `false` to `true`.
+pub const LINK_TOWNS_WITH_ROADS: bool = false;
+
+/// The widest a cutting's skirt may reach, in metres.
+///
+/// A cap is not tidiness, it is correctness. Roads are filed in a coarse grid so
+/// a height lookup tests only the features near it, and a road is filed by the
+/// ground it can possibly reach. Battering the sides without raising that reach
+/// meant a road stopped being FOUND past the old fifty-three metres while its
+/// skirt still wanted to pull — so the pull fell to nothing in one step and left
+/// a wall parallel to every road. Which is more gorges, not fewer.
+///
+/// So the reach is this, the skirt is clamped to it, and the two cannot disagree.
+/// A cut deeper than about forty metres gets a slightly steeper wall than the
+/// batter asks for, which is a fair trade for a bounded lookup.
+pub const ROAD_MAX_SKIRT: f32 = 160.0;
 
 /// Metres between height samples along a road when it is graded.
 pub const ROAD_STEP: f32 = 22.0;

@@ -321,7 +321,7 @@ impl Terrain {
         let h = self.raw_height(x, z);
         // Towns stand on level ground and roads are graded between them, so the
         // last word on generated height belongs to whatever has been leveled.
-        match self.settlements.level(Vec2::new(x, z), h) {
+        match self.settlements.level(Vec2::new(x, z)) {
             Some((target, pull)) => h + (target - h) * pull,
             None => h,
         }
@@ -574,7 +574,7 @@ impl Terrain {
             shore: self.shore_meters(x, z),
             levelled: self
                 .settlements
-                .level(Vec2::new(x, z), self.raw_height(x, z))
+                .level(Vec2::new(x, z))
                 .map(|(_, weight)| weight)
                 .unwrap_or(0.0),
         }

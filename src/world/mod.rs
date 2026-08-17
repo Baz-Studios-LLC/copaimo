@@ -3,6 +3,7 @@
 pub mod biome;
 pub mod forest;
 pub mod chunk;
+pub mod cover;
 pub mod edit;
 pub mod heightmap;
 pub mod settle;
@@ -87,7 +88,12 @@ impl Plugin for WorldPlugin {
             .init_resource::<stream::ChunkMap>()
             .add_systems(
                 Startup,
-                (chunk::setup_material, water::spawn_water, stream::grow_the_grove),
+                (
+                    chunk::setup_material,
+                    cover::setup_material,
+                    water::spawn_water,
+                    stream::grow_the_grove,
+                ),
             )
             .add_systems(
                 Update,
@@ -96,6 +102,11 @@ impl Plugin for WorldPlugin {
                     stream::queue_chunks,
                     stream::collect_chunks,
                     stream::unload_chunks,
+                    // After the ground, because cover can only be laid on a
+                    // chunk that is already loaded.
+                    cover::dress_chunks,
+                    cover::collect_cover,
+                    cover::undress_chunks,
                 )
                     .chain(),
             );

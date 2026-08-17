@@ -312,7 +312,11 @@ pub fn unload_chunks(
 /// The one engine-shaped seam in the arrangement. `terrain-core` names no engine
 /// — that is what lets this game on Bevy 0.16 and Opificium on 0.19 run the same
 /// world — so somebody has to do this, and it is a dozen lines on each side.
-fn as_mesh(geometry: &terrain_core::Geometry) -> Mesh {
+/// Turns the crate's plain vertex arrays into a Bevy mesh.
+///
+/// The one engine-shaped seam in the whole arrangement, and the only place that
+/// knows both vocabularies.
+pub fn as_mesh(geometry: &terrain_core::Geometry) -> Mesh {
     Mesh::new(
         bevy::render::mesh::PrimitiveTopology::TriangleList,
         // Drawn, never read back.
@@ -322,4 +326,17 @@ fn as_mesh(geometry: &terrain_core::Geometry) -> Mesh {
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, geometry.normals.clone())
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, geometry.uvs.clone())
     .with_inserted_indices(bevy::render::mesh::Indices::U32(geometry.indices.clone()))
+}
+
+/// The same, plus per-vertex colour when the geometry carries any.
+///
+/// Ground cover does and trees do not: a welded meadow is one mesh wearing one
+/// material, so its many greens have to be in its vertices, where a tree is
+/// tinted by the material its variety wears.
+pub fn as_coloured_mesh(geometry: &terrain_core::Geometry) -> Mesh {
+    let mesh = as_mesh(geometry);
+    if geometry.colours.is_empty() {
+        return mesh;
+    }
+    mesh.with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, geometry.colours.clone())
 }
