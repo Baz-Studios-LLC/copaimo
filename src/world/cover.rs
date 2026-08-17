@@ -141,6 +141,16 @@ pub fn collect_cover(
                 MeshMaterial3d(material.0.clone()),
                 // Chunk-local, like the ground's own vertices.
                 Transform::IDENTITY,
+                // Grass casts no shadow, and that is what pays for there being
+                // this much of it.
+                //
+                // A meadow is by far the heaviest thing in the world by triangle
+                // count, and every caster is submitted again for each of the four
+                // shadow cascades — so a chunk of grass is drawn five times to
+                // show a smudge under something a hand tall. It still RECEIVES:
+                // grass in a tree's shadow or under a cloud goes dark with the
+                // ground it stands on, which is the part anybody can see.
+                bevy::pbr::NotShadowCaster,
             ));
         });
     }
@@ -211,7 +221,12 @@ fn dress(terrain: &Terrain, low: Vec2) -> Geometry {
             let ground = terrain.ground_at(at.x, at.y);
             let biome = Biome::of(ground, &climate);
             let sureness = Biome::confidence(ground, &climate);
-            let thickness = sprigs::density(biome, sureness);
+            // How deep into a meadow this slot is. Asked once and used twice:
+            // it decides both whether anything grows here and how big it gets,
+            // and a patch that is denser without being taller reads as more of
+            // the same rather than as a meadow.
+            let patch = sprigs::patch(biome, at);
+            let thickness = sprigs::density(biome, sureness, patch);
             if thickness <= 0.0
                 || sprigs::chance(slot_x, slot_z, sprigs::SALT_PRESENT) > thickness
             {
@@ -223,7 +238,8 @@ fn dress(terrain: &Terrain, low: Vec2) -> Geometry {
             let scale = match kind {
                 Sprig::Scrub => 0.7,
                 _ => 1.0,
-            } * (0.7 + 0.6 * sprigs::chance(slot_x, slot_z, sprigs::SALT_SCALE));
+            } * (0.7 + 0.6 * sprigs::chance(slot_x, slot_z, sprigs::SALT_SCALE))
+                * sprigs::stature(patch);
 
             sprigs::add(
                 &mut mesh,

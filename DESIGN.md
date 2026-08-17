@@ -531,6 +531,27 @@ assets/
 
 ## Change log
 
+**2026-08-17 (last)** — **Grass grows in meadows now.** Cover spread evenly is
+the same thin stubble on every field in the world, which is what it looked like.
+The same amount of grass is *gathered* instead: two octaves of value noise
+squared off into patches with middles, edges and gaps, so a meadow core is solid
+and taller and the ground between is nearly bare. Tuft spacing came down from
+2.6 m to 1.7 m at the same time — a tuft is a hand's width, and one every two and
+a half metres is not a sward however many there are, because the eye reads the
+gaps.
+
+**Desert is why patching takes a biome at all.** Dry scrub is sporadic *by
+nature* — that is what makes it read as dry — so gathering it into lush patches
+would be inventing oases. Rock and snow the same. Grass, forest, shore and
+trodden ground clump; the rest stay as they were.
+
+**Grass casts no shadow, and that is what pays for it.** A meadow is by far the
+heaviest thing in the world by triangle count and every caster is submitted again
+for each shadow cascade, so a chunk of grass was drawn five times to show a smudge
+under something a hand tall. It still *receives* — grass under a tree or a cloud
+goes dark with the ground it stands on. Measured: **49 fps against 44**, denser
+grass and a faster frame both.
+
 **2026-08-17 (last)** — **The world has things lying about in it.** Eight kinds
 of natural object — boulders, scree, bushes, stumps, fallen logs, dead standing
 snags, cactus and dry brush — three sizes of each, keyed to the biome they belong
