@@ -106,10 +106,16 @@ impl Settlements {
 
     /// Works out where the towns go and grades the roads between them.
     ///
-    /// `ground` answers the height BEFORE any of this is applied, and `shore`
-    /// the distance to the coast. Both must be free of settlements or this would
-    /// be reading its own output.
-    pub fn plan(half: Vec2, ground: &dyn Fn(Vec2) -> f32, shore: &dyn Fn(Vec2) -> f32) -> Self {
+    /// `ground` answers the height BEFORE any of this is applied, `shore` the
+    /// distance to the coast, and `wet` whether a river would be drawn at a
+    /// point. All three must be free of settlements or this would be reading its
+    /// own output.
+    pub fn plan(
+        half: Vec2,
+        ground: &dyn Fn(Vec2) -> f32,
+        shore: &dyn Fn(Vec2) -> f32,
+        wet: &dyn Fn(Vec2) -> bool,
+    ) -> Self {
         let mut sites: Vec<Site> = Vec::new();
 
         // The ranch first, before anything that could take its ground.
@@ -164,6 +170,20 @@ impl Settlements {
                     .iter()
                     .any(|other| other.at.distance(at) < apart.max(other.radius + radius))
                 {
+                    continue;
+                }
+                // Not astride a river.
+                //
+                // The water is cut before any of this is planned, so a channel
+                // here is one that would run through the middle of the place —
+                // and levelling the site would simply fill it in, which leaves a
+                // river arriving at the town boundary and starting again on the
+                // far side. Seventeen of the twenty-one sites had one.
+                //
+                // Tested last because it is the dearest of the lot: it walks the
+                // whole site, and only a candidate that has passed everything
+                // else has earned that.
+                if crosses_water(wet, at, radius) {
                     continue;
                 }
 
@@ -462,6 +482,27 @@ fn settle_pair(profile: &mut [f32], low: usize, high: usize, most: f32) {
 
 /// How steep the ground is at a point, sampled wide enough to catch a hillside
 /// rather than a bump.
+/// Whether any river would be drawn inside a site of this size.
+///
+/// Stepped at half the river grid's own spacing. The narrowest channel is seven
+/// metres across and the grid it is recorded on is twenty, so anything coarser
+/// than this could step straight over one and call the ground dry.
+fn crosses_water(wet: &dyn Fn(Vec2) -> bool, at: Vec2, radius: f32) -> bool {
+    let step = RIVER_SPACING * 0.5;
+    let mut dz = -radius;
+    while dz <= radius {
+        let mut dx = -radius;
+        while dx <= radius {
+            if dx * dx + dz * dz <= radius * radius && wet(at + Vec2::new(dx, dz)) {
+                return true;
+            }
+            dx += step;
+        }
+        dz += step;
+    }
+    false
+}
+
 fn steepness(ground: &dyn Fn(Vec2) -> f32, at: Vec2) -> f32 {
     const STEP: f32 = 24.0;
     let dx = ground(at + Vec2::X * STEP) - ground(at - Vec2::X * STEP);

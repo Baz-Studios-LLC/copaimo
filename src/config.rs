@@ -103,10 +103,19 @@ pub const RIVER_SPACING: f32 = 20.0;
 
 /// Quads along a chunk edge when the river surface is drawn.
 ///
-/// Coarser than the ground's, because still water is flat and a flat thing needs
-/// no vertices to describe it. It only has to be fine enough to follow the
-/// channel's edge, and a river is tens of metres wide.
-pub const RIVER_QUADS: u32 = 16;
+/// The same as the ground's, and it has to be. This was a quarter of it, on the
+/// reasoning that still water is flat and a flat thing needs no vertices — but
+/// the surface is not flat any more. It follows the bed beneath it, so it needs
+/// every vertex the bed has or it cannot follow anything.
+///
+/// It is also what draws the water's EDGE. At eight metres a river's bank came
+/// out as a flight of eight-metre stairs, which is not what a riverbank looks
+/// like from any distance at all.
+///
+/// The cost is nothing. Rivers cover a hundredth of the world and a quad is only
+/// emitted where there is water under it, so most chunks build no river mesh at
+/// all and the ones that do build a ribbon.
+pub const RIVER_QUADS: u32 = 64;
 
 /// How deep the cut must be before water is drawn standing in it, in metres.
 ///
@@ -115,12 +124,52 @@ pub const RIVER_QUADS: u32 = 16;
 /// all put sheets of it across whole beaches.
 pub const CHANNEL_LEAST: f32 = 0.45;
 
-/// How deep the water stands in the middle of a channel, in metres.
+/// How far up its own channel a river fills, 0 empty to 1 brimming.
 ///
-/// Shallow on purpose. The surface is drawn relative to the bed beneath it, so
-/// this is how far it can ever be off the ground — which means it can never be
-/// seen hanging in the air, whatever the terrain under it does.
-pub const RIVER_DEPTH: f32 = 0.7;
+/// A FRACTION, not a depth, and that is the whole of what keeps water off the
+/// grass. The surface is drawn this far up the channel that is actually still
+/// cut into the ground at that point — so a quarter of the channel is always
+/// bank, whatever the channel happens to be, and the water cannot be above the
+/// land beside it however flat or steep the country is.
+///
+/// A fixed depth in metres could not do that. It was 0.7 m, and where a channel
+/// was shallower than 0.7 m the remainder stood proud of the field. Worse, a
+/// town levelling its ground FILLED a channel in and the water carried on being
+/// drawn at the old depth: 787 of the 804 slabs on open grass were sitting on a
+/// town's flat.
+///
+/// It also gives a big river deeper water than a creek, which a fixed depth
+/// never did.
+pub const RIVER_FILL: f32 = 0.75;
+
+/// How far down a channel's profile the water's edge sits, 0 bank to 1 floor.
+///
+/// Where the drawn surface ENDS. The cut spreads out over the banks — several
+/// times the channel's own width — so drawing to the edge of it would put a
+/// river across its own floodplain. Just over half way down the profile is the
+/// shoulder of the channel proper.
+///
+/// The surface fades to nothing as it reaches this rather than stopping at it.
+/// Stopping is what leaves a step of water standing in the air, which is what a
+/// slab of river on dry grass is.
+pub const RIVER_EDGE: f32 = 0.55;
+
+/// The heights above the sea across which a river fades into it, in metres.
+///
+/// The third of a river's three edges, and the one that gets forgotten. A
+/// surface that follows its bed rises with the bed — so a river running down to
+/// the coast arrives at the waterline still carrying its own depth, and ends in
+/// a step nearly two metres above the sea it is running into.
+///
+/// Measured in HEIGHT rather than in distance, because that is what the problem
+/// is made of. A river reaching a steep shore drops a metre in two, so a fade
+/// spread over any fixed distance is crossed in one stride; a fade spread over
+/// height is crossed at the same point on every shore, gentle or sheer.
+///
+/// Nothing below the first of these. Down there you are looking at the sea, and
+/// the ground between is the flat a river leaves at its own mouth.
+pub const RIVER_MOUTH_LOW: f32 = 1.0;
+pub const RIVER_MOUTH_HIGH: f32 = 6.0;
 
 // ---------------------------------------------------------------------- sky
 
@@ -162,14 +211,18 @@ pub const CLOUD_DRIFT: f32 = 3.5;
 /// arriving. The shade lands on everything a surface receives — sun and sky
 /// both, which is what a cloud actually blocks — so it goes further than a third
 /// of the sunlight would on its own.
-pub const CLOUD_SHADE: f32 = 0.35;
+pub const CLOUD_SHADE: f32 = 0.45;
 
 /// Where a shadow's soft rim begins, as a share of its radius.
 ///
-/// A cloud does not have an edge; it has a place where it runs out. Two hundred
-/// metres of air blurs whatever is left of that, so the outer two thirds of a
-/// shadow is all rim. Anything crisper reads as a painted circle on the grass.
-pub const CLOUD_SHADE_SOFT: f32 = 0.35;
+/// A cloud does not have an edge; it has a place where it runs out, and two
+/// hundred metres of air blurs whatever is left of that. Anything crisper reads
+/// as a painted circle on the grass.
+///
+/// Raised from a third, because at a third a small cloud was ALL rim — it never
+/// reached full strength anywhere, so half the sky cast shadows you could barely
+/// see. At a half there is a solid middle to every one of them.
+pub const CLOUD_SHADE_SOFT: f32 = 0.5;
 
 /// The sun heights the shadows fade in and out across.
 ///

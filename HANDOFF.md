@@ -381,6 +381,18 @@ what broke drainage (no cell had a lower neighbour), river surfaces (bank ground
 sits at bed height), and the tide (a smoothstep beach has zero slope at the
 waterline). Anything reasoning about slope needs checking against flat ground.
 
+**Two fields deciding one thing will disagree.** This is the shape of nearly
+every fault in the water: a level and the ground; an extent from `bed` and a
+depth from `cut`; a drawn surface and a biome; a cut recorded before towns and a
+ground levelled after. The fix each time was to delete one of them, not to
+reconcile them.
+
+**A test that restates the definition can never fail.** `water - ground <=
+RIVER_DEPTH` passed through four versions that all put sheets of water on grass,
+because the water was DEFINED as ground plus that. What caught it was measuring
+the thing the eye sees — the step at the water's rim — which nothing in the
+definition guarantees.
+
 **Ask the question where the answer is used.** The last seven inverted faces
 survived two fixes because both decided the winding for a whole TUBE or a whole
 QUAD, and the thing that gets culled is a triangle. Deciding on behalf of

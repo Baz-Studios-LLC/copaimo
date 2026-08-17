@@ -530,6 +530,59 @@ assets/
 
 ## Change log
 
+**2026-08-17** — **Water fills a channel; it does not sit at a height.** The
+random slabs of river lying about in fields are gone, and the reason they kept
+coming back is worth writing down: a water LEVEL is a flat thing and the ground
+it covers is not, so the two disagree, and every disagreement between them is a
+sheet of water hanging over a hillside. Four attempts moved the slabs somewhere
+else — held level, capped level, level masked to a bed, fixed depth above one.
+
+There is no level any more. The water fills the channel that is still cut into
+the ground at that point, three quarters of the way up, and a fraction of a hole
+cannot be outside the hole. It also gives a big river deeper water than a creek,
+which a fixed depth never did.
+
+**What made it stubborn was the towns.** The rivers are carved first and a town
+levels its site on top — which fills the channel back in. The ground went up; the
+record of the cut did not, so the water carried on being drawn at the depth of a
+channel that was no longer there. **787 of the 804 slabs in the world were sitting
+on a town's flat field.** Levelling raises the ground by exactly the cut it
+covers, so what is left of a channel is now worked out from what is left of the
+cut, and a levelled site has none.
+
+**And no town is built on a river.** Seventeen of the twenty-one were. Siting
+already asked how high, how steep, how far from the sea and how far from its
+neighbours; it now also asks whether water runs through the ground, and turns it
+down if it does. The ranch is pinned by hand and keeps its spot — its levelling
+erases the channel under it.
+
+**A river's three edges all feather away to nothing**, and each had to be found
+separately: the BANK where the bed gives way to the rise beside it, the SHALLOWS
+where the channel runs out of depth, and the MOUTH where the river reaches a sea
+already drawn at its own level. An edge that simply stops leaves a step, and a
+step of water with nothing under it is what a slab actually is. Half the river's
+rim now meets the ground within four centimetres and ninety-nine in a hundred
+within twelve.
+
+**Nothing is cut narrower than the world can draw.** The narrowest channel goes
+from seven metres to eighteen. Nothing about a seven-metre channel survived the
+journey to the screen — recorded on a grid sampled every twenty metres and drawn
+on a mesh coarser than it was, it came out as disconnected rectangles of water
+lying in fields, one per grid cell it happened to land on. This adds no rivers:
+the same cells drain the same way. The river surface is also drawn at the ground's
+own resolution now rather than a quarter of it, so a bank is a bank and not a
+flight of eight-metre stairs.
+
+**One answer, everywhere.** The drawn surface and the biome that calls a place
+water were two claims from two fields with two thresholds, and they disagreed
+wherever the fields did. Both ask `river_depth` now. The old held water level is
+deleted from `terrain-core` outright — with it went the downstream sort of every
+cell on the map, which existed only to keep that level from climbing.
+
+Cloud shadows went from a third to nearly half strength, with a solid middle
+rather than all soft rim: at a third a small cloud never reached full strength
+anywhere and half the sky cast shade you could barely see.
+
 **2026-08-17** — **Cloud shadows, cast by the actual clouds.** The clouds
 overhead now put shade on the ground, and it is theirs: one soft disc per cloud,
 placed where the sun's own line through that cloud strikes the land. Stand in a

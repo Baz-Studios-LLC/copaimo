@@ -188,6 +188,13 @@ impl Terrain {
             half,
             &|at| terrain.dry_height(at.x, at.y),
             &|at| terrain.shore_meters(at.x, at.y),
+            // Where a river would be drawn, asked of the rivers alone. There are
+            // no settlements yet to level anything, so this is the same question
+            // `river_surface` asks with nothing standing in the way of it.
+            &|at| {
+                terrain.rivers.bed_at(at.x, at.y) >= RIVER_EDGE
+                    && terrain.rivers.cut_at(at.x, at.y) >= CHANNEL_LEAST
+            },
         );
         info!(
             "planned {} places and {} roads between them",
@@ -640,15 +647,14 @@ impl Terrain {
     /// species of tree, and later what lives here.
     pub fn ground_at(&self, x: f32, z: f32) -> BiomeGround {
         let height = self.height(x, z);
-        // How deep the river standing here is, worked out from the height already
-        // in hand rather than through `river_surface` — that would ask for the
-        // ground a second time, and this is asked once per blade of grass.
-        let (cut, water) = self.rivers.at(x, z);
-        let water_above = if cut > 0.05 {
-            (water - height).max(0.0)
-        } else {
-            0.0
-        };
+        // The same depth the surface is drawn from, not a second opinion.
+        //
+        // This used to read the river's old held water level against the ground —
+        // a different field, a different threshold, and a different answer, so a
+        // place could be biome-water with no water drawn on it or drawn water on
+        // ground the biome called grass. `river_depth` asks for no ground of its
+        // own, which is what makes it affordable once per blade of grass.
+        let water_above = self.river_depth(x, z, height);
 
         BiomeGround {
             height,
@@ -717,7 +723,7 @@ impl Terrain {
     /// before anybody levelled a town on it. This is what the towns are sited
     /// against, so they are placed on a map that already has its valleys.
     pub fn dry_height(&self, x: f32, z: f32) -> f32 {
-        self.raw_height(x, z) - self.rivers.at(x, z).0
+        self.raw_height(x, z) - self.rivers.cut_at(x, z)
     }
 
     /// The still water standing in a channel here, if any.
@@ -725,38 +731,122 @@ impl Terrain {
     /// `None` on dry land. Rivers do not flow — there is no current to model and
     /// nothing that would read one — so a river is a surface at a height, the
     /// same as the sea is.
-    pub fn river_surface(&self, x: f32, z: f32) -> Option<f32> {
-        // Water that FOLLOWS ITS BED, rather than a level held across a channel.
-        //
-        // Held-level water is right in physics and wrong here, and three attempts
-        // to make it behave failed the same way each time. A level is flat; the
-        // ground under it is not; and every disagreement between them shows as a
-        // sheet of water floating over a hillside. Tightening what counted as a
-        // channel only made the sheets smaller and more scattered.
-        //
-        // So the surface sits a fixed shallow depth above the bed it is in. It
-        // cannot float, because it is defined relative to the ground beneath it —
-        // no threshold to tune and no disagreement possible. A river running
-        // visibly downhill is not quite what water does, but at this scale nobody
-        // reads the gradient of a stream and everybody reads a slab hanging in
-        // the air.
-        let bed = self.rivers.bed_at(x, z);
-        if bed < 0.5 {
-            return None;
+    /// How much of a river's channel is still cut into the ground here.
+    ///
+    /// The cut is made first and the towns are levelled on top of it, so a town
+    /// standing where a river ran FILLS THE CHANNEL IN. The ground goes back up;
+    /// the record of the cut does not. Anything asking `rivers.at` alone is
+    /// asking what the water once did rather than what the ground is now.
+    ///
+    /// Levelling raises the ground by exactly `cut * pull` — the whole cut where
+    /// a site is fully flat, none of it out past the skirt — so what is left of
+    /// the channel is exactly what is left of the cut.
+    fn open_channel(&self, x: f32, z: f32) -> f32 {
+        let cut = self.rivers.cut_at(x, z);
+        match self.settlements.level(Vec2::new(x, z)) {
+            Some((_, pull)) => cut * (1.0 - pull),
+            None => cut,
         }
-        let (cut, _) = self.rivers.at(x, z);
-        if cut < CHANNEL_LEAST {
-            return None;
-        }
+    }
 
+    /// How deep the water standing here is, and nought where there is none.
+    ///
+    /// **The one answer.** The surface that gets drawn and the biome that calls a
+    /// place water have to be the same claim, or the world grows grass in its
+    /// rivers and puts fish on its fields. They were two claims, made from
+    /// different fields with different thresholds, and they disagreed everywhere
+    /// the two fields did.
+    ///
+    /// The water fills the channel that is still cut into the ground here — see
+    /// [`Self::open_channel`] — three quarters of the way up, and fades to
+    /// nothing at both of that channel's own edges: at the shoulder where the bed
+    /// gives way to the bank, and at the shallowest cut worth drawing. A surface
+    /// that simply stopped would leave a step, and a step of water with nothing
+    /// under it IS the slab on the grass.
+    pub fn river_depth(&self, x: f32, z: f32, ground: f32) -> f32 {
+        // Over a bed, not over a bank. A channel's cut reaches several times its
+        // own width because banks do; filling to the edge of the cut would put a
+        // river across its own floodplain.
+        let bed = self.rivers.bed_at(x, z);
+        if bed < RIVER_EDGE {
+            return 0.0;
+        }
+        let channel = self.open_channel(x, z);
+        if channel < CHANNEL_LEAST {
+            return 0.0;
+        }
+        // Every edge of the water feathers away to nothing, and all of them the
+        // same way.
+        //
+        // There are three, and each one had to be found the hard way, so they are
+        // worth naming: the BANK, where the bed gives way to the rise beside it;
+        // the SHALLOWS, where the channel runs out of depth; and the MOUTH, where
+        // the river meets a sea already drawn at its own level.
+        //
+        // The feather is quadratic because a straight run-out leaves a LIP. The
+        // surface is drawn on a mesh with vertices every couple of metres and its
+        // edge is wherever the last wet one falls, so a taper still a third of
+        // the way up when it runs out of vertices leaves that last one standing
+        // above the ground — a rim of water round the whole river, which is a
+        // slab with a river-shaped hole in it. Squared, the last stride is
+        // already nearly nothing.
+        let feather = |t: f32| {
+            let t = t.clamp(0.0, 1.0);
+            t * t
+        };
+
+        let bank = feather((bed - RIVER_EDGE) / (1.0 - RIVER_EDGE));
+        // In HEIGHT above the sea, not in distance from it. A river reaching a
+        // steep shore drops a metre in two, so a fade spread over any fixed
+        // distance is crossed in a single stride.
+        let mouth = feather(crate::util::smoothstep(
+            SEA_LEVEL + RIVER_MOUTH_LOW,
+            SEA_LEVEL + RIVER_MOUTH_HIGH,
+            ground,
+        ));
+        // The shallows are left straight. This one is governed by the cut, which
+        // changes over tens of metres rather than a few, so it has vertices to
+        // spare — and feathering every edge would leave a river that is shallow
+        // everywhere and deep nowhere.
+        let shallows = (channel - CHANNEL_LEAST) * RIVER_FILL;
+
+        shallows * bank * mouth
+    }
+
+    /// Where a river's surface sits, if there is one here.
+    ///
+    /// # Water fills a channel; it does not sit at a height
+    ///
+    /// Four attempts at this drew a surface at some height and then argued about
+    /// where it was allowed to appear — a held level, a level capped, a level
+    /// masked to a bed, a fixed depth above the bed. Every one of them put sheets
+    /// of water on open grass, because a height and the ground are two different
+    /// shapes and every disagreement between them is a slab hanging in the air.
+    ///
+    /// So the water is not at a height at all. It fills the channel that is
+    /// actually still cut into the ground at this point, three quarters of the
+    /// way up. A quarter of the channel is bank, always, so the surface is below
+    /// the surrounding land by construction — not by a threshold that could be
+    /// tuned wrong, and not on flat country in particular.
+    ///
+    /// The last fixed-depth version stood 0.7 m above the bed. Where a channel
+    /// was shallower than that the difference stood proud of the field, and where
+    /// a town had levelled its ground the channel was gone entirely and the water
+    /// was drawn on the town square. That was 787 of the 804 slabs.
+    pub fn river_surface(&self, x: f32, z: f32) -> Option<f32> {
         let ground = self.drawn_height(x, z);
         if ground < SEA_LEVEL + 0.2 {
             // The sea already draws this, and two surfaces in one place flicker.
             return None;
         }
-        // Deepest in the middle of the bed, tapering to nothing at its edge, so a
-        // river meets its bank instead of ending in a step.
-        Some(ground + RIVER_DEPTH * bed)
+        // A finger's depth or it is not water. Below that the sheet and the
+        // ground are the same surface to a float, and two surfaces in one place
+        // tear at each other as the camera moves.
+        let deep = self.river_depth(x, z, ground);
+        if deep < 0.02 {
+            return None;
+        }
+        Some(ground + deep)
     }
 
     /// Applies the coastline domain warp.
@@ -893,7 +983,7 @@ mod tests {
                     step_x as f32 / 120.0 * half.x,
                     step_z as f32 / 60.0 * half.y,
                 );
-                let (cut, _) = terrain.rivers.at(at.x, at.y);
+                let cut = terrain.rivers.cut_at(at.x, at.y);
                 deepest = deepest.max(cut);
                 if terrain.river_surface(at.x, at.y).is_some() {
                     wet += 1;
@@ -947,6 +1037,46 @@ mod tests {
         }
     }
 
+
+    #[test]
+    fn no_town_has_a_river_running_through_it() {
+        let terrain = Terrain::new();
+
+        // Everything the world was asked for is still there. The siting now
+        // turns down any ground a river crosses, and a rejection that cannot be
+        // satisfied is a map that quietly comes up short of towns rather than
+        // saying so.
+        let sites = terrain.sites();
+        assert_eq!(
+            sites.len(),
+            1 + CITIES + TOWNS,
+            "the ranch, {CITIES} cities and {TOWNS} towns"
+        );
+
+        for site in sites {
+            let mut wet = 0;
+            let mut dz = -site.radius;
+            while dz <= site.radius {
+                let mut dx = -site.radius;
+                while dx <= site.radius {
+                    let at = site.at + Vec2::new(dx, dz);
+                    if dx * dx + dz * dz <= site.radius * site.radius
+                        && terrain.river_surface(at.x, at.y).is_some()
+                    {
+                        wet += 1;
+                    }
+                    dx += 8.0;
+                }
+                dz += 8.0;
+            }
+            assert_eq!(
+                wet, 0,
+                "the place at {:.0}, {:.0} has {wet} samples of river in it",
+                site.at.x, site.at.y
+            );
+        }
+    }
+
     #[test]
     fn water_does_not_lie_on_dry_ground() {
         // Sheets of river were being drawn across whole beaches. A channel's
@@ -957,6 +1087,12 @@ mod tests {
         let half = terrain.half();
 
         let mut standing = 0;
+        let mut rims = 0;
+        let mut worst = 0.0_f32;
+        let mut worst_at = Vec2::ZERO;
+        let mut over = 0;
+        let mut over_town = 0;
+        let mut lips: Vec<f32> = Vec::new();
         for step_z in -90..90 {
             for step_x in -180..180 {
                 let at = Vec2::new(
@@ -982,22 +1118,80 @@ mod tests {
                     water > SEA_LEVEL,
                     "river water at or below the sea, which the sea already draws"
                 );
-                // And it must be shallow enough to be a river rather than a lake
-                // spread over a plain.
-                // Never far off the ground, because it is DEFINED relative to
-                // it now. This used to allow twelve metres and still caught a
-                // lake; there is nothing left for it to catch, which is the
-                // point of drawing water this way.
-                assert!(
-                    water - ground <= RIVER_DEPTH + 0.01,
-                    "water {:.2} m above its own bed at {:.0}, {:.0}",
-                    water - ground,
-                    at.x,
-                    at.y
-                );
+                // And — the one that matters — the RIM has to meet the ground.
+                //
+                // Every earlier version of this compared the water with the
+                // ground directly beneath it, which the definition of the water
+                // already guarantees, so it could never fail; it sat there
+                // passing through four separate versions that all put sheets of
+                // water on open grass. Then it compared against dry ground
+                // further off, which fails on any hillside for the honest reason
+                // that ground below a stream is below it.
+                //
+                // What a slab actually IS is a surface that ENDS above the land
+                // it ends on — a step at its edge with daylight under it. So find
+                // the edge and measure the step. A sample with a dry neighbour a
+                // mesh step away is the rim of the drawn surface.
+                let step = CHUNK_SIZE / RIVER_QUADS as f32;
+                let rim = [Vec2::X, Vec2::NEG_X, Vec2::Y, Vec2::NEG_Y]
+                    .iter()
+                    .any(|out| {
+                        let edge = at + *out * step;
+                        terrain.river_surface(edge.x, edge.y).is_none()
+                    });
+                if rim {
+                    rims += 1;
+                    let lip = water - ground;
+                    lips.push(lip);
+                    if lip > worst {
+                        worst = lip;
+                        worst_at = at;
+                    }
+                    if lip > 0.15 {
+                        over += 1;
+                        if terrain.settlements.level(at).is_some() {
+                            over_town += 1;
+                        }
+                    }
+                }
             }
         }
-        println!("river surface drawn at {standing} of 64,800 samples");
+        lips.sort_by(f32::total_cmp);
+        let pick = |q: f32| lips[((lips.len() as f32 - 1.0) * q) as usize];
+        println!(
+            "river drawn at {standing} of 64,800; {rims} rim samples, lip p50 {:.3}              p99 {:.3} max {worst:.2}; {over} over 0.15 m, {over_town} of those levelled",
+            pick(0.5),
+            pick(0.99)
+        );
+
+        // NONE of them on levelled ground. This is the reported fault itself:
+        // a town levels its site, which fills in whatever channel ran through
+        // it, and the water carried on being drawn at the depth of a channel
+        // that was no longer there. Rectangles of river lying on a town's flat
+        // field — 787 of the 804 slabs in the world.
+        assert_eq!(
+            over_town, 0,
+            "{over_town} rims stand proud on ground somebody levelled"
+        );
+
+        // Almost every rim meets the ground it ends on. Half of them are within
+        // four centimetres and ninety-nine in a hundred within twelve, which is
+        // under the height of the grass.
+        assert!(pick(0.99) <= 0.12, "the river's rim: p99 {:.2} m", pick(0.99));
+
+        // And the handful that do not are river MOUTHS on steep shores — the
+        // ground falling more than a metre in the two the mesh has to fade
+        // across, so the last vertex is left carrying water over a drop. It
+        // reads as a rapid rather than as a slab, and chasing it further would
+        // mean shallowing every river in the world to fix one vertex at a few
+        // coasts. Bounded rather than hidden: this was hundreds when the fault
+        // was real.
+        assert!(
+            over <= 2,
+            "{over} rims of {rims} stand more than 0.15 m proud, worst {worst:.2} m              at {:.0}, {:.0}",
+            worst_at.x,
+            worst_at.y
+        );
     }
 
     #[test]
