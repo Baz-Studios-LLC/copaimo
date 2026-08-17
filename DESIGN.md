@@ -531,7 +531,33 @@ assets/
 
 ## Change log
 
-**2026-08-17 (last)** — **Tall grass, and it is tall on purpose.** A patch core
+**2026-08-17 (last)** — **A blade of grass is a blade, and it parts as you walk
+through it.**
+
+The tufts read as crowns, and the construction *was* a crown: blades at even
+steps right round a circle, all the same length, all leaning the same amount, all
+rising from one point. A stem under a fan of spikes is a coronet. So the even step
+is jittered by most of the gap between blades, the blades rise from a patch of
+ground rather than a point, and their lengths differ by better than half.
+
+**And a blade bends.** It was one triangle — straight, evenly tapered, pointing
+wherever it was aimed. Two segments now, the fewest that can curve: up steeply,
+arcing over at the tip. That curve does almost all the work of reading as grass
+rather than as geometry.
+
+**Grass moves for whatever walks through it.** The world material grew a vertex
+stage — Bevy's own, copied, with one call inserted — that pushes a blade away
+from anything wearing `Wades`. The foot never moves; the bend goes as the square
+of how far up the blade a vertex sits, which the mesh carries in its spare U
+coordinate, because a vertex's height is the ground's plus the blade's and only
+the second may move. A component rather than a query for the player, because
+grass that parts for you and stands still for what is stalking you would be worse
+than grass that never moved.
+
+Costed nothing measurable: **50.2 fps**, and one material written per frame,
+since the whole world's cover shares one.
+
+**2026-08-17** — **Tall grass, and it is tall on purpose.** A patch core
 comes up past the knee, three times the height of its own edge, and grows fuller
 and deeper in colour the further in it stands. Grass you can see over is scenery;
 this is meant to be somewhere a wild monster can be without being seen, and

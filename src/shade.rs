@@ -59,6 +59,30 @@ pub struct CloudShade {
     /// Where each shadow began, how wide it is, and how fast it slides.
     #[uniform(101)]
     pub discs: [Vec4; MOST_CLOUDS],
+    /// Whether this material is pushed aside, how far, and by how many.
+    #[uniform(102)]
+    pub bending: Vec4,
+    /// Where each mover stands, and how far out it parts what it stands in.
+    #[uniform(103)]
+    pub movers: [Vec4; MOST_MOVERS],
+}
+
+/// How many things can be pushing through the grass at once.
+///
+/// The ranger, and later whatever monsters are abroad nearby. Fixed because a
+/// uniform has to have a size, and eight because past that nobody could tell.
+pub const MOST_MOVERS: usize = 8;
+
+/// Something that pushes the grass aside as it goes through.
+///
+/// On the ranger now, and on monsters when there are any — which is the reason it
+/// is a component rather than a query for the player. Grass that parts for you
+/// and stands still for whatever is stalking you would be worse than grass that
+/// never moved.
+#[derive(Component)]
+pub struct Wades {
+    /// How far out it parts what it is standing in, in metres.
+    pub reach: f32,
 }
 
 impl Default for CloudShade {
@@ -69,12 +93,22 @@ impl Default for CloudShade {
             // plain rather than wrong until the next sweep picks it up.
             weather: Vec4::ZERO,
             discs: [Vec4::ZERO; MOST_CLOUDS],
+            // Standing still, which is what everything but grass does.
+            bending: Vec4::ZERO,
+            movers: [Vec4::ZERO; MOST_MOVERS],
         }
     }
 }
 
 impl MaterialExtension for CloudShade {
     fn fragment_shader() -> ShaderRef {
+        "shaders/cloud_shade.wgsl".into()
+    }
+
+    /// Overridden because grass has to BEND, and a vertex is the only place a
+    /// thing can be moved. Everything else takes the same path it always did —
+    /// see the shader, which is Bevy's own vertex stage with one call inserted.
+    fn vertex_shader() -> ShaderRef {
         "shaders/cloud_shade.wgsl".into()
     }
 }
@@ -116,7 +150,7 @@ impl Plugin for ShadePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<Shaded>::default())
             .init_resource::<CloudShadows>()
-            .add_systems(Update, carry_the_shade);
+            .add_systems(Update, (carry_the_shade, part_the_grass));
     }
 }
 
@@ -180,6 +214,51 @@ fn carry_the_shade(
         material.extension.discs = discs;
     }
 }
+
+/// Tells the grass what is walking through it.
+///
+/// # Why this one runs every frame when the shadows do not
+///
+/// A cloud's shadow moves at walking pace across a landscape and can be sent a
+/// few times a minute. Something wading through grass has to be sent NOW, or the
+/// grass parts where you were rather than where you are.
+///
+/// It is affordable because it writes to exactly one material — the cover's — and
+/// there is one of those for the whole world. Nothing else in the game bends, so
+/// nothing else needs telling.
+fn part_the_grass(
+    cover: Option<Res<crate::world::cover::CoverMaterial>>,
+    mut materials: ResMut<Assets<Shaded>>,
+    waders: Query<(&GlobalTransform, &Wades)>,
+) {
+    let Some(cover) = cover else {
+        return;
+    };
+    let Some(material) = materials.get_mut(&cover.0) else {
+        return;
+    };
+
+    let mut movers = [Vec4::ZERO; MOST_MOVERS];
+    let mut count = 0;
+    for (place, wades) in &waders {
+        if count == MOST_MOVERS {
+            break;
+        }
+        let at = place.translation();
+        movers[count] = Vec4::new(at.x, at.y, at.z, wades.reach);
+        count += 1;
+    }
+
+    material.extension.bending = Vec4::new(1.0, GRASS_SWING, count as f32, 0.0);
+    material.extension.movers = movers;
+}
+
+/// How far the grass leans away from something standing in it, in metres.
+///
+/// Measured at the tip, and the foot does not move at all — a blade bends from
+/// its root rather than sliding along the ground. Half a metre is enough to open
+/// a path you can see behind you and not so much that the grass lies flat.
+const GRASS_SWING: f32 = 0.5;
 
 /// How far the sun must climb before the shadows are told about it.
 ///

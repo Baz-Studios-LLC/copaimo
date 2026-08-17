@@ -18,7 +18,9 @@
 // send down every frame, and the only thing that is ever rewritten is the sun's
 // slant — a few times a minute, as it climbs.
 
-#import bevy_pbr::forward_io::{VertexOutput, FragmentOutput}
+#import bevy_pbr::forward_io::{Vertex, VertexOutput, FragmentOutput}
+#import bevy_pbr::{mesh_bindings::mesh, mesh_functions, skinning}
+#import bevy_pbr::view_transformations::position_world_to_clip
 #import bevy_pbr::mesh_view_bindings::globals
 #import bevy_pbr::pbr_fragment::pbr_input_from_standard_material
 #import bevy_pbr::pbr_functions::{alpha_discard, apply_pbr_lighting, main_pass_post_lighting_processing}
@@ -35,6 +37,133 @@ struct Discs {
     list: array<vec4<f32>, 32>,
 }
 @group(2) @binding(101) var<uniform> discs: Discs;
+
+/// x: 1 where this material's geometry is pushed aside, 0 where it stands still.
+/// y: how far a mover pushes it, in metres.
+/// z: how many of the movers below are real.
+@group(2) @binding(102) var<uniform> bending: vec4<f32>;
+
+struct Movers {
+    /// xyz: where something is standing. w: how far out it parts what it stands in.
+    list: array<vec4<f32>, 8>,
+}
+@group(2) @binding(103) var<uniform> movers: Movers;
+
+/// Where a point ends up once whatever is standing near it has pushed it aside.
+///
+/// `along` is how far up its own blade the vertex sits, which the mesh carries in
+/// its U coordinate. It has to, because the vertex cannot work it out: its height
+/// is the GROUND's height plus the blade's, and only the second part may move.
+/// Squared, so a foot stays planted and the bend is a curve rather than a shear.
+fn parted(at: vec3<f32>, along: f32) -> vec3<f32> {
+    if along <= 0.0 {
+        return at;
+    }
+
+    var push = vec2<f32>(0.0, 0.0);
+    let count = i32(bending.z);
+    for (var i = 0; i < count; i = i + 1) {
+        let mover = movers.list[i];
+        let gap = at.xz - mover.xz;
+        let away = length(gap);
+        if away < mover.w && away > 1e-4 {
+            // Hardest against whatever is standing there and nothing at the rim,
+            // squared so the edge of the disturbance is soft. A linear falloff
+            // gives a moving ring you can see the edge of.
+            let force = 1.0 - away / mover.w;
+            push += gap / away * force * force;
+        }
+    }
+
+    let swing = bending.y * along * along;
+    let leaned = vec2<f32>(push.x, push.y) * swing;
+    // Pushed over, and lowered by roughly what leaning over costs it in height.
+    // A blade that bends sideways without dropping stretches.
+    return at + vec3<f32>(leaned.x, -length(leaned) * 0.3, leaned.y);
+}
+
+@vertex
+fn vertex(vertex: Vertex) -> VertexOutput {
+    // Bevy's own vertex stage, with one thing added.
+    //
+    // There is no hook for "displace and then do what you were going to do", so
+    // this is the standard path copied and one call inserted — the alternative
+    // being a second material type for grass alone, which would have meant the
+    // cloud shading written out twice.
+    //
+    // Everything that is not grass takes the `bending.x` branch straight past it,
+    // and a uniform branch is free: every fragment of a draw agrees on it.
+    var out: VertexOutput;
+
+    let mesh_world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
+
+#ifdef SKINNED
+    var world_from_local = skinning::skin_model(
+        vertex.joint_indices,
+        vertex.joint_weights,
+        vertex.instance_index
+    );
+#else
+    var world_from_local = mesh_world_from_local;
+#endif
+
+#ifdef VERTEX_NORMALS
+#ifdef SKINNED
+    out.world_normal = skinning::skin_normals(world_from_local, vertex.normal);
+#else
+    out.world_normal = mesh_functions::mesh_normal_local_to_world(
+        vertex.normal,
+        vertex.instance_index
+    );
+#endif
+#endif
+
+#ifdef VERTEX_POSITIONS
+    out.world_position = mesh_functions::mesh_position_local_to_world(
+        world_from_local,
+        vec4<f32>(vertex.position, 1.0)
+    );
+#ifdef VERTEX_UVS_A
+    if bending.x > 0.0 {
+        out.world_position = vec4<f32>(
+            parted(out.world_position.xyz, vertex.uv.x),
+            out.world_position.w
+        );
+    }
+#endif
+    out.position = position_world_to_clip(out.world_position.xyz);
+#endif
+
+#ifdef VERTEX_UVS_A
+    out.uv = vertex.uv;
+#endif
+#ifdef VERTEX_UVS_B
+    out.uv_b = vertex.uv_b;
+#endif
+
+#ifdef VERTEX_TANGENTS
+    out.world_tangent = mesh_functions::mesh_tangent_local_to_world(
+        world_from_local,
+        vertex.tangent,
+        vertex.instance_index
+    );
+#endif
+
+#ifdef VERTEX_COLORS
+    out.color = vertex.color;
+#endif
+
+#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+    out.instance_index = vertex.instance_index;
+#endif
+
+#ifdef VISIBILITY_RANGE_DITHER
+    out.visibility_range_dither = mesh_functions::get_visibility_range_dither_level(
+        vertex.instance_index, mesh_world_from_local[3]);
+#endif
+
+    return out;
+}
 
 /// How much light reaches a point on the ground, 0 dark to 1 open sky.
 fn sunlight_on(ground: vec2<f32>) -> f32 {

@@ -116,7 +116,14 @@ fn spawn_player(
     // Parent holds the ranger's world position with its origin at the feet;
     // the body parts hang off it at fixed local heights.
     commands
-        .spawn((Player, Transform::from_translation(spawn), Visibility::default()))
+        .spawn((
+            Player,
+            // Pushes the grass aside as they go. About the width of a person
+            // plus an arm — what actually brushes past is wider than what walks.
+            crate::shade::Wades { reach: 1.1 },
+            Transform::from_translation(spawn),
+            Visibility::default(),
+        ))
         .with_children(|parent| {
             // Legs
             parent.spawn((
