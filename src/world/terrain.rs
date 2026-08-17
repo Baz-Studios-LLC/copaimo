@@ -588,8 +588,19 @@ impl Terrain {
     /// three different callers want the answer to all of them — the biome, the
     /// species of tree, and later what lives here.
     pub fn ground_at(&self, x: f32, z: f32) -> BiomeGround {
+        let height = self.height(x, z);
+        // How deep the river standing here is, worked out from the height already
+        // in hand rather than through `river_surface` — that would ask for the
+        // ground a second time, and this is asked once per blade of grass.
+        let (cut, water) = self.rivers.at(x, z);
+        let water_above = if cut > 0.05 {
+            (water - height).max(0.0)
+        } else {
+            0.0
+        };
+
         BiomeGround {
-            height: self.height(x, z),
+            height,
             slope: 1.0 - self.normal(x, z, 2.0).y,
             moisture: self.moisture(x, z),
             shore: self.shore_meters(x, z),
@@ -598,6 +609,7 @@ impl Terrain {
                 .level(Vec2::new(x, z))
                 .map(|(_, weight)| weight)
                 .unwrap_or(0.0),
+            water_above,
         }
     }
 
@@ -745,6 +757,82 @@ mod tests {
         }
         assert!(deepest > 0.5, "no channel was cut anywhere: {deepest:.2} m");
         assert!(wet > 0, "every channel came out dry");
+    }
+
+    #[test]
+    fn standing_in_a_river_is_standing_in_water() {
+        // What the whole classification is for. A river runs well above the sea,
+        // so until the ground could say it was flooded, one read as whatever land
+        // it had cut through — and anything aquatic had nowhere to live but the
+        // coast.
+        let terrain = Terrain::new();
+        let half = terrain.half();
+
+        let mut found = None;
+        'looking: for step_z in -80..80 {
+            for step_x in -160..160 {
+                let at = Vec2::new(
+                    step_x as f32 / 160.0 * half.x,
+                    step_z as f32 / 80.0 * half.y,
+                );
+                // Inland, so this cannot be the sea answering.
+                if terrain.shore_meters(at.x, at.y) < 300.0 {
+                    continue;
+                }
+                if terrain.river_surface(at.x, at.y).is_some() {
+                    found = Some(at);
+                    break 'looking;
+                }
+            }
+        }
+
+        {
+            // Printed always, not only on failure. Whether a world has the right
+            // AMOUNT of water is a judgement nobody can make from a pass or a
+            // fail, and these are the numbers the threshold was set from.
+            let mut wet_by_shore: Vec<f32> = Vec::new();
+            for step_z in -80..80 {
+                for step_x in -160..160 {
+                    let at = Vec2::new(
+                        step_x as f32 / 160.0 * half.x,
+                        step_z as f32 / 80.0 * half.y,
+                    );
+                    if terrain.river_surface(at.x, at.y).is_some() {
+                        wet_by_shore.push(terrain.shore_meters(at.x, at.y));
+                    }
+                }
+            }
+            wet_by_shore.sort_by(f32::total_cmp);
+            let world = half.x * 2.0 * half.y * 2.0;
+            println!(
+                "channels: {}   wet: {}   shore {:?}..{:?}
+                 biggest catchment: {:.0} m2 = {:.4} of the world ({:.0} m2)",
+                terrain.rivers.channel_cells(),
+                wet_by_shore.len(),
+                wet_by_shore.first(),
+                wet_by_shore.last(),
+                terrain.rivers.largest_catchment(),
+                terrain.rivers.largest_catchment() / world,
+                world,
+            );
+        }
+        let Some(at) = found else {
+            panic!("no inland river to stand in");
+        };
+        let ground = terrain.ground_at(at.x, at.y);
+        assert!(
+            ground.height > 0.0,
+            "this test is worthless if the spot is below sea level: {:.1} m",
+            ground.height
+        );
+        assert!(ground.water_above > 0.0, "the ground should know it is flooded");
+        assert_eq!(
+            terrain.biome(at.x, at.y),
+            Biome::Water,
+            "a river should be water at {:.0}, {:.0}",
+            at.x,
+            at.y
+        );
     }
 
     #[test]
