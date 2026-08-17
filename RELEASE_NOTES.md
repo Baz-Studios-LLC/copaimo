@@ -10,7 +10,13 @@ costs you a wait. Nights have a moon, nine hundred stars, and enough light to
 walk by.
 
 **Clouds** drift overhead and take the sun's colour, so they turn with the
-evening.
+evening. Rounded, low enough to read as weather, and few enough that a clear day
+is still a clear day.
+
+**Towns have nothing standing on them yet.** The hand-written cottage that stood
+at every site while the building reader was being built has been taken out —
+buildings are drawn at Opificium now, and a stand-in raised twenty times was the
+world claiming something untrue about itself.
 
 **Rivers**, and nobody placed them. Water falls on the continent, runs downhill
 and gathers, and where enough has gathered there is a river — so they lie in

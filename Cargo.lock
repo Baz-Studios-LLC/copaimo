@@ -4081,7 +4081,7 @@ checksum = "973443cf09a9c8656b574a866ab68dfa19f0867d0340648c7d2f6a71b8a8ea68"
 
 [[package]]
 name = "ranger-game"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "bevy",
  "chrono",
@@ -4689,7 +4689,7 @@ dependencies = [
 [[package]]
 name = "terrain-core"
 version = "0.1.0"
-source = "git+https://github.com/Baz-Studios-LLC/terrain-core#0cd5bd7f0708e6d8aa5c70a504264cd2050db0e7"
+source = "git+https://github.com/Baz-Studios-LLC/terrain-core#cc8a86831590e22ed6f5e5d0348921d8009c75a7"
 dependencies = [
  "glam",
  "noise",
