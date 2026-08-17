@@ -116,7 +116,11 @@ pub const RIVER_QUADS: u32 = 16;
 /// world is eight kilometres across and eighty clouds spread over that would
 /// leave the sky empty, where eighty in a box that follows you is a dressed sky
 /// wherever you stand.
-pub const CLOUDS: usize = 80;
+/// Eighty of these filled the sky when they were specks four hundred metres up.
+/// Brought down to a hundred and sixty-five and drawn four times bigger, each one
+/// covers many times the sky it did — and eighty of THOSE is an overcast day
+/// every day. Thirty reads as weather.
+pub const CLOUDS: usize = 30;
 
 /// How high the cloud base sits, in metres, and how far the box reaches.
 ///

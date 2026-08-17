@@ -303,44 +303,64 @@ fn spawn_night_sky(
     let mut places: Vec<[f32; 3]> = Vec::new();
     let mut normals: Vec<[f32; 3]> = Vec::new();
     let mut uvs: Vec<[f32; 2]> = Vec::new();
+    let mut colours: Vec<[f32; 4]> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
 
     for star in 0..STARS {
         // Scattered over the dome rather than the sphere: half of them under the
         // ground would be half of them wasted.
         let spin = terrain_core::forest::chance(star as i32, 0, 31) * std::f32::consts::TAU;
-        let up = terrain_core::forest::chance(star as i32, 0, 32).powf(0.6);
-        let lift = up * std::f32::consts::FRAC_PI_2 * 0.98;
+        let lift = terrain_core::forest::chance(star as i32, 0, 32).powf(0.6)
+            * std::f32::consts::FRAC_PI_2
+            * 0.98;
         // Plain spherical coordinates: `spin` around, `lift` up from the horizon.
-        let at = Vec3::new(
-            spin.cos() * lift.cos(),
-            lift.sin(),
-            spin.sin() * lift.cos(),
-        ) * STAR_DOME;
+        let at = Vec3::new(spin.cos() * lift.cos(), lift.sin(), spin.sin() * lift.cos())
+            * STAR_DOME;
 
-        // Brighter ones are bigger, which is the whole of what makes a star field
-        // read as one rather than as gravel.
+        // Brightness is ALPHA, not size — which is the whole fix.
+        //
+        // Sizing them by brightness made the bright ones big, and anything big
+        // enough to see the shape of is a shape rather than a point of light.
+        // These were single TRIANGLES, so the sky had little arrowheads in it.
+        // Now they are barely-there squares, all much the same size, and what
+        // separates a bright star from a faint one is how strongly it burns.
         let bright = terrain_core::forest::chance(star as i32, 0, 33);
-        let size = STAR_SIZE * (0.4 + bright * bright * 2.2);
+        let strength = 0.25 + bright * bright * 0.75;
+        let size = STAR_SIZE * (0.8 + bright * 0.5);
 
-        // A flat triangle apiece, turned to face the middle — which is where the
-        // viewer always is, because the whole field is carried on them.
+        // A quad facing the middle of the dome, which is where the viewer always
+        // is, because the whole field is carried on them.
         let out = at.normalize_or(Vec3::Y);
         let side = out.cross(Vec3::Y).normalize_or(Vec3::X) * size;
         let up_axis = out.cross(side).normalize_or(Vec3::Z) * size;
 
         let base = places.len() as u32;
-        for corner in [-side - up_axis, side - up_axis, up_axis] {
+        for corner in [
+            -side - up_axis,
+            side - up_axis,
+            side + up_axis,
+            -side + up_axis,
+        ] {
             places.push((at + corner).to_array());
             normals.push((-out).to_array());
             uvs.push([0.5, 0.5]);
+            // A touch of colour, because a sky of identical white points reads as
+            // noise. Most stars are near white; a few lean warm or blue.
+            let warmth = terrain_core::forest::chance(star as i32, 0, 34);
+            colours.push([
+                1.0,
+                0.94 + warmth * 0.06,
+                0.86 + warmth * 0.14,
+                strength,
+            ]);
         }
-        indices.extend_from_slice(&[base, base + 1, base + 2]);
+        indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
     }
 
     field.insert_attribute(Mesh::ATTRIBUTE_POSITION, places);
     field.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
     field.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    field.insert_attribute(Mesh::ATTRIBUTE_COLOR, colours);
     field.insert_indices(bevy::render::mesh::Indices::U32(indices));
 
     let starlight = materials.add(StandardMaterial {
@@ -448,7 +468,12 @@ const MOON_SIZE: f32 = 62.0;
 
 /// How far off the stars sit. Inside the moon, so it never hides behind them.
 const STAR_DOME: f32 = 1_150.0;
-const STAR_SIZE: f32 = 2.4;
+/// How big a star is drawn, at `STAR_DOME` away.
+///
+/// Tiny, and it has to be. At two and a half units these were five or six pixels
+/// across and their shape was plainly visible — the sky had arrowheads in it. A
+/// star is a point of light or it is not a star.
+const STAR_SIZE: f32 = 0.75;
 
 /// How far south the sun's arc leans, so it is not a perfect overhead sweep.
 const SOUTHING: f32 = 0.35;
