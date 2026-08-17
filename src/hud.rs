@@ -86,6 +86,7 @@ fn update_hud(
     mode: Res<CameraMode>,
     terrain: Res<TerrainSource>,
     bounds: Res<WorldBounds>,
+    when: Res<crate::sky::TimeOfDay>,
     chunks: Res<ChunkMap>,
     pending: Query<&PendingChunk>,
     players: Query<&Transform, With<Player>>,
@@ -155,18 +156,20 @@ fn update_hud(
          world: {:.0} x {:.0} m   source: {source}\n\
          position: {:.0}, {:.0}\n\
          altitude: {height:.1} m   slope: {slope:.2}   moisture: {moisture:.2}\n\
-         here: {} ({sure:.2} sure)\n\
+         here: {} ({sure:.2} sure)   time: {}\n\
          chunks: {} loaded, {} building   sculpted: {sculpted}\n\
          nearest: {nearest}\n\
          \n\
          WASD move · Shift sprint · mouse look · wheel zoom\n\
          F free-fly (Q/E down-up, -/= speed) · F3 hide\n\
+         F6/F7 hour back-forward · F8 back to real time\n\
          Esc back to menu",
         WORLD_WIDTH,
         bounds.half.y * 2.0,
         position.x,
         position.z,
         biome.name(),
+        when.spoken(),
         chunks.loaded.len(),
         pending.iter().count(),
     );

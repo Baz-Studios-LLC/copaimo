@@ -92,6 +92,24 @@ pub const COVER_CHUNKS: i32 = 2;
 /// How many chunks may be having their cover built at once.
 pub const MAX_PENDING_COVER: usize = 6;
 
+// ---------------------------------------------------------------------- sky
+
+/// How many clouds hang over the world at once.
+///
+/// They are wrapped around the VIEWER rather than scattered over the map: the
+/// world is eight kilometres across and eighty clouds spread over that would
+/// leave the sky empty, where eighty in a box that follows you is a dressed sky
+/// wherever you stand.
+pub const CLOUDS: usize = 80;
+
+/// How high the cloud base sits, in metres, and how far the box reaches.
+pub const CLOUD_CEILING: f32 = 420.0;
+pub const CLOUD_SPREAD: f32 = 2_600.0;
+
+/// How fast they drift, in metres a second. Slow enough to be weather rather
+/// than traffic — a cloud should cross the sky in minutes, not seconds.
+pub const CLOUD_DRIFT: f32 = 3.5;
+
 // ------------------------------------------------------------------ elevation
 
 /// Water surface height. Everything is measured relative to this, so "y < 0 is
