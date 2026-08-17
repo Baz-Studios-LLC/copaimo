@@ -19,7 +19,7 @@
 use bevy::pbr::{CascadeShadowConfigBuilder, NotShadowCaster, NotShadowReceiver};
 use bevy::prelude::*;
 
-use crate::config::{CLOUDS, CLOUD_CEILING, CLOUD_DRIFT, CLOUD_SPREAD};
+use crate::config::{CLOUDS, CLOUD_CEILING, CLOUD_DRIFT, CLOUD_SCALE, CLOUD_SPREAD, STARS};
 use crate::world::StreamAnchor;
 
 /// What time the world thinks it is, and whether that is the player's time.
@@ -69,6 +69,17 @@ impl TimeOfDay {
     }
 }
 
+/// The moon, and the field of stars behind it.
+///
+/// Both ride with the viewer: they are meant to be unreachably far off, and the
+/// cheapest honest way to say that is to keep them centred on whoever is looking.
+/// Walking a kilometre must not walk you under the moon.
+#[derive(Component)]
+struct Moon;
+
+#[derive(Component)]
+struct Stars;
+
 /// Marks a cloud, so the drift can find them.
 #[derive(Component)]
 struct Cloud {
@@ -86,10 +97,10 @@ impl Plugin for SkyPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<TimeOfDay>()
             .insert_resource(ClearColor(sky_colour(0.4)))
-            .add_systems(Startup, (spawn_sun, spawn_clouds))
+            .add_systems(Startup, (spawn_sun, spawn_clouds, spawn_night_sky))
             .add_systems(
                 Update,
-                (read_the_clock, drive_the_sky, drift_clouds).chain(),
+                (read_the_clock, drive_the_sky, drift_clouds, carry_the_night).chain(),
             );
     }
 }
@@ -238,7 +249,7 @@ fn spawn_clouds(
         let along = terrain_core::forest::chance(index as i32, 0, 22) - 0.5;
         let lift = terrain_core::forest::chance(index as i32, 0, 23);
         let turn = terrain_core::forest::chance(index as i32, 0, 24) * std::f32::consts::TAU;
-        let size = 0.7 + terrain_core::forest::chance(index as i32, 0, 25) * 1.1;
+        let size = (0.7 + terrain_core::forest::chance(index as i32, 0, 25) * 1.1) * CLOUD_SCALE;
         let speed = CLOUD_DRIFT * (0.6 + terrain_core::forest::chance(index as i32, 0, 26) * 0.8);
 
         commands.spawn((
@@ -258,6 +269,133 @@ fn spawn_clouds(
             NotShadowCaster,
             NotShadowReceiver,
         ));
+    }
+}
+
+/// Hangs the moon and scatters the stars.
+fn spawn_night_sky(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    // Unlit, both of them. A star lit by the sun is a contradiction, and the
+    // moon has to stay bright when the sun is on the other side of the world.
+    let moonstone = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.94, 0.94, 0.88),
+        unlit: true,
+        ..default()
+    });
+    commands.spawn((
+        Moon,
+        Mesh3d(meshes.add(Sphere::new(MOON_SIZE).mesh().ico(2).unwrap())),
+        MeshMaterial3d(moonstone),
+        Transform::default(),
+        NotShadowCaster,
+        NotShadowReceiver,
+    ));
+
+    // One mesh for the whole sky. A star apiece would be a thousand entities to
+    // draw a thing nobody looks at directly.
+    let mut field = Mesh::new(
+        bevy::render::mesh::PrimitiveTopology::TriangleList,
+        bevy::asset::RenderAssetUsages::RENDER_WORLD,
+    );
+    let mut places: Vec<[f32; 3]> = Vec::new();
+    let mut normals: Vec<[f32; 3]> = Vec::new();
+    let mut uvs: Vec<[f32; 2]> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+
+    for star in 0..STARS {
+        // Scattered over the dome rather than the sphere: half of them under the
+        // ground would be half of them wasted.
+        let spin = terrain_core::forest::chance(star as i32, 0, 31) * std::f32::consts::TAU;
+        let up = terrain_core::forest::chance(star as i32, 0, 32).powf(0.6);
+        let lift = up * std::f32::consts::FRAC_PI_2 * 0.98;
+        // Plain spherical coordinates: `spin` around, `lift` up from the horizon.
+        let at = Vec3::new(
+            spin.cos() * lift.cos(),
+            lift.sin(),
+            spin.sin() * lift.cos(),
+        ) * STAR_DOME;
+
+        // Brighter ones are bigger, which is the whole of what makes a star field
+        // read as one rather than as gravel.
+        let bright = terrain_core::forest::chance(star as i32, 0, 33);
+        let size = STAR_SIZE * (0.4 + bright * bright * 2.2);
+
+        // A flat triangle apiece, turned to face the middle — which is where the
+        // viewer always is, because the whole field is carried on them.
+        let out = at.normalize_or(Vec3::Y);
+        let side = out.cross(Vec3::Y).normalize_or(Vec3::X) * size;
+        let up_axis = out.cross(side).normalize_or(Vec3::Z) * size;
+
+        let base = places.len() as u32;
+        for corner in [-side - up_axis, side - up_axis, up_axis] {
+            places.push((at + corner).to_array());
+            normals.push((-out).to_array());
+            uvs.push([0.5, 0.5]);
+        }
+        indices.extend_from_slice(&[base, base + 1, base + 2]);
+    }
+
+    field.insert_attribute(Mesh::ATTRIBUTE_POSITION, places);
+    field.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    field.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    field.insert_indices(bevy::render::mesh::Indices::U32(indices));
+
+    let starlight = materials.add(StandardMaterial {
+        base_color: Color::srgba(1.0, 1.0, 0.96, 0.0),
+        unlit: true,
+        alpha_mode: AlphaMode::Blend,
+        double_sided: true,
+        cull_mode: None,
+        ..default()
+    });
+    commands.insert_resource(StarSkin(starlight.clone()));
+    commands.spawn((
+        Stars,
+        Mesh3d(meshes.add(field)),
+        MeshMaterial3d(starlight),
+        Transform::default(),
+        NotShadowCaster,
+        NotShadowReceiver,
+    ));
+}
+
+/// Keeps the moon and the stars over the viewer, and fades them with the sun.
+fn carry_the_night(
+    when: Res<TimeOfDay>,
+    skin: Option<Res<StarSkin>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    anchors: Query<&GlobalTransform, (With<StreamAnchor>, Without<Moon>, Without<Stars>)>,
+    mut moons: Query<&mut Transform, (With<Moon>, Without<Stars>)>,
+    mut stars: Query<&mut Transform, (With<Stars>, Without<Moon>)>,
+) {
+    let Some(anchor) = anchors.iter().next() else {
+        return;
+    };
+    let middle = anchor.translation();
+    let height = when.sun_height();
+
+    // Full dark to nothing across the twilight, so they come out as the sky
+    // goes rather than blinking on at six.
+    let night = crate::util::smoothstep(0.06, -0.22, height);
+
+    for mut place in &mut stars {
+        place.translation = middle;
+    }
+    if let Some(skin) = skin {
+        if let Some(material) = materials.get_mut(&skin.0) {
+            material.base_color = Color::srgba(1.0, 1.0, 0.96, night);
+        }
+    }
+
+    // Opposite the sun, which is where a full moon is and is also where the
+    // moonlight is already coming from.
+    let turn = (when.hours - 6.0) / 12.0 * std::f32::consts::PI;
+    let toward = Vec3::new(-turn.cos(), -turn.sin(), -SOUTHING).normalize();
+    for mut place in &mut moons {
+        place.translation = middle + toward * MOON_DISTANCE;
     }
 }
 
@@ -295,15 +433,33 @@ fn drift_clouds(
     }
 }
 
+/// The material the stars wear, faded in and out with the night.
+#[derive(Resource, Deref)]
+struct StarSkin(Handle<StandardMaterial>);
+
 // ------------------------------------------------------------------- the palette
+
+/// How far off the moon hangs, and how big it is drawn.
+///
+/// Both arbitrary and only their ratio matters — this is the angle it subtends,
+/// which is the only thing anybody can see.
+const MOON_DISTANCE: f32 = 1_400.0;
+const MOON_SIZE: f32 = 62.0;
+
+/// How far off the stars sit. Inside the moon, so it never hides behind them.
+const STAR_DOME: f32 = 1_150.0;
+const STAR_SIZE: f32 = 2.4;
 
 /// How far south the sun's arc leans, so it is not a perfect overhead sweep.
 const SOUTHING: f32 = 0.35;
 
 const DAY_LUX: f32 = 11_000.0;
-const MOON_LUX: f32 = 220.0;
+/// Moonlight. Weak, and not as weak as it was: a night nobody can see the ground
+/// in is not atmosphere, it is a black screen with a HUD on it. This is enough to
+/// read a hillside by and far short of reading it as day.
+const MOON_LUX: f32 = 900.0;
 const DAY_AMBIENT_LUX: f32 = 1_200.0;
-const NIGHT_LUX: f32 = 110.0;
+const NIGHT_LUX: f32 = 340.0;
 
 const DAWN_LIGHT: Color = Color::srgb(1.0, 0.62, 0.34);
 const NOON_LIGHT: Color = Color::srgb(1.0, 0.97, 0.92);
@@ -318,7 +474,9 @@ const NIGHT_CLOUD: Color = Color::srgb(0.30, 0.34, 0.48);
 
 /// Sky colour for a sun height, night through dawn to full day.
 pub fn sky_colour(height: f32) -> Color {
-    const NIGHT: Color = Color::srgb(0.035, 0.055, 0.13);
+    // Lifted off black. A night sky at pure black takes the stars with it — they
+    // have nothing to sit against — and the land below goes to a silhouette.
+    const NIGHT: Color = Color::srgb(0.055, 0.075, 0.17);
     const DUSK: Color = Color::srgb(0.72, 0.46, 0.36);
     const DAY: Color = Color::srgb(0.56, 0.69, 0.83);
 
@@ -393,6 +551,28 @@ mod tests {
             across_the_horizon < (noon - night) * 0.25,
             "the sky snaps at sunset: {across_the_horizon:.2}"
         );
+    }
+
+    #[test]
+    // These compare constants, and clippy is right that they do. They are kept
+    // as a test rather than dropped because they guard a RELATIONSHIP between
+    // the numbers that is easy to break while tuning one of them on its own —
+    // the first night was a black screen with a HUD on it.
+    #[allow(clippy::assertions_on_constants)]
+    fn the_night_is_dark_and_not_blind() {
+        // A night nobody can see the ground in is not atmosphere, it is a black
+        // screen with a HUD on it — and the first one was exactly that. The moon
+        // has to be far weaker than the sun and far stronger than nothing.
+        assert!(MOON_LUX < DAY_LUX * 0.15, "moonlight should not read as day");
+        assert!(MOON_LUX > DAY_LUX * 0.03, "moonlight should light a hillside");
+        assert!(NIGHT_LUX < DAY_AMBIENT_LUX, "night ambient under day ambient");
+
+        // And the sky it stands against is off black, or the stars have nothing
+        // to sit on and the land below goes to a silhouette.
+        let midnight = LinearRgba::from(sky_colour(-1.0));
+        let sum = midnight.red + midnight.green + midnight.blue;
+        assert!(sum > 0.02, "the night sky is pure black: {sum:.3}");
+        assert!(sum < 0.4, "and it should still read as night: {sum:.3}");
     }
 
     #[test]

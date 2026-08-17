@@ -119,12 +119,30 @@ pub const RIVER_QUADS: u32 = 16;
 pub const CLOUDS: usize = 80;
 
 /// How high the cloud base sits, in metres, and how far the box reaches.
-pub const CLOUD_CEILING: f32 = 420.0;
-pub const CLOUD_SPREAD: f32 = 2_600.0;
+///
+/// Far lower than it was. At four hundred metres a cloud subtends almost nothing
+/// — it read as a speck of litter rather than as weather, however large the mesh
+/// actually was. Height and size are one problem: what matters is how much sky a
+/// cloud covers, and the cheapest way to cover more of it is to come down.
+pub const CLOUD_CEILING: f32 = 165.0;
+pub const CLOUD_SPREAD: f32 = 2_000.0;
+
+/// How much bigger than its grown size a cloud is drawn.
+///
+/// The mesh comes out a few tens of metres across, which is the size of a real
+/// cloud's puff and nothing like the size of a cloud. Scaled up here rather than
+/// grown bigger so the shape stays the shape.
+pub const CLOUD_SCALE: f32 = 4.5;
 
 /// How fast they drift, in metres a second. Slow enough to be weather rather
 /// than traffic — a cloud should cross the sky in minutes, not seconds.
 pub const CLOUD_DRIFT: f32 = 3.5;
+
+/// How many stars fill the night sky.
+///
+/// One mesh holds all of them — a star apiece would be a thousand entities to
+/// draw something nobody looks at directly.
+pub const STARS: usize = 900;
 
 // ------------------------------------------------------------------ elevation
 
