@@ -185,7 +185,7 @@ pub fn plant_chunk(
             chunk
                 .spawn((
                     Mesh3d(variety.wood.clone()),
-                    MeshMaterial3d(grove.bark.clone()),
+                    MeshMaterial3d(variety.bark.clone()),
                     stance,
                 ))
                 .with_children(|trunk| {
@@ -209,13 +209,14 @@ pub fn plant_chunk(
 pub struct Grove {
     /// Wood, leaves, and the green this variety wears.
     pub trees: Vec<Variety>,
-    pub bark: Handle<StandardMaterial>,
+
 }
 
 pub struct Variety {
     pub wood: Handle<Mesh>,
     pub leaves: Handle<Mesh>,
     pub leaf: Handle<StandardMaterial>,
+    pub bark: Handle<StandardMaterial>,
 }
 
 /// The range a leaf can be, dark to light.
@@ -226,6 +227,14 @@ pub struct Variety {
 /// sits in this range for itself, so the bench and the game colour it alike.
 const LEAF_DARK: Srgba = Srgba::rgb(0.13, 0.28, 0.13);
 const LEAF_LIGHT: Srgba = Srgba::rgb(0.38, 0.55, 0.24);
+
+/// And the range a trunk can be, from a spruce's near-black to a birch's chalk.
+///
+/// One bark material for the whole world made a birch unrecognisable: a pale
+/// trunk is most of what tells one from an oak at any distance, and it was the
+/// same brown as everything else.
+const BARK_DARK: Srgba = Srgba::rgb(0.20, 0.14, 0.11);
+const BARK_PALE: Srgba = Srgba::rgb(0.80, 0.78, 0.72);
 
 /// Grows the world's trees once, at startup.
 pub fn grow_the_grove(
@@ -239,6 +248,9 @@ pub fn grow_the_grove(
             let green = LinearRgba::from(LEAF_DARK)
                 .to_vec4()
                 .lerp(LinearRgba::from(LEAF_LIGHT).to_vec4(), tree.tint);
+            let wood_colour = LinearRgba::from(BARK_DARK)
+                .to_vec4()
+                .lerp(LinearRgba::from(BARK_PALE).to_vec4(), tree.bark);
             Variety {
                 wood: meshes.add(as_mesh(&tree.wood)),
                 leaves: meshes.add(as_mesh(&tree.leaves)),
@@ -254,18 +266,18 @@ pub fn grow_the_grove(
                     cull_mode: None,
                     ..default()
                 }),
+                bark: materials.add(StandardMaterial {
+                    base_color: LinearRgba::from_vec4(wood_colour).into(),
+                    perceptual_roughness: 0.95,
+                    reflectance: 0.03,
+                    ..default()
+                }),
             }
         })
         .collect();
 
     commands.insert_resource(Grove {
         trees,
-        bark: materials.add(StandardMaterial {
-            base_color: Srgba::rgb(0.29, 0.21, 0.15).into(),
-            perceptual_roughness: 0.95,
-            reflectance: 0.03,
-            ..default()
-        }),
     });
 }
 

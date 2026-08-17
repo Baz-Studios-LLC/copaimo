@@ -227,24 +227,21 @@ impl Terrain {
                     continue;
                 }
 
-                let shore = self.shore_meters(at.x, at.y);
-                if shore < 25.0 {
+                // One gathering of the ground rather than five separate
+                // questions of it, and the same one the biome is decided from —
+                // so the species planted here belongs to the place the rest of
+                // the game says this is.
+                let ground = self.ground_at(at.x, at.y);
+                if ground.shore < 25.0 {
                     continue;
                 }
-                let height = self.height(at.x, at.y);
-                let slope = 1.0 - self.normal(at.x, at.y, step * 0.5).y;
-                let levelled = self
-                    .settlements
-                    .level(at)
-                    .map(|(_, weight)| weight)
-                    .unwrap_or(0.0);
 
                 let natural = forest::natural_density(
-                    self.moisture(at.x, at.y),
-                    height,
-                    slope,
-                    shore,
-                    levelled,
+                    ground.moisture,
+                    ground.height,
+                    ground.slope,
+                    ground.shore,
+                    ground.levelled,
                     TREELINE,
                 );
                 let bias = painted.as_ref().map_or(0.0, |woods| woods.at(at.x, at.y));
@@ -253,12 +250,21 @@ impl Terrain {
                     continue;
                 }
 
+                // WHICH tree, decided by where. Nothing at all in some places:
+                // open water grows none and a town's trees are somebody's
+                // business rather than the wild's.
+                let biome = Biome::of(ground, &self.climate());
+                let Some(variety) = terrain_core::tree::pick(
+                    biome,
+                    forest::chance(slot_x, slot_z, 4),
+                    forest::chance(slot_x, slot_z, 7),
+                ) else {
+                    continue;
+                };
+
                 standing.push(forest::Planted {
-                    at: Vec3::new(at.x, height, at.y),
-                    variety: (forest::chance(slot_x, slot_z, 4)
-                        * terrain_core::tree::VARIETIES as f32)
-                        as usize
-                        % terrain_core::tree::VARIETIES,
+                    at: Vec3::new(at.x, ground.height, at.y),
+                    variety,
                     turn: forest::chance(slot_x, slot_z, 5) * std::f32::consts::TAU,
                     scale: TREE_SCALE_LOW
                         + (TREE_SCALE_HIGH - TREE_SCALE_LOW) * forest::chance(slot_x, slot_z, 6),
