@@ -91,6 +91,7 @@ impl Plugin for WorldPlugin {
                 (
                     chunk::setup_material,
                     cover::setup_material,
+                    stream::setup_river_material,
                     water::spawn_water,
                     stream::grow_the_grove,
                 ),

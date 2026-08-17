@@ -92,6 +92,22 @@ pub const COVER_CHUNKS: i32 = 2;
 /// How many chunks may be having their cover built at once.
 pub const MAX_PENDING_COVER: usize = 6;
 
+/// Metres between samples when the rivers are worked out.
+///
+/// The whole map is sampled at this spacing once at load, so it is a straight
+/// trade: finer finds smaller creeks and costs more startup. Twenty metres over
+/// an eight-kilometre world is about eighty thousand samples, which is under a
+/// second, and is fine enough that a seven-metre channel still lands on several
+/// cells rather than falling between two.
+pub const RIVER_SPACING: f32 = 20.0;
+
+/// Quads along a chunk edge when the river surface is drawn.
+///
+/// Coarser than the ground's, because still water is flat and a flat thing needs
+/// no vertices to describe it. It only has to be fine enough to follow the
+/// channel's edge, and a river is tens of metres wide.
+pub const RIVER_QUADS: u32 = 16;
+
 // ---------------------------------------------------------------------- sky
 
 /// How many clouds hang over the world at once.

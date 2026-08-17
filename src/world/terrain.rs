@@ -50,6 +50,8 @@ pub struct Terrain {
     rugged: Fbm<Perlin>,
     /// Ground leveled for towns, and the roads graded between them.
     settlements: Settlements,
+    /// Where the water runs, and how far it cut to get there.
+    rivers: terrain_core::river::Rivers,
     detail: Fbm<Perlin>,
     moisture: Fbm<Perlin>,
     warp_x: Perlin,
@@ -107,6 +109,7 @@ impl Terrain {
                 .set_frequency(1.0)
                 .set_persistence(0.5),
             settlements: Settlements::nowhere(),
+            rivers: terrain_core::river::Rivers::none(half),
             massif: None,
             detail: Fbm::<Perlin>::new(WORLD_SEED.wrapping_add(1))
                 .set_octaves(4)
@@ -133,13 +136,31 @@ impl Terrain {
             })
         });
 
+        // The water, before anything is built. Rivers are read from `raw_height`,
+        // which knows nothing of them, so this never consults its own output —
+        // the same rule the towns follow below.
+        //
+        // And BEFORE the towns, so that siting one asks about ground the rivers
+        // have already cut. A town planned on ground that has no valley in it yet
+        // is a town with a river through the middle of it.
+        terrain.rivers = terrain_core::river::Rivers::carve(
+            half,
+            RIVER_SPACING,
+            SEA_LEVEL,
+            &|at| terrain.raw_height(at.x, at.y),
+        );
+        info!(
+            "the water cut {} cells of channel",
+            terrain.rivers.channel_cells()
+        );
+
         // Planned after the rest of the world exists, because choosing where a
         // town goes means asking how high and how steep the ground is there —
         // and answered with `raw_height`, which knows nothing of settlements, so
         // this never reads back its own output.
         terrain.settlements = Settlements::plan(
             half,
-            &|at| terrain.raw_height(at.x, at.y),
+            &|at| terrain.dry_height(at.x, at.y),
             &|at| terrain.shore_meters(at.x, at.y),
         );
         info!(
@@ -318,7 +339,7 @@ impl Terrain {
     /// based on what the ground was doing underneath, and they run while
     /// holding the edit lock — so they must not read back through it.
     pub fn base_height(&self, x: f32, z: f32) -> f32 {
-        let h = self.raw_height(x, z);
+        let h = self.dry_height(x, z);
         // Towns stand on level ground and roads are graded between them, so the
         // last word on generated height belongs to whatever has been leveled.
         match self.settlements.level(Vec2::new(x, z)) {
@@ -603,6 +624,27 @@ impl Terrain {
         Vec3::new(-dx, 2.0 * epsilon, -dz).normalize()
     }
 
+    /// The generated ground with the rivers cut into it, and nothing else.
+    ///
+    /// Between `raw_height` and `base_height`: the land as the water left it,
+    /// before anybody levelled a town on it. This is what the towns are sited
+    /// against, so they are placed on a map that already has its valleys.
+    pub fn dry_height(&self, x: f32, z: f32) -> f32 {
+        self.raw_height(x, z) - self.rivers.at(x, z).0
+    }
+
+    /// The still water standing in a channel here, if any.
+    ///
+    /// `None` on dry land. Rivers do not flow — there is no current to model and
+    /// nothing that would read one — so a river is a surface at a height, the
+    /// same as the sea is.
+    pub fn river_surface(&self, x: f32, z: f32) -> Option<f32> {
+        let (cut, water) = self.rivers.at(x, z);
+        // Cut but not filled is a dry bank; only where the water stands above the
+        // ground it cut is there a river to see.
+        (cut > 0.05 && water > self.base_height(x, z)).then_some(water)
+    }
+
     /// Applies the coastline domain warp.
     fn warp(&self, x: f32, z: f32) -> (f32, f32) {
         let (u, v) = (x as f64 * WARP_FREQ, z as f64 * WARP_FREQ);
@@ -673,6 +715,38 @@ mod tests {
     /// Run with `cargo test -- --nocapture` to see the map. This is the fastest
     /// way to tell whether a new map image or a tuning change did what you
     /// expected, without waiting on a window.
+    #[test]
+    fn the_water_finds_its_way_to_the_sea() {
+        // Rivers are FOUND, so the only way to know the finding worked on this
+        // world - rather than on a test valley - is to look at this world.
+        let terrain = Terrain::new();
+        assert!(
+            terrain.rivers.channel_cells() > 0,
+            "a continent this size should carry rivers"
+        );
+
+        // And a channel has to be a channel: somewhere the ground was taken down
+        // and water stands in it, above the sea and below the land around it.
+        let half = terrain.half();
+        let mut wet = 0;
+        let mut deepest = 0.0_f32;
+        for step_z in -60..60 {
+            for step_x in -120..120 {
+                let at = Vec2::new(
+                    step_x as f32 / 120.0 * half.x,
+                    step_z as f32 / 60.0 * half.y,
+                );
+                let (cut, _) = terrain.rivers.at(at.x, at.y);
+                deepest = deepest.max(cut);
+                if terrain.river_surface(at.x, at.y).is_some() {
+                    wet += 1;
+                }
+            }
+        }
+        assert!(deepest > 0.5, "no channel was cut anywhere: {deepest:.2} m");
+        assert!(wet > 0, "every channel came out dry");
+    }
+
     #[test]
     fn generates_a_plausible_world() {
         const COLUMNS: usize = 110;

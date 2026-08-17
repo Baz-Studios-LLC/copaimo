@@ -13,7 +13,7 @@ use bevy::tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task};
 
 use crate::config::{MAX_PENDING_CHUNKS, VIEW_CHUNKS};
 use crate::config::CHUNK_SIZE;
-use crate::world::chunk::{build_mesh, chunk_at, chunk_origin, Chunk, TerrainMaterial};
+use crate::world::chunk::{build_chunk, chunk_at, chunk_origin, Chunk, TerrainMaterial};
 use crate::world::terrain::{Terrain, TerrainSource};
 use crate::world::{StreamAnchor, WorldBounds};
 
@@ -27,7 +27,7 @@ pub struct ChunkMap {
 /// component (by despawning the chunk) cancels the task, so walking away from
 /// an area that hasn't finished generating costs nothing.
 #[derive(Component)]
-pub struct PendingChunk(Task<Mesh>);
+pub struct PendingChunk(Task<(Mesh, Option<Mesh>)>);
 
 /// Spawns generation tasks for chunks that are in range but don't exist yet,
 /// nearest first so the ground closest to the viewer fills in soonest.
@@ -103,7 +103,7 @@ pub fn spawn_chunk_mesh(
     coord: IVec2,
 ) {
     let generator = terrain.0.clone();
-    let task = AsyncComputeTaskPool::get().spawn(async move { build_mesh(&generator, coord) });
+    let task = AsyncComputeTaskPool::get().spawn(async move { build_chunk(&generator, coord) });
     commands.entity(entity).insert(PendingChunk(task));
 }
 
@@ -111,6 +111,7 @@ pub fn spawn_chunk_mesh(
 pub fn collect_chunks(
     mut commands: Commands,
     material: Option<Res<TerrainMaterial>>,
+    river_skin: Option<Res<RiverMaterial>>,
     grove: Option<Res<Grove>>,
     terrain: Res<TerrainSource>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -123,7 +124,7 @@ pub fn collect_chunks(
     };
 
     for (entity, mut task, chunk, standing) in &mut pending {
-        let Some(mesh) = block_on(future::poll_once(&mut task.0)) else {
+        let Some((mesh, river)) = block_on(future::poll_once(&mut task.0)) else {
             continue;
         };
         commands
@@ -131,10 +132,37 @@ pub fn collect_chunks(
             .remove::<PendingChunk>()
             .insert((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material.0.clone())));
 
+        // Everything the chunk was carrying goes first — its wood AND its water.
+        //
+        // Before either is put back, and unconditionally. Sculpting re-meshes a
+        // chunk, so this runs again for ground that already had both; clearing
+        // inside the planting instead meant a chunk whose grove had not loaded
+        // yet kept its old surface and gained a second one on top. That is the
+        // same doubling the trees had, and it was one `continue` away from
+        // happening again.
+        if let Some(standing) = standing {
+            for old in standing.iter() {
+                commands.entity(old).despawn();
+            }
+        }
+
+        // Still water in whatever channels cross this chunk. A child, so it
+        // streams and dies with the ground it stands in.
+        if let (Some(river), Some(water)) = (river, &river_skin) {
+            commands.entity(entity).with_children(|chunk| {
+                chunk.spawn((
+                    RiverSurface,
+                    Mesh3d(meshes.add(river)),
+                    MeshMaterial3d(water.0.clone()),
+                    Transform::IDENTITY,
+                ));
+            });
+        }
+
         let Some(grove) = &grove else {
             continue;
         };
-        plant_chunk(&mut commands, entity, chunk.0, standing, &terrain, grove);
+        plant_chunk(&mut commands, entity, chunk.0, &terrain, grove);
     }
 }
 
@@ -158,16 +186,9 @@ pub fn plant_chunk(
     commands: &mut Commands,
     entity: Entity,
     coord: IVec2,
-    standing: Option<&Children>,
     terrain: &Terrain,
     grove: &Grove,
 ) {
-    if let Some(standing) = standing {
-        for tree in standing.iter() {
-            commands.entity(tree).despawn();
-        }
-    }
-
     let low = chunk_origin(coord);
     let high = low + CHUNK_SIZE;
 
@@ -339,4 +360,33 @@ pub fn as_coloured_mesh(geometry: &terrain_core::Geometry) -> Mesh {
         return mesh;
     }
     mesh.with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, geometry.colours.clone())
+}
+
+/// Marks a river's surface, so a re-meshed chunk can clear its old one.
+#[derive(Component)]
+pub struct RiverSurface;
+
+/// The one material every river wears.
+#[derive(Resource, Deref)]
+pub struct RiverMaterial(pub Handle<StandardMaterial>);
+
+pub fn setup_river_material(
+    mut commands: Commands,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let handle = materials.add(StandardMaterial {
+        // Darker and greener than the sea, which is what inland water looks
+        // like: it is shallow, it is over mud rather than over depth, and it
+        // carries what it has washed off the land.
+        base_color: Color::srgba(0.16, 0.34, 0.38, 0.82),
+        perceptual_roughness: 0.12,
+        reflectance: 0.42,
+        alpha_mode: AlphaMode::Blend,
+        // Seen from below through its own surface at a bank, and a river is thin
+        // enough that the far side shows through.
+        double_sided: true,
+        cull_mode: None,
+        ..default()
+    });
+    commands.insert_resource(RiverMaterial(handle));
 }

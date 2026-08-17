@@ -696,8 +696,15 @@ fn regrow_area(
         return;
     };
     for (entity, coord) in chunks_over(chunks, patch) {
-        let wood = standing.get(entity).ok().flatten();
-        plant_chunk(commands, entity, coord, wood, terrain, grove);
+        // Clear what is standing before growing what stands there now. The
+        // clearing moved out of `plant_chunk` so that a chunk being re-meshed
+        // sheds its water as well as its wood, so each caller does its own.
+        if let Some(wood) = standing.get(entity).ok().flatten() {
+            for old in wood.iter() {
+                commands.entity(old).despawn();
+            }
+        }
+        plant_chunk(commands, entity, coord, terrain, grove);
     }
 }
 
