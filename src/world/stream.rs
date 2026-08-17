@@ -254,8 +254,8 @@ const LEAF_LIGHT: Srgba = Srgba::rgb(0.38, 0.55, 0.24);
 /// One bark material for the whole world made a birch unrecognisable: a pale
 /// trunk is most of what tells one from an oak at any distance, and it was the
 /// same brown as everything else.
-const BARK_DARK: Srgba = Srgba::rgb(0.20, 0.14, 0.11);
-const BARK_PALE: Srgba = Srgba::rgb(0.80, 0.78, 0.72);
+const BARK_DARK: Srgba = Srgba::rgb(0.19, 0.13, 0.09);
+const BARK_PALE: Srgba = Srgba::rgb(0.82, 0.80, 0.74);
 
 /// Grows the world's trees once, at startup.
 pub fn grow_the_grove(
@@ -269,9 +269,17 @@ pub fn grow_the_grove(
             let green = LinearRgba::from(LEAF_DARK)
                 .to_vec4()
                 .lerp(LinearRgba::from(LEAF_LIGHT).to_vec4(), tree.tint);
+            // Squared, so only a birch gets anywhere near the pale end.
+            //
+            // Straight, the ramp put every species in the middle of it — and the
+            // middle of brown-to-chalk is grey, so a whole wood came out the
+            // colour of concrete. Squaring holds oak, spruce, pine and the rest
+            // down in the browns where they belong and lets birch, which draws
+            // 0.86 and up, still reach the chalk that makes it a birch.
+            let pale = tree.bark * tree.bark;
             let wood_colour = LinearRgba::from(BARK_DARK)
                 .to_vec4()
-                .lerp(LinearRgba::from(BARK_PALE).to_vec4(), tree.bark);
+                .lerp(LinearRgba::from(BARK_PALE).to_vec4(), pale);
             Variety {
                 wood: meshes.add(as_mesh(&tree.wood)),
                 leaves: meshes.add(as_mesh(&tree.leaves)),

@@ -195,9 +195,18 @@ fn drive_the_sky(
     };
 
     for (mut place, mut light) in &mut suns {
-        place.rotation = Transform::from_translation(from)
+        let facing = Transform::from_translation(from)
             .looking_at(Vec3::ZERO, Vec3::Y)
             .rotation;
+        // Only when it has actually moved. The clock runs in real seconds, so
+        // left alone this writes a very slightly different rotation EVERY frame —
+        // and a directional light that never holds still never lets its shadow
+        // cascades settle, so every edge in the world crawls and flickers. Held
+        // still between steps, the cascades are stable and the sun still crosses
+        // the sky.
+        if place.rotation.angle_between(facing) > SUN_STEP {
+            place.rotation = facing;
+        }
         light.color = colour;
         light.illuminance = strength;
     }
@@ -474,6 +483,13 @@ const STAR_DOME: f32 = 1_150.0;
 /// across and their shape was plainly visible — the sky had arrowheads in it. A
 /// star is a point of light or it is not a star.
 const STAR_SIZE: f32 = 0.75;
+
+/// How far the sun must have moved before it is moved, in radians.
+///
+/// About a fifth of a degree — a few seconds of an hour. Small enough that
+/// nobody sees it step, large enough that the light holds still for hundreds of
+/// frames at a time, which is what the shadow cascades need to stop crawling.
+const SUN_STEP: f32 = 0.0035;
 
 /// How far south the sun's arc leans, so it is not a perfect overhead sweep.
 const SOUTHING: f32 = 0.35;

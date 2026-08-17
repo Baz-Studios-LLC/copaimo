@@ -228,7 +228,9 @@ fn dress(terrain: &Terrain, low: Vec2) -> Geometry {
                 &mut mesh,
                 kind,
                 // Chunk-local, and set on the ground's own surface.
-                Vec3::new(at.x - low.x, ground.height, at.y - low.y),
+                // The drawn surface, like the trees — a tuft floating a
+                // handspring off the ground is as wrong as a tree doing it.
+                Vec3::new(at.x - low.x, terrain.drawn_height(at.x, at.y), at.y - low.y),
                 sprigs::chance(slot_x, slot_z, sprigs::SALT_TURN) * std::f32::consts::TAU,
                 scale,
                 sprigs::chance(slot_x, slot_z, sprigs::SALT_SHADE),

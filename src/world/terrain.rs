@@ -284,7 +284,8 @@ impl Terrain {
                 };
 
                 standing.push(forest::Planted {
-                    at: Vec3::new(at.x, ground.height, at.y),
+                    // On the drawn surface, not the true one. See `drawn_height`.
+                    at: Vec3::new(at.x, self.drawn_height(at.x, at.y), at.y),
                     variety,
                     turn: forest::chance(slot_x, slot_z, 5) * std::f32::consts::TAU,
                     scale: TREE_SCALE_LOW
@@ -636,6 +637,28 @@ impl Terrain {
         Vec3::new(-dx, 2.0 * epsilon, -dz).normalize()
     }
 
+    /// The height of the ground as it is actually DRAWN, not as it truly is.
+    ///
+    /// A chunk mesh is a grid of quads two metres apart, so between its vertices
+    /// the surface is a flat triangle — and on any ground that bulges, that
+    /// triangle sits BELOW the real height. Anything placed at the real height
+    /// therefore stands off the ground it is meant to be standing on, which is
+    /// why the trees were floating.
+    ///
+    /// So anything that sits on the surface asks for the surface, and gets the
+    /// same bilinear answer the renderer draws.
+    pub fn drawn_height(&self, x: f32, z: f32) -> f32 {
+        let step = CHUNK_SIZE / CHUNK_QUADS as f32;
+        let (gx, gz) = (x / step, z / step);
+        let (x0, z0) = (gx.floor(), gz.floor());
+        let (tx, tz) = (gx - x0, gz - z0);
+
+        let corner = |cx: f32, cz: f32| self.height(cx * step, cz * step);
+        let near = corner(x0, z0) * (1.0 - tx) + corner(x0 + 1.0, z0) * tx;
+        let far = corner(x0, z0 + 1.0) * (1.0 - tx) + corner(x0 + 1.0, z0 + 1.0) * tx;
+        near * (1.0 - tz) + far * tz
+    }
+
     /// The generated ground with the rivers cut into it, and nothing else.
     ///
     /// Between `raw_height` and `base_height`: the land as the water left it,
@@ -652,9 +675,34 @@ impl Terrain {
     /// same as the sea is.
     pub fn river_surface(&self, x: f32, z: f32) -> Option<f32> {
         let (cut, water) = self.rivers.at(x, z);
-        // Cut but not filled is a dry bank; only where the water stands above the
-        // ground it cut is there a river to see.
-        (cut > 0.05 && water > self.base_height(x, z)).then_some(water)
+        // Three things have to be true, and only the middle one used to be asked.
+        //
+        // A REAL channel, not the outer fringe of a bank. Banks reach several
+        // times the channel's width — up to a hundred and fifty metres — and a
+        // fifty-millimetre cut that far out is dry ground. Asking only that
+        // something was cut painted water across whole beaches.
+        //
+        // Water standing above the ground, which is what makes it water.
+        //
+        // And ABOVE THE SEA. A channel's surface is held at sea level once it
+        // reaches the coast, so without this every hollow in a beach within reach
+        // of a river mouth drew its own slab of river on top of the sea's own —
+        // which is exactly the sheets of water lying on dry sand.
+        let real_channel = cut > CHANNEL_LEAST;
+        let above_the_sea = water > SEA_LEVEL + 0.2;
+        if !real_channel || !above_the_sea {
+            return None;
+        }
+
+        // And no deeper than the channel that holds it.
+        //
+        // A channel's level is stamped across its banks, and where the ground
+        // falls away under that stamp the level goes with it — thirteen metres
+        // of standing water on one flank, which is a lake and not a river. Water
+        // fills the cut it made, so its depth cannot much exceed that cut.
+        let ground = self.drawn_height(x, z);
+        let depth = water - ground;
+        (depth > 0.0 && depth < cut + 1.0).then_some(water)
     }
 
     /// Applies the coastline domain warp.
@@ -757,6 +805,55 @@ mod tests {
         }
         assert!(deepest > 0.5, "no channel was cut anywhere: {deepest:.2} m");
         assert!(wet > 0, "every channel came out dry");
+    }
+
+    #[test]
+    fn water_does_not_lie_on_dry_ground() {
+        // Sheets of river were being drawn across whole beaches. A channel's
+        // banks reach several times its own width, and asking only that
+        // SOMETHING had been cut counted a five-centimetre graze a hundred and
+        // fifty metres out as riverbed.
+        let terrain = Terrain::new();
+        let half = terrain.half();
+
+        let mut standing = 0;
+        for step_z in -90..90 {
+            for step_x in -180..180 {
+                let at = Vec2::new(
+                    step_x as f32 / 180.0 * half.x,
+                    step_z as f32 / 90.0 * half.y,
+                );
+                let Some(water) = terrain.river_surface(at.x, at.y) else {
+                    continue;
+                };
+                standing += 1;
+
+                // Every drawn surface must have ground under it and sea below it,
+                // or it is a sheet lying on a beach.
+                let ground = terrain.drawn_height(at.x, at.y);
+                assert!(
+                    water > ground,
+                    "water at {:.0}, {:.0} sits {:.2} m UNDER its own bed",
+                    at.x,
+                    at.y,
+                    ground - water
+                );
+                assert!(
+                    water > SEA_LEVEL,
+                    "river water at or below the sea, which the sea already draws"
+                );
+                // And it must be shallow enough to be a river rather than a lake
+                // spread over a plain.
+                assert!(
+                    water - ground < 12.0,
+                    "water {:.1} m deep at {:.0}, {:.0} is not a channel",
+                    water - ground,
+                    at.x,
+                    at.y
+                );
+            }
+        }
+        println!("river surface drawn at {standing} of 64,800 samples");
     }
 
     #[test]

@@ -108,6 +108,13 @@ pub const RIVER_SPACING: f32 = 20.0;
 /// channel's edge, and a river is tens of metres wide.
 pub const RIVER_QUADS: u32 = 16;
 
+/// How deep the cut must be before water is drawn standing in it, in metres.
+///
+/// A river's banks reach several times its own width, so most of what a channel
+/// touches is bank rather than bed. Drawing water wherever anything was cut at
+/// all put sheets of it across whole beaches.
+pub const CHANNEL_LEAST: f32 = 0.45;
+
 // ---------------------------------------------------------------------- sky
 
 /// How many clouds hang over the world at once.
