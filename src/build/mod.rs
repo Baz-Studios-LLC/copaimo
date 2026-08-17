@@ -20,8 +20,14 @@
 //!
 //! One per town site, at its middle. That is not a village — laying out a street
 //! is its own job and is not started — but the sites already exist as levelled
-//! ground with a size and a centre, so it puts real buildings on real ground the
-//! moment a drawing is baked, rather than waiting on the layout to be designed.
+//! ground with a size and a centre, so a drawing goes up on real ground the
+//! moment one is baked, rather than waiting on the layout to be designed.
+//!
+//! **The game ships with none.** `assets/buildings/` is empty until somebody
+//! bakes something into it, so no town has anything standing on it yet. There
+//! was a hand-written cottage here while this was being built, and it raised
+//! itself at all twenty sites — which is a world saying something about itself
+//! that is not true. It lives on as the fixture the tests below read.
 
 mod plan;
 mod shape;
@@ -84,7 +90,12 @@ impl Plugin for BuildingPlugin {
 /// been drawn yet, and says nothing. A file that will not read says so and is
 /// skipped: one bad drawing should not cost a town its other buildings.
 fn read_the_catalogue(mut catalogue: ResMut<Catalogue>) {
-    let folder = Path::new(BUILDINGS_DIR);
+    read_into(Path::new(BUILDINGS_DIR), &mut catalogue);
+}
+
+/// The same, told which folder — so a test can point it at one that is not the
+/// game's own, including one that is not there at all.
+fn read_into(folder: &Path, catalogue: &mut Catalogue) {
     let Ok(entries) = std::fs::read_dir(folder) else {
         return;
     };
@@ -247,19 +258,71 @@ fn building_cloth(lets_light_through: bool) -> StandardMaterial {
 mod tests {
     use super::*;
 
-    /// Reads what is actually in `assets/buildings/`, not a fixture.
+    /// A cottage using all four shapes, glass, a turned brace and a door.
     ///
-    /// The forms are the part of this that cannot be checked by looking: a
-    /// winding or a run out by a sign is a shape that is wrong on screen and
-    /// silent everywhere else. So the cottage that ships uses all four, and this
-    /// walks the whole path a running game walks — file, parse, weld — and
-    /// judges the result by its measurements.
+    /// It used to SHIP, in `assets/buildings/`, so that every town site had
+    /// something standing on it while the reader was being built. That was the
+    /// right thing then and the wrong thing to leave: buildings are drawn at
+    /// Opificium now, and a hand-written stand-in raised at twenty sites is a
+    /// world telling you something that is not true about itself.
+    ///
+    /// Kept here rather than deleted, because it is the only thing that exercises
+    /// the whole path — parse, every form, weld — and the forms are the part that
+    /// cannot be checked by reading them. A fixture in a test is honest; the same
+    /// bytes in `assets/` are content.
+    const COTTAGE: &str = r#"{
+  "format": 2,
+  "name": "house-cottage",
+  "kind": "house",
+  "half_w": 3.45,
+  "half_d": 4.45,
+  "high": 5.7,
+
+  "boxes": [
+    { "at": [3.0, 1.25, 0.0], "size": [0.3, 2.5, 8.0], "turn": [0, 0, 0, 1],
+      "form": "box", "rgb": [176, 152, 116], "alpha": 1.0, "cloth": "daub", "stage": "walls" },
+    { "at": [-3.0, 1.25, 0.0], "size": [0.3, 2.5, 8.0], "turn": [0, 0, 0, 1],
+      "form": "box", "rgb": [176, 152, 116], "alpha": 1.0, "cloth": "daub", "stage": "walls" },
+    { "at": [0.0, 1.25, -4.0], "size": [6.3, 2.5, 0.3], "turn": [0, 0, 0, 1],
+      "form": "box", "rgb": [176, 152, 116], "alpha": 1.0, "cloth": "daub", "stage": "walls" },
+    { "at": [0.0, 1.25, 4.0], "size": [6.3, 2.5, 0.3], "turn": [0, 0, 0, 1],
+      "form": "box", "rgb": [176, 152, 116], "alpha": 1.0, "cloth": "daub", "stage": "walls" },
+
+    { "at": [0.0, 0.2, 0.0], "size": [6.8, 0.4, 8.8], "turn": [0, 0, 0, 1],
+      "form": "box", "rgb": [128, 122, 112], "alpha": 1.0, "cloth": "stone", "stage": "footings" },
+
+    { "at": [3.02, 1.05, 0.0], "size": [0.16, 2.1, 1.1], "turn": [0, 0, 0, 1],
+      "form": "box", "rgb": [96, 72, 48], "alpha": 1.0, "cloth": "wood", "stage": "walls" },
+
+    { "at": [3.02, 1.7, -2.4], "size": [0.12, 0.9, 1.0], "turn": [0, 0, 0, 1],
+      "form": "box", "rgb": [186, 214, 226], "alpha": 0.4, "cloth": "glass", "stage": "walls" },
+    { "at": [3.02, 1.7, 2.4], "size": [0.12, 0.9, 1.0], "turn": [0, 0, 0, 1],
+      "form": "box", "rgb": [186, 214, 226], "alpha": 0.4, "cloth": "glass", "stage": "walls" },
+
+    { "at": [1.35, 2.02, -3.86], "size": [1.9, 0.22, 0.22], "turn": [0, 0, 0.38268, 0.92388],
+      "form": "cut:0.2500x-0.2500", "rgb": [104, 80, 54], "alpha": 1.0, "cloth": "wood", "stage": "frame" },
+    { "at": [-1.35, 2.02, -3.86], "size": [1.9, 0.22, 0.22], "turn": [0, 0, -0.38268, 0.92388],
+      "form": "cut:0.2500x-0.2500", "rgb": [104, 80, 54], "alpha": 1.0, "cloth": "wood", "stage": "frame" },
+
+    { "at": [0.0, 3.4, 0.0], "size": [6.9, 1.8, 8.9], "turn": [0, 0, 0, 1],
+      "form": "wedge", "rgb": [92, 68, 58], "alpha": 1.0, "cloth": "thatch", "stage": "roof" },
+    { "at": [0.0, 4.36, 0.0], "size": [8.9, 0.28, 0.5], "turn": [0, 0.70711, 0, 0.70711],
+      "form": "ridge", "rgb": [74, 54, 46], "alpha": 1.0, "cloth": "thatch", "stage": "roof" },
+
+    { "at": [-1.6, 3.9, 2.6], "size": [0.7, 3.0, 0.7], "turn": [0, 0, 0, 1],
+      "form": "box", "rgb": [128, 122, 112], "alpha": 1.0, "cloth": "stone", "stage": "roof" },
+    { "at": [-1.6, 5.55, 2.6], "size": [0.95, 0.3, 0.95], "turn": [0, 0, 0, 1],
+      "form": "hip:0.5000x0.5000", "rgb": [112, 106, 98], "alpha": 1.0, "cloth": "stone", "stage": "roof" }
+  ],
+
+  "marks": [
+    { "mark": "door", "at": [3.2, 0.4, 0.0], "yaw": 0.0 }
+  ]
+}"#;
+
     #[test]
-    fn the_cottage_on_disk_reads_and_welds() {
-        let path = Path::new(BUILDINGS_DIR).join("house-cottage.json");
-        let json = std::fs::read_to_string(&path)
-            .unwrap_or_else(|why| panic!("{}: {why}", path.display()));
-        let plan = Plan::read(&json).expect("the shipped cottage should read");
+    fn a_building_using_every_shape_reads_and_welds() {
+        let plan = Plan::read(COTTAGE).expect("the fixture should read");
 
         assert_eq!(plan.kind, "house");
         assert!(
@@ -267,7 +330,7 @@ mod tests {
             "a house a ranger cannot walk into is not finished"
         );
 
-        // All four shapes, so the one thing this file is for is actually done.
+        // All four shapes, so the one thing this fixture is for is actually done.
         let forms: Vec<_> = plan.boxes.iter().map(|block| block.form).collect();
         for wanted in [
             plan::Form::Box,
@@ -276,7 +339,7 @@ mod tests {
             plan::Form::Cut { low: 0.25, high: -0.25 },
             plan::Form::Hip { across: 0.5, along: 0.5 },
         ] {
-            assert!(forms.contains(&wanted), "the cottage should use {wanted:?}");
+            assert!(forms.contains(&wanted), "the fixture should use {wanted:?}");
         }
 
         let (solid, glass) = shape::raise(&plan);
@@ -284,13 +347,11 @@ mod tests {
         assert!(!glass.is_empty(), "its windows should weld separately");
     }
 
-    /// The stated footprint has to be the real one, or a village clears the
-    /// wrong plot and buildings overlap the day anything lays out a street.
     #[test]
-    fn the_cottage_stands_within_the_footprint_it_claims() {
-        let json =
-            std::fs::read_to_string(Path::new(BUILDINGS_DIR).join("house-cottage.json")).unwrap();
-        let plan = Plan::read(&json).unwrap();
+    fn a_building_stands_within_the_footprint_it_claims() {
+        // The stated footprint has to be the real one, or a village clears the
+        // wrong plot and buildings overlap the day anything lays out a street.
+        let plan = Plan::read(COTTAGE).unwrap();
         let (low, high) = plan.reach();
 
         assert!(low.y > -1.0e-4, "it should stand ON the ground, not in it");
@@ -314,5 +375,15 @@ mod tests {
             high.z,
             plan.half_d
         );
+    }
+
+    #[test]
+    fn a_world_with_no_drawings_raises_nothing() {
+        // What the game ships as now. An absent or empty folder is the ordinary
+        // case until somebody bakes something, and it must be silent rather than
+        // a warning every launch.
+        let mut catalogue = Catalogue::default();
+        read_into(Path::new("no/such/buildings"), &mut catalogue);
+        assert!(catalogue.0.is_empty());
     }
 }
