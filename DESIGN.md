@@ -530,6 +530,33 @@ assets/
 
 ## Change log
 
+**2026-08-17 (later)** — **Rivers are switched off.** `RIVERS` in `config.rs`,
+the same bargain the roads between towns get: the machinery is written, tested
+and shared with the bench, and none of it is in the way while it is not running.
+Nothing is carved, no surface is drawn, no ground calls itself flooded, and no
+town has a river to avoid — one switch at the one place rivers come from, and
+everything downstream falls out of it.
+
+**What killed them was width, and every lever pulls against the others.** A
+channel's cut spreads over three times its own width because banks do, so water
+filled to any useful depth spreads about that far too: an eighteen-metre channel
+arrives on screen sixty metres across. Over the whole network that came to **a
+fifth of the land under water** — not rivers through a landscape, a landscape
+with a lake on it.
+
+The three levers and why none of them is a tuning pass: `BANKS` makes the cut
+spread, and narrowing it narrows every valley in the world as well; `RIVER_EDGE`
+is where the waterline sits on that spread, and tightening it leaves too little
+room for the surface's edge to feather, so the rim goes ragged again;
+`NARROWEST` sets the smallest channel, and it was raised to eighteen metres in
+the first place because anything less could not be drawn at all — recorded on a
+twenty-metre grid, a seven-metre creek came out as disconnected rectangles lying
+in fields. Any two of those can be satisfied at once. That is the actual problem,
+and it is a design question about what a river IS here rather than a number to
+adjust.
+
+Everything below still stands and still runs if the switch goes back on.
+
 **2026-08-17** — **Water fills a channel; it does not sit at a height.** The
 random slabs of river lying about in fields are gone, and the reason they kept
 coming back is worth writing down: a water LEVEL is a flat thing and the ground

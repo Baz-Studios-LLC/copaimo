@@ -92,6 +92,28 @@ pub const COVER_CHUNKS: i32 = 2;
 /// How many chunks may be having their cover built at once.
 pub const MAX_PENDING_COVER: usize = 6;
 
+/// Whether the world carves rivers into itself at all.
+///
+/// **Off.** Kept as a switch rather than torn out, the same bargain the roads
+/// between towns get: the machinery is written, tested and shared with the
+/// bench, and none of it is in the way while it is not running.
+///
+/// What killed them was WIDTH, and it is worth writing down because it is the
+/// thing to fix if they come back. A channel's cut spreads over three times its
+/// own width, because banks do — so water filled to any useful depth spreads
+/// about that far as well, and a river drawn eighteen metres wide arrives on
+/// screen at sixty. Across the whole network that came to a fifth of the land
+/// under water: not rivers through a landscape, a landscape with a lake on it.
+///
+/// The levers, in the order they matter: `BANKS` in the crate, which is what
+/// makes the cut spread; `RIVER_EDGE` below, which is where the waterline sits
+/// on that spread and cannot simply be tightened without the surface's edge
+/// going ragged again; and `NARROWEST`, which sets the smallest channel and was
+/// raised to eighteen metres because anything less could not be drawn at all.
+/// Any two of those pull against the third, which is the actual problem and is
+/// not a tuning pass.
+pub const RIVERS: bool = false;
+
 /// Metres between samples when the rivers are worked out.
 ///
 /// The whole map is sampled at this spacing once at load, so it is a straight

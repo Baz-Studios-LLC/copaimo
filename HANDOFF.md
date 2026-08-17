@@ -400,6 +400,14 @@ something larger than the unit that consumes the decision is the bug.
 
 ### Known open
 
+* **Rivers are switched off** (`RIVERS` in `config.rs`). Not broken-and-hidden:
+  the slabs on dry ground were fixed and the towns cleared, and then the width
+  turned out to be the thing that could not be fixed by tuning. A channel's cut
+  spreads three times its own width, so the water does too, and a fifth of the
+  land ended up under it. `BANKS`, `RIVER_EDGE` and `NARROWEST` each fix it and
+  break one of the other two — see the design log. Turning them back on wants a
+  decision about what a river is at this scale, not a pass over the constants.
+
 * **Trees may still be floating.** Reported twice. `drawn_height` was meant to
   fix it — trees now sit on the bilinear surface the renderer draws rather than
   the true height — and the last screenshots still looked wrong, though the

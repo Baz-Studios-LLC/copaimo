@@ -169,16 +169,22 @@ impl Terrain {
         // And BEFORE the towns, so that siting one asks about ground the rivers
         // have already cut. A town planned on ground that has no valley in it yet
         // is a town with a river through the middle of it.
-        terrain.rivers = terrain_core::river::Rivers::carve(
-            half,
-            RIVER_SPACING,
-            SEA_LEVEL,
-            &|at| terrain.raw_height(at.x, at.y),
-        );
-        info!(
-            "the water cut {} cells of channel",
-            terrain.rivers.channel_cells()
-        );
+        // A world with no rivers is a world whose river field is empty, and
+        // everything downstream falls out of it on its own: nothing is cut, no
+        // surface is drawn, no biome reads as water and no town has one to avoid.
+        // One switch, at the one place they come from.
+        if RIVERS {
+            terrain.rivers = terrain_core::river::Rivers::carve(
+                half,
+                RIVER_SPACING,
+                SEA_LEVEL,
+                &|at| terrain.raw_height(at.x, at.y),
+            );
+            info!(
+                "the water cut {} cells of channel",
+                terrain.rivers.channel_cells()
+            );
+        }
 
         // Planned after the rest of the world exists, because choosing where a
         // town goes means asking how high and how steep the ground is there —
@@ -964,6 +970,14 @@ mod tests {
 
     #[test]
     fn the_water_finds_its_way_to_the_sea() {
+        // Nothing to look at while rivers are switched off — see `RIVERS`. The
+        // finding and the carving are still tested in `terrain-core`; what is
+        // testable from here is that none of it reaches the world, and
+        // `no_rivers_means_no_water_on_the_land` checks that once for all three.
+        if !RIVERS {
+            return;
+        }
+
         // Rivers are FOUND, so the only way to know the finding worked on this
         // world - rather than on a test valley - is to look at this world.
         let terrain = Terrain::new();
@@ -1039,6 +1053,42 @@ mod tests {
 
 
     #[test]
+    fn no_rivers_means_no_water_on_the_land() {
+        // What `RIVERS` being off has to mean, everywhere, not just where it is
+        // convenient. The field is left empty at the one place rivers come from
+        // and everything downstream is supposed to fall out of that on its own —
+        // no cut in the ground, no surface drawn, nothing calling itself flooded.
+        // This is the check that it really does.
+        if RIVERS {
+            return;
+        }
+
+        let terrain = Terrain::new();
+        let half = terrain.half();
+        for step_z in -60..60 {
+            for step_x in -120..120 {
+                let at = Vec2::new(
+                    step_x as f32 / 120.0 * half.x,
+                    step_z as f32 / 60.0 * half.y,
+                );
+                assert!(
+                    terrain.river_surface(at.x, at.y).is_none(),
+                    "river drawn at {:.0}, {:.0} with rivers switched off",
+                    at.x,
+                    at.y
+                );
+                assert_eq!(
+                    terrain.ground_at(at.x, at.y).water_above,
+                    0.0,
+                    "ground at {:.0}, {:.0} calls itself flooded",
+                    at.x,
+                    at.y
+                );
+            }
+        }
+    }
+
+    #[test]
     fn no_town_has_a_river_running_through_it() {
         let terrain = Terrain::new();
 
@@ -1079,6 +1129,14 @@ mod tests {
 
     #[test]
     fn water_does_not_lie_on_dry_ground() {
+        // Nothing to look at while rivers are switched off — see `RIVERS`. The
+        // finding and the carving are still tested in `terrain-core`; what is
+        // testable from here is that none of it reaches the world, and
+        // `no_rivers_means_no_water_on_the_land` checks that once for all three.
+        if !RIVERS {
+            return;
+        }
+
         // Sheets of river were being drawn across whole beaches. A channel's
         // banks reach several times its own width, and asking only that
         // SOMETHING had been cut counted a five-centimetre graze a hundred and
@@ -1196,6 +1254,14 @@ mod tests {
 
     #[test]
     fn standing_in_a_river_is_standing_in_water() {
+        // Nothing to look at while rivers are switched off — see `RIVERS`. The
+        // finding and the carving are still tested in `terrain-core`; what is
+        // testable from here is that none of it reaches the world, and
+        // `no_rivers_means_no_water_on_the_land` checks that once for all three.
+        if !RIVERS {
+            return;
+        }
+
         // What the whole classification is for. A river runs well above the sea,
         // so until the ground could say it was flooded, one read as whatever land
         // it had cut through — and anything aquatic had nowhere to live but the
