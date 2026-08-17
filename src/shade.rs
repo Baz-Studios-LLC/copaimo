@@ -227,9 +227,11 @@ fn carry_the_shade(
 /// there is one of those for the whole world. Nothing else in the game bends, so
 /// nothing else needs telling.
 fn part_the_grass(
+    time: Res<Time>,
     cover: Option<Res<crate::world::cover::CoverMaterial>>,
     mut materials: ResMut<Assets<Shaded>>,
-    waders: Query<(&GlobalTransform, &Wades)>,
+    waders: Query<(Entity, &GlobalTransform, &Wades)>,
+    mut trailing: Local<std::collections::HashMap<Entity, Vec3>>,
 ) {
     let Some(cover) = cover else {
         return;
@@ -238,16 +240,32 @@ fn part_the_grass(
         return;
     };
 
+    // Grass does not part instantly and it does not stand back up instantly.
+    //
+    // The disturbance follows whoever is making it rather than being pinned to
+    // them, which is the whole of the springiness: walk forward and the grass
+    // ahead has not given way yet, stop and the parting catches up around you,
+    // walk on and it closes behind at its own pace. It is one lerp on the CPU and
+    // it does what per-blade state would have done.
+    let caught_up = 1.0 - (-time.delta_secs() / GRASS_SETTLE).exp();
+
     let mut movers = [Vec4::ZERO; MOST_MOVERS];
     let mut count = 0;
-    for (place, wades) in &waders {
+    let mut here = std::collections::HashMap::new();
+
+    for (who, place, wades) in &waders {
         if count == MOST_MOVERS {
             break;
         }
         let at = place.translation();
-        movers[count] = Vec4::new(at.x, at.y, at.z, wades.reach);
+        let trailed = trailing.get(&who).map_or(at, |was| was.lerp(at, caught_up));
+        here.insert(who, trailed);
+        movers[count] = Vec4::new(trailed.x, trailed.y, trailed.z, wades.reach);
         count += 1;
     }
+    // Only what is still about, so a despawned monster's dent does not linger in
+    // the map forever.
+    *trailing = here;
 
     material.extension.bending = Vec4::new(1.0, GRASS_SWING, count as f32, 0.0);
     material.extension.movers = movers;
@@ -258,7 +276,14 @@ fn part_the_grass(
 /// Measured at the tip, and the foot does not move at all — a blade bends from
 /// its root rather than sliding along the ground. Half a metre is enough to open
 /// a path you can see behind you and not so much that the grass lies flat.
-const GRASS_SWING: f32 = 0.5;
+const GRASS_SWING: f32 = 0.9;
+
+/// How long the grass takes to give way, and to close again, in seconds.
+///
+/// The time constant of the lag, so most of the movement is done in about twice
+/// this. Short enough that the parting keeps up with a walk and long enough that
+/// it is visibly a bend rather than a switch.
+const GRASS_SETTLE: f32 = 0.16;
 
 /// How far the sun must climb before the shadows are told about it.
 ///

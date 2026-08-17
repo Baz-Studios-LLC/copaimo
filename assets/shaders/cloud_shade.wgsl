@@ -49,6 +49,12 @@ struct Movers {
 }
 @group(2) @binding(103) var<uniform> movers: Movers;
 
+/// How much of a mover's reach is "underfoot" rather than "beside".
+const UNDERFOOT: f32 = 0.55;
+/// How far a blade is pressed down by something standing right on it, as a share
+/// of how far it would be pushed aside.
+const TROD: f32 = 0.8;
+
 /// Where a point ends up once whatever is standing near it has pushed it aside.
 ///
 /// `along` is how far up its own blade the vertex sits, which the mesh carries in
@@ -61,25 +67,49 @@ fn parted(at: vec3<f32>, along: f32) -> vec3<f32> {
     }
 
     var push = vec2<f32>(0.0, 0.0);
+    var press = 0.0;
     let count = i32(bending.z);
+
     for (var i = 0; i < count; i = i + 1) {
         let mover = movers.list[i];
         let gap = at.xz - mover.xz;
         let away = length(gap);
-        if away < mover.w && away > 1e-4 {
-            // Hardest against whatever is standing there and nothing at the rim,
-            // squared so the edge of the disturbance is soft. A linear falloff
-            // gives a moving ring you can see the edge of.
-            let force = 1.0 - away / mover.w;
-            push += gap / away * force * force;
+        if away >= mover.w || away <= 1e-4 {
+            continue;
         }
+
+        // Softly in at the rim, so the edge of the disturbance is not a ring you
+        // can watch travel over the field.
+        let near = 1.0 - away / mover.w;
+        let strength = near * near;
+
+        // # The snap, and what it actually was
+        //
+        // The push points away from whatever is standing there — which means it
+        // points the OPPOSITE way on either side of it. Walk over a blade and its
+        // lean reverses through a hundred and eighty degrees in the width of a
+        // boot: not a bend, a flick. And right underfoot the direction is
+        // whatever the arithmetic makes of a gap of nearly nothing, which is
+        // noise.
+        //
+        // So the sideways push is faded out toward the middle and a downward
+        // press fades in to replace it. What is directly under something is
+        // TRODDEN, not shoved aside, and that is both what happens and the shape
+        // that has no discontinuity in it — the reversal now happens where the
+        // push is already nothing.
+        let aside = smoothstep(0.0, mover.w * UNDERFOOT, away);
+        push += gap / away * strength * aside;
+        press += strength * (1.0 - aside);
     }
 
+    // Squared along the blade, so the foot stays planted and the whole length
+    // curves rather than shearing over.
     let swing = bending.y * along * along;
-    let leaned = vec2<f32>(push.x, push.y) * swing;
-    // Pushed over, and lowered by roughly what leaning over costs it in height.
-    // A blade that bends sideways without dropping stretches.
-    return at + vec3<f32>(leaned.x, -length(leaned) * 0.3, leaned.y);
+    let leaned = push * swing;
+    // Pushed over, and dropped by what leaning costs it in height plus whatever
+    // is standing on it. A blade that bends sideways without dropping stretches.
+    let dropped = length(leaned) * 0.3 + press * swing * TROD;
+    return at + vec3<f32>(leaned.x, -dropped, leaned.y);
 }
 
 @vertex

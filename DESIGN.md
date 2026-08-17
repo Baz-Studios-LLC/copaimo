@@ -531,8 +531,23 @@ assets/
 
 ## Change log
 
-**2026-08-17 (last)** — **A blade of grass is a blade, and it parts as you walk
-through it.**
+**2026-08-17 (last)** — **Every tuft was the same tuft, and the parting snapped.**
+
+The tufts fanned through a whole circle, which is a rosette by construction —
+turn one and you get the same object back, so jittering the angles inside it can
+never make two of them differ. They fan through half a turn to four fifths now,
+so a clump has a front and a back and the turn it was already planted at starts
+doing visible work. The clump leans bodily as well, and the blade count varies.
+
+**The snap was a 180° flip.** The push points away from whatever is standing
+there, so it points the opposite way on either side — walk over a blade and its
+lean reversed in the width of a boot. The sideways push now fades out toward the
+middle and a downward *press* fades in to replace it: what is directly underfoot
+is trodden, not shoved aside, which is both what happens and the shape with no
+discontinuity in it. Plus a lag, so the disturbance follows you rather than being
+pinned to you — one lerp on the CPU doing what per-blade state would have done.
+
+**A blade of grass is a blade, and it parts as you walk through it.**
 
 The tufts read as crowns, and the construction *was* a crown: blades at even
 steps right round a circle, all the same length, all leaning the same amount, all
