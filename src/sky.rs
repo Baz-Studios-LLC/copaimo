@@ -119,10 +119,10 @@ fn spawn_sun(mut commands: Commands) {
         // it isn't. Without fog the far bound matters more — shadows simply
         // stopping mid-landscape is visible in a way it wasn't before.
         CascadeShadowConfigBuilder {
-            num_cascades: 4,
+            num_cascades: SHADOW_CASCADES,
             minimum_distance: 0.5,
-            maximum_distance: 900.0,
-            first_cascade_far_bound: 40.0,
+            maximum_distance: SHADOW_DISTANCE,
+            first_cascade_far_bound: 26.0,
             overlap_proportion: 0.2,
         }
         .build(),
@@ -508,6 +508,20 @@ const STAR_DOME: f32 = 1_150.0;
 /// across and their shape was plainly visible — the sky had arrowheads in it. A
 /// star is a point of light or it is not a star.
 const STAR_SIZE: f32 = 0.75;
+
+/// How far shadows are cast, and in how many slices.
+///
+/// **This was the frame rate.** At nine hundred metres over four cascades, every
+/// cascade redrew the whole visible world — four passes over fifty-four million
+/// vertices apiece, on top of the one pass that actually draws anything. Thirty
+/// of a forty-millisecond frame was spent drawing shadow maps, most of it for
+/// trees far enough away that their shadows are a few pixels of grey.
+///
+/// A shadow's job is to sit an object on the ground it is standing on, and that
+/// is read within a hundred metres or so. Past that it is texture on a hillside,
+/// which the terrain's own shading already gives.
+const SHADOW_DISTANCE: f32 = 400.0;
+const SHADOW_CASCADES: usize = 3;
 
 /// How far the sun must have moved before it is moved, in radians.
 ///

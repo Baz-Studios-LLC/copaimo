@@ -400,6 +400,19 @@ something larger than the unit that consumes the decision is the bug.
 
 ### Known open
 
+* **Frame rate: shadows are the frame.** Measured at midday, 1600×900, RTX 4060
+  laptop: 42 fps / 23.8 ms, of which **16.7 ms is the three shadow cascades** and
+  6.2 ms is everything actually on screen. Two things got it there from 30 fps —
+  cutting the cascades from four at 900 m to three at 400 m, and halving the leaf
+  clump count. Further shadow tuning does NOT help: 200 m was no better than 400,
+  a smaller shadow map was no better than a large one, and two cascades were
+  worse than three. The per-cascade cost is dominated by re-submitting all the
+  tree geometry, so the next real win is **vegetation LOD or a tree draw radius**
+  — not another pass over the shadow constants.
+  ⚠️ Measure at MIDDAY and let the machine cool between runs. At night the sun is
+  behind the world and the cascades catch almost nothing (101 fps), and
+  back-to-back runs on a laptop throttle enough to swing the main pass ±40%.
+
 * **Rivers are switched off** (`RIVERS` in `config.rs`). Not broken-and-hidden:
   the slabs on dry ground were fixed and the towns cleared, and then the width
   turned out to be the thing that could not be fixed by tuning. A channel's cut

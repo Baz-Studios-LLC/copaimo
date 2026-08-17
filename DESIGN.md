@@ -530,6 +530,29 @@ assets/
 
 ## Change log
 
+**2026-08-17 (later still)** — **The frame rate was the shadows.** Four cascades
+reaching nine hundred metres meant every one of them redrew the whole visible
+world, so a frame spent twenty-five milliseconds building shadow maps and seven
+drawing anything. Three cascades at four hundred metres, which is as far as a
+shadow's actual job reaches — sitting an object on the ground it stands on —
+takes that to sixteen. Past that a shadow is texture on a hillside, which the
+terrain's own shading already gives.
+
+**And the leaves.** A leaf clump is eighteen vertices and an oak carried fifteen
+hundred of them: twenty-seven thousand vertices of foliage on one tree, drawn
+thousands of times and then again for every cascade. The budget moved from count
+to size — half the clumps at 1.4× the radius cover the same crown, since area
+goes as the square — for half the vertices.
+
+Together: **30 fps to 42** at midday, measured back to back on the same view.
+
+What did NOT help, so nobody spends the afternoon on it again: a smaller shadow
+map (the passes are geometry-bound, not fill-bound), a shorter shadow distance
+than 400 m, and fewer than three cascades (two is worse than three, because the
+far one then has to cover everything). The remaining sixteen milliseconds is the
+cost of submitting the tree geometry once per cascade, and the answer to that is
+vegetation LOD, not another constant.
+
 **2026-08-17 (later)** — **Rivers are switched off.** `RIVERS` in `config.rs`,
 the same bargain the roads between towns get: the machinery is written, tested
 and shared with the bench, and none of it is in the way while it is not running.
