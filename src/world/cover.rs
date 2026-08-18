@@ -327,6 +327,7 @@ mod tests {
         // Kept anyway, because it is a runaway guard: SPACING is a square law and
         // halving it quadruples this. If it trips, MEASURE — and measure
         // fragments, not vertices — before moving this line again.
+        assert!(
             vertices < 145_000,
             "a dressed chunk costs {vertices} vertices, which is too many"
         );
