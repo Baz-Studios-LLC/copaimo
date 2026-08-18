@@ -77,11 +77,35 @@ pub struct BuildingPlugin;
 impl Plugin for BuildingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Catalogue>()
+            // What is placed, alongside what the catalogue knows how to build.
+            // Read once at startup: it is a short file and everything that draws
+            // from it wants it there already.
+            .insert_resource(crate::world::placed::load())
             .add_systems(Startup, read_the_catalogue)
             // After the world, so there is ground to stand on and sites to
             // stand at. Runs once on entering play rather than at startup for
             // the same reason.
-            .add_systems(OnEnter(AppState::Playing), raise_the_sites);
+            // One path, driven by the sheet changing.
+            //
+            // Entering a mode marks the sheet as changed rather than raising
+            // directly, which is why there is a nudge and not two copies of the
+            // system. With both, the first frame in a mode ran it twice — the
+            // entry and then change-detection, which counts a freshly inserted
+            // resource as changed — and said everything wrong with the sheet
+            // twice over.
+            //
+            // The editor raises them too, deliberately. A tool that does not show
+            // what is already built is a tool you have to leave to check your work.
+            .add_systems(OnEnter(AppState::Playing), nudge_the_sheet)
+            .add_systems(OnEnter(AppState::Editing), nudge_the_sheet)
+            .add_systems(
+                Update,
+                raise_the_placed
+                    .run_if(resource_exists_and_changed::<crate::world::placed::Standing>)
+                    .run_if(
+                        in_state(AppState::Playing).or(in_state(AppState::Editing)),
+                    ),
+            );
     }
 }
 
@@ -131,59 +155,118 @@ fn read_into(folder: &Path, catalogue: &mut Catalogue) {
     );
 }
 
-/// Stands one building at each town site.
-fn raise_the_sites(
+/// Asks for a rebuild on entering a mode, without being a second way to do one.
+fn nudge_the_sheet(mut placed: ResMut<crate::world::placed::Standing>) {
+    placed.set_changed();
+}
+
+/// Raises everything a maker has placed.
+///
+/// # This replaced one-building-per-town-site
+///
+/// The world used to stand a building at the middle of every levelled site,
+/// cycling through the catalogue. That was a stand-in and it behaved like one: it
+/// could not be told where to put anything, two towns got the same house, and the
+/// only way to change any of it was to add another file to a folder.
+///
+/// What stands where is a decision, and a decision belongs in a file somebody
+/// edits — see [`crate::world::placed`]. The site loop is gone rather than kept
+/// alongside, because two systems both spawning buildings would put two on every
+/// site the moment anybody placed one deliberately.
+fn raise_the_placed(
     mut commands: Commands,
     catalogue: Res<Catalogue>,
+    placed: Res<crate::world::placed::Standing>,
     terrain: Res<TerrainSource>,
-    standing: Query<Entity, With<Raised>>,
+    already: Query<Entity, With<Raised>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<Shaded>>,
 ) {
-    if catalogue.0.is_empty() {
-        return;
+    // Everything standing is taken down and put back, rather than added to.
+    //
+    // Rebuilding the lot is affordable — a placed world is tens of buildings, not
+    // thousands — and it means one code path answers "what is standing here"
+    // whether the answer changed by one house or by a whole file being reloaded.
+    // The alternative is a diff, and a diff that is subtly wrong leaves a building
+    // that cannot be deleted.
+    for entity in &already {
+        commands.entity(entity).despawn();
     }
-    // Leaving on foot and coming back should not raise a second town on top of
-    // the first.
-    if !standing.is_empty() {
+    if catalogue.0.is_empty() || placed.is_empty() {
         return;
     }
 
     let cloth = materials.add(building_cloth(false));
     let glazing = materials.add(building_cloth(true));
 
+    let mut unknown: Vec<&str> = Vec::new();
     let mut overhanging = 0;
-    for (index, site) in terrain.sites().iter().enumerate() {
-        let plan = &catalogue.0[index % catalogue.0.len()];
-        // The site's own levelled height, not the ground under the middle — a
-        // building set by a sample would sit askew if the level had any slack
-        // in it, and the site is the flat it was levelled to.
-        let stance = Transform::from_xyz(site.at.x, site.height, site.at.y);
 
-        // Standing at the middle, a building reaches its furthest corner. Past
-        // the levelled ground it would have one end on a hillside, which reads
-        // as a broken building rather than as a site too small for it.
+    for thing in placed.all() {
+        let Some(plan) = catalogue.0.iter().find(|plan| plan.name == thing.kind) else {
+            unknown.push(&thing.kind);
+            continue;
+        };
+
+        // On the DRAWN surface plus whatever lift it was given. Storing the
+        // offset rather than an absolute height is what lets a house keep sitting
+        // on its hill after the hill is resculpted — see the module note.
+        let ground = terrain.drawn_height(thing.at.x, thing.at.y);
+        let stance = Transform::from_xyz(thing.at.x, ground + thing.lift, thing.at.y)
+            .with_rotation(Quat::from_rotation_y(thing.turn))
+            .with_scale(Vec3::splat(thing.scale));
+
+        // Standing at its middle, a building reaches its furthest corner. Told
+        // once per site rather than once per building: a maker who has put twenty
+        // houses on a hillside does not want twenty identical complaints hiding
+        // the next real one.
         let (low, high) = plan.reach();
-        let corner = Vec2::new(low.x.abs().max(high.x), low.z.abs().max(high.z)).length();
-        if corner > site.radius {
-            overhanging += 1;
+        let corner = Vec2::new(low.x.abs().max(high.x), low.z.abs().max(high.z)).length()
+            * thing.scale;
+        if let Some(site) = terrain
+            .sites()
+            .iter()
+            .find(|site| site.at.distance(thing.at) < site.radius)
+        {
+            if corner > site.radius {
+                overhanging += 1;
+            }
         }
 
-        raise(
+        let raised = raise(
             &mut commands,
             plan,
             stance,
             &mut meshes,
             (cloth.clone(), glazing.clone()),
         );
+        // Its name from the sheet, carried on the entity — which is what lets a
+        // click on a wall find the line in the file that put it there.
+        commands.entity(raised).insert(FromSheet(thing.id));
     }
 
-    // Counted and said once. Twenty identical complaints for twenty sites
-    // raising the same drawing is noise that hides the next real warning.
+    if !unknown.is_empty() {
+        unknown.sort_unstable();
+        unknown.dedup();
+        warn!("placed but not in the catalogue: {} - not raised", unknown.join(", "));
+    }
     if overhanging > 0 {
         warn!("{overhanging} building(s) reach past their site's levelled ground");
     }
 }
+
+/// Which line of the placed sheet raised this.
+///
+/// The link back. Without it a building on screen and the entry that put it there
+/// are two unrelated things, and selecting one to move could never find the other.
+///
+/// Nothing reads it yet — the piece that will is picking a building by clicking on
+/// its wall, which needs a ray against a mesh rather than a distance to a point.
+/// It is written now because the entity is only spawned here, and a link recorded
+/// at the moment of spawning cannot be wrong; one reconstructed later has to guess.
+#[derive(Component)]
+#[allow(dead_code)]
+pub struct FromSheet(pub u32);
 
 /// Stands one building, with its marks as children.
 pub fn raise(

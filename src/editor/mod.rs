@@ -191,6 +191,7 @@ impl Plugin for EditorPlugin {
                     adjust_brush,
                     paint,
                     lay_ramp,
+                    place_things,
                     history,
                     save_edits,
                     keep_the_work,
@@ -883,6 +884,7 @@ fn falloff_radius(how: Brushing, radius: f32, strength: f32) -> f32 {
 fn save_edits(
     keys: Res<ButtonInput<KeyCode>>,
     terrain: Res<TerrainSource>,
+    mut placed: ResMut<crate::world::placed::Standing>,
     mut keeping: ResMut<Keeping>,
     mut toast: ResMut<ui::Toast>,
 ) {
@@ -921,15 +923,22 @@ fn save_edits(
         };
         crate::world::country::save(&mut painted).map(|()| painted.painted_cells())
     };
+    let built = crate::world::placed::save(&mut placed).map(|()| placed.len());
 
-    match (ground, woods, worn, countries) {
-        (Ok(cells), Ok(planted), Ok(laid), Ok(marked)) => {
-            info!("saved {cells} sculpted, {planted} planted, {laid} surfaced, {marked} biome");
+    match (ground, woods, worn, countries, built) {
+        (Ok(cells), Ok(planted), Ok(laid), Ok(marked), Ok(stood)) => {
+            info!(
+                "saved {cells} sculpted, {planted} planted, {laid} surfaced, {marked} biome, {stood} placed"
+            );
             toast.show(format!(
-                "Saved {cells} sculpted, {planted} planted, {laid} surfaced, {marked} biome"
+                "Saved {cells} sculpted, {planted} planted, {laid} surfaced, {marked} biome, {stood} placed"
             ));
         }
         // Said separately, because which one failed decides what was lost.
+        (.., Err(why)) => {
+            error!("could not save what is placed: {why}");
+            toast.show("Placed things not saved - see log");
+        }
         (Err(why), ..) => {
             error!("could not save the sculpted ground: {why}");
             toast.show("Ground not saved - see log");
@@ -938,11 +947,11 @@ fn save_edits(
             error!("could not save the planted woods: {why}");
             toast.show("Woods not saved - see log");
         }
-        (_, _, Err(why), _) => {
+        (_, _, Err(why), ..) => {
             error!("could not save the worn surface: {why}");
             toast.show("Surface not saved - see log");
         }
-        (.., Err(why)) => {
+        (_, _, _, Err(why), _) => {
             error!("could not save the painted biomes: {why}");
             toast.show("Biomes not saved - see log");
         }
@@ -950,16 +959,19 @@ fn save_edits(
 }
 
 /// Whether any layer is holding work that is not on disk.
-fn anything_outstanding(terrain: &TerrainSource) -> bool {
+fn anything_outstanding(terrain: &TerrainSource, placed: &crate::world::placed::Standing) -> bool {
     let ground = terrain.edits().read().is_ok_and(|edits| edits.unsaved);
     let woods = terrain.woods().read().is_ok_and(|woods| woods.unsaved);
     let worn = terrain.surface().read().is_ok_and(|worn| worn.unsaved);
     let marked = terrain.countries().read().is_ok_and(|them| them.unsaved);
-    ground || woods || worn || marked
+    ground || woods || worn || marked || placed.unsaved
 }
 
 /// Writes every layer, and says what it wrote.
-fn write_everything(terrain: &TerrainSource) -> Result<(usize, usize, usize, usize), String> {
+fn write_everything(
+    terrain: &TerrainSource,
+    placed: &mut crate::world::placed::Standing,
+) -> Result<(usize, usize, usize, usize, usize), String> {
     let cells = {
         let mut edits = terrain.edits().write().map_err(|_| "ground locked".to_string())?;
         crate::world::edit::save(&mut edits).map_err(|why| why.to_string())?;
@@ -983,7 +995,11 @@ fn write_everything(terrain: &TerrainSource) -> Result<(usize, usize, usize, usi
         crate::world::country::save(&mut them).map_err(|why| why.to_string())?;
         them.painted_cells()
     };
-    Ok((cells, planted, laid, marked))
+    let stood = {
+        crate::world::placed::save(placed).map_err(|why| why.to_string())?;
+        placed.len()
+    };
+    Ok((cells, planted, laid, marked, stood))
 }
 
 /// Keeps the work: writes it on its own after a while, and refuses to let ESC
@@ -997,11 +1013,12 @@ fn keep_the_work(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     terrain: Res<TerrainSource>,
+    mut placed: ResMut<crate::world::placed::Standing>,
     mut keeping: ResMut<Keeping>,
     mut next: ResMut<NextState<AppState>>,
     mut toast: ResMut<ui::Toast>,
 ) {
-    let outstanding = anything_outstanding(&terrain);
+    let outstanding = anything_outstanding(&terrain, &placed);
     if !outstanding {
         keeping.unsaved_for = 0.0;
         keeping.asked = false;
@@ -1026,10 +1043,10 @@ fn keep_the_work(
         return;
     }
     keeping.unsaved_for = 0.0;
-    match write_everything(&terrain) {
-        Ok((cells, planted, laid, marked)) => {
+    match write_everything(&terrain, &mut placed) {
+        Ok((cells, planted, laid, marked, stood)) => {
             info!(
-                "kept the work: {cells} sculpted, {planted} planted, {laid} surfaced, {marked} biome"
+                "kept the work: {cells} sculpted, {planted} planted, {laid} surfaced, {marked} biome, {stood} placed"
             );
             toast.show("Kept the work");
         }
@@ -1038,4 +1055,69 @@ fn keep_the_work(
             toast.show("Autosave failed - see log");
         }
     }
+}
+
+/// Puts a thing in the world, and takes one back out.
+///
+/// # The smallest honest end of the placed sheet
+///
+/// A file format nothing can write to is not a feature, it is a plan. This is the
+/// least that makes [`crate::world::placed`] real: `P` stands the next thing in
+/// the catalogue where the brush is pointing, `Delete` takes back whichever is
+/// nearest, and both are written with everything else on save.
+///
+/// It is deliberately not the workbench. There is no gizmo, no snapping and no
+/// picking a piece from a shelf — that is the next job, and it can be built on
+/// this without any of this changing.
+fn place_things(
+    keys: Res<ButtonInput<KeyCode>>,
+    catalogue: Res<crate::build::Catalogue>,
+    brush: Res<Brush>,
+    free: Res<CursorFree>,
+    mut placed: ResMut<crate::world::placed::Standing>,
+    mut choosing: Local<usize>,
+    mut toast: ResMut<ui::Toast>,
+) {
+    if free.0 {
+        return;
+    }
+    let Some(hit) = brush.hit else {
+        return;
+    };
+    let at = Vec2::new(hit.x, hit.z);
+
+    if keys.just_pressed(KeyCode::Delete) || keys.just_pressed(KeyCode::Backspace) {
+        // Within the brush, so what gets taken away is what the ring is over —
+        // the same rule every other tool here follows.
+        match placed.nearest(at, brush.radius) {
+            Some(id) => {
+                let what = placed.get(id).map(|t| t.kind.clone()).unwrap_or_default();
+                placed.remove(id);
+                toast.show(format!("Took away the {what}"));
+            }
+            None => toast.show("Nothing of yours under the brush"),
+        }
+        return;
+    }
+
+    if !keys.just_pressed(KeyCode::KeyP) {
+        return;
+    }
+    if catalogue.0.is_empty() {
+        // Said rather than ignored. An empty buildings folder is the ordinary
+        // state of this world right now, and a key that silently does nothing
+        // reads as a broken key.
+        toast.show("Nothing in the catalogue to place");
+        return;
+    }
+
+    // Cycling through the catalogue on repeated presses, so a second press puts
+    // down something different rather than the same house twice.
+    let plan = &catalogue.0[*choosing % catalogue.0.len()];
+    *choosing += 1;
+    // Facing north until there is something better to ask. Turning things is the
+    // workbench's job and guessing here — at the camera, say — would be a
+    // behaviour somebody has to undo rather than one they asked for.
+    placed.add(plan.name.clone(), at, 0.0, 1.0);
+    toast.show(format!("Placed a {}", plan.name));
 }

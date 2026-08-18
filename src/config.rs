@@ -44,6 +44,12 @@ pub const SURFACE_PATH: &str = "assets/world/surface.bin";
 /// that lays out its own, which is how every world starts.
 pub const COUNTRY_PATH: &str = "assets/world/country.bin";
 
+/// Everything a maker has placed by hand, and where they placed it.
+///
+/// The buildings folder says what a cottage IS; this says where the cottages are.
+/// An absent file is a world nobody has built in yet.
+pub const PLACED_PATH: &str = "assets/world/placed.json";
+
 /// Buildings baked at Opificium's builder — houses, signs, bridges, all boxes.
 /// Read at startup; an absent folder is a game whose buildings are not drawn yet.
 pub const BUILDINGS_DIR: &str = "assets/buildings";

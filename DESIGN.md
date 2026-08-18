@@ -531,6 +531,47 @@ assets/
 
 ## Change log
 
+**2026-08-18** — **A placed-object sheet: the keystone.**
+
+`assets/buildings/*.json` says what a building IS. Nothing said where any building
+stood — the world raised one at the middle of each levelled site, cycling the
+catalogue, which is a stand-in and behaved like one: it could not be told where to
+put anything, two towns got the same house, and the only way to change any of it
+was to add a file to a folder.
+
+`assets/world/placed.json` is the other half: *this thing, here, turned this way,
+this big*. Read at startup, written by the editor, and **it comes before the
+workbench, moving props and removing debris because all three stand on it** — a
+workbench needs somewhere to put what it makes, moving a thing needs the world to
+remember where it was, and taking a boulder out needs the world to have an opinion
+about that boulder.
+
+Three decisions worth the argument:
+
+* **JSON, where the other layers are binary.** Those are dense grids of millions
+  of cells that nobody reads. This is tens of entries, each a decision somebody
+  made — it should be legible, diffable and fixable in a text editor, and at this
+  size that costs nothing.
+* **On the ground, not at a height.** `at` is x and z; height comes from the
+  ground plus `lift`. An absolute height is simpler and wrong: sculpt the hill and
+  every building placed beforehand is buried or standing on air with nothing to say
+  which. A bridge over a gorge is placed on the gorge floor with a lift.
+* **Things carry names, not list positions.** Delete the third of five and every
+  index after it shifts, so a selection or an undo entry would point at a
+  different object with nothing to say it had moved.
+
+The site loop is **gone**, not kept alongside — two systems both spawning
+buildings would put two on every site the moment anybody placed one deliberately.
+Rebuilds are despawn-and-raise rather than a diff: a placed world is tens of
+buildings, and a diff that is subtly wrong leaves a building that cannot be
+deleted.
+
+`P` places the next thing in the catalogue under the brush, `Delete` takes back
+whatever is nearest, and both save with everything else. That is deliberately not
+the workbench — no gizmo, no snapping, no shelf — but a format nothing can write
+to is a plan rather than a feature.
+
+
 **2026-08-18** — **Two editor controls.**
 
 **No flying under the ground.** Under the map is not a place: the world is a

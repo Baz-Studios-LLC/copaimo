@@ -7,6 +7,7 @@ pub mod country;
 pub mod cover;
 pub mod edit;
 pub mod heightmap;
+pub mod placed;
 pub mod prop;
 pub mod settle;
 pub mod stream;
