@@ -1339,8 +1339,16 @@ mod tests {
         while away_z <= HOMELAND {
             let mut away_x = -HOMELAND;
             while away_x <= HOMELAND {
-                let at = ranch + Vec2::new(away_x, away_z);
+                let offset = Vec2::new(away_x, away_z);
+                let at = ranch + offset;
                 away_x += step;
+                // A RADIUS, not the box the loop walks. The box's corners reach
+                // 1.4 times as far as its sides, so this was quietly asking for
+                // seventeen hundred metres in the diagonals and failing on ground
+                // that was never inside the claim.
+                if offset.length() > HOMELAND {
+                    continue;
+                }
                 if at.x.abs() > half.x || at.y.abs() > half.y {
                     continue;
                 }

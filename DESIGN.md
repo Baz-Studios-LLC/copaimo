@@ -531,7 +531,26 @@ assets/
 
 ## Change log
 
-**2026-08-17 (last)** — **Snow country is white down to the water.** Its low
+**2026-08-17 (last)** — **The snow is a band; the desert is a place.** A band was
+the wrong shape for the desert in the *other* direction. The snow is a whole end
+of the world and earns one — it has to hold from the north coast of its island to
+the south without stopping short, which is exactly what an ellipse could never
+do. The desert sits in the middle of the green world with grassland on every side
+of it, and a band gave it a northern and a southern coastline it was never meant
+to have. It is an ellipse again, measured along the same tilted axis so it leans
+with the continents, and laid only where the bands have not already spoken.
+
+Two assertions of mine went with it. One constrained what a region does out at
+sea — `Biome::of` answers Water before it ever asks which country a point is in,
+so that constrained nothing and was a trap for whoever next moved the ellipse.
+The other walked a square box around the ranch while claiming a radius, so its
+corners reached 1.4× as far as its sides and it failed on ground that was never
+inside the claim.
+
+Standing at: grass 31.6%, settled 17.8%, snow 17.5%, desert 11.0%, shore 9.2%,
+forest 6.7%, rock 6.2%.
+
+**2026-08-17** — **Snow country is white down to the water.** Its low
 ground painted conifer green, because that is the biome down there — and the
 result was a ring of green around every white island, which reads as snow
 stopping before the shoreline. It doesn't: a snowy forest is conifers standing
