@@ -599,6 +599,42 @@ to a file** the game reads as an asset.
   the live service** — that needs a key and spends credits. If it fails, the likely
   spots are the `task_id` field name and the status strings.
 
+## The launcher
+
+A **separate, shared** repository — `baz-studios-launcher`. Somebody else pushed
+to it twice during this session, so **rebase, never force**, and check
+`git log HEAD..origin/main` before pushing.
+
+* **v0.1.27** released and installed (verified by reading `ProductVersion` off the
+  installed binary, not by assuming the installer took)
+* the game's name, tagline and accent are **compiled in**, not fetched — so the
+  shelf only learns a new name when the launcher itself is rebuilt. That is why it
+  read "Ranger" beside Copaimo release notes: the notes come from GitHub live and
+  everything else does not
+* hero art is a convention it already had: `src/assets/<slug>.png`, plus
+  `<slug>-icon.png` for the tile. Ranger simply never had any, which is why the
+  card drew the name as text. Copaimo's wordmark is 2.8:1, which clears the
+  launcher's own 2.0 threshold and takes the taller `wordmark` cap
+* its `mockInvoke` catalogue is **stale** — it predates several games. Serving
+  `src/` in a browser renders that mock, not the real shelf, so patch a scratch
+  copy if you want to look at a card
+* two version files had drifted (`Cargo.toml` vs `tauri.conf.json`); both read
+  0.1.27 now
+
+## Every mention of the old name
+
+Swept case-insensitively across all three repositories. What remains is
+deliberate:
+
+* `RELEASE_NOTES.md` in this repo — the v0.1.9 notes explain the rename and have
+  to say the old name
+* `RETIRED_SLUGS` in the launcher — that string IS the old install folder
+* a joystick called "Rockfire Space Ranger" in a third-party gamepad database
+  under the launcher's `target/`
+
+One real one was found and fixed: `terrain-core/src/biome.rs` still described the
+world as Ranger, and that crate is linked by every tool.
+
 ## Loading, measured
 
 The whole world is **never** loaded. The map is ~2,130 chunks; a 9-radius **disc**
