@@ -48,6 +48,22 @@ pub struct Holding {
     /// How many modules this drag has already stretched by, so the piece grows
     /// with the pointer rather than once per frame.
     stretched: i32,
+    /// Which arrow the pointer is over, if any.
+    ///
+    /// # Why hovering has to be its own thing
+    ///
+    /// The arrows could not be clicked at all, and this is why. Which piece the
+    /// arrows sit on was decided by what the GROUND cursor was nearest — and
+    /// moving the pointer onto an arrow moves that cursor, because the cursor is
+    /// where the view ray meets the floor and an arrow stands above it. So
+    /// reaching for a handle slid the ground cursor away from the piece, the piece
+    /// was let go of, and the arrows vanished from under the pointer on the way to
+    /// them.
+    ///
+    /// Knowing the pointer is over an arrow fixes both halves: the selection stops
+    /// being re-picked while it is, and a click there is a click on the handle
+    /// rather than on the ground behind it.
+    hovering: Option<usize>,
 }
 
 impl Holding {
@@ -59,6 +75,16 @@ impl Holding {
         self.dragging.is_some()
     }
 
+    /// Whether the pointer is on a handle — hovering one or dragging it.
+    ///
+    /// What anything else acting on a click should ask. Dragging alone was not
+    /// enough: on the frame a handle is first pressed nothing is being dragged
+    /// yet, which is exactly the frame the click has to be kept away from the
+    /// ground.
+    pub fn on_a_handle(&self) -> bool {
+        self.hovering.is_some() || self.dragging.is_some()
+    }
+
     /// Puts the arrows in hand, for a test that cannot aim a mouse.
     ///
     /// The alternative is making the field public, which would let anything set
@@ -67,6 +93,12 @@ impl Holding {
     #[cfg(test)]
     pub fn hold_for_test(&mut self, axis: usize) {
         self.dragging = Some(axis);
+    }
+
+    /// Puts the pointer over an arrow, for a test that cannot aim a mouse.
+    #[cfg(test)]
+    pub fn hover_for_test(&mut self, axis: usize) {
+        self.hovering = Some(axis);
     }
 }
 
@@ -108,10 +140,12 @@ fn axes(turn: Quat) -> [(Vec3, Color); 3] {
 /// Whatever is nearest the cursor, which is the same rule everything else on this
 /// bench follows for reaching an existing piece.
 pub fn choose(hand: Res<Hand>, bench: Res<Bench>, mut holding: ResMut<Holding>) {
-    if holding.dragging.is_some() {
-        // Not while a drag is in progress: the piece moves under the cursor as it
-        // is dragged, and re-picking every frame would hand the arrows to whatever
-        // it passed over.
+    if holding.on_a_handle() {
+        // Not while the pointer is on a handle. Reaching for an arrow moves the
+        // ground cursor away from the piece — the arrow stands above the floor and
+        // the cursor is where the ray meets it — so re-picking here let go of the
+        // very piece being reached for. And during a drag the piece moves under
+        // the pointer, which would hand the arrows to whatever it passed over.
         return;
     }
     let near = bench
@@ -190,18 +224,26 @@ pub fn drag(
     };
     let base = piece.middle();
 
+    // Which arrow the pointer is on, worked out EVERY frame rather than only when
+    // the button goes down. What is hovered decides whether the selection holds
+    // still and whether a click belongs to the ground, and both of those have to
+    // be true before the click arrives.
+    let mut best: Option<(f32, usize, f32)> = None;
+    for (at, (axis, _)) in axes(piece.turn()).iter().enumerate() {
+        let (away, along) = ray_against_axis(ray.origin, *ray.direction, base, *axis);
+        if away > GRAB {
+            continue;
+        }
+        if best.is_none_or(|(nearest, ..)| away < nearest) {
+            best = Some((away, at, along));
+        }
+    }
+    if holding.dragging.is_none() {
+        holding.hovering = best.map(|(_, axis, _)| axis);
+    }
+
     // Taking hold.
     if buttons.just_pressed(MouseButton::Left) && holding.dragging.is_none() {
-        let mut best: Option<(f32, usize, f32)> = None;
-        for (at, (axis, _)) in axes(piece.turn()).iter().enumerate() {
-            let (away, along) = ray_against_axis(ray.origin, *ray.direction, base, *axis);
-            if away > GRAB {
-                continue;
-            }
-            if best.is_none_or(|(nearest, ..)| away < nearest) {
-                best = Some((away, at, along));
-            }
-        }
         if let Some((_, axis, along)) = best {
             holding.dragging = Some(axis);
             holding.grabbed = along;
@@ -336,6 +378,53 @@ pub fn show(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reaching_for_an_arrow_does_not_let_go_of_the_piece() {
+        // The reported bug, and it made the arrows unclickable entirely.
+        //
+        // Which piece the arrows sit on was decided by what the GROUND cursor was
+        // nearest — and moving the pointer onto an arrow moves that cursor,
+        // because an arrow stands above the floor and the cursor is where the view
+        // ray meets it. So reaching for a handle slid the cursor off the piece,
+        // the piece was let go of, and the arrows vanished on the way to them.
+        let mut bench = Bench::default();
+        let id = bench.add(kit::Part::Post, Vec3::ZERO, 0, 0).expect("a post");
+
+        let mut app = App::new();
+        app.insert_resource(bench)
+            .insert_resource(Hand::default())
+            .init_resource::<Holding>()
+            .add_systems(Update, choose);
+
+        // The cursor on the piece: it gets picked up.
+        app.update();
+        assert_eq!(
+            app.world().resource::<Holding>().piece,
+            Some(id),
+            "a piece under the cursor was not picked up"
+        );
+
+        // Now the pointer reaches for an arrow, which drags the ground cursor well
+        // away from the piece. The selection has to hold.
+        app.world_mut().resource_mut::<Holding>().hover_for_test(1);
+        app.world_mut().resource_mut::<Hand>().at = Vec3::new(40.0, 0.0, 40.0);
+        app.update();
+        assert_eq!(
+            app.world().resource::<Holding>().piece,
+            Some(id),
+            "reaching for an arrow let go of the piece it belongs to"
+        );
+
+        // And with nothing hovered, a cursor that far off does let go.
+        app.world_mut().resource_mut::<Holding>().hovering = None;
+        app.update();
+        assert_eq!(
+            app.world().resource::<Holding>().piece,
+            None,
+            "the selection stuck to a piece the cursor had left"
+        );
+    }
 
     #[test]
     fn an_arrow_is_grabbed_by_pointing_at_it_and_not_past_it() {

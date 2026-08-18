@@ -615,7 +615,7 @@ fn place(
     // Whether this click is the work's at all — see `reaches_the_work`, which is
     // where that question is answered for good.
     let on_panel = over_panel.iter().any(|touch| *touch != Interaction::None);
-    if !reaches_the_work(on_panel, holding.dragging()) {
+    if !reaches_the_work(on_panel, holding.on_a_handle()) {
         return;
     }
 
@@ -968,6 +968,14 @@ mod tests {
         app.world_mut().resource_mut::<gizmo::Holding>().hold_for_test(0);
         click(&mut app);
         assert_eq!(pieces(&app), 0, "taking hold of an arrow placed a piece");
+
+        // And merely being OVER one, which is the state on the very frame the
+        // button goes down — nothing is being dragged yet, and that is exactly the
+        // frame the click has to be kept off the ground.
+        let mut app = bench_app();
+        app.world_mut().resource_mut::<gizmo::Holding>().hover_for_test(1);
+        click(&mut app);
+        assert_eq!(pieces(&app), 0, "clicking on an arrow placed a piece");
     }
 
     #[test]

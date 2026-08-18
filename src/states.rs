@@ -60,7 +60,7 @@ pub struct StatesPlugin;
 impl Plugin for StatesPlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<AppState>()
-            .add_systems(Startup, |mut n: ResMut<NextState<AppState>>| n.set(AppState::Bench))
+            .add_systems(Startup, open_where_asked)
             .add_systems(OnEnter(AppState::Menu), apply_cursor)
             .add_systems(OnEnter(AppState::Playing), apply_cursor)
             .add_systems(OnEnter(AppState::Playing), apply_cursor)
@@ -76,6 +76,41 @@ impl Plugin for StatesPlugin {
 /// Captures the cursor for the modes that use mouse-look, releases it for the
 /// menu. Driven by state transitions rather than a key, so the cursor can never
 /// end up grabbed while a menu is asking to be clicked.
+/// Opens straight into a state, when asked from outside.
+///
+/// # Why this exists rather than a line I keep editing
+///
+/// Testing the workbench meant reaching into this file, adding a Startup system
+/// that jumps to it, building, looking, and taking the line out again. That worked
+/// until the day I forgot the last step — and the game shipped booting into the
+/// workbench, on main, because a temporary edit is only temporary if somebody
+/// remembers.
+///
+/// So it is a switch from outside the source. `COPAIMO_OPEN=bench` opens the
+/// bench, `=edit` the terrain tool, `=play` the world; anything else, or nothing,
+/// opens the title screen as a player would see it. Nothing to undo, and nothing
+/// to forget.
+///
+/// Behind the tools feature, so a release cannot be talked into it at all.
+fn open_where_asked(mut next: ResMut<NextState<AppState>>) {
+    #[cfg(feature = "tools")]
+    if let Ok(asked) = std::env::var("COPAIMO_OPEN") {
+        let opening = match asked.trim().to_ascii_lowercase().as_str() {
+            "bench" | "workbench" => Some(AppState::Bench),
+            "edit" | "editor" | "terrain" => Some(AppState::Editing),
+            "play" | "playing" | "world" => Some(AppState::Playing),
+            _ => None,
+        };
+        if let Some(opening) = opening {
+            info!("COPAIMO_OPEN={asked}: opening {opening:?}");
+            next.set(opening);
+            return;
+        }
+        warn!("COPAIMO_OPEN={asked} is not a thing to open; showing the title");
+    }
+    let _ = &mut next;
+}
+
 fn apply_cursor(state: Res<State<AppState>>, mut windows: Query<&mut Window, With<PrimaryWindow>>) {
     let Some(mut window) = windows.iter_mut().next() else {
         return;
