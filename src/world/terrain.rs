@@ -1202,18 +1202,68 @@ mod tests {
         }
 
         let share = |biome: Biome| *count.get(&biome).unwrap_or(&0) as f32 / land as f32;
+        // Printed as well as asserted. Tuning a region means moving an ellipse
+        // and looking at what the world did with it, and `--nocapture` on this
+        // test is the fastest way to see that.
+        for row in 0..30 {
+            let line: String = (0..60)
+                .map(|col| {
+                    let uv = Vec2::new((col as f32 + 0.5) / 60.0, (row as f32 + 0.5) / 30.0);
+                    let at = (uv - 0.5) * half * 2.0;
+                    match terrain.biome(at.x, at.y) {
+                        Biome::Water => '.',
+                        Biome::Shore => ',',
+                        Biome::Grass => 'g',
+                        Biome::Forest => 'F',
+                        Biome::Desert => 'D',
+                        Biome::Rock => 'r',
+                        Biome::Snow => 'S',
+                        Biome::Settled => 'T',
+                    }
+                })
+                .collect();
+            println!("{line}");
+        }
         let seat = |biome: Biome| {
             let (sum, n) = middle[&biome];
             sum / n as f32
         };
 
+        for biome in [Biome::Grass, Biome::Forest, Biome::Desert, Biome::Snow,
+                      Biome::Settled, Biome::Shore, Biome::Rock] {
+            println!("{biome:?} {:.1}% of land", share(biome) * 100.0);
+        }
+
         // Each has to be a significant part of the world rather than a curiosity.
-        assert!(share(Biome::Desert) > 0.05, "desert is {:.1}% of the land", share(Biome::Desert) * 100.0);
-        assert!(share(Biome::Snow) > 0.08, "snow is {:.1}% of the land", share(Biome::Snow) * 100.0);
-        // And the ordinary country still has to be the ordinary country.
+        // This is the whole point of regions: somewhere you can name, cross, and
+        // put a species of monster in.
+        assert!(share(Biome::Desert) > 0.08, "desert is {:.1}% of the land", share(Biome::Desert) * 100.0);
+        assert!(share(Biome::Snow) > 0.12, "snow is {:.1}% of the land", share(Biome::Snow) * 100.0);
+        assert!(share(Biome::Grass) > 0.15, "grass is {:.1}% of the land", share(Biome::Grass) * 100.0);
+
+        // And none of them swallows the world.
+        //
+        // This asserted that grass outweighed desert and snow together, which was
+        // my assumption and not the design: the desert was then asked to cover the
+        // middle landmass and the snow the whole eastern island, which is two of
+        // the three and settles the question. What is worth guarding is that no
+        // single region takes over, not which one is biggest.
+        for biome in [Biome::Grass, Biome::Desert, Biome::Snow] {
+            assert!(
+                share(biome) < 0.45,
+                "{biome:?} is {:.0}% of the land on its own",
+                share(biome) * 100.0
+            );
+        }
+
+        // And high ground still has bare stone on it. Bringing the snowline down
+        // FURTHER than the treeline closes the band between them, so a mountain
+        // goes from wood straight to white with no mountain in the middle — and
+        // the way that shows up is bare rock falling to nothing.
         assert!(
-            share(Biome::Grass) > share(Biome::Desert) + share(Biome::Snow),
-            "the exceptions outweigh the rule"
+            share(Biome::Rock) > 0.005,
+            "bare rock is {:.2}% of the land — the mountains have no stone on them",
+            share(Biome::Rock) * 100.0
         );
 
         // Where they were drawn: desert in the north of the middle landmass, snow

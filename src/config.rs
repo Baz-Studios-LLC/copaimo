@@ -451,11 +451,29 @@ pub const LOCAL_MOISTURE: f32 = 0.42;
 
 /// How much of the treeline and the snowline a fully cold region takes away.
 ///
-/// The snowline harder than the treeline, so cold country has bare rock between
-/// the last tree and the first snow — the band that makes high ground read as
-/// high, brought down to where you can walk in it.
-pub const CHILL_TREELINE: f32 = 0.62;
-pub const CHILL_SNOWLINE: f32 = 0.74;
+/// Nearly all of both, and it has to be nearly all.
+///
+/// At sixty per cent the treeline still stood at fifty-seven metres, so every
+/// part of the snow country lower than that grew a forest — which is most of an
+/// island, and the reason the ground behind the mountain came out wooded. Snow
+/// country is not high ground that happens to be white; it is ground where the
+/// trees give out and the snow begins at heights that are ordinary elsewhere, and
+/// that means the lines come down almost to the water.
+///
+/// The TREELINE harder than the snowline, which is the other way round from how
+/// this first read and is the only way the band between them survives.
+///
+/// The band is bare rock: above the last tree and below the first snow, and it is
+/// what makes high ground read as high. Dropping the snowline further than the
+/// treeline closes it — snow starts below where trees stop, so there is nothing
+/// in between, and the whole region goes from wood straight to white with no
+/// mountain in it. The measurement said bare rock had fallen to nought per cent
+/// of the world, which is what gave it away.
+///
+/// So: no trees above about ten metres in the coldest country, bare stone up to
+/// thirty, snow over everything above that.
+pub const CHILL_TREELINE: f32 = 0.93;
+pub const CHILL_SNOWLINE: f32 = 0.82;
 
 pub const DESERT_MOISTURE: f32 = 0.38;
 pub const FOREST_MOISTURE: f32 = 0.58;

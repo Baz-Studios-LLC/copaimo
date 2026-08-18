@@ -531,7 +531,27 @@ assets/
 
 ## Change log
 
-**2026-08-17 (last)** — **The ground looks like the region it is in.** Deciding
+**2026-08-17 (last)** — **The regions grew to the areas they were drawn over.**
+Both had to be pushed out twice, for the same reason each time: **a zone's rim is
+not its region's rim.** The falloff leaves the outer band merely dry, or merely
+cool, so the region lands well inside the ellipse that produced it — the desert
+stopped short of the town below it, and the snow country was a ring round the
+peak with forest behind the mountain. Measure the world, not the zone.
+
+Snow country had a second cause: even at full chill the treeline stood at 57 m,
+so every part of an island lower than that grew a forest, which is most of an
+island. The lines come down almost to the water now.
+
+And the **treeline** drops harder than the snowline, which is the opposite of how
+it first read. Drop the snowline further and snow starts below where trees stop,
+closing the bare-rock band between them — a mountain goes wood straight to white
+with no mountain in it. What gave it away was bare rock measuring **0.0%** of the
+world; it is 5.2% now.
+
+Standing at: grass 22.7%, snow 22.7%, settled 17.8%, desert 14.0%, shore 12.0%,
+forest 5.6%, rock 5.2%.
+
+**2026-08-17** — **The ground looks like the region it is in.** Deciding
 what a place *is* and drawing what it *looks like* are two separate paths here,
 and only the first one had been told about the regions. So the northern desert
 was classified desert and painted dry grassland — sand existed in the palette but
