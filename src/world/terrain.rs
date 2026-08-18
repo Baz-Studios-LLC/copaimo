@@ -313,7 +313,7 @@ impl Terrain {
                 // WHICH tree, decided by where. Nothing at all in some places:
                 // open water grows none and a town's trees are somebody's
                 // business rather than the wild's.
-                let biome = Biome::of(ground, &self.climate());
+                let biome = Biome::of(ground, &self.climate_at(at.x, at.y));
                 let Some(variety) = terrain_core::tree::pick(
                     biome,
                     forest::chance(slot_x, slot_z, 4),
@@ -620,13 +620,39 @@ impl Terrain {
         crate::util::smoothstep(0.40, 0.62, n)
     }
 
-    /// Moisture at a world position, 0 (arid) to 1 (lush). Drives biome color;
-    /// later it can drive which monsters live where.
+    /// Which region of the world this is: how dry, and how cold.
+    ///
+    /// See [`terrain_core::region`] for why the world has regions at all. The
+    /// short of it: a biome decided point by point is a scatter, and a scatter is
+    /// not somewhere anybody can name or anything can live in.
+    pub fn region(&self, x: f32, z: f32) -> (f32, f32) {
+        let (u, v) = self.to_map_uv(x, z);
+        terrain_core::region::at(Vec2::new(u, v))
+    }
+
+    /// Moisture at a world position, 0 (arid) to 1 (lush).
+    ///
+    /// Mostly the REGION, and a little local noise on top.
+    ///
+    /// It used to be the noise and nothing else, which is what scattered the
+    /// biomes: whether a given field was desert or grassland was settled by
+    /// whether a Perlin field happened to dip there, so the answer changed every
+    /// couple of hundred metres and no part of the map was anywhere in
+    /// particular. The noise is still here and still doing something worth doing —
+    /// a damp hollow inside grassland, a stand of wood on the wetter side of a
+    /// hill — but it varies the country rather than deciding which country it is.
     pub fn moisture(&self, x: f32, z: f32) -> f32 {
-        let m = self
+        let local = self
             .moisture
-            .get([x as f64 * MOISTURE_FREQ, z as f64 * MOISTURE_FREQ]) as f32;
-        (m * 0.5 + 0.5).clamp(0.0, 1.0)
+            .get([x as f64 * MOISTURE_FREQ, z as f64 * MOISTURE_FREQ]) as f32
+            * 0.5
+            + 0.5;
+
+        let (arid, _) = self.region(x, z);
+        // Between the damp the region is owed and parched, by how strongly the
+        // region claims this point.
+        let damp = TEMPERATE_MOISTURE + (local - 0.5) * LOCAL_MOISTURE;
+        (damp * (1.0 - arid) + ARID_MOISTURE * arid).clamp(0.0, 1.0)
     }
 
     /// The thresholds that decide what sort of world this is.
@@ -644,6 +670,23 @@ impl Terrain {
             forest_above: FOREST_MOISTURE,
             settled_above: SETTLED_LEVELLING,
         }
+    }
+
+    /// The same, for the region a point actually stands in.
+    ///
+    /// Only the cold regions differ, and they differ by bringing the treeline and
+    /// the snowline DOWN to meet the ground. That is what makes snow country snow
+    /// country: not high ground that happens to be white, but ground where the
+    /// trees give out and the snow begins at heights that are ordinary elsewhere.
+    ///
+    /// Asked per point rather than per chunk, because a hundred and twenty-eight
+    /// metres is a visible step and a biome that changes in steps has seams.
+    pub fn climate_at(&self, x: f32, z: f32) -> Climate {
+        let (_, chill) = self.region(x, z);
+        let mut sea = self.climate();
+        sea.treeline -= TREELINE * CHILL_TREELINE * chill;
+        sea.snowline -= SNOWLINE * CHILL_SNOWLINE * chill;
+        sea
     }
 
     /// Everything about a point that decides what kind of place it is.
@@ -678,13 +721,13 @@ impl Terrain {
 
     /// What kind of place this is.
     pub fn biome(&self, x: f32, z: f32) -> Biome {
-        Biome::of(self.ground_at(x, z), &self.climate())
+        Biome::of(self.ground_at(x, z), &self.climate_at(x, z))
     }
 
     /// How strongly this ground reads as its own kind, 0 at a boundary to 1 well
     /// inside one. For anything that should fade rather than switch.
     pub fn biome_confidence(&self, x: f32, z: f32) -> f32 {
-        Biome::confidence(self.ground_at(x, z), &self.climate())
+        Biome::confidence(self.ground_at(x, z), &self.climate_at(x, z))
     }
 
     /// Surface normal from central differences on the heightfield.
@@ -1123,6 +1166,104 @@ mod tests {
                 wet, 0,
                 "the place at {:.0}, {:.0} has {wet} samples of river in it",
                 site.at.x, site.at.y
+            );
+        }
+    }
+
+
+    #[test]
+    fn each_region_is_a_place_and_not_a_scatter() {
+        // Biomes used to be decided point by point off a moisture field, so
+        // desert appeared wherever the noise dipped: a patch here, a stripe
+        // there, nothing anybody could point at on a map or name. This measures
+        // the world that is actually generated and asks whether the regions are
+        // WHERE they were drawn and NOWHERE else.
+        let terrain = Terrain::new();
+        let half = terrain.half();
+
+        let mut count = std::collections::HashMap::new();
+        let mut middle = std::collections::HashMap::new();
+        let mut land = 0;
+
+        for row in 0..60 {
+            for col in 0..120 {
+                let uv = Vec2::new((col as f32 + 0.5) / 120.0, (row as f32 + 0.5) / 60.0);
+                let at = (uv - 0.5) * half * 2.0;
+                let biome = terrain.biome(at.x, at.y);
+                if biome == Biome::Water {
+                    continue;
+                }
+                land += 1;
+                *count.entry(biome).or_insert(0) += 1;
+                let seen = middle.entry(biome).or_insert((Vec2::ZERO, 0));
+                seen.0 += uv;
+                seen.1 += 1;
+            }
+        }
+
+        let share = |biome: Biome| *count.get(&biome).unwrap_or(&0) as f32 / land as f32;
+        let seat = |biome: Biome| {
+            let (sum, n) = middle[&biome];
+            sum / n as f32
+        };
+
+        // Each has to be a significant part of the world rather than a curiosity.
+        assert!(share(Biome::Desert) > 0.05, "desert is {:.1}% of the land", share(Biome::Desert) * 100.0);
+        assert!(share(Biome::Snow) > 0.08, "snow is {:.1}% of the land", share(Biome::Snow) * 100.0);
+        // And the ordinary country still has to be the ordinary country.
+        assert!(
+            share(Biome::Grass) > share(Biome::Desert) + share(Biome::Snow),
+            "the exceptions outweigh the rule"
+        );
+
+        // Where they were drawn: desert in the north of the middle landmass, snow
+        // in the east around the great mountain.
+        let dry = seat(Biome::Desert);
+        assert!(
+            (0.33..0.62).contains(&dry.x) && (0.15..0.45).contains(&dry.y),
+            "the desert has moved to u={:.2} v={:.2}",
+            dry.x,
+            dry.y
+        );
+        let cold = seat(Biome::Snow);
+        assert!(
+            cold.x > 0.68,
+            "the snow country has moved west to u={:.2}",
+            cold.x
+        );
+
+        // And nowhere else. This is the half that catches a return to scatter: a
+        // noise field would put a little of each everywhere, and the south-west —
+        // which is where the game starts — must have none of either.
+        let mut strays = 0;
+        for row in 0..60 {
+            for col in 0..120 {
+                let uv = Vec2::new((col as f32 + 0.5) / 120.0, (row as f32 + 0.5) / 60.0);
+                if uv.x > 0.35 || uv.y < 0.5 {
+                    continue;
+                }
+                let at = (uv - 0.5) * half * 2.0;
+                if matches!(terrain.biome(at.x, at.y), Biome::Desert | Biome::Snow) {
+                    strays += 1;
+                }
+            }
+        }
+        assert_eq!(strays, 0, "{strays} patches of desert or snow in the south-west");
+    }
+
+    #[test]
+    fn a_town_is_a_town_in_any_region() {
+        // Towns are placed on the ground's shape, and the regions are laid over
+        // the top of it — so a site that happens to fall in the desert or the snow
+        // is still somebody's levelled ground, and has to keep reading as that.
+        let terrain = Terrain::new();
+        for site in terrain.sites() {
+            assert_eq!(
+                terrain.biome(site.at.x, site.at.y),
+                Biome::Settled,
+                "the place at {:.0}, {:.0} stopped being a town",
+                site.at.x,
+                site.at.y
             );
         }
     }

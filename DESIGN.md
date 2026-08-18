@@ -531,7 +531,31 @@ assets/
 
 ## Change log
 
-**2026-08-17 (last)** — **Grass grows only where grass grows.** Sand, rock, snow,
+**2026-08-17 (last)** — **The world has regions now, not scattered biomes.**
+
+What kind of ground a point carried was decided entirely by that point: a
+moisture field said dry here and wet there, and desert appeared wherever the
+noise happened to dip. Correct at every point and wrong everywhere — desert
+patches inside grassland, a stripe of wood across a dune, no two hundred metres
+the same as the next. A player can say "the northern desert" or "the snow country
+in the east"; they can say nothing at all about a place whose character changes
+every time they walk a field's width, and a monster that belongs to the desert
+needs a desert to belong to.
+
+Three hand-placed zones in normalised map coordinates — read straight off a
+picture of the world with the areas drawn on it — say how *dry* and how *cold*
+somewhere is, with soft edges a day's walk wide. The local noise is demoted to
+what it should always have been: variation within a place, not the thing that
+decides which place it is. Cold regions work by bringing the treeline and the
+snowline **down to meet the ground**, so snow country is snow country rather than
+high ground that happens to be white.
+
+Measured on the generated world, not on a fixture: **desert 8.8% of land centred
+north-central, snow 15.2% centred on the eastern island, grass 35%**, and *no*
+desert or snow anywhere in the south-west where the game starts. Towns still
+overrule everything — a site in the desert is still a town.
+
+**2026-08-17** — **Grass grows only where grass grows.** Sand, rock, snow,
 desert and the ground a town stands on each carried a thin scatter, on the
 reasoning that nowhere real is completely bare. True, and the wrong call: it made
 five different places look like one place with different ground paint. What they

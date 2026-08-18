@@ -430,6 +430,33 @@ pub const ROCK_SLOPE: f32 = 0.62;
 ///
 /// These two decide what sort of continent this is. Widening the gap makes a
 /// world of open grassland; closing it makes everywhere either wood or sand.
+/// Moisture where the world has no opinion — ordinary watered country.
+///
+/// Comfortably above `DESERT_MOISTURE` and below `FOREST_MOISTURE`, so temperate
+/// ground is grassland by default and the local noise decides which parts of it
+/// turn to wood.
+pub const TEMPERATE_MOISTURE: f32 = 0.52;
+
+/// Moisture in the heart of a dry region. Well under `DESERT_MOISTURE`, so a
+/// desert is a desert all the way through rather than only at its middle.
+pub const ARID_MOISTURE: f32 = 0.04;
+
+/// How far the local noise may swing the moisture either side of its region's.
+///
+/// Enough to put a stand of wood on the wet side of a hill and a dry meadow on
+/// the other, and nowhere near enough to put a desert inside grassland. That was
+/// the whole fault: the noise used to BE the moisture, so it decided which
+/// country you were in rather than what that country was like today.
+pub const LOCAL_MOISTURE: f32 = 0.42;
+
+/// How much of the treeline and the snowline a fully cold region takes away.
+///
+/// The snowline harder than the treeline, so cold country has bare rock between
+/// the last tree and the first snow — the band that makes high ground read as
+/// high, brought down to where you can walk in it.
+pub const CHILL_TREELINE: f32 = 0.62;
+pub const CHILL_SNOWLINE: f32 = 0.74;
+
 pub const DESERT_MOISTURE: f32 = 0.38;
 pub const FOREST_MOISTURE: f32 = 0.58;
 

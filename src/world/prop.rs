@@ -201,7 +201,6 @@ pub fn clear_chunks(
 pub fn litter(terrain: &Terrain, pool: &[Prop], low: Vec2) -> Geometry {
     let high = low + CHUNK_SIZE;
     let step = PROP_SPACING.max(1.0);
-    let climate = terrain.climate();
 
     // A world-wide lattice rather than a per-chunk one, so a boulder does not
     // move when the chunk boundaries around it change — the same rule the woods
@@ -224,7 +223,7 @@ pub fn litter(terrain: &Terrain, pool: &[Prop], low: Vec2) -> Geometry {
             }
 
             let ground = terrain.ground_at(at.x, at.y);
-            let biome = Biome::of(ground, &climate);
+            let biome = Biome::of(ground, &terrain.climate_at(at.x, at.y));
 
             let thickness = prop::density(biome);
             if thickness <= 0.0 || terrain_core::forest::chance(slot_x, slot_z, 43) > thickness {

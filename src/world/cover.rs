@@ -197,7 +197,6 @@ pub fn undress_chunks(
 fn dress(terrain: &Terrain, low: Vec2) -> Geometry {
     let high = low + CHUNK_SIZE;
     let step = sprigs::SPACING.max(0.5);
-    let climate = terrain.climate();
 
     // A world-wide lattice rather than a per-chunk one, so a tuft does not move
     // when the chunk boundaries around it change — the same rule the woods keep.
@@ -219,6 +218,10 @@ fn dress(terrain: &Terrain, low: Vec2) -> Geometry {
             }
 
             let ground = terrain.ground_at(at.x, at.y);
+            // The climate of this POINT, not of the chunk. A chunk is a hundred
+            // and twenty-eight metres, and a biome that changes in steps that
+            // size has seams you can stand on.
+            let climate = terrain.climate_at(at.x, at.y);
             let biome = Biome::of(ground, &climate);
             let sureness = Biome::confidence(ground, &climate);
             // How deep into a meadow this slot is. Asked once and used twice:
