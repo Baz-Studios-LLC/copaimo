@@ -151,12 +151,29 @@ fn update_hud(
     let biome = terrain.biome(position.x, position.z);
     let sure = terrain.biome_confidence(position.x, position.z);
 
+    // Where you are ON THE MAP, and which region has claimed it.
+    //
+    // The regions in `terrain_core::region` are written in normalised map
+    // coordinates — 0,0 north-west, 1,1 south-east — because they are read off a
+    // picture of the world with the areas drawn on it. Without this, working out
+    // why somewhere came out green means guessing at a marker's position on the
+    // overview, which is a guess per attempt and a round trip per guess.
+    //
+    // With it, standing on the spot reads the answer straight off: `map 0.71,
+    // 0.14` says which ellipse to move, and `arid 0.20` says whether the trouble
+    // is the placement or the falloff — a zone whose rim reaches somewhere still
+    // leaves it a half-hearted version of the region, which has been the cause
+    // every single time so far.
+    let (u, v) = terrain.map_uv(position.x, position.z);
+    let (arid, chill) = terrain.region(position.x, position.z);
+
     **text = format!(
         "{fps:.0} fps   camera: {mode}\n\
          world: {:.0} x {:.0} m   source: {source}\n\
          position: {:.0}, {:.0}\n\
          altitude: {height:.1} m   slope: {slope:.2}   moisture: {moisture:.2}\n\
          here: {} ({sure:.2} sure)   time: {}\n\
+         map: {u:.3}, {v:.3}   arid {arid:.2}   chill {chill:.2}\n\
          chunks: {} loaded, {} building   sculpted: {sculpted}\n\
          nearest: {nearest}\n\
          \n\

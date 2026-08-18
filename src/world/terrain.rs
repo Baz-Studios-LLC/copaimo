@@ -632,6 +632,17 @@ impl Terrain {
 
     /// Which region of the world this is: how dry, and how cold.
     ///
+    /// Where a world position falls on the map: 0,0 north-west to 1,1 south-east.
+    ///
+    /// The coordinates the regions themselves are written in, which is the whole
+    /// reason this is public. Tuning a region means moving an ellipse in
+    /// [`terrain_core::region`], and knowing which ellipse to move means knowing
+    /// where you were standing when you decided somewhere was wrong. The F3
+    /// overlay shows it.
+    pub fn map_uv(&self, x: f32, z: f32) -> (f32, f32) {
+        self.to_map_uv(x, z)
+    }
+
     /// See [`terrain_core::region`] for why the world has regions at all. The
     /// short of it: a biome decided point by point is a scatter, and a scatter is
     /// not somewhere anybody can name or anything can live in.
