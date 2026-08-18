@@ -531,7 +531,20 @@ assets/
 
 ## Change log
 
-**2026-08-17 (last)** — **A blade of grass is a ribbon, not a wedge.**
+**2026-08-17 (last)** — **Grass grows only where grass grows.** Sand, rock, snow,
+desert and the ground a town stands on each carried a thin scatter, on the
+reasoning that nowhere real is completely bare. True, and the wrong call: it made
+five different places look like one place with different ground paint. What they
+needed was things that belong in *them*, and they have those now — driftwood,
+scree, cactus, dead brush. Open country and the wood floor keep it; nowhere else
+grows a blade. A town is somebody's, besides.
+
+Ribbons thickened by half at the same time, which cost what the width model said
+it would: fragments 4.56 M → 7.18 M, main pass 6.86 → 7.81 ms. The frame held at
+**48–51 fps** anyway, because it is shadows that own the frame and not that pass.
+Width remains the dial to reach for if headroom is ever wanted back.
+
+**2026-08-17** — **A blade of grass is a ribbon, not a wedge.**
 
 Twice the shape was the complaint and both times it was one fault: the blade was
 drawn as a wedge — wide at the foot, needle-pointed, aimed somewhere. That is an
