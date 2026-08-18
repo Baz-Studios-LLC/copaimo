@@ -89,7 +89,14 @@ pub fn surface_color(
     character: f32,
     worn: f32,
     country: terrain_core::region::Country,
+    belonging: f32,
 ) -> [f32; 4] {
+    // The same country the classifier decided on, from the same function.
+    //
+    // Painting from the raw region left a hard line on the ground where the
+    // biome had a ragged band — the two disagreeing about a boundary, which is
+    // this file's oldest habit.
+    let country = terrain_core::region::holding(country, belonging, wooded);
     let p = &*PALETTE;
 
     // Underwater, by **depth**: dark in the deep, lightening as it shallows.
@@ -114,7 +121,12 @@ pub fn surface_color(
         // so the driest thing the world could paint was a parched meadow.
         terrain_core::region::Country::Desert => (p.sand, SNOWLINE),
         // Conifers below the line, snow above it, and one line for both.
-        terrain_core::region::Country::Snow => (p.forest, COLD_SNOWLINE),
+        // Conifers below, and the stone band above them is drawn from the same
+        // fraction of the snowline the classifier uses.
+        terrain_core::region::Country::Snow => (
+            if height > COLD_SNOWLINE * 0.55 { p.alpine } else { p.forest },
+            COLD_SNOWLINE,
+        ),
         terrain_core::region::Country::Ordinary => (vegetated, SNOWLINE),
     };
 

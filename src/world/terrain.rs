@@ -307,6 +307,7 @@ impl Terrain {
                 // in.
                 let sea = self.climate();
                 let natural = forest::natural_density(
+                    ground.country,
                     ground.wooded,
                     ground.height,
                     ground.slope,
@@ -1401,6 +1402,7 @@ mod tests {
                         terrain.shore_character(at.x, at.y),
                         terrain.worn(at.x, at.y),
                         terrain.region(at.x, at.y).0,
+                        terrain.region(at.x, at.y).1,
                     );
                     for channel in 0..3 {
                         sum[channel] += colour[channel];

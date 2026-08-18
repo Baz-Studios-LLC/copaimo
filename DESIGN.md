@@ -531,8 +531,31 @@ assets/
 
 ## Change log
 
-**2026-08-17 (last)** — **A region NAMES a country; it does not describe a
-climate.**
+**2026-08-17 (last)** — **A hard choice still needs a soft edge.**
+
+Naming countries instead of inferring them fixed the class of bug that had been
+eating the session, and immediately introduced its opposite: a country is a hard
+choice, and a hard choice drawn straight across the map is a **line**. Grass on
+one side, snow on the other, nothing between.
+
+How firmly somewhere belongs to its region now races the local noise. Deep inside,
+belonging wins everywhere and the region is solid; at the rim it wins only where
+the noise is low — so the boundary breaks into fingers of one country reaching
+into the other. One comparison, no new field, and it lives in `region::holding`
+where *every* path can reach it. What a place is and what it looks like are
+decided in different files, and the three times they were each given the chance to
+answer that question separately they answered it differently.
+
+Two more that came with it. **Trees filled the deserts** the moment moisture
+stopped meaning anything — a noise field centred on a half says half the slots
+everywhere, sand included; trees are a fact about the map now. And **snow country
+had beaches**, a ring of sand around its own coastline, which is a beach nobody
+would sunbathe on.
+
+Standing at: grass 19.0%, settled 17.8%, forest 17.5%, snow 17.3%, desert 13.2%,
+shore 9.7%, rock 5.5%.
+
+**2026-08-17** — **A region NAMES a country; it does not describe a climate.**
 
 This began as two physical fields — how dry, how cold — with the biome inferred
 from them by threshold. That is how a simulation does it, and it was a steady
