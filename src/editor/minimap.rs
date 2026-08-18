@@ -28,6 +28,10 @@ const WIDTH: u32 = 256;
 /// Without this it would queue a rebuild on every frame of a drag.
 const QUIET_PERIOD: f32 = 1.2;
 
+/// How far across the heading needle's wrapper is, in pixels. The bar itself is
+/// half of it, standing up from the middle.
+const HEADING_SPAN: f32 = 26.0;
+
 #[derive(Resource, Default)]
 struct Minimap {
     /// How many cells any layer had painted at the last redraw, added together.
@@ -47,6 +51,19 @@ struct MinimapImage;
 
 #[derive(Component)]
 struct MinimapMarker;
+
+/// The needle that says which way the camera is looking.
+///
+/// A dot says where you are and nothing about where you are pointing, which on a
+/// map with no landmarks yet is half the information missing: you can see that you
+/// are on the north coast and not whether you are looking at it or away from it.
+///
+/// Rotated about the marker rather than about itself, which is why it is a wrapper
+/// with a bar inside. A bar rotated about its own middle swings around a point
+/// halfway up itself and reads as an axis through you rather than a direction from
+/// you.
+#[derive(Component)]
+struct MinimapHeading;
 
 #[derive(Component)]
 struct MinimapRoot;
@@ -144,6 +161,41 @@ fn spawn_panel(mut commands: Commands, font: Res<UiFont>, terrain: Res<TerrainSo
                         },
                     ));
                     frame.spawn((
+                        MinimapHeading,
+                        Node {
+                            position_type: PositionType::Absolute,
+                            // Square and centred on the marker, so rotating it
+                            // rotates about where the camera actually is.
+                            width: Val::Px(HEADING_SPAN),
+                            height: Val::Px(HEADING_SPAN),
+                            margin: UiRect {
+                                left: Val::Px(-HEADING_SPAN * 0.5),
+                                top: Val::Px(-HEADING_SPAN * 0.5),
+                                ..default()
+                            },
+                            ..default()
+                        },
+                    ))
+                    .with_children(|wrap| {
+                        // The bar itself, standing up from the middle. Pointing
+                        // north at rest, which is up on a map drawn north-up.
+                        wrap.spawn((
+                            Node {
+                                position_type: PositionType::Absolute,
+                                left: Val::Percent(50.0),
+                                top: Val::Px(0.0),
+                                width: Val::Px(2.0),
+                                height: Val::Px(HEADING_SPAN * 0.5),
+                                margin: UiRect {
+                                    left: Val::Px(-1.0),
+                                    ..default()
+                                },
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgba(1.0, 0.30, 0.35, 0.85)),
+                        ));
+                    });
+                    frame.spawn((
                         MinimapMarker,
                         Node {
                             position_type: PositionType::Absolute,
@@ -161,7 +213,7 @@ fn spawn_panel(mut commands: Commands, font: Res<UiFont>, terrain: Res<TerrainSo
                 });
 
             panel.spawn((
-                Text::new("hold ALT, click to fly there"),
+                Text::new("N is up  -  hold ALT, click to fly there"),
                 font.at(10.0),
                 TextColor(TEXT_DIM),
             ));
@@ -309,7 +361,8 @@ fn collect_redraw(
 fn place_marker(
     terrain: Res<TerrainSource>,
     cameras: Query<&GlobalTransform, With<MainCamera>>,
-    mut markers: Query<&mut Node, With<MinimapMarker>>,
+    mut markers: Query<&mut Node, (With<MinimapMarker>, Without<MinimapHeading>)>,
+    mut headings: Query<(&mut Node, &mut Transform), With<MinimapHeading>>,
 ) {
     let (Some(camera), Some(mut marker)) = (cameras.iter().next(), markers.iter_mut().next())
     else {
@@ -323,6 +376,23 @@ fn place_marker(
 
     marker.left = Val::Percent(u * 100.0);
     marker.top = Val::Percent(v * 100.0);
+
+    // And which way it is looking.
+    //
+    // The bearing is measured clockwise from north, because that is what a map
+    // means by a direction: `+x` is east and `+z` is south in this world, so north
+    // is `-z` and the needle at rest points up.
+    //
+    // Rotating about Z in UI space turns +X toward +Y, and UI's +Y is DOWN the
+    // screen — so a positive angle reads clockwise, which is the same sense as the
+    // bearing and needs no minus sign.
+    let facing = camera.forward();
+    let bearing = facing.x.atan2(-facing.z);
+    for (mut node, mut turn) in &mut headings {
+        node.left = Val::Percent(u * 100.0);
+        node.top = Val::Percent(v * 100.0);
+        turn.rotation = Quat::from_rotation_z(bearing);
+    }
 }
 
 /// Samples the world into RGBA pixels. Pure and thread-safe.

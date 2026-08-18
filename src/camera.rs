@@ -12,6 +12,7 @@
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 
+use crate::config::SEA_LEVEL;
 use crate::player::{move_player, Player};
 use crate::states::AppState;
 use crate::world::terrain::TerrainSource;
@@ -38,6 +39,17 @@ const FLY_BOOST: f32 = 5.0;
 const MIN_FLY_SCALE: f32 = 0.15;
 const MAX_FLY_SCALE: f32 = 12.0;
 const FLY_SCALE_STEP: f32 = 1.3;
+
+/// How far above the ground the free-fly camera is held, in metres.
+///
+/// Enough to clear the grass and the litter standing in it, so skimming a
+/// hillside does not put the view inside a boulder. Not so much that you cannot
+/// get down among the trees to look at them.
+///
+/// Two metres, because the grass reaches 1.66 — which I had guessed at 1.6 and
+/// the test caught. Tall grass grew twice in one evening and will grow again, so
+/// the guard reads the crate's own answer rather than a number written here.
+const FLY_CLEARANCE: f32 = 2.0;
 
 /// A standing multiplier on how fast free-fly moves.
 ///
@@ -241,7 +253,55 @@ fn drive_camera(
             };
             camera.translation +=
                 input.normalize_or_zero() * FLY_SPEED * speed.0 * boost * time.delta_secs();
+
+            // And never below the ground.
+            //
+            // Under the map is not a place. Everything down there is drawn from
+            // the wrong side — the world is a single surface with no underside, so
+            // a camera beneath it sees the backs of hills, the sea from inside,
+            // and chunks that stream in and out for no visible reason. It is the
+            // easiest way to make the world look broken and the hardest to
+            // realise you have done it, because nothing about the view says
+            // "you are underneath".
+            //
+            // Held above the DRAWN height rather than the true one, so the floor
+            // is the surface actually on screen. The tide moves, so the sea is
+            // taken at its own level: skimming the water is fine, being inside it
+            // looking up is not.
+            let floor = terrain
+                .drawn_height(camera.translation.x, camera.translation.z)
+                .max(SEA_LEVEL)
+                + FLY_CLEARANCE;
+            camera.translation.y = camera.translation.y.max(floor);
             camera.rotation = rotation;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    // The second half compares two constants and clippy is right that it does.
+    // It is kept because it guards a RELATIONSHIP that is easy to break while
+    // tuning one of them — the same reason the night's light levels are checked
+    // against each other.
+    #[allow(clippy::assertions_on_constants)]
+    fn the_fly_floor_clears_what_stands_on_the_ground() {
+        // Under the map is not a place: the world is a single surface with no
+        // underside, so a camera beneath it sees the backs of hills and the sea
+        // from inside. What makes that worth a guard rather than a note is that
+        // nothing about the view says "you are underneath" — it just looks broken.
+        //
+        // The clearance has to beat the tallest thing a camera can skim, or
+        // hugging a hillside puts the view inside a boulder.
+        let tallest_tuft = terrain_core::cover::tallest();
+        assert!(
+            FLY_CLEARANCE > tallest_tuft,
+            "flying at {FLY_CLEARANCE} m sits inside grass {tallest_tuft:.2} m tall"
+        );
+        // And low enough to get down among the trees to look at them.
+        assert!(FLY_CLEARANCE < 4.0, "the floor is too high to see anything from");
     }
 }

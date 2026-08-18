@@ -531,6 +531,29 @@ assets/
 
 ## Change log
 
+**2026-08-18** — **Two editor controls.**
+
+**No flying under the ground.** Under the map is not a place: the world is a
+single surface with no underside, so a camera beneath it sees the backs of hills
+and the sea from inside. What makes it worth a guard rather than a note is that
+nothing about the view says "you are underneath" — it simply looks broken, and
+the world gets blamed. The free-fly camera is held above the *drawn* height, or
+above the sea where that is higher, so the floor is the surface actually on screen.
+
+The clearance is 2 m and the test is why. I guessed 1.6, and it failed: the grass
+reaches **1.66 m** since the meadows pass. It reads `cover::tallest()` from the
+crate rather than a number copied here, because tall grass grew twice in one
+evening and will grow again.
+
+**A heading on the overview.** A dot says where you are and nothing about where you
+are pointing, which on a map with no landmarks yet is half the information missing
+— you can see you are on the north coast and not whether you are facing it. A
+needle now turns with the camera, rotated about the marker rather than about
+itself: a bar rotated about its own middle swings around a point halfway up itself
+and reads as an axis through you rather than a direction from you. The caption
+says N is up.
+
+
 **2026-08-18** — **A biome brush, because I cannot see and the maker cannot edit
 constants.**
 
