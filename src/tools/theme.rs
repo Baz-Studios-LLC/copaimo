@@ -10,20 +10,14 @@
 //! keycaps are boxes with a letter in them. It reads better than punctuation
 //! tricks would anyway, and it cannot break.
 
-use std::path::Path;
 
 use bevy::prelude::*;
 
-use crate::world::edit::Brushing;
+// The font is not tools-only: the title screen needs it too, and `tools` is not
+// compiled into a release. It lives in `typeface` and is used from here.
+pub use crate::typeface::UiFont;
 
-/// Cinzel, which is what Opificium letters its benches with — carried across so
-/// the terrain mode here and the terrain bench there are recognisably the same
-/// tool. Open Font License; the licence travels beside it in `assets/fonts/`.
-///
-/// Falls back to Bevy's built-in face if it is missing, so a stripped checkout
-/// still runs. Older note kept because it is still true: drop any `.ttf` at this
-/// whole tool picks it up; without one it uses Bevy's built-in face.
-const UI_FONT_PATH: &str = "fonts/Cinzel.ttf";
+use crate::world::edit::Brushing;
 
 // A restrained dark palette: the terrain is the subject, the tool is chrome.
 // Opificium's own, so the two read as one workshop rather than two programs
@@ -84,44 +78,6 @@ pub fn tool_color(how: Brushing) -> Color {
         // shelf — a single swatch cannot show three.
         Brushing::Country => Color::srgb(0.86, 0.74, 0.46),
     }
-}
-
-/// Handle to the UI font, if the project supplied one.
-#[derive(Resource, Default)]
-pub struct UiFont(Option<Handle<Font>>);
-
-impl UiFont {
-    /// A `TextFont` at the given size, using the override font when present.
-    pub fn at(&self, size: f32) -> TextFont {
-        TextFont {
-            font: self.0.clone().unwrap_or_default(),
-            font_size: size,
-            ..default()
-        }
-    }
-}
-
-pub fn load_ui_font(mut commands: Commands, assets: Res<AssetServer>) {
-    // Checked on disk rather than handed to the asset server blind, so a missing
-    // font is a quiet fallback instead of a load error every run.
-    //
-    // Both roots, because the check and the load do not agree about where `assets`
-    // is: this looks beside the working directory and the asset server looks beside
-    // the executable. Running through cargo those are the same place and running
-    // the binary directly they are not, which showed up as a font that existed and
-    // an error saying it did not.
-    let beside_cwd = Path::new("assets").join(UI_FONT_PATH);
-    let beside_exe = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().map(|at| at.join("assets").join(UI_FONT_PATH)));
-    let present =
-        beside_cwd.exists() || beside_exe.is_some_and(|road| road.exists());
-    if present {
-        info!("tool panels using {UI_FONT_PATH}");
-    } else {
-        warn!("{UI_FONT_PATH} not found beside the working directory or the binary");
-    }
-    commands.insert_resource(UiFont(present.then(|| assets.load(UI_FONT_PATH))));
 }
 
 // ------------------------------------------------------------------ fragments

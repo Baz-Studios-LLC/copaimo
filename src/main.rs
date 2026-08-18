@@ -49,6 +49,7 @@ mod hud;
 mod menu;
 mod player;
 mod save;
+mod typeface;
 mod shade;
 mod sky;
 mod states;
@@ -102,10 +103,52 @@ fn wear_the_icon(windows: NonSend<bevy::winit::WinitWindows>) {
     }
 }
 
+/// Where this build's `assets/` folder is.
+///
+/// Beside the working directory when there is one there — which is how it is run
+/// from the repository — and otherwise beside the binary, which is how every
+/// packaged build is laid out. Falls back to the plain name so a missing folder
+/// is Bevy's ordinary "not found" rather than a path built out of nothing.
+pub fn asset_root() -> String {
+    // ABSOLUTE, and that is the whole trick. Bevy joins this onto a base
+    // directory of its own — the executable's folder — so a relative "assets"
+    // resolves under `target/debug/` however plainly it names the right folder.
+    // An absolute path replaces the base instead of being appended to it.
+    if let Ok(here) = std::path::Path::new("assets").canonicalize() {
+        if here.is_dir() {
+            // `canonicalize` on Windows returns a `\?\` extended path, which
+            // Bevy's own path handling does not take. Trimmed back to a plain one.
+            let said = here.to_string_lossy().to_string();
+            return said.strip_prefix(r"\?\").unwrap_or(&said).to_string();
+        }
+    }
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|at| at.join("assets")))
+        .filter(|road| road.is_dir())
+        .map(|road| road.to_string_lossy().to_string())
+        .unwrap_or_else(|| "assets".to_string())
+}
+
 fn main() {
     let mut app = App::new();
     app
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
+        .add_plugins(DefaultPlugins.set(AssetPlugin {
+            // Where `assets/` actually is, worked out once and told to Bevy —
+            // rather than left to a default that is right in some launches and
+            // wrong in others.
+            //
+            // The default resolves beside the EXECUTABLE, which is correct for a
+            // packaged build and wrong for a binary run out of `target/`. That
+            // mismatch is not merely inconvenient: the font check looked beside
+            // the working directory, found the file, and logged that the font was
+            // in use — while the asset server looked beside the binary, found
+            // nothing, and everything drew in the fallback face. A check that
+            // passes while the thing it checks fails is worse than no check.
+            file_path: asset_root(),
+            ..default()
+        })
+        .set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Copaimo — The Wardens Guild".into(),
                 resolution: (1600.0_f32, 900.0_f32).into(),
@@ -115,6 +158,14 @@ fn main() {
         }))
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
         .add_systems(Startup, wear_the_icon)
+        // The font, before anything that sets type in it.
+        //
+        // Registered HERE and not by a tool, which is the whole point of moving it
+        // out of `tools`: a release has no tools, so a loader living there left the
+        // title screen — the one screen every player sees — asking for a resource
+        // that nothing had inserted.
+        .add_systems(Startup, typeface::load_ui_font)
+        .init_resource::<typeface::UiFont>()
         .add_plugins((
             states::StatesPlugin,
             // Before anything that builds a material, because it is what

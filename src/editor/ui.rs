@@ -84,7 +84,6 @@ pub struct EditorUiPlugin;
 impl Plugin for EditorUiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Toast>()
-            .add_systems(Startup, theme::load_ui_font)
             .add_systems(OnEnter(AppState::Editing), (spawn_sidebar, spawn_toast))
             .add_systems(OnExit(AppState::Editing), despawn_ui)
             .add_systems(

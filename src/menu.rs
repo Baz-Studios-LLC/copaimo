@@ -16,10 +16,23 @@ use bevy::app::AppExit;
 use bevy::prelude::*;
 
 use crate::states::AppState;
+use crate::typeface::UiFont;
 
-const IDLE: Color = Color::srgba(0.10, 0.15, 0.22, 0.92);
-const HOVER: Color = Color::srgba(0.18, 0.30, 0.42, 0.95);
-const PRESSED: Color = Color::srgba(0.26, 0.44, 0.58, 0.98);
+// Taken off the logo rather than picked to taste. It is deep navy going to
+// violet, with everything raised on it in silver — so the choices under it are
+// the same navy, the same silver, and the same violet where they light up. A
+// title screen whose buttons do not belong to its own logo reads as two designs.
+const IDLE: Color = Color::srgb(0.075, 0.105, 0.185);
+const HOVER: Color = Color::srgb(0.150, 0.170, 0.330);
+const PRESSED: Color = Color::srgb(0.230, 0.230, 0.450);
+
+/// The silver the wordmark is cut from, and the dimmer one under it.
+const SILVER: Color = Color::srgb(0.90, 0.93, 0.97);
+const SILVER_DIM: Color = Color::srgb(0.62, 0.69, 0.82);
+
+/// The edge on a choice. Thin and bright, like the bevel round every letter.
+const EDGE: Color = Color::srgba(0.62, 0.70, 0.88, 0.45);
+const EDGE_LIT: Color = Color::srgb(0.78, 0.82, 0.98);
 
 #[derive(Component)]
 struct MenuRoot;
@@ -53,12 +66,18 @@ const TITLE_ART: &str = "Title/Copaimo.png";
 /// stamp on one and most of the width on the other.
 const TITLE_SHARE: f32 = 46.0;
 
-/// The wash over the world behind, so the type stays readable.
+/// The field the title stands on.
 ///
-/// Dark and blue rather than black: the world behind is sky and grass at whatever
-/// hour it happens to be, and a neutral black wash makes the whole screen look
-/// like a pause menu. This is closer to the deep blue in the logo.
-const VEIL: Color = Color::srgba(0.03, 0.05, 0.10, 0.72);
+/// OPAQUE, and that is the fix for a fault rather than a preference. This was a
+/// wash over the live world on the idea that a look at the world is a free
+/// backdrop — but the world does not stream until the game starts, so what showed
+/// through was the empty sky with a single cloud drifting across it. A stray
+/// object floating on a flat blue field is the sort of thing that reads as a bug
+/// because it IS one.
+///
+/// A title screen should be composed rather than whatever happens to be behind
+/// it. When there is real art to put back there it goes here deliberately.
+const FIELD: Color = Color::srgb(0.055, 0.075, 0.135);
 
 pub struct MenuPlugin;
 
@@ -70,7 +89,7 @@ impl Plugin for MenuPlugin {
     }
 }
 
-fn spawn_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
+fn spawn_menu(mut commands: Commands, asset_server: Res<AssetServer>, font: Res<UiFont>) {
     // Asked here rather than held in a resource: a player can delete a save from
     // under a running game, and a Continue that then does nothing is worse than
     // no Continue at all.
@@ -91,7 +110,7 @@ fn spawn_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
                 padding: UiRect::vertical(Val::Percent(4.0)),
                 ..default()
             },
-            BackgroundColor(VEIL),
+            BackgroundColor(FIELD),
         ))
         .with_children(|root| {
             // The title ART, not the word set in whatever font happened to load.
@@ -134,10 +153,11 @@ fn spawn_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
                     } else {
                         format!("{} - {:.0} min played", save.stamped, save.played / 60.0)
                     };
-                    spawn_button(choices, MenuAction::Continue, "Continue", &when);
+                    spawn_button(choices, &font, MenuAction::Continue, "Continue", &when);
                 }
                 spawn_button(
                     choices,
+                    &font,
                     MenuAction::NewGame,
                     "New Game",
                     if saved.is_some() {
@@ -162,54 +182,65 @@ fn spawn_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
                     ));
                     spawn_button(
                         choices,
+                        &font,
                         MenuAction::Edit,
                         "Shape the World",
                         "sculpt the ground you walk on",
                     );
                     spawn_button(
                         choices,
+                        &font,
                         MenuAction::Bench,
                         "Workbench",
                         "build houses and fences, piece by piece",
                     );
                 }
 
-                spawn_button(choices, MenuAction::Quit, "Exit", "");
+                spawn_button(choices, &font, MenuAction::Quit, "Exit", "");
             });
         });
 }
 
-fn spawn_button(parent: &mut ChildSpawnerCommands, action: MenuAction, label: &str, hint: &str) {
+fn spawn_button(
+    parent: &mut ChildSpawnerCommands,
+    font: &UiFont,
+    action: MenuAction,
+    label: &str,
+    hint: &str,
+) {
     parent
         .spawn((
             action,
             Button,
             Node {
-                width: Val::Px(300.0),
-                padding: UiRect::axes(Val::Px(18.0), Val::Px(12.0)),
+                width: Val::Percent(100.0),
+                padding: UiRect::axes(Val::Px(20.0), Val::Px(13.0)),
                 flex_direction: FlexDirection::Column,
-                row_gap: Val::Px(2.0),
+                row_gap: Val::Px(3.0),
+                // The bevel every letter in the wordmark carries, at the size a
+                // button can wear one. Without it the choices are flat slabs
+                // under a logo made entirely of raised edges.
+                border: UiRect::all(Val::Px(1.0)),
                 ..default()
             },
+            BorderColor(EDGE),
             BackgroundColor(IDLE),
         ))
         .with_children(|button| {
             button.spawn((
                 Text::new(label),
-                TextFont {
-                    font_size: 21.0,
-                    ..default()
-                },
-                TextColor(Color::srgb(0.94, 0.97, 1.0)),
+                // The game's own face, at the size the logo would set it. This was
+                // the default — which is a monospace, and a monospace under a
+                // chrome-and-serif wordmark reads as a terminal that has wandered
+                // onto the wrong screen.
+                font.at(22.0),
+                TextColor(SILVER),
             ));
             if !hint.is_empty() {
                 button.spawn((
                     Text::new(hint),
-                    TextFont {
-                        font_size: 13.0,
-                        ..default()
-                    },
-                    TextColor(Color::srgb(0.55, 0.68, 0.80)),
+                    font.at(13.0),
+                    TextColor(SILVER_DIM),
                 ));
             }
         });
@@ -223,17 +254,18 @@ fn despawn_menu(mut commands: Commands, roots: Query<Entity, With<MenuRoot>>) {
 
 fn menu_buttons(
     mut buttons: Query<
-        (&Interaction, &MenuAction, &mut BackgroundColor),
+        (&Interaction, &MenuAction, &mut BackgroundColor, &mut BorderColor),
         (Changed<Interaction>, With<Button>),
     >,
     mut next: ResMut<NextState<AppState>>,
     mut exit: EventWriter<AppExit>,
     mut progress: ResMut<crate::save::Progress>,
 ) {
-    for (interaction, action, mut background) in &mut buttons {
+    for (interaction, action, mut background, mut edge) in &mut buttons {
         match interaction {
             Interaction::Pressed => {
                 background.0 = PRESSED;
+                edge.0 = EDGE_LIT;
                 match action {
                     // Continuing hands the save to whatever spawns the warden,
                     // BEFORE the state changes — the world loads on entering
@@ -264,8 +296,14 @@ fn menu_buttons(
                     }
                 }
             }
-            Interaction::Hovered => background.0 = HOVER,
-            Interaction::None => background.0 = IDLE,
+            Interaction::Hovered => {
+                background.0 = HOVER;
+                edge.0 = EDGE_LIT;
+            }
+            Interaction::None => {
+                background.0 = IDLE;
+                edge.0 = EDGE;
+            }
         }
     }
 }
