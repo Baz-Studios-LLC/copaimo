@@ -51,6 +51,24 @@ pub enum Form {
 }
 
 impl Form {
+    /// The word the format writes for this shape.
+    ///
+    /// The inverse of [`Self::read`], and it exists because the game writes
+    /// buildings now as well as reading them — see `kit`. Kept next to the reader
+    /// deliberately: a form whose two halves live in different files is a form
+    /// that will one day be written as something it cannot be read back as, and a
+    /// round-trip test only catches that if somebody remembers to add the case to
+    /// both.
+    pub fn word(self) -> String {
+        match self {
+            Form::Box => "box".into(),
+            Form::Wedge => "wedge".into(),
+            Form::Ridge => "ridge".into(),
+            Form::Cut { low, high } => format!("cut:{low},{high}"),
+            Form::Hip { across, along } => format!("hip:{across},{along}"),
+        }
+    }
+
     fn read(word: &str) -> Result<Self, String> {
         // The two the bench no longer writes. Each could say only that ALL of
         // one end was gone, which is why they became a property with a number.

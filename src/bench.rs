@@ -1,0 +1,485 @@
+//! The workbench: composing a building out of parts, away from the world.
+//!
+//! What a part IS and how a work becomes a file is [`crate::build::kit`]. This is
+//! the room you stand in to do it: a floor to build on, a cursor that snaps, and
+//! the keys.
+//!
+//! # Why it is a room and not a corner of the terrain tool
+//!
+//! Shaping a hillside and placing a fence rail are different jobs at different
+//! scales, and a tool trying to be both has two sets of controls fighting over one
+//! mouse. What joins them is the placed sheet: the bench makes a building, the
+//! terrain tool stands it somewhere.
+//!
+//! It also means the bench has no terrain, no streaming, no weather and no
+//! seventeen-thousand-tuft meadow. A building is a few dozen boxes, so the whole
+//! room redraws from scratch every time anything changes — see `rebuild`, which is
+//! the simplest thing that can possibly work and stays affordable at this size.
+
+use bevy::prelude::*;
+
+use crate::build::kit::{self, Bench, Part, TINTS};
+use crate::build::plan;
+use crate::shade::{shaded, Shaded};
+use crate::states::AppState;
+
+/// How far the camera looks from, and at what height it pivots.
+const EYE: Vec3 = Vec3::new(7.0, 5.0, 9.0);
+const PIVOT: f32 = 1.2;
+
+/// How far the floor reaches, in modules either way.
+const FLOOR_REACH: i32 = 8;
+
+/// Everything the bench has spawned, so it can all be taken away again.
+#[derive(Component)]
+struct OfBench;
+
+/// The work itself, as drawn. Cleared and rebuilt whenever a piece changes.
+#[derive(Component)]
+struct Work;
+
+/// Where the next piece would go, and what it would be.
+#[derive(Resource)]
+pub struct Hand {
+    pub part: Part,
+    pub at: Vec3,
+    pub quarters: u8,
+    pub tint: usize,
+}
+
+impl Default for Hand {
+    fn default() -> Self {
+        Self {
+            part: Part::Post,
+            at: Vec3::ZERO,
+            quarters: 0,
+            tint: 0,
+        }
+    }
+}
+
+/// How the camera is looking at the work.
+#[derive(Resource)]
+struct View {
+    /// Radians around the work.
+    around: f32,
+    /// How far off.
+    away: f32,
+}
+
+impl Default for View {
+    fn default() -> Self {
+        Self {
+            around: 0.0,
+            away: 1.0,
+        }
+    }
+}
+
+pub struct BenchPlugin;
+
+impl Plugin for BenchPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<Bench>()
+            .init_resource::<Hand>()
+            .init_resource::<View>()
+            .add_systems(OnEnter(AppState::Bench), open)
+            .add_systems(OnExit(AppState::Bench), close)
+            .add_systems(
+                Update,
+                (choose, move_hand, place, turn_view, rebuild, draw_ghost, say_state)
+                    .chain()
+                    .run_if(in_state(AppState::Bench)),
+            );
+    }
+}
+
+/// Stands the room up: a light, a floor, a camera.
+fn open(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<Shaded>>,
+    mut bench: ResMut<Bench>,
+) {
+    // So the first frame draws whatever was already on the bench.
+    bench.set_changed();
+
+    commands.spawn((
+        OfBench,
+        Camera3d::default(),
+        Transform::from_translation(EYE).looking_at(Vec3::Y * PIVOT, Vec3::Y),
+    ));
+
+    // Two lights and no sun. The bench is indoors as far as anything here is
+    // concerned, and a day/night cycle over a workbench would mean building a
+    // fence by moonlight because of what time it happens to be.
+    commands.spawn((
+        OfBench,
+        DirectionalLight {
+            illuminance: 6_500.0,
+            shadows_enabled: true,
+            ..default()
+        },
+        Transform::default().looking_at(Vec3::new(-0.4, -1.0, -0.6), Vec3::Y),
+    ));
+    commands.insert_resource(AmbientLight {
+        color: Color::srgb(0.80, 0.84, 0.92),
+        brightness: 900.0,
+        ..default()
+    });
+    commands.insert_resource(ClearColor(Color::srgb(0.10, 0.11, 0.14)));
+
+    commands.spawn((
+        OfBench,
+        Readout,
+        Text::new(String::new()),
+        TextFont {
+            font_size: 13.0,
+            ..default()
+        },
+        TextColor(Color::srgb(0.82, 0.86, 0.94)),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(16.0),
+            top: Val::Px(14.0),
+            ..default()
+        },
+    ));
+
+    // The floor: a grid of the kit's own module, so a maker can count squares
+    // instead of measuring. Drawn as thin slabs rather than lines because this
+    // world has no line renderer and a checker reads the depth better anyway.
+    let tile = meshes.add(Cuboid::new(kit::MODULE * 0.98, 0.02, kit::MODULE * 0.98));
+    let pale = materials.add(shaded(StandardMaterial {
+        base_color: Color::srgb(0.20, 0.22, 0.26),
+        perceptual_roughness: 0.95,
+        ..default()
+    }));
+    let dark = materials.add(shaded(StandardMaterial {
+        base_color: Color::srgb(0.15, 0.16, 0.20),
+        perceptual_roughness: 0.95,
+        ..default()
+    }));
+    for x in -FLOOR_REACH..FLOOR_REACH {
+        for z in -FLOOR_REACH..FLOOR_REACH {
+            let checker = (x + z).rem_euclid(2) == 0;
+            commands.spawn((
+                OfBench,
+                Mesh3d(tile.clone()),
+                MeshMaterial3d(if checker { pale.clone() } else { dark.clone() }),
+                Transform::from_xyz(
+                    (x as f32 + 0.5) * kit::MODULE,
+                    -0.01,
+                    (z as f32 + 0.5) * kit::MODULE,
+                ),
+            ));
+        }
+    }
+}
+
+fn close(mut commands: Commands, mine: Query<Entity, With<OfBench>>) {
+    for entity in &mine {
+        commands.entity(entity).despawn();
+    }
+}
+
+/// Picking a part, a colour, and which way round.
+fn choose(keys: Res<ButtonInput<KeyCode>>, mut hand: ResMut<Hand>) {
+    const KEYS: [KeyCode; 7] = [
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+    ];
+    for (key, part) in KEYS.iter().zip(Part::ALL) {
+        if keys.just_pressed(*key) {
+            hand.part = part;
+        }
+    }
+    // R turns it, quarter by quarter. There is no free rotation on purpose — see
+    // the kit's own note.
+    if keys.just_pressed(KeyCode::KeyR) {
+        hand.quarters = (hand.quarters + 1) % 4;
+    }
+    if keys.just_pressed(KeyCode::KeyC) {
+        hand.tint = (hand.tint + 1) % TINTS.len();
+    }
+}
+
+/// Moving the cursor about the bench.
+///
+/// Keys rather than the mouse, and that is a deliberate choice rather than a
+/// shortcut. A building is placed on a lattice, and a lattice is what a keyboard is
+/// good at: press once, move one snap, know exactly where you are. Aiming a mouse
+/// at a 25 cm cell from across a room is a fight, and every builder that offers
+/// both ends up with people using the keys.
+fn move_hand(keys: Res<ButtonInput<KeyCode>>, view: Res<View>, mut hand: ResMut<Hand>) {
+    // Relative to how the camera is looking, so "left" is left on screen rather
+    // than west on a compass nobody can see.
+    let quarter = (view.around / std::f32::consts::FRAC_PI_2).round() as i32;
+    let (ahead, aside) = match quarter.rem_euclid(4) {
+        0 => (Vec3::NEG_Z, Vec3::X),
+        1 => (Vec3::X, Vec3::Z),
+        2 => (Vec3::Z, Vec3::NEG_X),
+        _ => (Vec3::NEG_X, Vec3::NEG_Z),
+    };
+
+    let mut step = Vec3::ZERO;
+    if keys.just_pressed(KeyCode::KeyW) || keys.just_pressed(KeyCode::ArrowUp) {
+        step += ahead;
+    }
+    if keys.just_pressed(KeyCode::KeyS) || keys.just_pressed(KeyCode::ArrowDown) {
+        step -= ahead;
+    }
+    if keys.just_pressed(KeyCode::KeyD) || keys.just_pressed(KeyCode::ArrowRight) {
+        step += aside;
+    }
+    if keys.just_pressed(KeyCode::KeyA) || keys.just_pressed(KeyCode::ArrowLeft) {
+        step -= aside;
+    }
+    if keys.just_pressed(KeyCode::KeyE) || keys.just_pressed(KeyCode::Space) {
+        step += Vec3::Y;
+    }
+    if keys.just_pressed(KeyCode::KeyQ) {
+        step -= Vec3::Y;
+    }
+    if step == Vec3::ZERO {
+        return;
+    }
+
+    // A whole module with SHIFT, one snap without. Most placing is module to
+    // module — a wall beside a wall — and stepping there in six presses would be
+    // six times the work for the common case.
+    let reach = if keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]) {
+        kit::MODULE
+    } else {
+        kit::SNAP
+    };
+    hand.at = Bench::snapped(hand.at + step * reach);
+    // Never below the floor. Nothing is built under the ground here and a piece
+    // that vanished under it would look lost rather than low.
+    hand.at.y = hand.at.y.max(0.0);
+}
+
+/// Putting a piece down, taking one back, and saving the work.
+fn place(
+    keys: Res<ButtonInput<KeyCode>>,
+    hand: Res<Hand>,
+    mut bench: ResMut<Bench>,
+    mut next: ResMut<NextState<AppState>>,
+) {
+    if keys.just_pressed(KeyCode::Enter) {
+        bench.add(hand.part, hand.at, hand.quarters, hand.tint);
+    }
+    if keys.just_pressed(KeyCode::Delete) || keys.just_pressed(KeyCode::Backspace) {
+        // Whatever is nearest the cursor, within a module — the same rule the
+        // terrain tool follows for taking things away.
+        bench.remove_nearest(hand.at, kit::MODULE);
+    }
+    if keys.just_pressed(KeyCode::KeyZ) && keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight])
+    {
+        bench.undo();
+    }
+    if keys.just_pressed(KeyCode::KeyS) && keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight])
+    {
+        match kit::save(&mut bench) {
+            Ok(path) => info!("saved the work to {}", path.display()),
+            Err(why) => error!("could not save the work: {why}"),
+        }
+    }
+    if keys.just_pressed(KeyCode::Escape) {
+        // Unsaved work is kept in the resource, so leaving and coming back finds
+        // it where it was. Nothing is thrown away by walking out of the room.
+        next.set(AppState::Menu);
+    }
+}
+
+/// Turning the view about the work, and stepping in and out.
+fn turn_view(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut view: ResMut<View>,
+    mut cameras: Query<&mut Transform, With<Camera3d>>,
+) {
+    let mut moved = false;
+    if keys.just_pressed(KeyCode::BracketLeft) {
+        view.around -= std::f32::consts::FRAC_PI_2;
+        moved = true;
+    }
+    if keys.just_pressed(KeyCode::BracketRight) {
+        view.around += std::f32::consts::FRAC_PI_2;
+        moved = true;
+    }
+    if keys.just_pressed(KeyCode::Minus) {
+        view.away = (view.away * 1.25).min(4.0);
+        moved = true;
+    }
+    if keys.just_pressed(KeyCode::Equal) {
+        view.away = (view.away / 1.25).max(0.35);
+        moved = true;
+    }
+    if !moved {
+        return;
+    }
+
+    // Quarter turns, like everything else here. A building made of axis-aligned
+    // parts is looked at from its corners, and a free orbit would mostly be used
+    // to get back to one of them.
+    let turn = Quat::from_rotation_y(view.around);
+    for mut camera in &mut cameras {
+        camera.translation = turn * (EYE * view.away);
+        camera.look_at(Vec3::Y * PIVOT, Vec3::Y);
+    }
+}
+
+/// Draws the work, from scratch, whenever it changes.
+///
+/// The whole thing every time rather than a diff. A building is a few dozen boxes,
+/// so rebuilding costs nothing measurable — and one code path answers "what is on
+/// the bench" whether a piece was added, removed, or the file was reloaded. A diff
+/// that is subtly wrong leaves a rail nobody can delete.
+fn rebuild(
+    mut commands: Commands,
+    bench: Res<Bench>,
+    standing: Query<Entity, With<Work>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<Shaded>>,
+) {
+    if !bench.is_changed() {
+        return;
+    }
+    for entity in &standing {
+        commands.entity(entity).despawn();
+    }
+    if bench.is_empty() {
+        return;
+    }
+
+    // Through the game's own building renderer, on the game's own format. The
+    // bench has no geometry of its own, which is what makes what you see here what
+    // you get when it is raised in the world.
+    let plan = bench.to_plan();
+    let (solid, glass) = crate::build::shape::raise(&plan);
+    let cloth = materials.add(shaded(StandardMaterial {
+        base_color: Color::WHITE,
+        perceptual_roughness: 0.88,
+        reflectance: 0.05,
+        ..default()
+    }));
+
+    if !solid.is_empty() {
+        commands.spawn((
+            OfBench,
+            Work,
+            Mesh3d(meshes.add(solid.into_mesh())),
+            MeshMaterial3d(cloth.clone()),
+            Transform::IDENTITY,
+        ));
+    }
+    if !glass.is_empty() {
+        commands.spawn((
+            OfBench,
+            Work,
+            Mesh3d(meshes.add(glass.into_mesh())),
+            MeshMaterial3d(cloth),
+            Transform::IDENTITY,
+        ));
+    }
+}
+
+/// The readout.
+///
+/// A tool has to say what it is holding. Without this the part in hand, the colour,
+/// where the cursor is and how many pieces are down are all invisible — and a
+/// builder guessing at which of seven parts is selected will place the wrong one
+/// and blame the tool.
+#[derive(Component)]
+struct Readout;
+
+fn say_state(
+    bench: Res<Bench>,
+    hand: Res<Hand>,
+    mut text: Query<&mut Text, With<Readout>>,
+) {
+    let Some(mut text) = text.iter_mut().next() else {
+        return;
+    };
+    let said = format!(
+        "WORKBENCH   {}   {}   turn {}   at {:.2}, {:.2}, {:.2}   {} piece(s){}
+         1-7 part  ·  R turn  ·  C colour  ·  WASD/QE move (SHIFT a whole module)
+         ENTER place  ·  DEL take back  ·  Ctrl+Z undo  ·  Ctrl+S save  ·  [ ] turn view  ·  -/= zoom
+         ESC to the menu - the work is kept",
+        hand.part.name(),
+        TINTS[hand.tint.min(TINTS.len() - 1)].0,
+        hand.quarters,
+        hand.at.x,
+        hand.at.y,
+        hand.at.z,
+        bench.len(),
+        if bench.unsaved { " *" } else { "" },
+    );
+    if **text != said {
+        **text = said;
+    }
+}
+
+/// The piece in hand, drawn where it would land.
+#[derive(Component)]
+struct Ghost;
+
+fn draw_ghost(
+    mut commands: Commands,
+    hand: Res<Hand>,
+    ghosts: Query<Entity, With<Ghost>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<Shaded>>,
+) {
+    if !hand.is_changed() && !ghosts.is_empty() {
+        return;
+    }
+    for entity in &ghosts {
+        commands.entity(entity).despawn();
+    }
+
+    // The part itself, shown as it will be rather than as a box around it — a
+    // wedge that previews as a cuboid puts the roof on the wrong way round about
+    // half the time.
+    let one = plan::Plan {
+        name: String::new(),
+        kind: String::new(),
+        half_w: 0.0,
+        half_d: 0.0,
+        high: 0.0,
+        boxes: vec![plan::Block {
+            at: hand.at + Vec3::Y * hand.part.size().y * 0.5,
+            size: hand.part.size(),
+            turn: Quat::from_rotation_y(hand.quarters as f32 * std::f32::consts::FRAC_PI_2),
+            form: hand.part.form(),
+            colour: Color::WHITE,
+            stage: String::new(),
+        }],
+        marks: Vec::new(),
+    };
+    let (solid, _) = crate::build::shape::raise(&one);
+    if solid.is_empty() {
+        return;
+    }
+
+    let [r, g, b] = TINTS[hand.tint.min(TINTS.len() - 1)].1;
+    commands.spawn((
+        OfBench,
+        Ghost,
+        Mesh3d(meshes.add(solid.into_mesh())),
+        MeshMaterial3d(materials.add(shaded(StandardMaterial {
+            // Lit and see-through, so it reads as "about to be" rather than as
+            // part of the work.
+            base_color: Color::srgba_u8(r, g, b, 130),
+            alpha_mode: AlphaMode::Blend,
+            unlit: true,
+            ..default()
+        }))),
+        Transform::IDENTITY,
+    ));
+}

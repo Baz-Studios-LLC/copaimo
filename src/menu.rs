@@ -21,6 +21,7 @@ struct MenuRoot;
 enum MenuAction {
     Play,
     Edit,
+    Bench,
     Quit,
 }
 
@@ -85,6 +86,7 @@ fn spawn_menu(mut commands: Commands) {
                 for (action, label, hint) in [
                     (MenuAction::Play, "Explore World", "walk the map as the ranger"),
                     (MenuAction::Edit, "Shape the World", "sculpt the ground you walk on"),
+                    (MenuAction::Bench, "Workbench", "build houses and fences, piece by piece"),
                     (MenuAction::Quit, "Quit", ""),
                 ] {
                     spawn_button(panel, action, label, hint);
@@ -150,6 +152,7 @@ fn menu_buttons(
                 match action {
                     MenuAction::Play => next.set(AppState::Playing),
                     MenuAction::Edit => next.set(AppState::Editing),
+                    MenuAction::Bench => next.set(AppState::Bench),
                     MenuAction::Quit => {
                         exit.write(AppExit::Success);
                     }

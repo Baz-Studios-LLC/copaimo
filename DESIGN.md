@@ -531,6 +531,40 @@ assets/
 
 ## Change log
 
+**2026-08-18** — **A workbench, and a kit of parts.**
+
+**Pieces, not shapes.** A building could be authored as arbitrary boxes at
+arbitrary sizes and it would be worse. Everything in a real structure is a repeat
+of a few members — post, rail, wall panel, floor slab — because that is how things
+get built out of stock lengths, and it is why buildings look like buildings. Free
+boxes give you the freedom to make every wall a slightly different thickness,
+which is a freedom nobody wants and every eye notices.
+
+Seven parts, fixed sizes, all multiples of a 25 cm snap on a 1.5 m module. **A
+fence and a house come out of the same kit** — posts and rails, versus floor, walls
+and roof — and there is a test that builds both, because that is the check on
+whether the parts were chosen well or invented one building at a time.
+
+**It writes the format that already exists.** The bench builds a `Plan`, which is
+what a baked building reads as, so the live preview is the game's own renderer with
+nothing special in it and what it saves lands in the buildings folder beside
+anything else. Two formats for one idea is two readers, two writers, and a
+fortnight of finding out which one a bug is in. A test writes a hut and reads it
+back through the game's own reader.
+
+**Quarter turns and a lattice, on purpose.** A wall three degrees off is a mistake
+that reads as one and takes a while to find, and no house anybody would build has
+one. When something genuinely wants an angle it wants a *part* for it — a brace —
+not free rotation on a wall.
+
+**Keys, not the mouse.** A lattice is what a keyboard is good at: press once, move
+one snap, know where you are. Aiming a mouse at a 25 cm cell from across a room is
+a fight, and every builder offering both ends up with people using the keys.
+
+`Workbench` on the main menu. Verified end to end: built a hut on the bench, saved
+it, the catalogue read it, the placed sheet stood it in the world.
+
+
 **2026-08-18** — **A placed-object sheet: the keystone.**
 
 `assets/buildings/*.json` says what a building IS. Nothing said where any building

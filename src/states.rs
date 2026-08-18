@@ -25,12 +25,20 @@ pub enum AppState {
     ///
     /// Opificium keeps its own bench for other projects. Both run `terrain-core`.
     Editing,
+    /// The workbench: composing a building out of parts, away from the world.
+    ///
+    /// Separate from shaping the ground, deliberately. Those are different jobs at
+    /// different scales — one moves a hillside, the other places a fence rail —
+    /// and a tool that tried to be both would have two sets of controls fighting
+    /// over the same mouse. What joins them is the placed sheet: the bench makes a
+    /// building, and the terrain tool stands it somewhere.
+    Bench,
 }
 
 impl AppState {
     /// Whether this state drives a first-person-style cursor grab.
     fn captures_cursor(self) -> bool {
-        matches!(self, AppState::Playing | AppState::Editing)
+        matches!(self, AppState::Playing | AppState::Editing | AppState::Bench)
     }
 }
 
@@ -42,6 +50,7 @@ impl Plugin for StatesPlugin {
             .add_systems(OnEnter(AppState::Menu), apply_cursor)
             .add_systems(OnEnter(AppState::Playing), apply_cursor)
             .add_systems(OnEnter(AppState::Editing), apply_cursor)
+            .add_systems(OnEnter(AppState::Bench), apply_cursor)
             // Not in the terrain tool: it guards ESC itself, because leaving
             // with an afternoon's shaping unwritten should say so first.
             .add_systems(

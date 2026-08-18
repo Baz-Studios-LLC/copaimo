@@ -16,6 +16,7 @@
 //!   * `menu`   — the main menu
 //!
 //!   * `editor` — the terrain tool, driving `terrain-core`'s brush
+//!   * `bench`  — the workbench: buildings and fences, piece by piece
 //!   * `build`  — buildings baked at Opificium's builder, stood on the ground
 //!   * `sky`    — sun, ambient light, fog
 //!   * `shade`  — the material everything solid is made of, and cloud shadows
@@ -32,6 +33,7 @@
 // by construction, so naming an alias for each one buries what it selects.
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
+mod bench;
 mod build;
 mod camera;
 mod config;
@@ -75,6 +77,7 @@ fn main() {
             camera::CameraPlugin,
             menu::MenuPlugin,
             editor::EditorPlugin,
+            bench::BenchPlugin,
             hud::HudPlugin,
         ))
         .run();

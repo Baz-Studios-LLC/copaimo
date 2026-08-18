@@ -29,8 +29,9 @@
 //! itself at all twenty sites — which is a world saying something about itself
 //! that is not true. It lives on as the fixture the tests below read.
 
-mod plan;
-mod shape;
+pub mod kit;
+pub mod plan;
+pub mod shape;
 
 use std::path::Path;
 
