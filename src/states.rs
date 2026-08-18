@@ -24,6 +24,7 @@ pub enum AppState {
     /// and you are standing on it.
     ///
     /// Opificium keeps its own bench for other projects. Both run `terrain-core`.
+    #[cfg(feature = "tools")]
     Editing,
     /// The workbench: composing a building out of parts, away from the world.
     ///
@@ -32,6 +33,7 @@ pub enum AppState {
     /// and a tool that tried to be both would have two sets of controls fighting
     /// over the same mouse. What joins them is the placed sheet: the bench makes a
     /// building, and the terrain tool stands it somewhere.
+    #[cfg(feature = "tools")]
     Bench,
 }
 
@@ -42,7 +44,14 @@ impl AppState {
         // click it — and a captured cursor is for looking around with the mouse.
         // A tool that grabs the pointer in order to place a fence rail is fighting
         // the one input the job actually wants.
-        matches!(self, AppState::Playing | AppState::Editing)
+        #[cfg(feature = "tools")]
+        {
+            matches!(self, AppState::Playing | AppState::Editing)
+        }
+        #[cfg(not(feature = "tools"))]
+        {
+            matches!(self, AppState::Playing)
+        }
     }
 }
 
@@ -53,8 +62,7 @@ impl Plugin for StatesPlugin {
         app.init_state::<AppState>()
             .add_systems(OnEnter(AppState::Menu), apply_cursor)
             .add_systems(OnEnter(AppState::Playing), apply_cursor)
-            .add_systems(OnEnter(AppState::Editing), apply_cursor)
-            .add_systems(OnEnter(AppState::Bench), apply_cursor)
+            .add_systems(OnEnter(AppState::Playing), apply_cursor)
             // Not in the terrain tool: it guards ESC itself, because leaving
             // with an afternoon's shaping unwritten should say so first.
             .add_systems(

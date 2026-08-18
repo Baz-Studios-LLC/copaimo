@@ -19,6 +19,7 @@
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
+pub mod kiln;
 pub mod reference;
 
 use crate::build::kit::{self, Bench, Part, TINTS};
@@ -117,6 +118,7 @@ impl Plugin for BenchPlugin {
             .init_resource::<View>()
             .init_resource::<Asked>()
             .init_resource::<reference::Reference>()
+            .init_resource::<kiln::Firing>()
             .add_systems(OnEnter(AppState::Bench), (open, reference::open))
             .add_systems(OnExit(AppState::Bench), close)
             .add_systems(
@@ -131,6 +133,8 @@ impl Plugin for BenchPlugin {
                     rebuild,
                     draw_ghost,
                     reference::show,
+                    kiln::ask,
+                    kiln::collect,
                     say_state,
                 )
                     .chain()
@@ -554,6 +558,7 @@ fn say_state(
     bench: Res<Bench>,
     hand: Res<Hand>,
     reference: Res<reference::Reference>,
+    firing: Res<kiln::Firing>,
     mut text: Query<&mut Text, With<Readout>>,
 ) {
     let Some(mut text) = text.iter_mut().next() else {
@@ -565,6 +570,8 @@ mouse aims and snaps  ·  LEFT {}  ·  RIGHT take away  ·  P {}
 1-7 part  ·  R turn  ·  C colour  ·  WASD/QE nudge (SHIFT a whole module)
 G ask for one  ·  SHIFT+G a different kind  ·  it arrives as pieces you can edit
 I picture: {}  ·  U upright/flat  ·  , . size  ·  K fade
+F5 make a MODEL from it  ·  costs credits, uploads the picture, takes minutes
+{}
 Ctrl+Z undo  ·  Ctrl+S save  ·  [ ] turn view  ·  -/= zoom  ·  ESC to the menu",
         match hand.doing {
             Doing::Building => "BUILDING",
@@ -587,6 +594,7 @@ Ctrl+Z undo  ·  Ctrl+S save  ·  [ ] turn view  ·  -/= zoom  ·  ESC to the me
             Doing::Painting => "back to building",
         },
         reference.said(),
+        if firing.said.is_empty() { "" } else { &firing.said },
     );
     if **text != said {
         **text = said;

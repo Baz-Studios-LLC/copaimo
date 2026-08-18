@@ -40,6 +40,7 @@
 use bevy::log::{info, warn};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "tools")]
 use std::io;
 use std::path::Path;
 
@@ -114,6 +115,10 @@ impl Standing {
     }
 
     /// Puts something in the world and hands back its name.
+    ///
+    /// Changing the sheet is a TOOL's job. A player's build reads what a maker
+    /// placed and never adds to it — see the gated block below for the rest.
+    #[cfg(feature = "tools")]
     pub fn add(&mut self, kind: impl Into<String>, at: Vec2, turn: f32, scale: f32) -> u32 {
         // One past the highest in use, never the count. Deleting the last thing
         // and adding another would otherwise hand out a name that something else
@@ -131,6 +136,7 @@ impl Standing {
         id
     }
 
+    #[cfg(feature = "tools")]
     pub fn get(&self, id: u32) -> Option<&Placed> {
         self.things.iter().find(|t| t.id == id)
     }
@@ -146,6 +152,7 @@ impl Standing {
     }
 
     /// Takes something out. `false` if there was nothing by that name.
+    #[cfg(feature = "tools")]
     pub fn remove(&mut self, id: u32) -> bool {
         let before = self.things.len();
         self.things.retain(|t| t.id != id);
@@ -155,6 +162,7 @@ impl Standing {
     }
 
     /// The nearest thing to a point, within a distance. For clicking on things.
+    #[cfg(feature = "tools")]
     pub fn nearest(&self, to: Vec2, within: f32) -> Option<u32> {
         self.things
             .iter()
@@ -164,6 +172,7 @@ impl Standing {
             .map(|(_, id)| id)
     }
 
+    #[cfg(feature = "tools")]
     pub fn mark_saved(&mut self) {
         self.unsaved = false;
     }
@@ -207,6 +216,7 @@ pub fn read(json: &str) -> Result<Standing, String> {
     })
 }
 
+#[cfg(feature = "tools")]
 pub fn write(standing: &Standing) -> String {
     let sheet = Sheet {
         format: FORMAT,
@@ -242,6 +252,9 @@ pub fn load() -> Standing {
     }
 }
 
+/// Writing a layer is a TOOL's job. A player's build reads what a maker left
+/// and never writes any of it back, so this is not compiled into one.
+#[cfg(feature = "tools")]
 pub fn save(standing: &mut Standing) -> io::Result<()> {
     let path = Path::new(PLACED_PATH);
     if let Some(folder) = path.parent() {
@@ -252,7 +265,9 @@ pub fn save(standing: &mut Standing) -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+// The sheet is written only by a tool, so most of what these exercise is not
+// compiled into a player's build and there is nothing there to test.
+#[cfg(all(test, feature = "tools"))]
 mod tests {
     use super::*;
 

@@ -215,6 +215,7 @@ impl Terrain {
 
     /// How many cells of woods are painted. Zero means either nothing has been
     /// planted or `forest.bin` was refused — the startup log says which.
+    #[cfg(feature = "tools")]
     pub fn planted_cells(&self) -> usize {
         self.forest.read().map_or(0, |woods| woods.painted_cells())
     }
@@ -224,16 +225,19 @@ impl Terrain {
     /// Handed out as the lock rather than its contents: the brush holds a write
     /// lock across a whole stroke, and everything else takes a read lock for the
     /// length of one height query.
+    #[cfg(feature = "tools")]
     pub fn edits(&self) -> &RwLock<Sculpt> {
         &self.edits
     }
 
     /// The painted woods, for the Plant brush. Same bargain as [`Self::edits`].
+    #[cfg(feature = "tools")]
     pub fn woods(&self) -> &RwLock<crate::world::forest::Painted> {
         &self.forest
     }
 
     /// What the ground is made of, for the Path brush.
+    #[cfg(feature = "tools")]
     pub fn surface(&self) -> &RwLock<crate::world::surface::Painted> {
         &self.surface
     }
@@ -246,11 +250,13 @@ impl Terrain {
     }
 
     /// How many cells of surface a maker has laid.
+    #[cfg(feature = "tools")]
     pub fn worn_cells(&self) -> usize {
         self.surface.read().map_or(0, |worn| worn.painted_cells())
     }
 
     /// How many cells a maker has marked out as a country of their own.
+    #[cfg(feature = "tools")]
     pub fn marked_cells(&self) -> usize {
         self.country.read().map_or(0, |them| them.painted_cells())
     }
@@ -678,6 +684,7 @@ impl Terrain {
     }
 
     /// The painted country layer, for the brush and for saving.
+    #[cfg(feature = "tools")]
     pub fn countries(&self) -> &RwLock<crate::world::country::Painted> {
         &self.country
     }

@@ -59,6 +59,7 @@ impl Form {
     /// that will one day be written as something it cannot be read back as, and a
     /// round-trip test only catches that if somebody remembers to add the case to
     /// both.
+    #[cfg(feature = "tools")]
     pub fn word(self) -> String {
         match self {
             Form::Box => "box".into(),

@@ -42,13 +42,33 @@ jobs:
       # Bevy needs ALSA and udev headers on Linux; neither runner here is Linux,
       # so a plain toolchain is the whole neighbourhood.
       - name: Build (release)
-        run: cargo build --release
+        # `--no-default-features` takes the maker's tools out: the terrain brush,
+        # the workbench, and the kiln that can spend credits. A player's build
+        # should not carry any of them, and the surest way for them not to be there
+        # is for them not to be compiled. The step below proves it rather than
+        # trusting the flag.
+        run: cargo build --release --no-default-features
 
       # The generation tests are the ones worth having in a release build: they
       # assert the world still has land, still ends in ocean on all four
       # corners, and still finds ground for every city and town.
       - name: Test
         run: cargo test --release
+
+      # Proof rather than trust. A flag can be dropped in an edit nobody reads,
+      # and the failure it causes is silent: a release that ships a terrain brush
+      # and a kiln looks exactly like one that does not until somebody finds them.
+      # The kiln names the service it talks to, so the binary can simply be asked.
+      - name: The tools are not in it
+        shell: bash
+        run: |
+          BIN=$(ls target/release/ranger-game target/release/ranger-game.exe 2>/dev/null | head -1)
+          echo "checking $BIN"
+          if grep -qa "3daistudio" "$BIN"; then
+            echo "::error::the release binary carries the kiln"
+            exit 1
+          fi
+          echo "no kiln in the release binary"
 
       - name: Compute version (tag without leading v)
         id: ver

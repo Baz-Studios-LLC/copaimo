@@ -11,6 +11,21 @@ name = "ranger-game"
 version = "0.1.7"
 edition = "2021"
 
+[features]
+# The maker's tools: the terrain brush, the workbench, and the kiln that sends a
+# picture away to be made into a model.
+#
+# ON by default, because a working copy is a development copy and forgetting the
+# flag while working is a worse failure than forgetting it while releasing — one
+# wastes a minute, the other ships a tool.
+#
+# Releases are built `--no-default-features`, which takes out the whole of it: the
+# menu entries, the states, the systems, and `ureq` with them. A player's build
+# should not carry a terrain brush, and it should certainly not carry code that can
+# spend somebody's credits.
+default = ["tools"]
+tools = ["dep:ureq"]
+
 [dependencies]
 # Pinned to 0.16 on purpose: this code is written against 0.16's exact API
 # (required components, Msaa-as-component, DistanceFog). Bevy churns its API
@@ -33,6 +48,13 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # the same code even though nothing is shared between the programs.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# For the kiln: a picture out to a generation service, a model back.
+#
+# `ureq` rather than anything async, because the firing already runs on its own
+# thread and blocking there is simpler than threading a runtime through a game
+# with no other use for one.
+ureq = { version = "3.4", features = ["json"], optional = true }
 
 # The world generation this game and Opificium's terrain bench BOTH run.
 #

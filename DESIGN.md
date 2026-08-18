@@ -531,6 +531,34 @@ assets/
 
 ## Change log
 
+**2026-08-18** — **The kiln, and the tools out of releases.**
+
+**An image in, a model out.** `F5` on the workbench sends the picture on the wall
+to 3daistudio and keeps the GLB that comes back, in `assets/models` where the
+placed sheet can stand it by name. Mirrors Opificium's kiln, contract and hard-won
+lessons both: the download is **streamed** (a textured GLB goes past a ten-megabyte
+in-memory cap, and failing there fails *after* the model is paid for), a
+FINISHED-with-nothing-attached answer is told apart from a failure, and there is a
+global timeout so a stalled line cannot leave it fetching for ever.
+
+It happens **on a press and never on its own**. No retries, no polling ahead, one
+job at a time — every firing spends credits and uploads a picture to a third party.
+The key comes from `RANGER_3DAI_KEY` or the maker's own home folder, never this
+repository: a key committed once has to be rotated, and the commit that did it is
+usually the one nobody looked at.
+
+**None of the tools ship.** `--no-default-features` takes out the terrain brush,
+the workbench, the kiln, every layer's *writer*, and `ureq` with them. A player's
+build should not carry a way to break a save, and it certainly should not carry
+code that can spend somebody's credits.
+
+Gated rather than hidden, and **proved rather than trusted**: the release workflow
+greps the built binary for the service the kiln talks to and fails if it is there.
+Measured — **2 occurrences in a maker build, 0 in a release**. A dropped flag is a
+silent failure otherwise, and a release that ships a brush looks exactly like one
+that does not.
+
+
 **2026-08-18** — **The placed sheet can stand a generated model.**
 
 Corrected after reading Opificium's **kiln**, which is the tool this was always

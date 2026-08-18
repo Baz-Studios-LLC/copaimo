@@ -33,10 +33,14 @@
 // by construction, so naming an alias for each one buries what it selects.
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
+#[cfg(feature = "tools")]
+#[cfg(feature = "tools")]
 mod bench;
 mod build;
 mod camera;
 mod config;
+#[cfg(feature = "tools")]
+#[cfg(feature = "tools")]
 mod editor;
 mod hud;
 mod menu;
@@ -51,7 +55,8 @@ use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::prelude::*;
 
 fn main() {
-    App::new()
+    let mut app = App::new();
+    app
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Ranger — World Prototype".into(),
@@ -76,9 +81,18 @@ fn main() {
             player::PlayerPlugin,
             camera::CameraPlugin,
             menu::MenuPlugin,
-            editor::EditorPlugin,
-            bench::BenchPlugin,
             hud::HudPlugin,
-        ))
-        .run();
+        ));
+
+    // The maker's tools, and only in a maker's build.
+    //
+    // Stripped whole from a release rather than hidden behind a menu nobody
+    // clicks: a shipped terrain brush is a way to break a save, and a shipped
+    // kiln is code that can spend somebody's credits. Neither belongs in a
+    // player's hands, and the surest way for them not to be there is for them not
+    // to be compiled.
+    #[cfg(feature = "tools")]
+    app.add_plugins((editor::EditorPlugin, bench::BenchPlugin));
+
+    app.run();
 }

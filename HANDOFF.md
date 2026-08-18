@@ -509,7 +509,10 @@ unblocks 3c and 3d as well.
   this world already carries its colour in its vertices.
 * **4d. Reference images.** Import a picture, stand it on a plane, build against
   it. Cheap and it is most of what "add an image" is asking for.
-* **4e. Generation. DONE 2026-08-18.** In the workbench, here — Opificium was only
+* **4e. Generation. DONE 2026-08-18.** Wired to 3daistudio. **Never tested against
+  the live service** — that needs a key and spends credits, so the contract, the
+  polling and the failure paths are written from Opificium's kiln and unit-tested,
+  and the first real firing is still ahead. See `bench/kiln.rs`. In the workbench, here — Opificium was only
   ever mentioned as a reference for the kind of tool, and nothing goes in it. `G`
   asks for a house, fence, tower or shelter and what arrives is ordinary pieces to
   edit. See `build/pattern.rs`.

@@ -29,7 +29,11 @@
 //! itself at all twenty sites — which is a world saying something about itself
 //! that is not true. It lives on as the fixture the tests below read.
 
+// The kit and the generator are the WORKBENCH's, not the game's. A player's
+// build reads baked buildings (`plan`, `shape`) and never composes one.
+#[cfg(feature = "tools")]
 pub mod kit;
+#[cfg(feature = "tools")]
 pub mod pattern;
 pub mod plan;
 pub mod shape;
@@ -99,15 +103,17 @@ impl Plugin for BuildingPlugin {
             // The editor raises them too, deliberately. A tool that does not show
             // what is already built is a tool you have to leave to check your work.
             .add_systems(OnEnter(AppState::Playing), nudge_the_sheet)
-            .add_systems(OnEnter(AppState::Editing), nudge_the_sheet)
             .add_systems(
                 Update,
                 raise_the_placed
                     .run_if(resource_exists_and_changed::<crate::world::placed::Standing>)
-                    .run_if(
-                        in_state(AppState::Playing).or(in_state(AppState::Editing)),
-                    ),
+                    .run_if(a_world_is_up),
             );
+
+        // The tool shows what is already built too, so a maker does not have to
+        // leave it to check their work.
+        #[cfg(feature = "tools")]
+        app.add_systems(OnEnter(AppState::Editing), nudge_the_sheet);
     }
 }
 
@@ -155,6 +161,18 @@ fn read_into(folder: &Path, catalogue: &mut Catalogue) {
         catalogue.0.len(),
         folder.display()
     );
+}
+
+/// Whether there is a world on screen to raise anything into.
+fn a_world_is_up(state: Res<State<AppState>>) -> bool {
+    #[cfg(feature = "tools")]
+    {
+        matches!(state.get(), AppState::Playing | AppState::Editing)
+    }
+    #[cfg(not(feature = "tools"))]
+    {
+        matches!(state.get(), AppState::Playing)
+    }
 }
 
 /// Asks for a rebuild on entering a mode, without being a second way to do one.

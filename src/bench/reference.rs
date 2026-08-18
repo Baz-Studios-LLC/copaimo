@@ -112,6 +112,16 @@ impl Reference {
     fn path(&self) -> Option<&PathBuf> {
         self.showing.and_then(|at| self.found.get(at))
     }
+
+    /// The picture a firing would be made from.
+    ///
+    /// The same one that is up, so what a maker sends is what they can see. A key
+    /// that fired "the first picture in the folder" while a different one was on
+    /// the wall would spend money on the wrong image, and nobody would find out for
+    /// two minutes.
+    pub fn chosen(&self) -> Option<&PathBuf> {
+        self.path()
+    }
 }
 
 /// Sets the sheet up when the bench opens.

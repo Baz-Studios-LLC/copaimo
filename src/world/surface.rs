@@ -17,6 +17,7 @@
 
 use bevy::log::{info, warn};
 use bevy::prelude::*;
+#[cfg(feature = "tools")]
 use std::io;
 use std::path::Path;
 
@@ -61,6 +62,9 @@ pub fn load(half: Vec2) -> Painted {
     }
 }
 
+/// Writing a layer is a TOOL's job. A player's build reads what a maker left
+/// and never writes any of it back, so this is not compiled into one.
+#[cfg(feature = "tools")]
 pub fn save(painted: &mut Painted) -> io::Result<()> {
     let path = Path::new(SURFACE_PATH);
     if let Some(folder) = path.parent() {

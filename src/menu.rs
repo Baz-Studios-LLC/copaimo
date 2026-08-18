@@ -20,7 +20,11 @@ struct MenuRoot;
 #[derive(Component, Clone, Copy)]
 enum MenuAction {
     Play,
+    /// The maker's tools. Gone entirely from a release, rather than greyed out —
+    /// a button that says "not for you" is worse than no button.
+    #[cfg(feature = "tools")]
     Edit,
+    #[cfg(feature = "tools")]
     Bench,
     Quit,
 }
@@ -85,7 +89,9 @@ fn spawn_menu(mut commands: Commands) {
 
                 for (action, label, hint) in [
                     (MenuAction::Play, "Explore World", "walk the map as the ranger"),
+                    #[cfg(feature = "tools")]
                     (MenuAction::Edit, "Shape the World", "sculpt the ground you walk on"),
+                    #[cfg(feature = "tools")]
                     (MenuAction::Bench, "Workbench", "build houses and fences, piece by piece"),
                     (MenuAction::Quit, "Quit", ""),
                 ] {
@@ -151,7 +157,9 @@ fn menu_buttons(
                 background.0 = PRESSED;
                 match action {
                     MenuAction::Play => next.set(AppState::Playing),
+                    #[cfg(feature = "tools")]
                     MenuAction::Edit => next.set(AppState::Editing),
+                    #[cfg(feature = "tools")]
                     MenuAction::Bench => next.set(AppState::Bench),
                     MenuAction::Quit => {
                         exit.write(AppExit::Success);

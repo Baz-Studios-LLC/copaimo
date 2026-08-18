@@ -25,6 +25,7 @@
 //! `assets/world/edits.bin` is the game's business.
 
 use std::fs;
+#[cfg(feature = "tools")]
 use std::io;
 use std::path::Path;
 
@@ -33,7 +34,12 @@ use bevy::prelude::*;
 
 use crate::config::{EDITS_PATH, WORLD_SEED};
 
-pub use terrain_core::sculpt::{Brushing, Patch, Sculpt, Stamp};
+// The brush's own vocabulary is re-exported for the tools; a player's build
+// still needs `Sculpt`, because ground somebody shaped is part of the world and
+// is read at startup whether or not there is anything to shape it with.
+#[cfg(feature = "tools")]
+pub use terrain_core::sculpt::{Brushing, Patch, Stamp};
+pub use terrain_core::sculpt::Sculpt;
 
 /// Reads the sculpted ground, or an empty layer if there is none.
 ///
@@ -78,10 +84,14 @@ pub fn load_from(path: &Path, half: Vec2) -> Sculpt {
 }
 
 /// Writes the sculpted ground back to the game's own folder.
+/// Writing a layer is a TOOL's job. A player's build reads what a maker left
+/// and never writes any of it back, so this is not compiled into one.
+#[cfg(feature = "tools")]
 pub fn save(sculpt: &mut Sculpt) -> io::Result<()> {
     save_to(Path::new(EDITS_PATH), sculpt)
 }
 
+#[cfg(feature = "tools")]
 pub fn save_to(path: &Path, sculpt: &mut Sculpt) -> io::Result<()> {
     if let Some(folder) = path.parent() {
         fs::create_dir_all(folder)?;

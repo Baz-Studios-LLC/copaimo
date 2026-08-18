@@ -160,11 +160,15 @@ fn set_fly_speed(keys: Res<ButtonInput<KeyCode>>, mut speed: ResMut<FlySpeed>) {
 fn orbit_input(
     motion: Res<AccumulatedMouseMotion>,
     scroll: Res<AccumulatedMouseScroll>,
-    free: Option<Res<crate::editor::CursorFree>>,
+    #[cfg(feature = "tools")] free: Option<Res<crate::editor::CursorFree>>,
     mut orbit: ResMut<Orbit>,
 ) {
     // The pointer has been let go to reach a panel. Moving it there must not
     // swing the view, exactly as in the menu.
+    //
+    // Only the tools ever let it go, so in a player's build there is no panel to
+    // reach for and nothing to ask.
+    #[cfg(feature = "tools")]
     if free.is_some_and(|free| free.0) {
         return;
     }

@@ -61,6 +61,7 @@ pub const BUILDINGS_DIR: &str = "assets/buildings";
 /// Taken from the shared crate rather than written down again: it is the shape
 /// of a file two programs both read and write, so a second copy of the number
 /// is a second chance to disagree.
+#[cfg(feature = "tools")]
 pub const EDIT_CELL: f32 = terrain_core::sculpt::CELL;
 
 /// Seed for the detail noise layers. Change it to reshuffle local terrain
