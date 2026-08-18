@@ -1,69 +1,57 @@
-## The tools you shape it with — and the first build that ships without them
+## Copaimo: The Wardens Guild
 
-Still a world to walk and nothing yet to do in it. This one is almost entirely
-about the tools, and about making sure none of them reach a player.
+**The game has a name.** It was "Ranger", which was also what the player was
+called — one word doing two jobs. It is **Copaimo: The Wardens Guild** now, and
+the player is a **Warden**. The title screen carries the real logo rather than the
+name typed out in whatever font happened to load, and the game has an icon: the
+Wardens Guild crest, on the window, on the executable, and on the macOS bundle.
 
-**No maker's tools in this build.** The terrain brush, the workbench and the model
-kiln are not hidden behind a menu — they are not compiled in. A player's build
-should not carry a way to break a save, and it certainly should not carry code
-that can spend somebody's credits. The release workflow checks the binary itself
-and refuses to publish one with the tools in it, because a dropped build flag is
-otherwise a silent failure: a release that ships a brush looks exactly like one
-that does not.
+Still a world to walk and nothing yet to do in it — no monsters, no battles, no
+guild exams. This release is the name, and the tools that build the world.
 
-Everything below is in a maker's build, built from the same source with the tools
-switched on.
+### The maker's tools have menus you can click
 
-### Painting the map's biomes
+Both tools were keyboard-only, which is fine for somebody who already knows them
+and hostile to everybody else: a keybind is invisible until you have read a list
+of them, and a list of keys at the top of the screen is not an interface.
 
-Where the deserts and the snow country sit used to be decided by numbers in code,
-and moving one meant reading a marker's position off a screenshot and guessing
-which constant it implied. That went wrong five times in one evening — not through
-carelessness, but because the person who can *see* where a desert belongs and the
-person who can edit the number were not the same person.
+Both have a proper panel now, built from the same pieces so they look and behave
+alike. Everything is pressable, and every row **shows its key** — so the keyboard
+is discoverable rather than documented, and a maker who knows the tool never has
+to reach for the mouse.
 
-There is a brush now. `B` in Shape the World, press again to cycle ordinary,
-desert and snow country; the right button clears back to whatever the world would
-have decided for itself. It undoes and saves with everything else, and the
-overview redraws so you can see the region while you are drawing it.
+The terrain tool's eleven brushes are grouped into four foldable branches — shape
+the ground, lay over it, grow and mark, take it back — and its sliders are
+draggable rather than being pictures of sliders.
 
-### A workbench
+The workbench had the worst of it: a wall of text over a grey grid, no menus and
+no way to move. It has the same panel as the terrain tool, a shelf of parts you
+click, colour swatches you click, and a floor that ends where the work is instead
+of stretching to the horizon.
 
-**Workbench** on the main menu: houses and fences built piece by piece from a kit
-of seven parts — posts, rails, walls, floors, beams, roof panels, ridge caps — on
-a quarter-metre lattice.
+### None of it ships
 
-The sizes are fixed and the turns are quarters, and both are the point. Free boxes
-at free angles give you the freedom to make every wall a slightly different
-thickness and stand it three degrees off, which is a freedom nobody wants and
-every eye notices. A fence and a house come out of the same parts.
+The terrain brush, the workbench and the model kiln are not hidden behind a menu
+in a player's build — they are not compiled in. A player's build should not carry
+a way to break a save, and it certainly should not carry code that can spend
+somebody's credits. The release workflow greps the binary and refuses to publish
+one with the tools in it, because a dropped build flag is otherwise silent: a
+release that ships a brush looks exactly like one that does not.
 
-The mouse aims and **snaps**; keys still nudge. `G` asks for a house, a fence, a
-tower or a shelter — and what arrives is ordinary pieces, so the next thing you do
-is take a wall out for a wider door. Generating is for skipping the boring half of
-making a building, not for handing you one you cannot change.
+### Also in this one
 
-### Things stand where you put them
+**A biome brush.** Where the deserts and the snow country sit used to be numbers
+in code. Paint them instead.
 
-The world used to raise one building at the middle of every town site, cycling
-through whatever was in the folder. `assets/world/placed.json` says *this thing,
-here, turned this way, this big* — and it survives the ground being resculpted,
-because what is stored is the height above the ground rather than a height.
+**A workbench that generates.** Ask for a house, a fence, a tower or a shelter and
+what arrives is ordinary pieces you can take apart — generating is for skipping
+the boring half of making a building, not for handing you one you cannot change.
+Or send a picture away and get a 3D model back.
 
-It stands buildings from the bench and **models generated from a picture**, which
-is the other new thing: `F5` sends the image on the bench wall away to be made
-into a 3D model, and what comes back lands in `assets/models` ready to place.
+**Things stand where you put them.** `placed.json` says what stands where, and it
+survives the ground being resculpted underneath it.
 
-### Editor
-
-The free-fly camera can no longer go under the ground. Under the map is not a
-place — the world is a single surface with no underside, so from below you see the
-backs of hills and the sea from inside, and nothing about the view tells you that
-is what happened.
-
-The overview has a heading needle and says which way is north. A dot tells you
-where you are and nothing about where you are facing, which on a map with no
-landmarks is half the information missing.
+**The camera stays above the ground**, and the overview has a heading needle.
 
 ### Testing on macOS
 
@@ -71,7 +59,7 @@ landmarks is half the information missing.
 Intel Mac.
 
 Grab the **`.dmg`** and drag Copaimo out of it, or install through the **Baz
-Studios launcher** (which uses the `.tar.gz` and clears the quarantine for you).
+Studios launcher**.
 
 The app is **ad-hoc signed** rather than notarised, so macOS quarantines anything
 downloaded and may say *"Copaimo is damaged and can't be opened"*. It isn't
