@@ -32,29 +32,53 @@ cp -R "$ROOT/assets" "$APP/Contents/MacOS/assets"
 # The icon. Built here rather than committed as an .icns because `iconutil` is a
 # macOS tool and this is the only place a mac is guaranteed - so what the
 # repository carries is the PNG, and the platform's own tool renders the rest.
+# ALL of it inside one guard, and that matters more than it looks.
 #
-# Every size, because the Finder picks one per view and scales nothing kindly.
-ICONSET="$OUT/Copaimo.iconset"
-rm -rf "$ICONSET"
-mkdir -p "$ICONSET"
-for size in 16 32 64 128 256 512; do
-  sips -z $size $size "$HERE/Copaimo-icon.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
-  double=$((size * 2))
-  sips -z $double $double "$HERE/Copaimo-icon.png"     --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
-done
-if iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/Copaimo.icns"; then
+# This script runs under `set -euo pipefail`, so any unguarded command that fails
+# ends the whole packaging — and packaging is the step that produces the release.
+# An icon is a nicety; a release is not. Losing the release to a missing `sips`
+# would be the same shape of fault that has already cost one: a mac-only path,
+# never run anywhere else, taking the build down with it.
+#
+# So the icon is built in a subshell whose failure is caught, and everything after
+# it asks whether the file actually arrived rather than assuming it did.
+# Every step checked BY HAND rather than left to `set -e`.
+#
+# `set -e` does nothing here and that is not obvious: bash suppresses it for any
+# command whose status is being tested, and this whole function is called as an
+# `if` condition. Written the other way it ran to the end with every `sips`
+# failing and returned the status of the final `rm` — success — so it reported
+# "icon built" over a bundle with no icon in it. Tested with a `sips` that fails,
+# which is the only way that showed up.
+build_icon() (
+  ICONSET="$OUT/Copaimo.iconset"
+  rm -rf "$ICONSET"
+  mkdir -p "$ICONSET" || return 1
+  # Every size, because the Finder picks one per view and scales nothing kindly.
+  for size in 16 32 64 128 256 512; do
+    double=$((size * 2))
+    sips -z "$size" "$size" "$HERE/Copaimo-icon.png"       --out "$ICONSET/icon_${size}x${size}.png" >/dev/null || return 1
+    sips -z "$double" "$double" "$HERE/Copaimo-icon.png"       --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null || return 1
+  done
+  iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/Copaimo.icns" || return 1
+  # And the file has to actually be there. `iconutil` returning nought with
+  # nothing written would otherwise be reported as a success.
+  [ -f "$APP/Contents/Resources/Copaimo.icns" ] || return 1
+  rm -rf "$ICONSET"
+)
+
+if build_icon; then
   echo "icon built"
 else
-  # A bundle that NAMES an icon it does not carry shows a blank one, which is
-  # worse than the default. So if the icon cannot be built, stop naming it.
-  echo "could not build the icon; leaving the default" >&2
+  echo "could not build the icon; the app keeps the default one" >&2
+  rm -rf "$OUT/Copaimo.iconset"
 fi
-rm -rf "$ICONSET"
 
 sed "s/__VERSION__/$VERSION/g" "$HERE/Info.plist" > "$APP/Contents/Info.plist"
 if [ ! -f "$APP/Contents/Resources/Copaimo.icns" ]; then
-  # Drop the CFBundleIconFile line rather than leave it pointing at nothing.
-  sed -i "" "/CFBundleIconFile/,+1d" "$APP/Contents/Info.plist" 2>/dev/null || true
+  # A bundle that NAMES an icon it does not carry shows a BLANK one, which is
+  # worse than the default. So if the icon did not get built, stop naming it.
+  sed -i "" "/CFBundleIconFile/,+1d" "$APP/Contents/Info.plist" || true
 fi
 
 # Ad-hoc sign so macOS runs it without a "damaged" error; the launcher also
