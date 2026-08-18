@@ -103,6 +103,18 @@ impl Plugin for CameraPlugin {
             .init_resource::<FlySpeed>()
             .init_resource::<Orbit>()
             .add_systems(Startup, spawn_camera)
+            // On foot, every time play begins.
+            //
+            // The terrain tool sets free-fly when it opens and nothing put it
+            // back, so a maker who had opened it once was flying for the rest of
+            // the session — every New Game and every Continue after that started
+            // in the air with the warden left behind, which reads as the tool
+            // never having closed.
+            //
+            // A state that changes a global setting has to answer for it. This is
+            // the answer: whatever the last mode was, playing starts on foot, and
+            // F is still there for anybody who wants to leave the ground.
+            .add_systems(OnEnter(AppState::Playing), start_on_foot)
             .add_systems(
                 Update,
                 (
@@ -153,6 +165,10 @@ fn spawn_camera(mut commands: Commands) {
         // shape of the land — see the note on `VIEW_CHUNKS` in config.rs.
         Transform::from_xyz(0.0, 40.0, 30.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
+}
+
+fn start_on_foot(mut mode: ResMut<CameraMode>) {
+    *mode = CameraMode::Follow;
 }
 
 fn toggle_modes(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<CameraMode>) {

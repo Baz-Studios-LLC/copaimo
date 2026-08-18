@@ -187,7 +187,69 @@ impl Piece {
     pub fn middle(self) -> Vec3 {
         self.foot + Vec3::Y * self.part.size().y * 0.5
     }
+
+    /// The box or boxes this piece is drawn as.
+    ///
+    /// Most parts are one box. A floor is boards.
+    pub fn blocks(self) -> Vec<Block> {
+        let [r, g, b] = TINTS[self.tint.min(TINTS.len() - 1)].1;
+        let colour = Color::srgb_u8(r, g, b);
+        let size = self.part.size();
+
+        if self.part != Part::Floor {
+            return vec![Block {
+                at: self.middle(),
+                size,
+                turn: self.turn(),
+                form: self.part.form(),
+                colour,
+                stage: self.part.stage().into(),
+            }];
+        }
+
+        // A floor, laid as boards.
+        //
+        // Deterministic from where the piece STANDS rather than from its id, so
+        // two floors laid side by side carry on the same grain — an id is an
+        // accident of the order things were placed, and a floor whose pattern
+        // jumped at a seam because of that would look like two floors.
+        let wide = size.x / PLANKS as f32;
+        let lay = self.foot.x.round() as i32;
+        let across = self.foot.z.round() as i32;
+        (0..PLANKS)
+            .map(|board| {
+                let along = board as f32 + 0.5;
+                let shade = terrain_core::forest::chance(lay, across * PLANKS as i32 + board as i32, 64);
+                Block {
+                    at: self.middle()
+                        + self.turn()
+                            * Vec3::new(0.0, 0.0, -size.z * 0.5 + wide * along),
+                    // A hair short across, so the joint between boards reads as a
+                    // line rather than the boards fusing into a slab again.
+                    size: Vec3::new(size.x, size.y, wide - JOINT),
+                    turn: self.turn(),
+                    form: Form::Box,
+                    colour: shaded_by(colour, 1.0 - GRAIN * 0.5 + shade * GRAIN),
+                    stage: self.part.stage().into(),
+                }
+            })
+            .collect()
+    }
 }
+
+/// The same colour, lighter or darker.
+fn shaded_by(colour: Color, by: f32) -> Color {
+    let lit = colour.to_linear();
+    Color::linear_rgb(lit.red * by, lit.green * by, lit.blue * by)
+}
+
+/// How many boards a floor is laid in, the line between them, and how far one
+/// board strays from the next.
+///
+/// Wood is not one colour, and a floor where it is reads as printed.
+const PLANKS: usize = 5;
+const JOINT: f32 = 0.02;
+const GRAIN: f32 = 0.30;
 
 /// A work in progress.
 #[derive(Resource, Debug)]
@@ -210,6 +272,13 @@ impl Default for Bench {
 }
 
 impl Bench {
+    /// Every piece on the bench.
+    ///
+    /// Only the tests read this now that the writer takes its colours off the
+    /// blocks. Kept because the alternative is tests reaching into private state
+    /// to check what the bench holds, and a bench nobody can ask what is on it is
+    /// a bench nobody can test.
+    #[allow(dead_code)]
     pub fn pieces(&self) -> &[Piece] {
         &self.pieces
     }
@@ -232,9 +301,16 @@ impl Bench {
         self.unsaved = true;
     }
 
-    /// Snaps a point to the lattice.
+    /// Snaps a point to the fine lattice.
     pub fn snapped(at: Vec3) -> Vec3 {
-        (at / SNAP).round() * SNAP
+        Self::snapped_to(at, SNAP)
+    }
+
+    /// Snaps a point to any step. The module for placing things beside each
+    /// other, the fine lattice for the times that is genuinely wanted.
+    pub fn snapped_to(at: Vec3, step: f32) -> Vec3 {
+        let step = step.max(SNAP);
+        (at / step).round() * step
     }
 
     /// Adds a member, snapping it, and hands back its name.
@@ -328,22 +404,14 @@ impl Bench {
     }
 
     /// Turns the whole work into the format the game already reads.
+    ///
+    /// One piece is not always one box. A floor is laid as BOARDS — see
+    /// `planks` — because a floor slab of one flat colour is a slab, and the
+    /// thing that makes a floor read as a floor is that you can see it is made of
+    /// something. The format has always taken as many boxes as a building needs,
+    /// so this costs nothing but the boxes themselves.
     pub fn to_plan(&self) -> Plan {
-        let boxes: Vec<Block> = self
-            .pieces
-            .iter()
-            .map(|piece| Block {
-                at: piece.middle(),
-                size: piece.part.size(),
-                turn: piece.turn(),
-                form: piece.part.form(),
-                colour: {
-                    let [r, g, b] = TINTS[piece.tint.min(TINTS.len() - 1)].1;
-                    Color::srgb_u8(r, g, b)
-                },
-                stage: piece.part.stage().into(),
-            })
-            .collect();
+        let boxes: Vec<Block> = self.pieces.iter().flat_map(|piece| piece.blocks()).collect();
 
         let mut plan = Plan {
             name: self.name.clone(),
@@ -384,8 +452,19 @@ pub fn as_json(bench: &Bench) -> String {
     out.push_str(&format!("  \"high\": {:.4},\n", plan.high));
     out.push_str("  \"boxes\": [\n");
 
-    for (index, (block, piece)) in plan.boxes.iter().zip(bench.pieces()).enumerate() {
-        let rgb = TINTS[piece.tint.min(TINTS.len() - 1)].1;
+    // The colour comes off the BLOCK, not from looking the piece's tint up again.
+    //
+    // This zipped boxes against pieces one for one, which stopped being true the
+    // moment a floor started being laid as several boards: the pairing slid, every
+    // block after the first floor took the wrong tint, and the file came out
+    // shorter than the building. A block already knows what colour it is.
+    for (index, block) in plan.boxes.iter().enumerate() {
+        let lit = block.colour.to_srgba();
+        let rgb = [
+            (lit.red * 255.0).round().clamp(0.0, 255.0) as u8,
+            (lit.green * 255.0).round().clamp(0.0, 255.0) as u8,
+            (lit.blue * 255.0).round().clamp(0.0, 255.0) as u8,
+        ];
         out.push_str("    {");
         out.push_str(&format!(
             " \"at\": [{:.4},{:.4},{:.4}],",
@@ -402,7 +481,7 @@ pub fn as_json(bench: &Bench) -> String {
         out.push_str(&format!(" \"form\": {},", quoted(&block.form.word())));
         out.push_str(&format!(" \"rgb\": [{},{},{}],", rgb[0], rgb[1], rgb[2]));
         out.push_str(" \"alpha\": 1.0,");
-        out.push_str(&format!(" \"cloth\": {},", quoted(TINTS[piece.tint].0)));
+        out.push_str(&format!(" \"cloth\": {},", quoted(&block.stage)));
         out.push_str(&format!(" \"stage\": {} }}", quoted(&block.stage)));
         if index + 1 < plan.boxes.len() {
             out.push(',');
@@ -520,7 +599,14 @@ mod tests {
         // Both come out as buildings the game can raise.
         for (what, bench) in [("fence", &rails), ("hut", &walls)] {
             let plan = bench.to_plan();
-            assert_eq!(plan.boxes.len(), bench.len(), "{what} lost a piece");
+            // At LEAST one box a piece: a floor is laid as several boards, so the
+            // two counts are no longer the same number and should not be.
+            assert!(
+                plan.boxes.len() >= bench.len(),
+                "{what} lost a piece: {} boxes from {} pieces",
+                plan.boxes.len(),
+                bench.len()
+            );
             assert!(plan.high > 0.5, "{what} is {:.2} m tall", plan.high);
             assert!(plan.half_w > 0.5, "{what} is {:.2} m across", plan.half_w);
         }
@@ -560,6 +646,10 @@ mod tests {
 
         assert_eq!(back.name, "test hut");
         assert_eq!(back.boxes.len(), mine.boxes.len());
+        assert!(
+            back.boxes.len() > bench.len(),
+            "a hut with a floor in it should write more boxes than it has pieces"
+        );
         for (read, made) in back.boxes.iter().zip(&mine.boxes) {
             assert!(read.at.abs_diff_eq(made.at, 1.0e-3), "{:?} vs {:?}", read.at, made.at);
             assert!(read.size.abs_diff_eq(made.size, 1.0e-3));
@@ -569,6 +659,93 @@ mod tests {
             assert!((want.red - got.red).abs() < 0.02, "{want:?} vs {got:?}");
         }
         assert!((back.high - mine.high).abs() < 1.0e-3);
+    }
+
+    #[test]
+    fn a_floor_is_laid_as_boards() {
+        // A floor slab of one flat colour is a slab. What makes a floor read as a
+        // floor is that you can see it is made of something.
+        let mut bench = Bench::default();
+        bench.add(Part::Floor, Vec3::ZERO, 0, 0);
+        let boards = bench.to_plan().boxes;
+        assert!(boards.len() > 3, "a floor came out as {} boxes", boards.len());
+
+        // Boards, not slabs: each one long and narrow.
+        for board in &boards {
+            assert!(
+                board.size.x > board.size.z * 2.0,
+                "a board {:.2} by {:.2} is a tile",
+                board.size.x,
+                board.size.z
+            );
+        }
+
+        // They cover the module without overlapping, and they are not one colour.
+        let widest = boards.iter().map(|b| b.size.z).fold(0.0_f32, f32::max);
+        assert!(
+            (widest * boards.len() as f32 - MODULE).abs() < 0.2,
+            "{} boards of {widest:.3} do not make a {MODULE} m floor",
+            boards.len()
+        );
+        let shades: std::collections::HashSet<u32> = boards
+            .iter()
+            .map(|b| (b.colour.to_linear().red * 10_000.0) as u32)
+            .collect();
+        assert!(shades.len() > 1, "every board is the same colour");
+
+        // And the whole thing still sits exactly on the ground it was placed on.
+        let (low, high) = bench.to_plan().reach();
+        assert!(low.y.abs() < 1.0e-4, "the floor sits {:.4} m off", low.y);
+        assert!(
+            (high.y - Part::Floor.size().y).abs() < 1.0e-4,
+            "boarding changed how thick a floor is"
+        );
+    }
+
+    #[test]
+    fn two_floors_side_by_side_carry_on_the_same_grain() {
+        // Deterministic from where a piece STANDS, not from the order it was
+        // placed in. An id is an accident of that order, and a floor whose pattern
+        // jumped at a seam because of it would read as two floors.
+        let grain = |first: Vec3, second: Vec3| {
+            let mut bench = Bench::default();
+            bench.add(Part::Floor, first, 0, 0);
+            bench.add(Part::Floor, second, 0, 0);
+            bench
+                .to_plan()
+                .boxes
+                .iter()
+                .map(|b| (b.colour.to_linear().red * 10_000.0) as u32)
+                .collect::<Vec<_>>()
+        };
+        // The same two slabs, laid in the opposite order.
+        let one_way = grain(Vec3::ZERO, Vec3::new(MODULE, 0.0, 0.0));
+        let mut other_way = grain(Vec3::new(MODULE, 0.0, 0.0), Vec3::ZERO);
+        other_way.rotate_left(PLANKS);
+        assert_eq!(
+            one_way, other_way,
+            "the grain depends on which slab was laid first"
+        );
+    }
+
+    #[test]
+    fn a_piece_rests_on_the_floor_it_was_placed_on() {
+        // Reported from the bench: pieces float slightly above the grid. Measured
+        // rather than eyeballed, because "slightly" is exactly the size of error
+        // that argument settles badly.
+        let mut bench = Bench::default();
+        for part in Part::ALL {
+            bench.clear();
+            bench.add(part, Vec3::ZERO, 0, 0);
+            let plan = bench.to_plan();
+            let (low, _) = plan.reach();
+            assert!(
+                low.y.abs() < 1.0e-4,
+                "{} sits {:.4} m off the floor",
+                part.name(),
+                low.y
+            );
+        }
     }
 
     #[test]

@@ -60,6 +60,7 @@ pub struct StatesPlugin;
 impl Plugin for StatesPlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<AppState>()
+            .add_systems(Startup, |mut n: ResMut<NextState<AppState>>| n.set(AppState::Bench))
             .add_systems(OnEnter(AppState::Menu), apply_cursor)
             .add_systems(OnEnter(AppState::Playing), apply_cursor)
             .add_systems(OnEnter(AppState::Playing), apply_cursor)

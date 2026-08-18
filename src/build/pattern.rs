@@ -315,7 +315,15 @@ mod tests {
                     what.name()
                 );
                 let plan = bench.to_plan();
-                assert_eq!(plan.boxes.len(), bench.len(), "{} lost a piece", what.name());
+                // At least one box a piece. A floor is laid as several boards, so
+                // these two counts are no longer the same number.
+                assert!(
+                    plan.boxes.len() >= bench.len(),
+                    "{} lost a piece: {} boxes from {} pieces",
+                    what.name(),
+                    plan.boxes.len(),
+                    bench.len()
+                );
                 assert!(plan.high > 1.0, "{} {seed} is {:.2} m tall", what.name(), plan.high);
 
                 // Nothing floating and nothing underground. A generator that put a

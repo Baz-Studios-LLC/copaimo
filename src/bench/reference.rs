@@ -232,6 +232,7 @@ pub fn show(
     commands.spawn((
         super::OfBench,
         Sheet,
+        bevy::render::view::RenderLayers::layer(super::BENCH_LAYER),
         Mesh3d(quad),
         MeshMaterial3d(skin),
         stance,

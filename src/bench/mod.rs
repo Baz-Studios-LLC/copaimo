@@ -28,6 +28,7 @@
 //! work and affordable at this size.
 
 use bevy::prelude::*;
+use bevy::render::view::RenderLayers;
 use bevy::window::PrimaryWindow;
 
 pub mod kiln;
@@ -42,6 +43,21 @@ use crate::states::AppState;
 /// How far the camera looks from, and at what height it pivots.
 const EYE: Vec3 = Vec3::new(7.0, 5.0, 9.0);
 const PIVOT: f32 = 1.2;
+
+/// The layer the bench draws on, and nothing else does.
+///
+/// # Why this is a layer and not a tidy-up
+///
+/// The bench is meant to be a room with the work in it. It kept showing the game
+/// world instead — terrain, grass, clouds, the sea — and the fix I reached for
+/// first was to stop the world STREAMING while the bench was open. That does not
+/// work and could not: what is already spawned goes on being drawn, so the fix
+/// depended on the bench never being opened after the world had loaded.
+///
+/// A layer is not a cleanup, it is a rule. The bench's camera is told to draw
+/// this layer and only this layer, so no amount of world left standing can appear
+/// in it — there is no order of events that gets a tree into this room.
+const BENCH_LAYER: usize = 1;
 
 /// How far the floor reaches, in modules either way.
 const FLOOR_REACH: i32 = 8;
@@ -210,6 +226,7 @@ fn open(
         OfBench,
         BenchEye,
         Camera3d::default(),
+        RenderLayers::layer(BENCH_LAYER),
         Transform::from_translation(EYE).looking_at(Vec3::Y * PIVOT, Vec3::Y),
     ));
 
@@ -218,6 +235,7 @@ fn open(
     // fence by moonlight because of what time it happens to be.
     commands.spawn((
         OfBench,
+        RenderLayers::layer(BENCH_LAYER),
         DirectionalLight {
             illuminance: 6_500.0,
             shadows_enabled: true,
@@ -236,45 +254,87 @@ fn open(
     // the bench was open.
     commands.insert_resource(ClearColor(Color::BLACK));
 
-    // The floor: a grid of the kit's own module, so a maker can count squares
-    // instead of measuring. Drawn as thin slabs rather than lines because this
-    // world has no line renderer and a checker reads the depth better anyway.
-    // Full module, edge to edge. They were drawn at 98% so each tile read as its
-    // own square, which put a gap between every pair — and a grid a maker measures
-    // against must not have gaps in it. The checker does that job on colour alone.
-    let tile = meshes.add(Cuboid::new(kit::MODULE, 0.02, kit::MODULE));
-    // PLAIN materials, not the world's.
+    // The floor of the ROOM: a grid to count squares against, and solid.
     //
-    // The floor was made of the material every solid thing outdoors wears, which
-    // carries cloud shadows — so clouds nobody could see drifted across the
-    // workbench and the grid changed colour for no reason a maker could name.
-    // Nothing in this room is outdoors.
-    let pale = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.20, 0.22, 0.26),
-        perceptual_roughness: 0.95,
-        ..default()
-    });
-    let dark = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.15, 0.16, 0.20),
-        perceptual_roughness: 0.95,
-        ..default()
-    });
-    for x in -FLOOR_REACH..FLOOR_REACH {
-        for z in -FLOOR_REACH..FLOOR_REACH {
-            let checker = (x + z).rem_euclid(2) == 0;
-            commands.spawn((
-                OfBench,
-                Mesh3d(tile.clone()),
-                MeshMaterial3d(if checker { pale.clone() } else { dark.clone() }),
-                Transform::from_xyz(
-                    (x as f32 + 0.5) * kit::MODULE,
-                    -0.01,
-                    (z as f32 + 0.5) * kit::MODULE,
-                ),
-            ));
+    // It was a checker of tiles at 98% of a module, which left a real GAP between
+    // every one of them — so a piece placed on a lattice point stood over a hole
+    // with black underneath and read as floating. The geometry was flush the whole
+    // time; what was missing was floor.
+    //
+    // Still a checker, because counting modules is what it is FOR. It is simply
+    // continuous now: the squares are shades of the same dark surface rather than
+    // separate tiles with daylight between them.
+    commands.spawn((
+        OfBench,
+        RenderLayers::layer(BENCH_LAYER),
+        Mesh3d(meshes.add(crate::world::stream::as_coloured_mesh(&boards()))),
+        // A plain material, not the world's. The bench is indoors as far as
+        // anything here is concerned, and cloud shadows over a workbench would be
+        // weather in a room.
+        MeshMaterial3d(materials.add(StandardMaterial {
+            // White, so the grain mixed into the vertices comes through as mixed —
+            // the same bargain the terrain and the ground cover both make.
+            base_color: Color::WHITE,
+            perceptual_roughness: 0.86,
+            reflectance: 0.03,
+            ..default()
+        })),
+        Transform::IDENTITY,
+    ));
+}
+
+/// The room's floor: a continuous checker, welded into one mesh.
+///
+/// One mesh, one draw call, and no gaps — which is the whole point. Laid as
+/// separate tiles it had daylight between them, and a piece standing on a lattice
+/// point looked as though it hovered over a hole. It did.
+fn boards() -> terrain_core::Geometry {
+    let mut floor = terrain_core::Geometry::default();
+    let reach = FLOOR_REACH as f32 * kit::MODULE;
+
+    for step_x in -FLOOR_REACH..FLOOR_REACH {
+        for step_z in -FLOOR_REACH..FLOOR_REACH {
+            let low = Vec2::new(step_x as f32, step_z as f32) * kit::MODULE;
+            let shade = if (step_x + step_z).rem_euclid(2) == 0 {
+                FLOOR_PALE
+            } else {
+                FLOOR_DARK
+            };
+            // Edge to edge. Squares that meet leave a checker; squares that stop
+            // short leave holes.
+            quad(
+                &mut floor,
+                low,
+                (low + Vec2::splat(kit::MODULE)).min(Vec2::splat(reach)),
+                0.0,
+                shade,
+            );
         }
     }
+    floor
 }
+
+/// One flat rectangle, face up.
+fn quad(into: &mut terrain_core::Geometry, low: Vec2, high: Vec2, y: f32, colour: [f32; 4]) {
+    let base = into.places.len() as u32;
+    for (x, z) in [
+        (low.x, low.y),
+        (high.x, low.y),
+        (high.x, high.y),
+        (low.x, high.y),
+    ] {
+        into.places.push([x, y, z]);
+        into.normals.push([0.0, 1.0, 0.0]);
+        into.uvs.push([0.0, 0.0]);
+        into.colours.push(colour);
+    }
+    into.indices
+        .extend_from_slice(&[base, base + 2, base + 1, base, base + 3, base + 2]);
+}
+
+/// The two shades the room's floor is checked in.
+const FLOOR_PALE: [f32; 4] = [0.052, 0.058, 0.076, 1.0];
+const FLOOR_DARK: [f32; 4] = [0.034, 0.038, 0.052, 1.0];
 
 fn close(
     mut commands: Commands,
@@ -377,6 +437,7 @@ fn generate(keys: Res<ButtonInput<KeyCode>>, mut asked: ResMut<Asked>, mut bench
 /// still nudge, and whichever moved last wins — a mouse that overrode the keys
 /// every frame would make them useless.
 fn aim(
+    keys: Res<ButtonInput<KeyCode>>,
     over_panel: Query<&Interaction>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<BenchEye>>,
@@ -389,6 +450,7 @@ fn aim(
     let Some(cursor) = window.cursor_position() else {
         return;
     };
+    let fine = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
     // Reaching for the panel, not aiming at the floor. Letting the cursor follow
     // would slide it across the work every time somebody went for a button.
     if over_panel
@@ -427,7 +489,14 @@ fn aim(
         hand.at.y,
         struck.z.clamp(-edge, edge),
     );
-    let snapped = Bench::snapped(held);
+    // To the module unless the fine key is held, for the same reason the keys step
+    // that way: what a maker is nearly always doing is putting a piece beside
+    // another piece.
+    let snapped = if fine {
+        Bench::snapped(held)
+    } else {
+        Bench::snapped_to(held, kit::MODULE)
+    };
     if snapped != hand.at {
         hand.at = snapped;
     }
@@ -474,13 +543,18 @@ fn move_hand(keys: Res<ButtonInput<KeyCode>>, view: Res<View>, mut hand: ResMut<
         return;
     }
 
-    // A whole module with SHIFT, one snap without. Most placing is module to
-    // module — a wall beside a wall — and stepping there in six presses would be
-    // six times the work for the common case.
+    // A whole module by default, a quarter-metre with SHIFT held.
+    //
+    // This was the other way round, and it is most of why pieces did not snap
+    // together: a wall is a module wide, so a cursor stepping a quarter of one put
+    // walls a quarter-metre apart far more often than it put them touching. The
+    // common case is a piece beside a piece, and the common case is what a default
+    // is for. The fine step is still there for the times it is genuinely wanted —
+    // a post half a module off a wall — behind a key you hold on purpose.
     let reach = if keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]) {
-        kit::MODULE
-    } else {
         kit::SNAP
+    } else {
+        kit::MODULE
     };
     hand.at = Bench::snapped(hand.at + step * reach);
     // Never below the floor. Nothing is built under the ground here and a piece
@@ -689,6 +763,7 @@ fn rebuild(
         commands.spawn((
             OfBench,
             Work,
+            RenderLayers::layer(BENCH_LAYER),
             Mesh3d(meshes.add(solid.into_mesh())),
             MeshMaterial3d(cloth.clone()),
             Transform::IDENTITY,
@@ -698,6 +773,7 @@ fn rebuild(
         commands.spawn((
             OfBench,
             Work,
+            RenderLayers::layer(BENCH_LAYER),
             Mesh3d(meshes.add(glass.into_mesh())),
             MeshMaterial3d(cloth),
             Transform::IDENTITY,
@@ -751,6 +827,7 @@ fn draw_ghost(
     commands.spawn((
         OfBench,
         Ghost,
+        RenderLayers::layer(BENCH_LAYER),
         Mesh3d(meshes.add(solid.into_mesh())),
         MeshMaterial3d(materials.add(StandardMaterial {
             // SOLID, in the colour it will actually be.
