@@ -62,7 +62,20 @@ jobs:
       - name: The tools are not in it
         shell: bash
         run: |
-          BIN=$(ls target/release/copaimo target/release/copaimo.exe 2>/dev/null | head -1)
+          # Picked by TESTING for each name rather than by `ls` on both.
+          #
+          # This was `ls a b | head -1`, and it killed the macOS release of
+          # v0.1.8 without printing a single line. GitHub runs a bash step with
+          # `-eo pipefail`: `ls` on two paths where only one exists exits
+          # non-zero, pipefail carries that through `head`, and `-e` ends the
+          # step — before even the echo below. A check written to stop a silent
+          # failure became one.
+          BIN=target/release/copaimo
+          [ -f "$BIN" ] || BIN=target/release/copaimo.exe
+          if [ ! -f "$BIN" ]; then
+            echo "::error::no release binary to check at target/release"
+            exit 1
+          fi
           echo "checking $BIN"
           if grep -qa "3daistudio" "$BIN"; then
             echo "::error::the release binary carries the kiln"
