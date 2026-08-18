@@ -45,6 +45,9 @@ pub struct Holding {
     grabbed: f32,
     /// Where the piece was when the drag started.
     from: Vec3,
+    /// How many modules this drag has already stretched by, so the piece grows
+    /// with the pointer rather than once per frame.
+    stretched: i32,
 }
 
 /// Marks the arrows, so they can be cleared and redrawn together.
@@ -64,12 +67,19 @@ const HEAD: f32 = 0.17;
 /// piece you did not want.
 const GRAB: f32 = 0.34;
 
-/// The three axes, and the colour each one wears.
-fn axes() -> [(Vec3, Color); 3] {
+/// The three axes a piece is moved along, and the colour each one wears.
+///
+/// Turned WITH the piece, not with the world.
+///
+/// A wall placed across the room has its length running along world Z, and a red
+/// arrow pointing along world X would then stretch it through its own thickness.
+/// The arrows are the piece's own axes, so the red one always runs along the thing
+/// a maker would call its length however it has been turned.
+fn axes(turn: Quat) -> [(Vec3, Color); 3] {
     [
-        (Vec3::X, Color::srgb(0.92, 0.30, 0.32)),
+        (turn * Vec3::X, Color::srgb(0.92, 0.30, 0.32)),
         (Vec3::Y, Color::srgb(0.42, 0.86, 0.36)),
-        (Vec3::Z, Color::srgb(0.32, 0.52, 0.95)),
+        (turn * Vec3::Z, Color::srgb(0.32, 0.52, 0.95)),
     ]
 }
 
@@ -163,7 +173,7 @@ pub fn drag(
     // Taking hold.
     if buttons.just_pressed(MouseButton::Left) && holding.dragging.is_none() {
         let mut best: Option<(f32, usize, f32)> = None;
-        for (at, (axis, _)) in axes().iter().enumerate() {
+        for (at, (axis, _)) in axes(piece.turn()).iter().enumerate() {
             let (away, along) = ray_against_axis(ray.origin, *ray.direction, base, *axis);
             if away > GRAB {
                 continue;
@@ -176,6 +186,7 @@ pub fn drag(
             holding.dragging = Some(axis);
             holding.grabbed = along;
             holding.from = piece.foot;
+            holding.stretched = 0;
         }
         return;
     }
@@ -188,9 +199,27 @@ pub fn drag(
         holding.dragging = None;
         return;
     }
-    let axis = axes()[axis_at].0;
+    let axis = axes(piece.turn())[axis_at].0;
     let (_, along) = ray_against_axis(ray.origin, *ray.direction, base, axis);
     if along == 0.0 {
+        return;
+    }
+
+    // CTRL turns the length arrow into a STRETCH handle.
+    //
+    // The same arrow, because it is the same direction: the red one runs along the
+    // piece's own length, and what a maker wants from it is either "further along"
+    // or "longer". A separate handle would mean another thing to hit and another
+    // thing to explain, and the two are never wanted at once.
+    if keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]) && axis_at == 0 {
+        // In whole modules, measured from where the arrow was taken hold of, so a
+        // slow drag does not run a wall out to its limit.
+        let moved = along - holding.grabbed;
+        let want = (moved / kit::MODULE).round() as i32;
+        if want != holding.stretched {
+            bench.stretch(id, want - holding.stretched);
+            holding.stretched = want;
+        }
         return;
     }
 
@@ -224,12 +253,12 @@ pub fn show(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     drawn: Query<Entity, With<Arrow>>,
-    mut was: Local<Option<(u32, Vec3)>>,
+    mut was: Local<Option<(u32, Vec3, u8, u32)>>,
 ) {
     let now = holding
         .piece
         .and_then(|id| piece_at(&bench, id))
-        .map(|piece| (piece.id, piece.middle()));
+        .map(|piece| (piece.id, piece.middle(), piece.quarters, piece.spans));
     if now == *was && !drawn.is_empty() {
         return;
     }
@@ -241,9 +270,10 @@ pub fn show(
     for entity in &drawn {
         commands.entity(entity).despawn();
     }
-    let Some((_, base)) = now else {
+    let Some((_, base, quarters, _)) = now else {
         return;
     };
+    let turn_of = Quat::from_rotation_y(quarters as f32 * std::f32::consts::FRAC_PI_2);
 
     let shaft = meshes.add(Cuboid::new(SHAFT, REACH - HEAD, SHAFT));
     let head = meshes.add(Cone {
@@ -251,7 +281,7 @@ pub fn show(
         height: HEAD,
     });
 
-    for (axis, colour) in axes() {
+    for (axis, colour) in axes(turn_of) {
         // Unlit, and deliberately: a handle is a control, not a thing in the
         // room. Lit, it would go dark on the shaded side and read as part of the
         // building.
@@ -366,9 +396,27 @@ mod tests {
     }
 
     #[test]
+    fn the_arrows_turn_with_the_piece() {
+        // A wall placed across the room has its length along world Z. A red arrow
+        // pointing along world X would then stretch it through its own thickness —
+        // which is the whole reason these are the piece's axes and not the world's.
+        let quarter = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
+        let [(length, _), (up, _), (across, _)] = axes(quarter);
+
+        assert!(
+            length.dot(Vec3::NEG_Z).abs() > 0.99,
+            "a quarter-turned piece's length arrow points {length:?}"
+        );
+        // Up is up whichever way a thing is turned. A piece cannot be rotated onto
+        // its side here, so there is no case where its own up is not the world's.
+        assert_eq!(up, Vec3::Y);
+        assert!(across.dot(Vec3::X).abs() > 0.99, "the third arrow is {across:?}");
+    }
+
+    #[test]
     fn the_axes_are_the_colours_every_tool_uses() {
         // The one thing a maker should not have to learn here.
-        let [(x, red), (y, green), (z, blue)] = axes();
+        let [(x, red), (y, green), (z, blue)] = axes(Quat::IDENTITY);
         assert_eq!((x, y, z), (Vec3::X, Vec3::Y, Vec3::Z));
         let reddest = red.to_linear();
         assert!(reddest.red > reddest.green && reddest.red > reddest.blue);

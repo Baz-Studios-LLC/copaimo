@@ -140,6 +140,7 @@ pub fn open(mut commands: Commands, font: Res<UiFont>) {
                 widget::note(rows, &font, "move", "DRAG", "an arrow to move it");
                 widget::note(rows, &font, "move", "SH", "hold for quarter-metres");
                 widget::note(rows, &font, "move", "R-G-B", "is X-Y-Z");
+                widget::note(rows, &font, "move", "CTRL", "drag red to make it longer");
             });
 
             widget::branch(panel, &font, "colour", "COLOUR", |rows| {

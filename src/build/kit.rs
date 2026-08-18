@@ -124,6 +124,15 @@ impl Part {
         }
     }
 
+    /// Whether it can be made longer, and in what.
+    ///
+    /// The parts that are already a module long. Everything else has a size
+    /// because of what it IS — a post is a quarter-metre square upright — and
+    /// stretching one would produce a beam wearing a post's name.
+    pub fn stretches(self) -> bool {
+        !matches!(self, Part::Post)
+    }
+
     /// What shape it is, in the baked format's terms.
     pub fn form(self) -> Form {
         match self {
@@ -176,16 +185,44 @@ pub struct Piece {
     pub quarters: u8,
     /// Which of [`TINTS`].
     pub tint: usize,
+    /// How many modules long it is, along its own length.
+    ///
+    /// # Stretching, not scaling
+    ///
+    /// A wall dragged from one module to three does not become a wall drawn at
+    /// three times the size — it becomes a LONGER WALL. Its thickness is the
+    /// thickness a wall is, its height is a storey, and the boards in a floor stay
+    /// the width of a board. Nothing is ever distorted, which is the whole reason
+    /// the kit has fixed sizes at all.
+    ///
+    /// Whole modules only, so a stretched piece still ends where the next begins.
+    pub spans: u32,
 }
 
 impl Piece {
+    /// How big it actually is, stretch included.
+    pub fn size(self) -> Vec3 {
+        let base = self.part.size();
+        Vec3::new(
+            base.x + (self.spans.max(1) - 1) as f32 * MODULE,
+            base.y,
+            base.z,
+        )
+    }
+
     pub fn turn(self) -> Quat {
         Quat::from_rotation_y(self.quarters as f32 * std::f32::consts::FRAC_PI_2)
     }
 
     /// Where the middle of its box sits, which is what the format stores.
+    ///
+    /// A stretched piece grows FORWARD from its foot rather than outward from its
+    /// middle, so the end a maker placed stays where they put it and the far end
+    /// is the one that moves. Growing from the middle slides both ends and takes
+    /// the piece off whatever it was lined up against.
     pub fn middle(self) -> Vec3 {
-        self.foot + Vec3::Y * self.part.size().y * 0.5
+        let grown = (self.spans.max(1) - 1) as f32 * MODULE * 0.5;
+        self.foot + Vec3::Y * self.part.size().y * 0.5 + self.turn() * Vec3::X * grown
     }
 
     /// The box or boxes this piece is drawn as.
@@ -194,7 +231,7 @@ impl Piece {
     pub fn blocks(self) -> Vec<Block> {
         let [r, g, b] = TINTS[self.tint.min(TINTS.len() - 1)].1;
         let colour = Color::srgb_u8(r, g, b);
-        let size = self.part.size();
+        let size = self.size();
 
         if self.part != Part::Floor {
             return vec![Block {
@@ -213,7 +250,9 @@ impl Piece {
         // two floors laid side by side carry on the same grain — an id is an
         // accident of the order things were placed, and a floor whose pattern
         // jumped at a seam because of that would look like two floors.
-        let wide = size.x / PLANKS as f32;
+        // Boards stay the width a board is however long the floor gets, so a
+        // stretched floor gains boards rather than wider ones.
+        let wide = self.part.size().z / PLANKS as f32;
         let lay = self.foot.x.round() as i32;
         let across = self.foot.z.round() as i32;
         (0..PLANKS)
@@ -242,6 +281,12 @@ fn shaded_by(colour: Color, by: f32) -> Color {
     let lit = colour.to_linear();
     Color::linear_rgb(lit.red * by, lit.green * by, lit.blue * by)
 }
+
+/// How long a piece may be stretched, in modules.
+///
+/// Eight is a twelve-metre wall, which is longer than any one run of a building
+/// wants before it should be two walls with a post between them.
+pub const MOST_SPANS: u32 = 8;
 
 /// How many boards a floor is laid in, the line between them, and how far one
 /// board strays from the next.
@@ -335,6 +380,7 @@ impl Bench {
             foot,
             quarters,
             tint: tint % TINTS.len(),
+            spans: 1,
         });
         self.unsaved = true;
         Some(id)
@@ -362,6 +408,28 @@ impl Bench {
         piece.tint = tint % TINTS.len();
         self.unsaved = true;
         Some(part)
+    }
+
+    /// Makes one member longer or shorter, in whole modules.
+    ///
+    /// Only the parts that are a module long to begin with. A post is a post: it
+    /// is a quarter-metre square upright, and a "stretched" one would be a beam
+    /// with a post's name on it — which is exactly the sort of thing a kit exists
+    /// to prevent.
+    pub fn stretch(&mut self, id: u32, by: i32) -> bool {
+        let Some(piece) = self.pieces.iter_mut().find(|p| p.id == id) else {
+            return false;
+        };
+        if !piece.part.stretches() {
+            return false;
+        }
+        let want = (piece.spans as i32 + by).clamp(1, MOST_SPANS as i32) as u32;
+        if want == piece.spans {
+            return false;
+        }
+        piece.spans = want;
+        self.unsaved = true;
+        true
     }
 
     /// Moves one member to a new foot.
@@ -676,6 +744,93 @@ mod tests {
             assert!((want.red - got.red).abs() < 0.02, "{want:?} vs {got:?}");
         }
         assert!((back.high - mine.high).abs() < 1.0e-3);
+    }
+
+    #[test]
+    fn stretching_makes_a_longer_piece_and_not_a_bigger_one() {
+        // The whole distinction. A wall dragged from one module to three is a
+        // LONGER WALL: its thickness is the thickness a wall is and its height is
+        // a storey. Scaled, it would be a wall drawn at three times the size, with
+        // three times the thickness — which is the thing fixed sizes exist to
+        // prevent.
+        let mut bench = Bench::default();
+        let id = bench.add(Part::Wall, Vec3::ZERO, 0, 0).expect("a wall");
+        let one = bench.pieces()[0].size();
+
+        assert!(bench.stretch(id, 2), "a wall would not stretch");
+        let three = bench.pieces()[0].size();
+
+        assert!(
+            (three.x - (one.x + 2.0 * MODULE)).abs() < 1.0e-4,
+            "three modules of wall came out {:.2} m, not {:.2}",
+            three.x,
+            one.x + 2.0 * MODULE
+        );
+        assert_eq!(three.y, one.y, "stretching changed how tall a wall is");
+        assert_eq!(three.z, one.z, "stretching changed how thick a wall is");
+    }
+
+    #[test]
+    fn a_stretched_piece_keeps_the_end_it_was_placed_by() {
+        // It grows FORWARD from its foot. Growing from the middle slides both ends
+        // and takes the piece off whatever it was lined up against — which is the
+        // thing a maker was doing when they placed it.
+        let mut bench = Bench::default();
+        let id = bench.add(Part::Wall, Vec3::ZERO, 0, 0).expect("a wall");
+        let near_end = |b: &Bench| {
+            let piece = b.pieces()[0];
+            piece.middle().x - piece.size().x * 0.5
+        };
+        let before = near_end(&bench);
+        bench.stretch(id, 3);
+        assert!(
+            (near_end(&bench) - before).abs() < 1.0e-4,
+            "the placed end moved from {before:.3} to {:.3}",
+            near_end(&bench)
+        );
+    }
+
+    #[test]
+    fn a_post_is_a_post() {
+        // Everything else has a size because of what it IS. A stretched post would
+        // be a beam wearing a post's name, which is exactly what a kit is for
+        // preventing.
+        let mut bench = Bench::default();
+        let id = bench.add(Part::Post, Vec3::ZERO, 0, 0).expect("a post");
+        assert!(!bench.stretch(id, 4), "a post stretched");
+        assert_eq!(bench.pieces()[0].size(), Part::Post.size());
+
+        // And nothing stretches past its limit or below one module.
+        let wall = bench.add(Part::Wall, Vec3::new(9.0, 0.0, 0.0), 0, 0).unwrap();
+        bench.stretch(wall, 99);
+        assert_eq!(bench.pieces()[1].spans, MOST_SPANS);
+        bench.stretch(wall, -99);
+        assert_eq!(bench.pieces()[1].spans, 1);
+    }
+
+    #[test]
+    fn a_stretched_floor_gains_boards_rather_than_wider_ones() {
+        // Boards stay the width a board is. A floor whose planks grew with it
+        // would read as a photograph of a floor enlarged.
+        let mut bench = Bench::default();
+        let id = bench.add(Part::Floor, Vec3::ZERO, 0, 0).expect("a floor");
+        let one = bench.to_plan().boxes;
+        bench.stretch(id, 2);
+        let three = bench.to_plan().boxes;
+
+        let width = |boxes: &[crate::build::plan::Block]| {
+            boxes.iter().map(|b| b.size.z).fold(0.0_f32, f32::max)
+        };
+        assert!(
+            (width(&one) - width(&three)).abs() < 1.0e-4,
+            "boards went from {:.3} to {:.3} wide",
+            width(&one),
+            width(&three)
+        );
+        let long = |boxes: &[crate::build::plan::Block]| {
+            boxes.iter().map(|b| b.size.x).fold(0.0_f32, f32::max)
+        };
+        assert!(long(&three) > long(&one) * 2.5, "the boards did not get longer");
     }
 
     #[test]
