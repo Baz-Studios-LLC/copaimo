@@ -278,6 +278,17 @@ pub fn fold_branches(
     }
 }
 
+/// Where along a node the pointer is, 0 at its left edge to 1 at its right.
+///
+/// What makes a meter a SLIDER rather than a picture of one. A bar that only
+/// reports a value is a readout; a bar you can press at the two-thirds mark and
+/// have it become two thirds is a control, and the difference is one function.
+pub fn fraction_along(cursor: Vec2, node: &ComputedNode, at: &GlobalTransform) -> f32 {
+    let middle = at.translation().truncate();
+    let wide = node.size().x.max(1.0);
+    ((cursor.x - (middle.x - wide * 0.5)) / wide).clamp(0.0, 1.0)
+}
+
 /// Lights the swatch in force and the one under the pointer.
 pub fn light_swatches(
     mut swatches: Query<(&Interaction, &Swatch, &mut BorderColor)>,

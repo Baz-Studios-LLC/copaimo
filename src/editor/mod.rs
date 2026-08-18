@@ -273,6 +273,51 @@ fn aim_brush(
     brush.hit = raycast_terrain(&terrain.0, camera.translation(), camera.forward().as_vec3());
 }
 
+/// Which key selects each tool, in the order [`Brushing::ALL`] lists them.
+///
+/// **One table, read by the input and by the panel both.** It was two: the keys
+/// here, and the panel numbering its rows `(index + 1) % 10` — which gave the
+/// eleventh tool the label `1`, the same key as the first. A maker reading the
+/// panel was told something untrue about the tool they had just added, and nothing
+/// in either place could notice.
+pub const TOOL_KEYS: [KeyCode; 11] = [
+    KeyCode::Digit1,
+    KeyCode::Digit2,
+    KeyCode::Digit3,
+    KeyCode::Digit4,
+    KeyCode::Digit5,
+    KeyCode::Digit6,
+    KeyCode::Digit7,
+    KeyCode::Digit8,
+    KeyCode::Digit9,
+    // Reverting sits on 0, past the nine that make things.
+    KeyCode::Digit0,
+    // And the biome brush on B, because the digits are full and because it is the
+    // one tool that paints a decision about a whole region rather than shaping a
+    // patch of ground.
+    KeyCode::KeyB,
+];
+
+/// What to print on a tool's keycap.
+pub fn key_for(how: Brushing) -> &'static str {
+    let at = Brushing::ALL.iter().position(|one| *one == how);
+    match at.and_then(|at| TOOL_KEYS.get(at)) {
+        Some(KeyCode::Digit1) => "1",
+        Some(KeyCode::Digit2) => "2",
+        Some(KeyCode::Digit3) => "3",
+        Some(KeyCode::Digit4) => "4",
+        Some(KeyCode::Digit5) => "5",
+        Some(KeyCode::Digit6) => "6",
+        Some(KeyCode::Digit7) => "7",
+        Some(KeyCode::Digit8) => "8",
+        Some(KeyCode::Digit9) => "9",
+        Some(KeyCode::Digit0) => "0",
+        Some(KeyCode::KeyB) => "B",
+        // A tool with no key is a row you press, which is a perfectly good tool.
+        _ => "",
+    }
+}
+
 fn adjust_brush(
     keys: Res<ButtonInput<KeyCode>>,
     scroll: Res<bevy::input::mouse::AccumulatedMouseScroll>,
@@ -290,23 +335,6 @@ fn adjust_brush(
         brush.strength = (brush.strength / STRENGTH_STEP).max(MIN_STRENGTH);
     }
 
-    const TOOL_KEYS: [KeyCode; 11] = [
-        KeyCode::Digit1,
-        KeyCode::Digit2,
-        KeyCode::Digit3,
-        KeyCode::Digit4,
-        KeyCode::Digit5,
-        KeyCode::Digit6,
-        KeyCode::Digit7,
-        KeyCode::Digit8,
-        KeyCode::Digit9,
-        // Reverting sits on 0, past the nine that make things.
-        KeyCode::Digit0,
-        // And the biome brush on B, because the digits are full and because it
-        // is the one tool that paints a decision about a whole region rather
-        // than shaping a patch of ground.
-        KeyCode::KeyB,
-    ];
     for (key, how) in TOOL_KEYS.iter().zip(Brushing::ALL) {
         if keys.just_pressed(*key) {
             // Pressing B again cycles which country it lays, rather than

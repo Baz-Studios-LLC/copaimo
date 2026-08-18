@@ -9,11 +9,12 @@ use bevy::prelude::*;
 use bevy::text::LineBreak;
 
 use crate::tools::theme::{
-    self, keycap, rule, section, tool_color, UiFont, ACCENT, PANEL, PANEL_WIDTH, ROW_ACTIVE, RULE,
+    self, rule, section, tool_color, UiFont, ACCENT, PANEL, PANEL_WIDTH, RULE,
     TEXT,
     TEXT_DIM, TEXT_MUTED, UNSAVED,
 };
-use crate::editor::Brush;
+use crate::editor::{Brush, MAX_RADIUS, MAX_STRENGTH, MIN_RADIUS, MIN_STRENGTH};
+use crate::tools::widget::{self, Choice, RowLabel};
 use crate::states::AppState;
 use crate::world::edit::Brushing;
 use crate::world::terrain::TerrainSource;
@@ -42,12 +43,6 @@ impl Toast {
 #[derive(Component)]
 struct EditorUiRoot;
 
-#[derive(Component)]
-struct ToolRow(Brushing);
-
-#[derive(Component)]
-struct ToolLabel(Brushing);
-
 /// The caption under the palette, saying what the tool in hand does.
 #[derive(Component)]
 struct ToolSaying;
@@ -70,7 +65,7 @@ enum Readout {
 
 /// The filled portion of a meter bar.
 #[derive(Component, Clone, Copy)]
-enum Meter {
+pub enum Meter {
     Radius,
     Strength,
 }
@@ -94,7 +89,19 @@ impl Plugin for EditorUiPlugin {
             .add_systems(OnExit(AppState::Editing), despawn_ui)
             .add_systems(
                 Update,
-                (refresh_tools, refresh_readouts, refresh_meters, drive_toast)
+                (
+                    // What was pressed, before what everything says — so a row
+                    // pressed this frame is lit this frame rather than next.
+                    pressed_tool,
+                    dragged_meter,
+                    crate::tools::widget::fold_branches,
+                    crate::tools::widget::light_rows::<Brushing>,
+                    refresh_tools,
+                    refresh_readouts,
+                    refresh_meters,
+                    drive_toast,
+                )
+                    .chain()
                     .run_if(in_state(AppState::Editing)),
             );
     }
@@ -192,11 +199,41 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
             ..default()
         })
         .with_children(|body| {
-            body.spawn(section(font, "TOOLS"));
-            for (index, how) in Brushing::ALL.iter().enumerate() {
-                // Nine tools on 1-9 and the tenth on 0, where the keyboard puts
-                // it — not on a key called "10".
-                tool_row(body, font, (index + 1) % 10, *how);
+            // Grouped, and each group folds.
+            //
+            // Eleven tools in one list is a wall, and the groups are not
+            // decoration: shaping the ground, laying something over it, growing
+            // things on it and taking work back out are four different jobs, and a
+            // maker doing one of them does not need the other three on screen.
+            for (group, label, tools) in [
+                (
+                    "shape",
+                    "SHAPE THE GROUND",
+                    &[
+                        Brushing::Raise,
+                        Brushing::Lower,
+                        Brushing::Smooth,
+                        Brushing::Flatten,
+                        Brushing::Roughen,
+                        Brushing::Erode,
+                        Brushing::Ramp,
+                    ][..],
+                ),
+                ("lay", "LAY OVER IT", &[Brushing::Path][..]),
+                ("grow", "GROW AND MARK", &[Brushing::Plant, Brushing::Country][..]),
+                ("back", "TAKE IT BACK", &[Brushing::Revert][..]),
+            ] {
+                widget::branch(body, font, group, label);
+                for how in tools {
+                    widget::row(
+                        body,
+                        font,
+                        group,
+                        crate::editor::key_for(*how),
+                        how.name(),
+                        *how,
+                    );
+                }
             }
             tool_saying(body, font);
 
@@ -237,41 +274,6 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
         });
 }
 
-fn tool_row(parent: &mut ChildSpawnerCommands, font: &UiFont, number: usize, how: Brushing) {
-    parent
-        .spawn((
-            ToolRow(how),
-            Node {
-                width: Val::Percent(100.0),
-                align_items: AlignItems::Center,
-                column_gap: Val::Px(9.0),
-                padding: UiRect::axes(Val::Px(6.0), Val::Px(4.0)),
-                ..default()
-            },
-            BackgroundColor(Color::NONE),
-        ))
-        .with_children(|row| {
-            keycap(row, font, &number.to_string());
-            row.spawn((
-                ToolLabel(how),
-                Text::new(how.name().to_string()),
-                font.at(13.0),
-                TextColor(TEXT_MUTED),
-                TextLayout {
-                    linebreak: LineBreak::NoWrap,
-                    ..default()
-                },
-            ));
-        });
-}
-
-/// What the chosen tool does, in a line of its own under the palette.
-///
-/// It used to sit beside every name at once. Nine descriptions in a column
-/// three hundred pixels wide could not fit and did not wrap, so half of them ran
-/// out over the world — and a shelf you cannot read the edge of does not look
-/// like a tool. One line, for the tool in hand, is what a bench actually needs:
-/// the names are the palette and this is the caption.
 fn tool_saying(parent: &mut ChildSpawnerCommands, font: &UiFont) {
     parent
         .spawn(Node {
@@ -322,23 +324,40 @@ fn meter_row(
             // Track and fill. A bar shows where you are within the usable range
             // at a glance, which a number alone never does.
             row.spawn((
+                // Pressable, which is what makes it a control rather than a
+                // picture of one. Taller than the bar it draws so there is
+                // something to hit: four pixels is a readout, twelve is a target.
+                MeterTrack(meter),
+                Button,
                 Node {
                     width: Val::Px(112.0),
-                    height: Val::Px(4.0),
+                    height: Val::Px(12.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
                     ..default()
                 },
-                BackgroundColor(theme::METER_TRACK),
+                BackgroundColor(Color::NONE),
             ))
-            .with_children(|track| {
-                track.spawn((
-                    meter,
+            .with_children(|hit| {
+                hit.spawn((
                     Node {
-                        width: Val::Percent(0.0),
-                        height: Val::Percent(100.0),
+                        width: Val::Percent(100.0),
+                        height: Val::Px(4.0),
                         ..default()
                     },
-                    BackgroundColor(TEXT_MUTED),
-                ));
+                    BackgroundColor(theme::METER_TRACK),
+                ))
+                .with_children(|track| {
+                    track.spawn((
+                        meter,
+                        Node {
+                            width: Val::Percent(0.0),
+                            height: Val::Percent(100.0),
+                            ..default()
+                        },
+                        BackgroundColor(TEXT_MUTED),
+                    ));
+                });
             });
             row.spawn((
                 readout,
@@ -456,43 +475,109 @@ fn despawn_ui(mut commands: Commands, roots: Query<Entity, With<EditorUiRoot>>) 
 
 // -------------------------------------------------------------------- refresh
 
-fn refresh_tools(
-    brush: Res<Brush>,
-    mut rows: Query<(&ToolRow, &mut BackgroundColor)>,
-    mut labels: Query<(&ToolLabel, &mut TextColor)>,
-    mut saying: Query<(&mut Text, &mut TextColor), (With<ToolSaying>, Without<ToolLabel>)>,
+/// Selecting a tool by pressing its row.
+///
+/// The same field the keys write, so the panel and the keyboard can never mean
+/// different things. Selecting a tool mid-drag also drops a half-laid ramp, for
+/// the same reason pressing its key does.
+pub fn pressed_tool(
+    rows: Query<(&Interaction, &Choice<Brushing>), Changed<Interaction>>,
+    mut brush: ResMut<Brush>,
 ) {
+    for (touch, choice) in &rows {
+        if *touch != Interaction::Pressed {
+            continue;
+        }
+        // Pressing the biome row again cycles which country it lays, exactly as
+        // pressing B again does.
+        if choice.0.is_countrying() && brush.how == choice.0 {
+            let all = terrain_core::region::Country::ALL;
+            let next = all
+                .iter()
+                .position(|c| *c == brush.laying)
+                .map_or(0, |at| (at + 1) % all.len());
+            brush.laying = all[next];
+        }
+        brush.how = choice.0;
+        brush.ramp_from = None;
+    }
+}
+
+/// Dragging a meter to set the value it shows.
+///
+/// A bar that only reports is a readout; a bar you can press at the two-thirds
+/// mark and have become two thirds is a control. The keys and the wheel still work
+/// and are still better for a small change — this is for a big one.
+pub fn dragged_meter(
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    tracks: Query<(&Interaction, &MeterTrack, &ComputedNode, &GlobalTransform)>,
+    mut brush: ResMut<Brush>,
+) {
+    let Some(cursor) = windows.iter().next().and_then(|w| w.cursor_position()) else {
+        return;
+    };
+    for (touch, track, node, at) in &tracks {
+        // Held, not just clicked, so a maker can sweep the brush up to size in one
+        // gesture rather than pressing along the bar.
+        if *touch != Interaction::Pressed {
+            continue;
+        }
+        let along = crate::tools::widget::fraction_along(cursor, node, at);
+        match track.0 {
+            Meter::Radius => {
+                brush.radius = MIN_RADIUS + (MAX_RADIUS - MIN_RADIUS) * along;
+            }
+            Meter::Strength => {
+                brush.strength = MIN_STRENGTH + (MAX_STRENGTH - MIN_STRENGTH) * along;
+            }
+        }
+    }
+}
+
+/// The pressable part of a meter.
+#[derive(Component)]
+pub struct MeterTrack(pub Meter);
+
+fn refresh_tools(
+    mut commands: Commands,
+    brush: Res<Brush>,
+    choices: Query<(Entity, &Choice<Brushing>, Option<&crate::tools::widget::Chosen>, &Children)>,
+    mut row_labels: Query<&mut TextColor, With<RowLabel>>,
+    mut row_backs: Query<&mut BackgroundColor, With<Choice<Brushing>>>,
+    mut saying: Query<(&mut Text, &mut TextColor), (With<ToolSaying>, Without<RowLabel>)>,
+) {
+    // The lit row follows whatever holds the tool — a key press, a click, or the
+    // ramp being cancelled — rather than only the path that set it.
+    //
+    // This used to light rows through its own `ToolRow` query as well, which is how
+    // it came to hold two mutable borrows of `BackgroundColor` at once and panicked
+    // the moment the tool opened. There is one way a row is lit now.
+    crate::tools::widget::mark_chosen(
+        &mut commands,
+        &choices,
+        &mut row_labels,
+        &mut row_backs,
+        &brush.how,
+    );
+
     for (mut text, mut colour) in &mut saying {
         // The biome brush says WHICH country it is laying, because that is the
-        // half of its state a maker cannot see anywhere else. One brush lays
-        // three things and the swatch on the shelf can only be one colour, so
-        // the caption carries it. Press B again to cycle.
+        // half of its state a maker cannot see anywhere else. One brush lays three
+        // things and a single row cannot show all three, so the caption carries it.
         let said = if brush.how.is_countrying() {
-            format!("Painting {} - press B to change, right button clears", brush.laying.name())
+            format!(
+                "Painting {} - press the row again to change, right button clears",
+                brush.laying.name()
+            )
         } else {
             brush.how.said().to_string()
         };
         if **text != said {
             **text = said;
         }
-        // Tinted with the tool, so the caption, the highlighted row and the ring
-        // on the ground are all one colour and none of them has to be read.
+        // Tinted with the tool, so the caption, the lit row and the ring on the
+        // ground are all one colour and none of them has to be read.
         colour.0 = tool_color(brush.how).with_alpha(0.75);
-    }
-
-    for (row, mut background) in &mut rows {
-        background.0 = if row.0 == brush.how {
-            ROW_ACTIVE
-        } else {
-            Color::NONE
-        };
-    }
-    for (label, mut color) in &mut labels {
-        color.0 = if label.0 == brush.how {
-            tool_color(label.0)
-        } else {
-            TEXT_MUTED
-        };
     }
 }
 

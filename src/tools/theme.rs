@@ -134,23 +134,6 @@ pub fn section(font: &UiFont, label: &str) -> impl Bundle {
     )
 }
 
-/// A boxed keycap, e.g. the `1` beside a tool or `S` in a shortcut.
-pub fn keycap(parent: &mut ChildSpawnerCommands, font: &UiFont, key: &str) {
-    parent
-        .spawn((
-            Node {
-                min_width: Val::Px(18.0),
-                justify_content: JustifyContent::Center,
-                padding: UiRect::axes(Val::Px(4.0), Val::Px(2.0)),
-                ..default()
-            },
-            BackgroundColor(KEYCAP),
-        ))
-        .with_children(|cap| {
-            cap.spawn((
-                Text::new(key.to_string()),
-                font.at(11.0),
-                TextColor(TEXT_MUTED),
-            ));
-        });
-}
+// The keycap moved into `widget::row`, which is the only thing that ever drew one:
+// a cap belongs to the row it labels, and a free function that spawns one was an
+// invitation to draw keycaps that no row was under.
