@@ -438,3 +438,78 @@ PATCH versions only, however big a session felt. Push the crate before the game
 and `cargo update -p terrain-core`. Never tag with red tests — check the exit
 code, do not pipe through `tail`. The shell's working directory drifts between
 the two repos; `cd` explicitly in every command.
+
+---
+
+# The next four pieces (asked for 2026-08-17, after v0.1.7)
+
+Four separate projects, in the order they unblock each other. Item 4 is bigger
+than everything in v0.1.7 put together and is not a one-session job.
+
+## 1. Cut v0.1.7 — DONE
+
+Tagged and pushed. 36 commits since v0.1.6.
+
+## 2. Biome painter in the terrain tool
+
+**This is the one that matters most, and not because painting is fun.** Five
+separate rounds of "the desert is in the wrong place" happened because the only
+way to move a region was for me to read a marker off a screenshot, guess which
+ellipse it implied, and nudge a number. The maker can point; I cannot see. Hand
+them the brush and the loop closes.
+
+The pieces, in order:
+
+* **2a. A painted country layer.** `assets/world/country.bin`, exactly the shape
+  `forest.bin` and `surface.bin` already are — a per-cell override where **0
+  means "leave the map's own answer alone"**. `terrain_core::painted` already
+  does this; it wants a third `Kind`.
+* **2b. `region::at` reads the layer first.** Painted wins outright; unpainted
+  falls through to the bands and the desert oval, which stay as the default so a
+  fresh world still has a world in it.
+* **2c. The brush.** One key per country, paint and erase, falloff like every
+  other brush, undo through the shared `History`, autosave with the rest.
+* **2d. The overview paints from it live**, so the maker sees the country they
+  are drawing rather than relaunching to find out.
+
+Once 2b lands, `DESERT_AT`/`DESERT_REACH`/`BANDS` stop being tuning knobs and
+become the fallback nobody has to touch.
+
+## 3. Editor controls
+
+Four independent things; the first two are small.
+
+* **3a. No flying under the ground.** Clamp the free-fly camera to
+  `drawn_height + clearance`.
+* **3b. A heading on the overview.** The map has no north marker and no view
+  cone, so it is impossible to tell which way you are facing.
+* **3c. Add and remove debris.** Props are WELDED per chunk — one mesh, one draw
+  call — so there is no per-boulder entity to click. This needs a placed-object
+  list (4a) plus a per-cell suppression mask, the same bargain the woods make
+  between `natural_density` and `forest.bin`.
+* **3d. Move anything.** Needs 4a first: a thing can only be moved if the world
+  remembers where it was put.
+
+## 4. A prop and building workbench
+
+**Big.** This is a second application, not a feature. Order matters because 4a
+unblocks 3c and 3d as well.
+
+* **4a. A placed-object format and loader.** The foundation: a file of
+  `{ kind, at, turn, scale }` the world reads at startup and the editor writes.
+  `assets/buildings/*.json` format 2 already covers baked SHAPES; this is the
+  layer that says where they stand.
+* **4b. A kit of parts.** Walls, posts, rails, roof panels, floors — placed piece
+  by piece against a snap grid. Fences and houses fall out of the same kit. This
+  extends the existing `build::plan` format rather than inventing another.
+* **4c. Painting.** Vertex colour on the workbench, since every welded thing in
+  this world already carries its colour in its vertices.
+* **4d. Reference images.** Import a picture, stand it on a plane, build against
+  it. Cheap and it is most of what "add an image" is asking for.
+* **4e. Generation.** Not this repo's job. Opificium is the company's dev app and
+  is where a generator belongs — and other people edit it, so branch and PR.
+
+## Recommended order
+
+2 → 3a, 3b → 4a → 3c, 3d → 4b → 4c, 4d. Item 2 pays for itself immediately;
+3a and 3b are an hour; 4a is the keystone.
