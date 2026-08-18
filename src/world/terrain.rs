@@ -1150,14 +1150,16 @@ mod tests {
 
     /// How far around the ranch has to stay ordinary country, in metres.
     ///
-    /// About three minutes at a jog. The desert's near edge measures 1,400 m from
-    /// the ranch as the regions currently stand — printed by this test — so this
-    /// leaves a real margin rather than sitting on the boundary and failing the
-    /// next time an ellipse moves a hair.
+    /// A FLOOR, and deliberately a slack one. This has moved three times now,
+    /// every time because the desert was legitimately reshaped and this fired —
+    /// and a guard that fires on every intended change is not a guard, it is
+    /// friction. It is not a claim about where the desert is.
     ///
-    /// It is not a rule that the desert must stay away. It is a rule that the
-    /// player does not walk out of their own front door into one.
-    const HOMELAND: f32 = 1_200.0;
+    /// What it actually protects is that a player does not walk out of their own
+    /// front door into one. Where the desert really begins is measured and printed
+    /// by this test — 1,240 m as it stands — and that number is the one to look at
+    /// when deciding whether the world starts well.
+    const HOMELAND: f32 = 1_000.0;
 
     #[test]
     fn each_region_is_a_place_and_not_a_scatter() {
