@@ -1,8 +1,8 @@
-# Ranger — Design
+# Copaimo — Design
 
-A monster-companion adventure game. You play a ranger who raises monsters on a
-ranch, travels between cities, and upgrades your Ranger License by passing the
-exam set by each city's Ranger Guild.
+A monster-companion adventure game. You play a warden who raises monsters on a
+ranch, travels between cities, and upgrades your Copaimo License by passing the
+exam set by each city's Wardens Guild.
 
 Touchstones: **Pokémon** (turn-based battles, a journey structured around gym-like
 exams) and **Monster Rancher** (monsters as creatures you *raise*, not just
@@ -27,7 +27,7 @@ collect).
 ## 2. Core loop
 
 ```
-join the World Ranger Association
+join the World Copaimo Association
         ↓
 base permit → build a ranch outside the village
         ↓
@@ -211,7 +211,7 @@ open sea, and has already caught this exact failure once.
 ### Scale
 
 One knob: `WORLD_WIDTH` in `src/config.rs`, currently **8192 m**. North–south
-extent is derived from the map image's aspect ratio. At the ranger's 7 m/s jog,
+extent is derived from the map image's aspect ratio. At the warden's 7 m/s jog,
 that's roughly **20 minutes** east to west on a 2:1 map.
 
 Emptiness is not a concern at this stage — smaller towns between larger cities,
@@ -451,7 +451,7 @@ Things that must stay true. Breaking one is a bug, not a tuning choice.
   decides where land is.
 - **Chunk seams are invisible.** Normals stay analytic from the heightfield, not
   averaged from triangles.
-- **The ranger is ~1.8 m tall.** Terrain scale, camera distance and movement
+- **The warden is ~1.8 m tall.** Terrain scale, camera distance and movement
   speed are all tuned against that. Replacement art keeps the height.
 - **Monsters are allies.** Nothing in the world is built as a threat to fight
   off. Wild monsters are met, not repelled.
@@ -510,7 +510,7 @@ src/
     edit.rs      where edits.bin lives — the brush itself is in terrain-core
     forest.rs    where forest.bin lives — the scatter is in terrain-core too
     water.rs     the sea
-  player.rs      the ranger and their controller
+  player.rs      the warden and their controller
   camera.rs      orbit follow rig + free-fly
   editor/
     mod.rs       the terrain mode: raycast, gestures, live re-mesh
@@ -543,7 +543,7 @@ global timeout so a stalled line cannot leave it fetching for ever.
 
 It happens **on a press and never on its own**. No retries, no polling ahead, one
 job at a time — every firing spends credits and uploads a picture to a third party.
-The key comes from `RANGER_3DAI_KEY` or the maker's own home folder, never this
+The key comes from `COPAIMO_3DAI_KEY` or the maker's own home folder, never this
 repository: a key committed once has to be rotated, and the commit that did it is
 usually the one nobody looked at.
 
@@ -1252,7 +1252,7 @@ They are not cast by the engine's shadow pass and cannot be — a caster at 165 
 would need the cascades stretched past anything useful for the world underneath.
 They are laid on in the material instead, which is why there now IS one material:
 `Shaded`, worn by the ground, the grass, the trunks, the leaves, the water, the
-walls and the ranger alike. A cloud shadow that stopped at the edge of the grass
+walls and the warden alike. A cloud shadow that stopped at the edge of the grass
 would be worse than none.
 
 Almost nothing is sent to the GPU for it. A cloud's drift is a speed times the
@@ -1422,7 +1422,7 @@ running at different angles. The tide is the important half — on a coast that
 shelves over hundreds of metres, half a metre of vertical travel walks the
 waterline a long way up the beach and back, so the water visibly approaches and
 recedes. `WADE_DEPTH` now blocks the *step* into deep water as well as clamping
-standing height, so the ranger can paddle at a beach and is turned back by the
+standing height, so the warden can paddle at a beach and is turned back by the
 sea rather than by an invisible wall. Only the step *into* deeper water is
 refused, so anyone who ends up out there can always walk home.
 
@@ -1490,6 +1490,6 @@ so label text no longer punches pits in the terrain.
 
 **2026-08-13** — Project started. Built the open world: heightmap-driven terrain
 generation, background chunk streaming, height/slope/moisture biome coloring,
-sea, sun and fog, a placeholder ranger with a ground-following controller, an
+sea, sun and fog, a placeholder warden with a ground-following controller, an
 orbit camera with free-fly, and the F3 debug overlay. World scale set to 8192 m
 wide, sourced from a supplied fantasy map.

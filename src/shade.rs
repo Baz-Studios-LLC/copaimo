@@ -3,7 +3,7 @@
 //! Bevy's standard shading with one thing added: how much sky a point can see.
 //! It lives in one place because a cloud shadow that stops at the edge of the
 //! grass is worse than no cloud shadow at all — the ground, the tufts on it, the
-//! trees standing in it, the water, the walls and the ranger are all the same
+//! trees standing in it, the water, the walls and the warden are all the same
 //! surface as far as a cloud overhead is concerned, so they all wear this.
 //!
 //! The shading itself is in `assets/shaders/cloud_shade.wgsl`, which is where
@@ -69,13 +69,13 @@ pub struct CloudShade {
 
 /// How many things can be pushing through the grass at once.
 ///
-/// The ranger, and later whatever monsters are abroad nearby. Fixed because a
+/// The warden, and later whatever monsters are abroad nearby. Fixed because a
 /// uniform has to have a size, and eight because past that nobody could tell.
 pub const MOST_MOVERS: usize = 8;
 
 /// Something that pushes the grass aside as it goes through.
 ///
-/// On the ranger now, and on monsters when there are any — which is the reason it
+/// On the warden now, and on monsters when there are any — which is the reason it
 /// is a component rather than a query for the player. Grass that parts for you
 /// and stands still for whatever is stalking you would be worse than grass that
 /// never moved.

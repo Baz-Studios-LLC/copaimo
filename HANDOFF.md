@@ -1,4 +1,4 @@
-# Ranger — handoff
+# Copaimo — handoff
 
 Written 2026-08-14. Orientation for picking this up in a fresh session, across
 three repositories. Not a transcript: what exists, why it is the way it is, and
@@ -10,7 +10,7 @@ what will bite you.
 
 | Folder | Repo | Branch | Version | What it is |
 | --- | --- | --- | --- | --- |
-| `Desktop/ranger-game` | `Baz-Studios-LLC/ranger-game` (**public**) | `main` | **v0.1.2** released | The game. Rust + **Bevy 0.16**, edition 2021 |
+| `Desktop/copaimo` | `Baz-Studios-LLC/copaimo` (**public**) | `main` | **v0.1.2** released | The game. Rust + **Bevy 0.16**, edition 2021 |
 | `Desktop/Opificium` | `Baz-Studios-LLC/Opificium` (public) | `master` | **v0.6.0** released | The studio's maker's bench. Rust + **Bevy 0.19**, edition 2024 |
 | `Desktop/terrain-core` | `Baz-Studios-LLC/terrain-core` (public) | **`master`** | — | The world generation and sculpting brush **both** link. No engine named |
 | `Desktop/baz-studios-launcher` | `Baz-Studios-LLC/baz-studios-launcher` | `main` | — | Tauri launcher; lists both |
@@ -37,12 +37,12 @@ written twice.
 
 | File | Direction | What |
 | --- | --- | --- |
-| `ranger-game/assets/world/heightmap.png` | game → bench | The map the continents are traced from |
-| `ranger-game/assets/world/world.json` | game → bench | Every constant that turns that map into ground |
-| `ranger-game/assets/world/edits.bin` | bench → game | Hand-sculpted ground, as **signed height offsets** |
+| `copaimo/assets/world/heightmap.png` | game → bench | The map the continents are traced from |
+| `copaimo/assets/world/world.json` | game → bench | Every constant that turns that map into ground |
+| `copaimo/assets/world/edits.bin` | bench → game | Hand-sculpted ground, as **signed height offsets** |
 
 ⚠️ **Re-export `world.json` whenever a world-shaping constant in
-`ranger-game/src/config.rs` changes:**
+`copaimo/src/config.rs` changes:**
 
 ```bash
 cargo test export_world_for_opificium -- --ignored --nocapture
@@ -73,7 +73,7 @@ on one machine only.
 
 This was got wrong once and rejected. The terrain bench is a **tool you bring
 ground to**, like the kiln takes an image: `OPEN A WORLD…` on its shelf picks a
-`heightmap.png`, and the folder it sits in is the world. `ranger-game/opificium/opificium.json`
+`heightmap.png`, and the folder it sits in is the world. `copaimo/opificium/opificium.json`
 names `"world": "../assets/world"` — a **hint** that saves a walk across the
 disk, never a requirement.
 
@@ -81,7 +81,7 @@ disk, never a requirement.
 
 ## Where things are
 
-### ranger-game
+### copaimo
 - `src/config.rs` — every world constant, and the `world.json` exporter
 - `src/world/heightmap.rs` — map image → land mask, signed shore distance
 - `src/world/terrain.rs` — the heightfield; `base_height` is the single source of truth
@@ -117,7 +117,7 @@ How it ended up:
   operations — `sculpt::{Sculpt, Brushing, Stamp}`, the undo stack, `slump`,
   `ramp` — alongside generation, the forest scatter and the tree growing. It
   names no engine and must stay that way.
-* **`ranger-game`** has its terrain mode back in `src/editor/`, which is the
+* **`copaimo`** has its terrain mode back in `src/editor/`, which is the
   *mode* only: aiming, gestures, the panel, telling chunks to mesh again. It
   shapes nothing itself. `src/world/edit.rs` is the thin adapter that knows where
   this game keeps `edits.bin`, the same shape `world/forest.rs` has.
@@ -347,7 +347,7 @@ ship these.
   current map; the constant is 620 m). Set it above and *nothing counts as
   inland*, so mountains silently never appear — no error, just a world of hills.
   The ASCII map prints the real number; check it after any map swap.
-- **No icon for Ranger.** `packaging/Info.plist` names none on purpose.
+- **No icon for Copaimo.** `packaging/Info.plist` names none on purpose.
 
 ---
 

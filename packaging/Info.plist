@@ -1,20 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  No CFBundleIconFile yet: there is no icon for Ranger, and naming one that is
-  not in Resources gives a bundle with a blank icon and a warning rather than a
-  default one. When art lands, add the .icns beside this file and name it here.
+  The icon is built from the title art at package time — see `macos-app.sh`, which
+  renders `assets/Title/Copaimo.png` down to an .icns and puts it in Resources.
+  Named here because a bundle that names an icon it does not carry gets a blank
+  one and a warning, which is worse than having none.
 -->
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key>
-  <string>Ranger</string>
+  <string>Copaimo</string>
   <key>CFBundleDisplayName</key>
-  <string>Ranger</string>
+  <string>Copaimo</string>
   <key>CFBundleIdentifier</key>
-  <string>com.bazstudios.ranger</string>
+  <string>com.bazstudios.copaimo</string>
   <key>CFBundleExecutable</key>
-  <string>ranger</string>
+  <string>copaimo</string>
+  <key>CFBundleIconFile</key>
+  <string>Copaimo.icns</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

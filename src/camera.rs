@@ -1,4 +1,4 @@
-//! The camera: a third-person orbit rig that follows the ranger, plus a free-fly
+//! The camera: a third-person orbit rig that follows the warden, plus a free-fly
 //! mode for looking at the world itself.
 //!
 //! Free-fly exists because this stage of the project is about the *map*. Being
@@ -24,7 +24,7 @@ const PITCH_LIMIT: f32 = 1.45;
 const MIN_DISTANCE: f32 = 3.0;
 const MAX_DISTANCE: f32 = 45.0;
 const ZOOM_SPEED: f32 = 2.5;
-/// Height on the ranger the camera aims at — roughly the shoulders, so the
+/// Height on the warden the camera aims at — roughly the shoulders, so the
 /// horizon sits where you'd expect rather than at their feet.
 const LOOK_HEIGHT: f32 = 1.5;
 /// How quickly the camera catches up to its ideal position. Higher is tighter.
@@ -109,7 +109,7 @@ impl Plugin for CameraPlugin {
                     toggle_modes,
                     set_fly_speed,
                     orbit_input,
-                    // Runs after the ranger has moved this frame, so the camera
+                    // Runs after the warden has moved this frame, so the camera
                     // never trails a frame behind them.
                     drive_camera.after(move_player),
                 )

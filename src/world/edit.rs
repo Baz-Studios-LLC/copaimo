@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn a_file_that_is_not_ours_is_ignored_rather_than_read_as_elevation() {
-        let road = std::env::temp_dir().join("ranger-edits-foreign.bin");
+        let road = std::env::temp_dir().join("copaimo-edits-foreign.bin");
         fs::write(&road, b"this is not sculpted ground at all").unwrap();
         assert_eq!(load_from(&road, HALF).sculpted_cells(), 0);
         let _ = fs::remove_file(&road);
@@ -134,7 +134,7 @@ mod tests {
         // calling it — so an afternoon's planting vanished on restart. This is
         // that path end to end: sculpt, save through the game's own writer, and
         // read it back through the game's own reader.
-        let road = std::env::temp_dir().join("ranger-edits-restart.bin");
+        let road = std::env::temp_dir().join("copaimo-edits-restart.bin");
         let _ = fs::remove_file(&road);
 
         let mut sculpt = Sculpt::empty(HALF, WORLD_SEED);

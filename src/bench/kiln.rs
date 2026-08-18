@@ -22,7 +22,7 @@
 //!
 //! # The key is never in this repository
 //!
-//! `RANGER_3DAI_KEY`, or a file in the maker's own home. Not in `assets`, not in
+//! `COPAIMO_3DAI_KEY`, or a file in the maker's own home. Not in `assets`, not in
 //! `config.rs`, and not anywhere `git add -A` can reach — a key committed once is
 //! a key that has to be rotated, and the commit that did it is usually the one
 //! nobody looked at.
@@ -86,7 +86,7 @@ impl Firing {
 /// Never from this repository. A key committed once has to be rotated, and the
 /// commit that did it is usually the one nobody looked at.
 fn key() -> Result<String, String> {
-    if let Ok(key) = std::env::var("RANGER_3DAI_KEY") {
+    if let Ok(key) = std::env::var("COPAIMO_3DAI_KEY") {
         let key = key.trim().to_string();
         if !key.is_empty() {
             return Ok(key);
@@ -95,11 +95,11 @@ fn key() -> Result<String, String> {
     let home = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .map_err(|_| "no home folder to look in".to_string())?;
-    let path = Path::new(&home).join(".ranger").join("3daistudio.key");
+    let path = Path::new(&home).join(".copaimo").join("3daistudio.key");
     let key = std::fs::read_to_string(&path)
         .map_err(|_| {
             format!(
-                "no key. Set RANGER_3DAI_KEY, or put it in {}",
+                "no key. Set COPAIMO_3DAI_KEY, or put it in {}",
                 path.display()
             )
         })?

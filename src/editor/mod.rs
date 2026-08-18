@@ -226,7 +226,7 @@ fn hold_to_reach(
 }
 
 fn enter_editor(mut camera: ResMut<CameraMode>) {
-    // Sculpting from the follow camera means aiming past your own ranger at
+    // Sculpting from the follow camera means aiming past your own warden at
     // whatever happens to be in front of them. Free-fly is what the tool wants.
     *camera = CameraMode::Fly;
 }

@@ -2,7 +2,7 @@
 //
 // Bevy's standard shading, unchanged, with one multiply on the end. Everything
 // this game builds out of solid matter wears it — ground, grass, trunks,
-// leaves, water, walls, the ranger — so a shadow crosses a hillside and its
+// leaves, water, walls, the warden — so a shadow crosses a hillside and its
 // trees together instead of stopping at their feet.
 //
 // # It is the actual clouds

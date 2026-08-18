@@ -12,7 +12,7 @@ use bevy::window::{CursorGrabMode, PrimaryWindow};
 pub enum AppState {
     #[default]
     Menu,
-    /// Walking the world as the ranger.
+    /// Walking the world as the warden.
     Playing,
     /// Shaping the ground, in the game, on the live world.
     ///

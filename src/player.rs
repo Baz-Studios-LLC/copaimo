@@ -1,4 +1,4 @@
-//! The ranger: a placeholder body and a ground-following character controller.
+//! The warden: a placeholder body and a ground-following character controller.
 //!
 //! The body is built from primitives at correct human scale (~1.8 m tall). That
 //! matters more than it looks like it should — without something of a known
@@ -7,7 +7,7 @@
 //! in `assets/models/`, `spawn_player` is the one place that changes.
 //!
 //! Movement is camera-relative (push forward and you go where you're looking)
-//! and the ranger is snapped to the terrain height each frame rather than
+//! and the warden is snapped to the terrain height each frame rather than
 //! simulated with physics — the world has no colliders yet, and the heightfield
 //! is an exact answer for "where is the ground".
 
@@ -25,11 +25,11 @@ use crate::world::WorldBounds;
 /// cross the map is an honest signal about whether the map is the right size.
 const WALK_SPEED: f32 = 7.0;
 const SPRINT_SPEED: f32 = 15.0;
-/// How fast the ranger swivels to face the way they're heading, in radians/sec.
+/// How fast the warden swivels to face the way they're heading, in radians/sec.
 const TURN_RATE: f32 = 12.0;
 /// Standing eye-to-toe height, used to keep the body clear of the ground.
 const LEG_HEIGHT: f32 = 0.9;
-/// How deep the ranger may wade, in metres below sea level.
+/// How deep the warden may wade, in metres below sea level.
 ///
 /// The sea is not walkable in the base game — it is for boats. This is both how
 /// far they can stand into it and how far they can *walk* into it: one number,
@@ -45,7 +45,7 @@ pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, spawn_player)
-            // The ranger only walks in the game. In the terrain tool the same
+            // The warden only walks in the game. In the terrain tool the same
             // keys fly the camera, and in the menu nothing should move at all.
             .add_systems(
                 Update,
@@ -77,7 +77,7 @@ fn find_spawn(terrain: &TerrainSource, bounds: &WorldBounds) -> Vec3 {
         radius += RING_STEP;
     }
 
-    warn!("no suitable spawn found — dropping the ranger at the origin");
+    warn!("no suitable spawn found — dropping the warden at the origin");
     Vec3::new(0.0, terrain.height(0.0, 0.0), 0.0)
 }
 
@@ -90,7 +90,7 @@ fn spawn_player(
 ) {
     // On the ranch, which is where the game begins. `find_spawn` is kept as the
     // fallback for a world whose map does not put land there — a redrawn map
-    // could leave the pinned spot at sea, and dropping the ranger into the water
+    // could leave the pinned spot at sea, and dropping the warden into the water
     // with no explanation is worse than starting them somewhere arbitrary.
     let ranch = Vec2::new(RANCH_AT.0, RANCH_AT.1);
     let on_land = terrain.height(ranch.x, ranch.y) > SEA_LEVEL + 1.0;
@@ -100,7 +100,7 @@ fn spawn_player(
         warn!("the ranch at {:.0}, {:.0} is under water on this map", ranch.x, ranch.y);
         find_spawn(&terrain, &bounds)
     };
-    info!("ranger spawning at {:.0}, {:.0}", spawn.x, spawn.z);
+    info!("warden spawning at {:.0}, {:.0}", spawn.x, spawn.z);
 
     let mut solid = |r: f32, g: f32, b: f32| {
         materials.add(shaded(StandardMaterial {
@@ -113,7 +113,7 @@ fn spawn_player(
     let skin = solid(0.80, 0.62, 0.48);
     let hat = solid(0.18, 0.42, 0.22);
 
-    // Parent holds the ranger's world position with its origin at the feet;
+    // Parent holds the warden's world position with its origin at the feet;
     // the body parts hang off it at fixed local heights.
     commands
         .spawn((
@@ -143,7 +143,7 @@ fn spawn_player(
                 MeshMaterial3d(skin),
                 Transform::from_xyz(0.0, 1.67, 0.0),
             ));
-            // Hat crown and brim — the ranger's silhouette, and a clear read on
+            // Hat crown and brim — the warden's silhouette, and a clear read on
             // which way they're facing from any camera angle.
             parent.spawn((
                 Mesh3d(meshes.add(Cylinder::new(0.18, 0.16))),
@@ -207,7 +207,7 @@ pub fn move_player(
 
         // The sea is for boats. Rather than an invisible wall at the waterline —
         // which reads as a bug, and stops you paddling at a beach at all — the
-        // ranger wades until the water is about knee-to-waist and is then turned
+        // warden wades until the water is about knee-to-waist and is then turned
         // back by it. Only the step INTO deep water is refused, so someone who
         // somehow ends up out there can always walk home.
         let depth = SEA_LEVEL - terrain.height(next.x, next.z);
@@ -225,7 +225,7 @@ pub fn move_player(
     }
 
     // Plant the feet on the ground every frame, including when standing still,
-    // so the ranger settles correctly the moment the world finishes loading.
+    // so the warden settles correctly the moment the world finishes loading.
     let ground = terrain.height(transform.translation.x, transform.translation.z);
     transform.translation.y = ground.max(SEA_LEVEL - WADE_DEPTH);
 }

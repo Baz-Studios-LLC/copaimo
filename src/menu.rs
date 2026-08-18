@@ -29,6 +29,17 @@ enum MenuAction {
     Quit,
 }
 
+/// The title art, and how wide it is drawn.
+///
+/// A path rather than a `Handle`, because the menu is spawned and despawned every
+/// time it opens and the asset server hands back the same handle each time — there
+/// is nothing to cache and nothing to keep alive between visits.
+const TITLE_ART: &str = "Title/Copaimo.png";
+
+/// Wide enough to read the subtitle. The art is 2098 x 749, so this is a little
+/// under half size and the crest under the wordmark still holds together.
+const TITLE_WIDE: f32 = 560.0;
+
 pub struct MenuPlugin;
 
 impl Plugin for MenuPlugin {
@@ -39,7 +50,7 @@ impl Plugin for MenuPlugin {
     }
 }
 
-fn spawn_menu(mut commands: Commands) {
+fn spawn_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands
         .spawn((
             MenuRoot,
@@ -66,29 +77,25 @@ fn spawn_menu(mut commands: Commands) {
                 BackgroundColor(PANEL),
             ))
             .with_children(|panel| {
+                // The title ART, not the word set in whatever font happened to
+                // load. The logo carries the subtitle, the crest and the whole
+                // look of the thing; a game whose own name is typed out on its
+                // front screen looks like a placeholder because it is one.
+                //
+                // Sized by WIDTH with the height left to work itself out, so the
+                // logo keeps its proportions whatever the window is. Giving both
+                // would squash it, and a squashed logo is worse than no logo.
                 panel.spawn((
-                    Text::new("RANGER"),
-                    TextFont {
-                        font_size: 58.0,
-                        ..default()
-                    },
-                    TextColor(Color::srgb(0.92, 0.96, 1.0)),
-                ));
-                panel.spawn((
-                    Text::new("World prototype"),
-                    TextFont {
-                        font_size: 15.0,
-                        ..default()
-                    },
-                    TextColor(Color::srgb(0.55, 0.66, 0.78)),
+                    ImageNode::new(asset_server.load(TITLE_ART)),
                     Node {
-                        margin: UiRect::bottom(Val::Px(16.0)),
+                        width: Val::Px(TITLE_WIDE),
+                        margin: UiRect::bottom(Val::Px(18.0)),
                         ..default()
                     },
                 ));
 
                 for (action, label, hint) in [
-                    (MenuAction::Play, "Explore World", "walk the map as the ranger"),
+                    (MenuAction::Play, "Explore World", "walk the map as the warden"),
                     #[cfg(feature = "tools")]
                     (MenuAction::Edit, "Shape the World", "sculpt the ground you walk on"),
                     #[cfg(feature = "tools")]

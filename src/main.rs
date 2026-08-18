@@ -1,17 +1,17 @@
-//! Ranger — a monster-companion adventure game.
+//! Copaimo — a monster-companion adventure game.
 //!
 //! Stage one is the world itself: a large, finite, walkable landmass generated
 //! from a source map image. Ranching, monsters, cities and guild exams all sit
 //! on top of this later, so the priority here is a world with real geography —
 //! coastlines, mountain ranges, biomes — at a scale that feels like a journey.
 //!
-//! The main menu leads to two separate modes: walking the world as the ranger,
+//! The main menu leads to two separate modes: walking the world as the warden,
 //! and the terrain tool for sculpting its shape.
 //!
 //! Each concern is a Bevy plugin in its own module:
 //!   * `states` — app states (menu / playing / editing) and cursor policy
 //!   * `world`  — terrain generation, chunk streaming, the sea
-//!   * `player` — the ranger and their character controller
+//!   * `player` — the warden and their character controller
 //!   * `camera` — third-person orbit rig, plus free-fly
 //!   * `menu`   — the main menu
 //!
@@ -56,18 +56,63 @@ mod world;
 use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::prelude::*;
 
+/// Puts the crest on the window, the task bar and the dock.
+///
+/// # Why this is not just the packaging's job
+///
+/// The `.ico` compiled into the executable is what Explorer draws for the FILE.
+/// What a running window shows is a separate thing entirely, set through the
+/// window system — so a build with only the compiled icon has a proper icon on
+/// disk and the default one while it is open, which is the state anybody actually
+/// looks at for hours at a time.
+///
+/// Read straight off the disk rather than through the asset server: the window
+/// wants its icon before the first frame, and an asset is not loaded until after
+/// one. A missing file leaves the default icon and says so once, because a game
+/// that will not start over an icon is worse than one with a plain icon.
+fn wear_the_icon(windows: NonSend<bevy::winit::WinitWindows>) {
+    const ICON: &str = "assets/Title/icon.png";
+
+    let found = std::fs::read(ICON).or_else(|_| {
+        // Beside the binary as well as beside the working directory — a packaged
+        // build is launched from anywhere, and macOS launches one from `/`.
+        std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|at| at.join(ICON)))
+            .map_or_else(|| Err(std::io::Error::other("no exe folder")), std::fs::read)
+    });
+    let Ok(bytes) = found else {
+        warn!("{ICON} not found; the window keeps the default icon");
+        return;
+    };
+    let Ok(picture) = image::load_from_memory(&bytes) else {
+        warn!("{ICON} is not a picture the window can wear");
+        return;
+    };
+    let picture = picture.into_rgba8();
+    let (wide, tall) = picture.dimensions();
+    let Ok(icon) = winit::window::Icon::from_rgba(picture.into_raw(), wide, tall) else {
+        warn!("{ICON} could not be turned into a window icon");
+        return;
+    };
+    for window in windows.windows.values() {
+        window.set_window_icon(Some(icon.clone()));
+    }
+}
+
 fn main() {
     let mut app = App::new();
     app
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: "Ranger — World Prototype".into(),
+                title: "Copaimo — The Wardens Guild".into(),
                 resolution: (1600.0_f32, 900.0_f32).into(),
                 ..default()
             }),
             ..default()
         }))
         .add_plugins(FrameTimeDiagnosticsPlugin::default())
+        .add_systems(Startup, wear_the_icon)
         .add_plugins((
             states::StatesPlugin,
             // Before anything that builds a material, because it is what

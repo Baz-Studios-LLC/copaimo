@@ -1,5 +1,5 @@
 [package]
-name = "ranger-game"
+name = "copaimo"
 # Kept in step with the released tag by hand. The workflow takes the version
 # from the tag, not from here, so this being stale costs nothing but reads as a
 # lie in `cargo` output.
@@ -26,6 +26,12 @@ edition = "2021"
 default = ["tools"]
 tools = ["dep:ureq"]
 
+# The executable's own icon, so Explorer, the task bar and a desktop shortcut all
+# draw the crest instead of the default. Windows only — it writes a resource
+# section, which is a Windows idea.
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
 [dependencies]
 # Pinned to 0.16 on purpose: this code is written against 0.16's exact API
 # (required components, Msaa-as-component, DistanceFog). Bevy churns its API
@@ -39,6 +45,14 @@ noise = "0.9"
 # before the first frame), and Bevy's image assets are loaded asynchronously
 # and normally live GPU-side only. Version matches the one Bevy 0.16 uses.
 image = "0.25"
+
+# For the window's own icon, which Bevy 0.16 has no API of its own for.
+#
+# **Pinned to the version `bevy_winit` uses.** Two different winit crates in one
+# binary compile fine and then refuse to talk: the `Icon` this builds would be a
+# different type from the one the window wants, and the error is about a mismatched
+# type rather than about a version, which is a confusing hour.
+winit = "0.30.13"
 # The player's own clock. `SystemTime` is UTC and knows nothing of where they
 # are, and the whole point of the day cycle is that nine in the morning here is
 # nine in the morning there — so the local offset has to come from somewhere.

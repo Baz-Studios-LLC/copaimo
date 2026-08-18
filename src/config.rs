@@ -480,7 +480,7 @@ pub const TREE_SCALE_HIGH: f32 = 1.35;
 /// the coast, on the western landmass.
 ///
 /// It is levelled first, before any town is planned, so nothing else can be
-/// placed on top of it. The ranger starts standing on it.
+/// placed on top of it. The warden starts standing on it.
 ///
 /// Exported in `world.json`, because the bench must level the same ground or a
 /// farm sculpted there would sit at the wrong height in the game.
@@ -601,7 +601,7 @@ pub const PLAINS_RELIEF: f32 = 0.12;
 // ------------------------------------------------------------- settlements
 
 /// How many of each kind of place gets ground leveled for it. Cities hold the
-/// Ranger Guild exams; towns are the smaller places between them.
+/// Wardens Guild exams; towns are the smaller places between them.
 pub const CITIES: usize = 6;
 pub const TOWNS: usize = 14;
 

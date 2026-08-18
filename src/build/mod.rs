@@ -67,7 +67,7 @@ pub struct Raised {
 /// A door, a sign — whatever the drawing said the place is FOR, in world space.
 ///
 /// Carried as an entity rather than looked up later so that whatever comes to
-/// use it — a ranger walking in, a shopkeeper standing at a counter — asks the
+/// use it — a warden walking in, a shopkeeper standing at a counter — asks the
 /// world where the door is instead of re-reading the file.
 #[derive(Component)]
 pub struct Purpose {
@@ -471,7 +471,7 @@ mod tests {
         assert_eq!(plan.kind, "house");
         assert!(
             plan.marks.iter().any(|mark| mark.mark == "door"),
-            "a house a ranger cannot walk into is not finished"
+            "a house a warden cannot walk into is not finished"
         );
 
         // All four shapes, so the one thing this fixture is for is actually done.

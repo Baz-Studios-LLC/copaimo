@@ -62,7 +62,7 @@ jobs:
       - name: The tools are not in it
         shell: bash
         run: |
-          BIN=$(ls target/release/ranger-game target/release/ranger-game.exe 2>/dev/null | head -1)
+          BIN=$(ls target/release/copaimo target/release/copaimo.exe 2>/dev/null | head -1)
           echo "checking $BIN"
           if grep -qa "3daistudio" "$BIN"; then
             echo "::error::the release binary carries the kiln"
@@ -78,18 +78,18 @@ jobs:
       - name: Package — macOS .app.tar.gz
         if: runner.os == 'macOS'
         run: |
-          bash packaging/macos-app.sh target/release/ranger-game "${{ steps.ver.outputs.version }}" build
+          bash packaging/macos-app.sh target/release/copaimo "${{ steps.ver.outputs.version }}" build
           mkdir -p dist
           # COPYFILE_DISABLE stops macOS tar writing an AppleDouble `._name`
           # sidecar beside every file to carry extended attributes. Nothing
           # reads them here, and without this the shipped bundle carries a
           # litter of them.
-          COPYFILE_DISABLE=1 tar -czf "dist/ranger-game-macos-aarch64.app.tar.gz" -C build Ranger.app
+          COPYFILE_DISABLE=1 tar -czf "dist/copaimo-macos-aarch64.app.tar.gz" -C build Copaimo.app
           # And a .dmg, which is how a person installs a mac app and how every
           # other studio game ships. The .tar.gz above stays because that is
           # what the launcher matches on; the two are the same app.
-          hdiutil create -volname "Ranger" -srcfolder build/Ranger.app -ov -format UDZO \
-            "dist/ranger-game-v${{ steps.ver.outputs.version }}-macos-arm64.dmg"
+          hdiutil create -volname "Copaimo" -srcfolder build/Copaimo.app -ov -format UDZO \
+            "dist/copaimo-v${{ steps.ver.outputs.version }}-macos-arm64.dmg"
 
       # The world lives in assets/ and is READ AT RUNTIME - the map the
       # continents come from, the recipe that turns it into ground, and whatever
@@ -100,9 +100,9 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist, stage | Out-Null
-          Copy-Item target\release\ranger-game.exe stage\Ranger.exe
+          Copy-Item target\release\copaimo.exe stage\Copaimo.exe
           Copy-Item -Recurse assets stage\assets
-          Compress-Archive -Path stage\* -DestinationPath dist\ranger-game-windows-x86_64.zip -Force
+          Compress-Archive -Path stage\* -DestinationPath dist\copaimo-windows-x86_64.zip -Force
 
       - name: Attach to release
         uses: softprops/action-gh-release@v2

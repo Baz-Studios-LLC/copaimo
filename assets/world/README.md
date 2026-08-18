@@ -34,7 +34,7 @@ pub const WORLD_WIDTH: f32 = 8192.0;
 ```
 
 Everything else — chunk counts, world bounds, the coastline — is derived from it.
-At the ranger's 7 m/s jog, 8192 m is about 20 minutes east to west.
+At the warden's 7 m/s jog, 8192 m is about 20 minutes east to west.
 
 ## Later
 

@@ -1,8 +1,8 @@
-# Ranger
+# Copaimo
 
-A monster-companion adventure game. You play a ranger who raises monsters on a
-ranch, travels between cities, and upgrades your Ranger License by passing the
-exam set by each city's Ranger Guild.
+A monster-companion adventure game. You play a warden who raises monsters on a
+ranch, travels between cities, and upgrades your Copaimo License by passing the
+exam set by each city's Wardens Guild.
 
 Touchstones: **Pokémon** and **Monster Rancher**. Monsters are companions you
 raise, not enemies you fight off.
@@ -15,7 +15,7 @@ Rust + Bevy 0.16.
 cargo run
 ```
 
-The main menu leads to **Explore World** — walk the map as the ranger.
+The main menu leads to **Explore World** — walk the map as the warden.
 
 The world's shape is *sculpted elsewhere*; see below.
 

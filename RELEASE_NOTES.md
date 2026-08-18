@@ -70,19 +70,19 @@ landmarks is half the information missing.
 **Apple Silicon only** (M1 or later). The build is arm64; it will not run on an
 Intel Mac.
 
-Grab the **`.dmg`** and drag Ranger out of it, or install through the **Baz
+Grab the **`.dmg`** and drag Copaimo out of it, or install through the **Baz
 Studios launcher** (which uses the `.tar.gz` and clears the quarantine for you).
 
 The app is **ad-hoc signed** rather than notarised, so macOS quarantines anything
-downloaded and may say *"Ranger is damaged and can't be opened"*. It isn't
+downloaded and may say *"Copaimo is damaged and can't be opened"*. It isn't
 damaged, it just isn't from an identified developer. Either **right-click the app
 → Open** and confirm, or:
 
 ```bash
-xattr -dr com.apple.quarantine /Applications/Ranger.app
+xattr -dr com.apple.quarantine /Applications/Copaimo.app
 ```
 
-The world lives inside the bundle at `Ranger.app/Contents/MacOS/assets`, beside
+The world lives inside the bundle at `Copaimo.app/Contents/MacOS/assets`, beside
 the binary. Keep it there — macOS launches an app with the working directory at
 `/`, so that folder is the only place the game can find its map.
 
