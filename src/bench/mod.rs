@@ -115,18 +115,37 @@ pub struct Asked {
 struct View {
     /// Radians around the work.
     around: f32,
-    /// How far off.
+    /// Radians above it. Clamped, so the camera never goes under the floor or
+    /// over the top — both put the work behind the grid and neither is a view
+    /// anybody chose.
+    pitch: f32,
+    /// How far off, in metres.
     away: f32,
 }
 
 impl Default for View {
     fn default() -> Self {
         Self {
-            around: 0.0,
-            away: 1.0,
+            around: 0.6,
+            pitch: 0.55,
+            away: 13.0,
         }
     }
 }
+
+/// How close and how far the camera may get.
+///
+/// Near enough to see a rail's thickness, far enough to hold a tower. Not
+/// unbounded: a wheel that can zoom for ever ends up inside the work or in the
+/// next county, and both take longer to recover from than they took to reach.
+const NEAREST: f32 = 2.5;
+const FURTHEST: f32 = 60.0;
+
+/// How far the camera may tip. Just short of straight down and just above the
+/// floor, because both ends are degenerate: at the pole the view spins about
+/// nothing, and at the floor the work is edge-on.
+const LOWEST: f32 = 0.08;
+const HIGHEST: f32 = 1.45;
 
 pub struct BenchPlugin;
 
@@ -283,9 +302,16 @@ fn choose(keys: Res<ButtonInput<KeyCode>>, mut hand: ResMut<Hand>) {
             hand.part = part;
         }
     }
-    // R turns it, quarter by quarter. There is no free rotation on purpose — see
-    // the kit's own note.
-    if keys.just_pressed(KeyCode::KeyR) {
+    // R turns the piece in HAND, quarter by quarter. There is no free rotation on
+    // purpose — see the kit's own note.
+    //
+    // Shift+R turns whatever is already down under the cursor. Two keys rather
+    // than one that guesses: "turn this" and "turn the next one" are different
+    // intentions, and a key that picks between them by whether something happens
+    // to be nearby turns the wrong thing exactly when a maker is working fast.
+    if keys.just_pressed(KeyCode::KeyR)
+        && !keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
+    {
         hand.quarters = (hand.quarters + 1) % 4;
     }
     if keys.just_pressed(KeyCode::KeyC) {
@@ -491,6 +517,15 @@ fn place(
             }
         }
     }
+    // Turning something already down. Getting a wall's facing wrong is the
+    // commonest mistake on a lattice, and before this the only remedy was to
+    // delete it and place it again.
+    if keys.just_pressed(KeyCode::KeyR)
+        && keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
+    {
+        bench.turn_nearest(hand.at, kit::MODULE);
+    }
+
     // Taking away is the same gesture in both modes. There is no such thing as
     // un-painting, and a right button that did nothing in one mode would read as
     // broken.
@@ -523,39 +558,93 @@ fn place(
 /// Turning the view about the work, and stepping in and out.
 fn turn_view(
     keys: Res<ButtonInput<KeyCode>>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    mut moved: EventReader<bevy::input::mouse::MouseMotion>,
+    scroll: Res<bevy::input::mouse::AccumulatedMouseScroll>,
     mut view: ResMut<View>,
     mut cameras: Query<&mut Transform, With<BenchEye>>,
 ) {
-    let mut moved = false;
+    // Drag the MIDDLE button to orbit.
+    //
+    // Not the left or the right: those place and take away, and they have to stay
+    // that way — a tool where the button that builds also moves the camera is a
+    // tool where every misjudged drag leaves a wall somewhere. Middle-drag to
+    // orbit is what every program that does this uses, which is the whole reason
+    // to use it.
+    let dragging = buttons.pressed(MouseButton::Middle);
+    let mut swung = Vec2::ZERO;
+    for motion in moved.read() {
+        if dragging {
+            swung += motion.delta;
+        }
+    }
+    let mut shifted = false;
+    if swung != Vec2::ZERO {
+        view.around -= swung.x * ORBIT_RATE;
+        // Up drags the eye UP. The other way round is defensible and it is not
+        // what anybody expects when they take hold of a thing and lift it.
+        view.pitch = (view.pitch + swung.y * ORBIT_RATE).clamp(LOWEST, HIGHEST);
+        shifted = true;
+    }
+
+    // The wheel zooms, by a FACTOR rather than a step.
+    //
+    // A fixed step is wrong at both ends: it crawls when you are far out and jumps
+    // straight through the work when you are close. Multiplying keeps the movement
+    // the same fraction of what you can see, which is what makes a zoom feel even.
+    if scroll.delta.y != 0.0 {
+        view.away = (view.away * ZOOM_RATE.powf(-scroll.delta.y)).clamp(NEAREST, FURTHEST);
+        shifted = true;
+    }
+
+    // And the keys still work. Quarter turns, because a building of axis-aligned
+    // parts is looked at from its corners, and getting exactly back to one by
+    // dragging is a fiddle.
     if keys.just_pressed(KeyCode::BracketLeft) {
-        view.around -= std::f32::consts::FRAC_PI_2;
-        moved = true;
+        view.around = quarter_from(view.around, -1.0);
+        shifted = true;
     }
     if keys.just_pressed(KeyCode::BracketRight) {
-        view.around += std::f32::consts::FRAC_PI_2;
-        moved = true;
+        view.around = quarter_from(view.around, 1.0);
+        shifted = true;
     }
     if keys.just_pressed(KeyCode::Minus) {
-        view.away = (view.away * 1.25).min(4.0);
-        moved = true;
+        view.away = (view.away * ZOOM_RATE).min(FURTHEST);
+        shifted = true;
     }
     if keys.just_pressed(KeyCode::Equal) {
-        view.away = (view.away / 1.25).max(0.35);
-        moved = true;
+        view.away = (view.away / ZOOM_RATE).max(NEAREST);
+        shifted = true;
     }
-    if !moved {
+    if !shifted {
         return;
     }
 
-    // Quarter turns, like everything else here. A building made of axis-aligned
-    // parts is looked at from its corners, and a free orbit would mostly be used
-    // to get back to one of them.
-    let turn = Quat::from_rotation_y(view.around);
+    let pivot = Vec3::Y * PIVOT;
+    let out = Vec3::new(
+        view.around.sin() * view.pitch.cos(),
+        view.pitch.sin(),
+        view.around.cos() * view.pitch.cos(),
+    );
     for mut camera in &mut cameras {
-        camera.translation = turn * (EYE * view.away);
-        camera.look_at(Vec3::Y * PIVOT, Vec3::Y);
+        camera.translation = pivot + out * view.away;
+        camera.look_at(pivot, Vec3::Y);
     }
 }
+
+/// The next quarter turn round from where the camera actually is.
+///
+/// Rounded to the quarter first, so a camera dragged to some angle between two of
+/// them lands on a corner rather than a quarter turn from wherever it happened to
+/// be left. Pressing the key twice from anywhere gets you to a known view.
+fn quarter_from(around: f32, way: f32) -> f32 {
+    let quarter = std::f32::consts::FRAC_PI_2;
+    ((around / quarter).round() + way) * quarter
+}
+
+/// How far a pixel of drag turns the view, and how much one wheel notch zooms.
+const ORBIT_RATE: f32 = 0.006;
+const ZOOM_RATE: f32 = 1.18;
 
 /// Draws the work, from scratch, whenever it changes.
 ///
@@ -673,4 +762,101 @@ fn draw_ghost(
         })),
         Transform::IDENTITY,
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Where the camera ends up, which is the arithmetic `turn_view` runs.
+    fn eye(view: &View) -> Vec3 {
+        let out = Vec3::new(
+            view.around.sin() * view.pitch.cos(),
+            view.pitch.sin(),
+            view.around.cos() * view.pitch.cos(),
+        );
+        Vec3::Y * PIVOT + out * view.away
+    }
+
+    #[test]
+    fn the_camera_never_goes_under_the_floor_or_over_the_top() {
+        // Both ends are degenerate rather than merely ugly: at the pole the view
+        // spins about nothing, and below the floor the work is behind the grid.
+        // The clamp is what makes a free orbit safe to hand somebody.
+        for tipped in [-9.0_f32, -0.4, 0.0, 0.5, 1.6, 99.0] {
+            let view = View {
+                pitch: tipped.clamp(LOWEST, HIGHEST),
+                ..Default::default()
+            };
+            assert!(
+                view.pitch >= LOWEST && view.pitch <= HIGHEST,
+                "pitch {tipped} was not brought back"
+            );
+            // And the eye is above the floor at every one of them.
+            assert!(eye(&view).y > 0.0, "the camera got under the floor at {tipped}");
+        }
+    }
+
+    #[test]
+    fn zooming_is_bounded_at_both_ends() {
+        // A wheel that zooms for ever ends up inside the work or in the next
+        // county, and both take longer to recover from than they took to reach.
+        let mut away = View::default().away;
+        for _ in 0..200 {
+            away = (away / ZOOM_RATE).max(NEAREST);
+        }
+        assert!((away - NEAREST).abs() < 1.0e-3, "zoomed in to {away}");
+        for _ in 0..400 {
+            away = (away * ZOOM_RATE).min(FURTHEST);
+        }
+        assert!((away - FURTHEST).abs() < 1.0e-3, "zoomed out to {away}");
+    }
+
+    #[test]
+    fn zooming_moves_by_a_fraction_rather_than_a_step() {
+        // A fixed step is wrong at both ends: it crawls when you are far out and
+        // jumps through the work when you are close. What makes a zoom feel even
+        // is that each notch moves the same SHARE of what you can see.
+        let near = 4.0_f32;
+        let far = 40.0_f32;
+        let moved = |from: f32| (from * ZOOM_RATE - from) / from;
+        assert!(
+            (moved(near) - moved(far)).abs() < 1.0e-5,
+            "a notch moves {:.3} of the view up close and {:.3} far out",
+            moved(near),
+            moved(far)
+        );
+    }
+
+    #[test]
+    fn squaring_up_lands_on_a_corner_from_anywhere() {
+        // Pressing the key twice from any angle has to reach a known view. Adding
+        // a quarter to wherever the camera was left would keep whatever fraction
+        // of a turn the drag ended on, for ever.
+        let quarter = std::f32::consts::FRAC_PI_2;
+        for awkward in [0.13_f32, 0.9, -1.7, 2.4, 5.9] {
+            let squared = quarter_from(awkward, 1.0);
+            let off = (squared / quarter) - (squared / quarter).round();
+            assert!(off.abs() < 1.0e-5, "{awkward} squared up to {squared}, off a corner");
+        }
+        // And it moves in the direction asked for.
+        assert!(quarter_from(0.0, 1.0) > 0.0);
+        assert!(quarter_from(0.0, -1.0) < 0.0);
+    }
+
+    #[test]
+    fn the_view_starts_looking_down_at_the_work() {
+        // A bench that opens edge-on to the floor, or from directly overhead, is a
+        // bench somebody has to fix before they can start.
+        let view = View::default();
+        let at = eye(&view);
+        assert!(at.y > 1.0, "the camera opens {:.2} m up", at.y);
+        assert!(
+            view.away >= NEAREST && view.away <= FURTHEST,
+            "it opens outside its own zoom range"
+        );
+        // Looking at the work rather than past it: the pivot is between the eye
+        // and the far side.
+        assert!(at.length() > PIVOT, "the camera opens inside the work");
+    }
 }

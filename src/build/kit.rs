@@ -288,6 +288,25 @@ impl Bench {
         Some(part)
     }
 
+    /// Turns the nearest member a quarter, and says which it was.
+    ///
+    /// Pieces already down, rather than the one in hand. Getting a wall's facing
+    /// wrong is the commonest mistake there is on a lattice — everything is
+    /// axis-aligned, so a piece turned the wrong way looks almost right — and
+    /// before this the only remedy was to delete it and place it again.
+    pub fn turn_nearest(&mut self, to: Vec3, within: f32) -> Option<Part> {
+        let (_, id, part) = self
+            .pieces
+            .iter()
+            .map(|p| (p.middle().distance(to), p.id, p.part))
+            .filter(|(away, ..)| *away <= within)
+            .min_by(|a, b| a.0.total_cmp(&b.0))?;
+        let piece = self.pieces.iter_mut().find(|p| p.id == id)?;
+        piece.quarters = (piece.quarters + 1) % 4;
+        self.unsaved = true;
+        Some(part)
+    }
+
     /// Takes the nearest member out, and says which it was.
     pub fn remove_nearest(&mut self, to: Vec3, within: f32) -> Option<Part> {
         let (_, id, part) = self

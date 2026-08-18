@@ -157,6 +157,57 @@ pub fn row<T: Send + Sync + 'static>(
         });
 }
 
+/// A row that says what a gesture does, without being pressable.
+///
+/// Some controls are not buttons and cannot be: you cannot click a thing to make
+/// the wheel zoom. But a gesture nobody has mentioned is a feature that does not
+/// exist as far as a maker is concerned, so it still gets a line — same keycap,
+/// same layout, no highlight and no hand cursor, because pressing it does nothing
+/// and it should not look as though it might.
+pub fn note(
+    parent: &mut ChildSpawnerCommands,
+    font: &UiFont,
+    group: &'static str,
+    key: &str,
+    what: &str,
+) {
+    parent
+        .spawn((
+            OfBranch(group),
+            Node {
+                width: Val::Percent(100.0),
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                column_gap: Val::Px(8.0),
+                padding: UiRect::axes(Val::Px(6.0), Val::Px(3.0)),
+                ..default()
+            },
+        ))
+        .with_children(|row| {
+            row.spawn((
+                Node {
+                    min_width: Val::Px(18.0),
+                    justify_content: JustifyContent::Center,
+                    padding: UiRect::axes(Val::Px(4.0), Val::Px(2.0)),
+                    ..default()
+                },
+                BackgroundColor(KEYCAP),
+            ))
+            .with_children(|cap| {
+                cap.spawn((
+                    Text::new(key.to_string()),
+                    font.at(10.0),
+                    TextColor(TEXT_DIM),
+                ));
+            });
+            row.spawn((
+                Text::new(what.to_string()),
+                font.at(12.0),
+                TextColor(TEXT_DIM),
+            ));
+        });
+}
+
 /// The text of a row, so it can be lit when the row is the one in force.
 #[derive(Component)]
 pub struct RowLabel;

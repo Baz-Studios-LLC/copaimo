@@ -49,6 +49,8 @@ pub enum Press {
     Mode(Doing),
     Ask(Pattern),
     Turn,
+    /// Turn something already placed, rather than the piece in hand.
+    TurnPlaced,
     Save,
     Undo,
     Fire,
@@ -108,6 +110,24 @@ pub fn open(mut commands: Commands, font: Res<UiFont>) {
                 );
             }
             widget::row(panel, &font, "parts", "R", "TURN A QUARTER", Press::Turn);
+            widget::row(
+                panel,
+                &font,
+                "parts",
+                "SH-R",
+                "TURN WHAT IS UNDER THE CURSOR",
+                Press::TurnPlaced,
+            );
+            panel.spawn(rule());
+
+            // The camera, said out loud. Orbiting by dragging a button nobody
+            // mentioned is a feature that does not exist as far as a maker is
+            // concerned, which is what this whole panel is for.
+            widget::branch(panel, &font, "view", "VIEW");
+            widget::note(panel, &font, "view", "MIDDLE DRAG", "orbit");
+            widget::note(panel, &font, "view", "WHEEL", "zoom");
+            widget::note(panel, &font, "view", "[ ]", "square up a quarter");
+            widget::note(panel, &font, "view", "- =", "zoom a step");
             panel.spawn(rule());
 
             widget::branch(panel, &font, "colour", "COLOUR");
@@ -198,6 +218,9 @@ pub fn pressed(
             Press::Part(part) => hand.part = part,
             Press::Mode(doing) => hand.doing = doing,
             Press::Turn => hand.quarters = (hand.quarters + 1) % 4,
+            Press::TurnPlaced => {
+                bench.turn_nearest(hand.at, crate::build::kit::MODULE);
+            }
             Press::Ask(what) => {
                 asked.what = Pattern::ALL.iter().position(|p| *p == what).unwrap_or(0);
                 asked.seed = asked.seed.wrapping_add(1);
