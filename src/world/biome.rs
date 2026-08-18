@@ -14,7 +14,7 @@ use std::sync::LazyLock;
 use bevy::color::LinearRgba;
 use bevy::prelude::*;
 
-use crate::config::{CHILL_SNOWLINE, CHILL_TREELINE, SEA_LEVEL, SNOWLINE, TREELINE};
+use crate::config::{COLD_SNOWLINE, SEA_LEVEL, SNOWLINE, TREELINE};
 use crate::util::smoothstep;
 
 /// Palette in *linear* space, which is what mesh vertex colors are interpreted
@@ -67,8 +67,8 @@ fn linear(r: f32, g: f32, b: f32) -> Vec3 {
 ///
 /// * `height` — meters relative to sea level
 /// * `slope`  — 0 for dead flat, approaching 1 for a vertical face
-/// * `moisture` — 0 arid, 1 lush
-/// * `arid`, `chill` — which region this is, from [`terrain_core::region`]
+/// * `wooded` — 0 open, 1 dense; only decides meadow against wood
+/// * `country` — which country this is, from [`terrain_core::region`]
 ///
 /// # The ground and the biome have to agree
 ///
@@ -85,11 +85,10 @@ fn linear(r: f32, g: f32, b: f32) -> Vec3 {
 pub fn surface_color(
     height: f32,
     slope: f32,
-    moisture: f32,
+    wooded: f32,
     character: f32,
     worn: f32,
-    arid: f32,
-    chill: f32,
+    country: terrain_core::region::Country,
 ) -> [f32; 4] {
     let p = &*PALETTE;
 
@@ -100,26 +99,28 @@ pub fn surface_color(
     let depth = SEA_LEVEL - height;
     let underwater = p.silt.lerp(p.shallow, smoothstep(45.0, 3.0, depth));
 
-    // Vegetation: moisture picks dry plains → grassland, then tips into forest
-    // once it's wet enough.
-    let grass = p.dry_grass.lerp(p.lush_grass, smoothstep(0.25, 0.60, moisture));
-    let vegetated = grass.lerp(p.forest, smoothstep(0.58, 0.88, moisture));
+    // The green world: how wooded somewhere is picks open grass against wood.
+    // That is all this noise decides now, and it decides it inside one country.
+    let grass = p.dry_grass.lerp(p.lush_grass, smoothstep(0.25, 0.60, wooded));
+    let vegetated = grass.lerp(p.forest, smoothstep(0.58, 0.88, wooded));
 
-    // And a dry region is SAND, not dry grass.
-    //
-    // Sand used to appear only in the shoreline band, so the driest ground the
-    // world could paint was the khaki at the bottom of the grass ramp — which is
-    // a parched meadow, not a desert. The rim of the region keeps that khaki and
-    // the heart of it is sand, which is also roughly how a desert actually goes.
-    let parched = vegetated.lerp(p.sand, smoothstep(0.30, 0.85, arid));
+    // And then the country simply says what to paint, exactly as it says what a
+    // place IS. The two used to be worked out separately from a coldness and a
+    // dryness, with their own thresholds, and they disagreed — desert painted as
+    // dry grassland, snow country painted green to two hundred metres.
+    let (ground_colour, snowline) = match country {
+        // Sand, not the khaki at the dry end of a grass ramp. Sand existed in
+        // this palette all along and was reachable only from the shoreline band,
+        // so the driest thing the world could paint was a parched meadow.
+        terrain_core::region::Country::Desert => (p.sand, SNOWLINE),
+        // Conifers below the line, snow above it, and one line for both.
+        terrain_core::region::Country::Snow => (p.forest, COLD_SNOWLINE),
+        terrain_core::region::Country::Ordinary => (vegetated, SNOWLINE),
+    };
 
-    // Altitude strips the greenery back to bare alpine ground, then to snow —
-    // and a cold region brings both lines down to meet the ground, exactly as it
-    // does for the classifier. That is what makes snow country white rather than
-    // green with a white mountain in the middle of it.
-    let treeline = TREELINE - TREELINE * CHILL_TREELINE * chill;
-    let snowline = SNOWLINE - SNOWLINE * CHILL_SNOWLINE * chill;
-    let above_treeline = parched.lerp(p.alpine, smoothstep(treeline - 25.0, treeline + 40.0, height));
+    // Altitude strips the greenery back to bare stone, then to snow.
+    let above_treeline =
+        ground_colour.lerp(p.alpine, smoothstep(TREELINE - 25.0, TREELINE + 40.0, height));
     let capped = above_treeline.lerp(p.snow, smoothstep(snowline - 30.0, snowline + 20.0, height));
 
     let mut color = if height >= SEA_LEVEL { capped } else { underwater };

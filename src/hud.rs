@@ -107,7 +107,7 @@ fn update_hud(
         .map(|t| t.translation)
         .unwrap_or_default();
     let height = terrain.height(position.x, position.z);
-    let moisture = terrain.moisture(position.x, position.z);
+    let wooded = terrain.wooded(position.x, position.z);
     let slope = 1.0 - terrain.normal(position.x, position.z, 1.0).y;
 
     let source = if terrain.has_map() {
@@ -160,20 +160,20 @@ fn update_hud(
     // overview, which is a guess per attempt and a round trip per guess.
     //
     // With it, standing on the spot reads the answer straight off: `map 0.71,
-    // 0.14` says which ellipse to move, and `arid 0.20` says whether the trouble
-    // is the placement or the falloff — a zone whose rim reaches somewhere still
-    // leaves it a half-hearted version of the region, which has been the cause
-    // every single time so far.
+    // 0.14` says which ellipse to move, and `desert (0.20 of it)` says whether
+    // the trouble is the placement or the falloff — a zone whose rim reaches
+    // somewhere still leaves it a half-hearted version of that country, which has
+    // been the cause every single time so far.
     let (u, v) = terrain.map_uv(position.x, position.z);
-    let (arid, chill) = terrain.region(position.x, position.z);
+    let (country, belonging) = terrain.region(position.x, position.z);
 
     **text = format!(
         "{fps:.0} fps   camera: {mode}\n\
          world: {:.0} x {:.0} m   source: {source}\n\
          position: {:.0}, {:.0}\n\
-         altitude: {height:.1} m   slope: {slope:.2}   moisture: {moisture:.2}\n\
+         altitude: {height:.1} m   slope: {slope:.2}   wooded: {wooded:.2}\n\
          here: {} ({sure:.2} sure)   time: {}\n\
-         map: {u:.3}, {v:.3}   arid {arid:.2}   chill {chill:.2}\n\
+         map: {u:.3}, {v:.3}   country: {} ({belonging:.2} of it)\n\
          chunks: {} loaded, {} building   sculpted: {sculpted}\n\
          nearest: {nearest}\n\
          \n\
@@ -187,6 +187,7 @@ fn update_hud(
         position.z,
         biome.name(),
         when.spoken(),
+        country.name(),
         chunks.loaded.len(),
         pending.iter().count(),
     );

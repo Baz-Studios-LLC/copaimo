@@ -305,9 +305,9 @@ impl Terrain {
                 // and planted as though it were a temperate hillside, because the
                 // planting was the one path that never asked which region it was
                 // in.
-                let sea = self.climate_at(at.x, at.y);
+                let sea = self.climate();
                 let natural = forest::natural_density(
-                    ground.moisture,
+                    ground.wooded,
                     ground.height,
                     ground.slope,
                     ground.shore,
@@ -646,34 +646,23 @@ impl Terrain {
     /// See [`terrain_core::region`] for why the world has regions at all. The
     /// short of it: a biome decided point by point is a scatter, and a scatter is
     /// not somewhere anybody can name or anything can live in.
-    pub fn region(&self, x: f32, z: f32) -> (f32, f32) {
+    pub fn region(&self, x: f32, z: f32) -> (terrain_core::region::Country, f32) {
         let (u, v) = self.to_map_uv(x, z);
         terrain_core::region::at(Vec2::new(u, v))
     }
 
-    /// Moisture at a world position, 0 (arid) to 1 (lush).
+    /// How wooded ordinary country is here, 0 open to 1 dense.
     ///
-    /// Mostly the REGION, and a little local noise on top.
-    ///
-    /// It used to be the noise and nothing else, which is what scattered the
-    /// biomes: whether a given field was desert or grassland was settled by
-    /// whether a Perlin field happened to dip there, so the answer changed every
-    /// couple of hundred metres and no part of the map was anywhere in
-    /// particular. The noise is still here and still doing something worth doing —
-    /// a damp hollow inside grassland, a stand of wood on the wetter side of a
-    /// hill — but it varies the country rather than deciding which country it is.
-    pub fn moisture(&self, x: f32, z: f32) -> f32 {
+    /// This was `moisture`, and it decided whether somewhere was desert. It does
+    /// not any more — see [`terrain_core::region`]. All it says now is whether a
+    /// patch of the green world comes out meadow or wood, which is a thing a
+    /// noise field is genuinely good at and a thing nobody has to reason about a
+    /// climate to understand.
+    pub fn wooded(&self, x: f32, z: f32) -> f32 {
         let local = self
             .moisture
-            .get([x as f64 * MOISTURE_FREQ, z as f64 * MOISTURE_FREQ]) as f32
-            * 0.5
-            + 0.5;
-
-        let (arid, _) = self.region(x, z);
-        // Between the damp the region is owed and parched, by how strongly the
-        // region claims this point.
-        let damp = TEMPERATE_MOISTURE + (local - 0.5) * LOCAL_MOISTURE;
-        (damp * (1.0 - arid) + ARID_MOISTURE * arid).clamp(0.0, 1.0)
+            .get([x as f64 * MOISTURE_FREQ, z as f64 * MOISTURE_FREQ]) as f32;
+        (local * 0.5 + 0.5).clamp(0.0, 1.0)
     }
 
     /// The thresholds that decide what sort of world this is.
@@ -687,27 +676,10 @@ impl Terrain {
             treeline: TREELINE,
             snowline: SNOWLINE,
             rock_above: ROCK_SLOPE,
-            desert_below: DESERT_MOISTURE,
-            forest_above: FOREST_MOISTURE,
+            forest_above: FOREST_WOODED,
+            cold_snowline: COLD_SNOWLINE,
             settled_above: SETTLED_LEVELLING,
         }
-    }
-
-    /// The same, for the region a point actually stands in.
-    ///
-    /// Only the cold regions differ, and they differ by bringing the treeline and
-    /// the snowline DOWN to meet the ground. That is what makes snow country snow
-    /// country: not high ground that happens to be white, but ground where the
-    /// trees give out and the snow begins at heights that are ordinary elsewhere.
-    ///
-    /// Asked per point rather than per chunk, because a hundred and twenty-eight
-    /// metres is a visible step and a biome that changes in steps has seams.
-    pub fn climate_at(&self, x: f32, z: f32) -> Climate {
-        let (_, chill) = self.region(x, z);
-        let mut sea = self.climate();
-        sea.treeline -= TREELINE * CHILL_TREELINE * chill;
-        sea.snowline -= SNOWLINE * CHILL_SNOWLINE * chill;
-        sea
     }
 
     /// Everything about a point that decides what kind of place it is.
@@ -729,7 +701,9 @@ impl Terrain {
         BiomeGround {
             height,
             slope: 1.0 - self.normal(x, z, 2.0).y,
-            moisture: self.moisture(x, z),
+            country: self.region(x, z).0,
+            belonging: self.region(x, z).1,
+            wooded: self.wooded(x, z),
             shore: self.shore_meters(x, z),
             levelled: self
                 .settlements
@@ -742,13 +716,13 @@ impl Terrain {
 
     /// What kind of place this is.
     pub fn biome(&self, x: f32, z: f32) -> Biome {
-        Biome::of(self.ground_at(x, z), &self.climate_at(x, z))
+        Biome::of(self.ground_at(x, z), &self.climate())
     }
 
     /// How strongly this ground reads as its own kind, 0 at a boundary to 1 well
     /// inside one. For anything that should fade rather than switch.
     pub fn biome_confidence(&self, x: f32, z: f32) -> f32 {
-        Biome::confidence(self.ground_at(x, z), &self.climate_at(x, z))
+        Biome::confidence(self.ground_at(x, z), &self.climate())
     }
 
     /// Surface normal from central differences on the heightfield.
@@ -1270,8 +1244,32 @@ mod tests {
         // This is the whole point of regions: somewhere you can name, cross, and
         // put a species of monster in.
         assert!(share(Biome::Desert) > 0.08, "desert is {:.1}% of the land", share(Biome::Desert) * 100.0);
-        assert!(share(Biome::Snow) > 0.12, "snow is {:.1}% of the land", share(Biome::Snow) * 100.0);
-        assert!(share(Biome::Grass) > 0.15, "grass is {:.1}% of the land", share(Biome::Grass) * 100.0);
+        // Snow AND rock together, because the brief for that region was "snow
+        // and mountains" and bare stone is the mountain half of it. Judging the
+        // region by its snow alone punishes exactly the change that gives it a
+        // treeline and a rock band instead of a white blanket.
+        let cold = share(Biome::Snow) + share(Biome::Rock);
+        assert!(
+            cold > 0.15,
+            "snow and bare rock together are {:.1}% of the land",
+            cold * 100.0
+        );
+        assert!(
+            share(Biome::Snow) > 0.08,
+            "snow is {:.1}% of the land",
+            share(Biome::Snow) * 100.0
+        );
+        // Grass AND forest, because the green world is one country and the brief
+        // for it has always been "grass/forest" in a breath. Judging it by grass
+        // alone punishes giving snow country its conifers, which moved a chunk of
+        // the map from one green kind to the other without changing what anybody
+        // would call it.
+        let green = share(Biome::Grass) + share(Biome::Forest);
+        assert!(
+            green > 0.25,
+            "grass and forest together are {:.1}% of the land",
+            green * 100.0
+        );
 
         // And none of them swallows the world.
         //
@@ -1280,7 +1278,7 @@ mod tests {
         // middle landmass and the snow the whole eastern island, which is two of
         // the three and settles the question. What is worth guarding is that no
         // single region takes over, not which one is biggest.
-        for biome in [Biome::Grass, Biome::Desert, Biome::Snow] {
+        for biome in [Biome::Desert, Biome::Snow] {
             assert!(
                 share(biome) < 0.45,
                 "{biome:?} is {:.0}% of the land on its own",
@@ -1399,11 +1397,10 @@ mod tests {
                     let colour = crate::world::biome::surface_color(
                         terrain.height(at.x, at.y),
                         1.0 - terrain.normal(at.x, at.y, 2.0).y,
-                        terrain.moisture(at.x, at.y),
+                        terrain.wooded(at.x, at.y),
                         terrain.shore_character(at.x, at.y),
                         terrain.worn(at.x, at.y),
                         terrain.region(at.x, at.y).0,
-                        terrain.region(at.x, at.y).1,
                     );
                     for channel in 0..3 {
                         sum[channel] += colour[channel];

@@ -335,15 +335,13 @@ fn render(terrain: &Terrain, size: UVec2) -> Vec<u8> {
             let slope = 1.0 - terrain.normal(x, z, epsilon).y;
             // The same classification the terrain itself uses, so the overview
             // reads as the world rather than as a separate diagram.
-            let (arid, chill) = terrain.region(x, z);
             let color = surface_color(
                 height,
                 slope,
-                terrain.moisture(x, z),
+                terrain.wooded(x, z),
                 terrain.shore_character(x, z),
                 terrain.worn(x, z),
-                arid,
-                chill,
+                terrain.region(x, z).0,
             );
 
             // `surface_color` returns linear; the texture is sRGB.

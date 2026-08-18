@@ -189,15 +189,15 @@ pub fn build_mesh(terrain: &Terrain, coord: IVec2) -> Mesh {
             let slope_z = sampled(px, pz + 1) - sampled(px, pz - 1);
             let normal = Vec3::new(-slope_x, 2.0 * step, -slope_z).normalize();
             let slope = 1.0 - normal.y;
-            let moisture = terrain.moisture(world.x, world.y);
+            let wooded = terrain.wooded(world.x, world.y);
             let character = terrain.shore_character(world.x, world.y);
             let worn = terrain.worn(world.x, world.y);
 
             positions.push([local.x, height, local.y]);
             normals.push([normal.x, normal.y, normal.z]);
-            let (arid, chill) = terrain.region(world.x, world.y);
+            let (country, _) = terrain.region(world.x, world.y);
             colors.push(surface_color(
-                height, slope, moisture, character, worn, arid, chill,
+                height, slope, wooded, character, worn, country,
             ));
             uvs.push([ix as f32 / quads as f32, iz as f32 / quads as f32]);
         }

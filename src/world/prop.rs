@@ -223,7 +223,7 @@ pub fn litter(terrain: &Terrain, pool: &[Prop], low: Vec2) -> Geometry {
             }
 
             let ground = terrain.ground_at(at.x, at.y);
-            let biome = Biome::of(ground, &terrain.climate_at(at.x, at.y));
+            let biome = Biome::of(ground, &terrain.climate());
 
             let thickness = prop::density(biome);
             if thickness <= 0.0 || terrain_core::forest::chance(slot_x, slot_z, 43) > thickness {

@@ -430,53 +430,23 @@ pub const ROCK_SLOPE: f32 = 0.62;
 ///
 /// These two decide what sort of continent this is. Widening the gap makes a
 /// world of open grassland; closing it makes everywhere either wood or sand.
-/// Moisture where the world has no opinion — ordinary watered country.
+/// The height above which SNOW country is snow, and below which it grows
+/// conifers.
 ///
-/// Comfortably above `DESERT_MOISTURE` and below `FOREST_MOISTURE`, so temperate
-/// ground is grassland by default and the local noise decides which parts of it
-/// turn to wood.
-pub const TEMPERATE_MOISTURE: f32 = 0.52;
+/// One number where there were four. The treeline and the snowline used to be
+/// derived from a coldness by separate multipliers, and they walked past each
+/// other — snow starting below where trees stopped closed the bare-rock band, and
+/// a mountain went from wood straight to white. In snow country the trees stop
+/// exactly where the snow starts, because it is the same line.
+pub const COLD_SNOWLINE: f32 = 45.0;
 
-/// Moisture in the heart of a dry region. Well under `DESERT_MOISTURE`, so a
-/// desert is a desert all the way through rather than only at its middle.
-pub const ARID_MOISTURE: f32 = 0.04;
-
-/// How far the local noise may swing the moisture either side of its region's.
+/// How wooded ordinary country has to be before it counts as a wood.
 ///
-/// Enough to put a stand of wood on the wet side of a hill and a dry meadow on
-/// the other, and nowhere near enough to put a desert inside grassland. That was
-/// the whole fault: the noise used to BE the moisture, so it decided which
-/// country you were in rather than what that country was like today.
-pub const LOCAL_MOISTURE: f32 = 0.42;
-
-/// How much of the treeline and the snowline a fully cold region takes away.
-///
-/// Nearly all of both, and it has to be nearly all.
-///
-/// At sixty per cent the treeline still stood at fifty-seven metres, so every
-/// part of the snow country lower than that grew a forest — which is most of an
-/// island, and the reason the ground behind the mountain came out wooded. Snow
-/// country is not high ground that happens to be white; it is ground where the
-/// trees give out and the snow begins at heights that are ordinary elsewhere, and
-/// that means the lines come down almost to the water.
-///
-/// The TREELINE harder than the snowline, which is the other way round from how
-/// this first read and is the only way the band between them survives.
-///
-/// The band is bare rock: above the last tree and below the first snow, and it is
-/// what makes high ground read as high. Dropping the snowline further than the
-/// treeline closes it — snow starts below where trees stop, so there is nothing
-/// in between, and the whole region goes from wood straight to white with no
-/// mountain in it. The measurement said bare rock had fallen to nought per cent
-/// of the world, which is what gave it away.
-///
-/// So: no trees above about ten metres in the coldest country, bare stone up to
-/// thirty, snow over everything above that.
-pub const CHILL_TREELINE: f32 = 0.93;
-pub const CHILL_SNOWLINE: f32 = 0.82;
-
-pub const DESERT_MOISTURE: f32 = 0.38;
-pub const FOREST_MOISTURE: f32 = 0.58;
+/// The one remaining threshold on a noise field, and it decides only meadow or
+/// wood WITHIN the green world. It never decides which country somewhere is in —
+/// that was the arrangement that put deserts wherever a Perlin field dipped, and
+/// the map says it now.
+pub const FOREST_WOODED: f32 = 0.58;
 
 /// Metres from the coast within which ground counts as beach.
 ///
@@ -823,8 +793,8 @@ mod handing_over {
              \"shore_within\": {SHORE_WITHIN:?},\n  \
              \"snowline\": {SNOWLINE:?},\n  \
              \"rock_slope\": {ROCK_SLOPE:?},\n  \
-             \"desert_moisture\": {DESERT_MOISTURE:?},\n  \
-             \"forest_moisture\": {FOREST_MOISTURE:?},\n  \
+             \"cold_snowline\": {COLD_SNOWLINE:?},\n  \
+             \"forest_wooded\": {FOREST_WOODED:?},\n  \
              \"settled_levelling\": {SETTLED_LEVELLING:?},\n  \
              \"flat\": {FLAT_WORLD}\n\
              }}\n"

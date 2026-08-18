@@ -218,10 +218,11 @@ fn dress(terrain: &Terrain, low: Vec2) -> Geometry {
             }
 
             let ground = terrain.ground_at(at.x, at.y);
-            // The climate of this POINT, not of the chunk. A chunk is a hundred
-            // and twenty-eight metres, and a biome that changes in steps that
-            // size has seams you can stand on.
-            let climate = terrain.climate_at(at.x, at.y);
+            // One climate for the world again. What used to vary from point to
+            // point was a coldness that moved the treeline about; the country a
+            // place is in carries that now, and it is part of the ground rather
+            // than a second set of thresholds.
+            let climate = terrain.climate();
             let biome = Biome::of(ground, &climate);
             let sureness = Biome::confidence(ground, &climate);
             // How deep into a meadow this slot is. Asked once and used twice:

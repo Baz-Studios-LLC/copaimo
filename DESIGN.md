@@ -531,8 +531,39 @@ assets/
 
 ## Change log
 
-**2026-08-17 (last)** — **Trees were the one path that never asked which region
-it was in.** Planting was keyed to the *global* treeline, so trees grew to 150 m
+**2026-08-17 (last)** — **A region NAMES a country; it does not describe a
+climate.**
+
+This began as two physical fields — how dry, how cold — with the biome inferred
+from them by threshold. That is how a simulation does it, and it was a steady
+source of bugs in a game that is not one. The moisture ramp, the treeline and the
+snowline all pushed each other about: lowering the snow to reach a coast closed
+the bare-rock band, widening the desert to reach a town squeezed out the grassland
+behind it, and every one of those was a consequence arrived at by arithmetic from
+two numbers nobody wanted to think in.
+
+Nobody needs a humidity model to say "the northern desert". A region is a
+**country** now — ordinary, desert, or snow — and the map says which. Height and
+slope are left with what they genuinely decide: where snow sits on a mountain,
+which faces are too steep to hold anything.
+
+Retired with it: `DESERT_MOISTURE`, `TEMPERATE_MOISTURE`, `ARID_MOISTURE`,
+`LOCAL_MOISTURE`, `CHILL_TREELINE`, `CHILL_SNOWLINE`, and the whole per-point
+`climate_at`. One `COLD_SNOWLINE` replaces four, and the rock band is *derived*
+from it rather than given a number of its own — two independent lines could walk
+past each other and close the band, a fraction of one cannot.
+
+`moisture` survives as `wooded`, deciding only meadow against wood *within* the
+green world. It never decides which country somewhere is in.
+
+The arrangement is a test now: **grass/forest, desert, grass/forest, snow**, read
+west to east along the middle of the map.
+
+Standing at: desert 17.8%, snow 17.8%, settled 17.8%, grass 14.4%, forest 13.9%,
+shore 12.0%, rock 6.3%.
+
+**2026-08-17** — **Trees were the one path that never asked which region it was
+in.** Planting was keyed to the *global* treeline, so trees grew to 150 m
 everywhere — including snow country, where the treeline is ten. That is why the
 snowfields had a forest standing on them: the ground was classified snow, painted
 snow, and planted as though it were a temperate hillside.
