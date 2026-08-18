@@ -531,6 +531,38 @@ assets/
 
 ## Change log
 
+**2026-08-18** — **The bench gets a mouse, a paint mode and a reference picture.**
+
+**The mouse proposes; the lattice disposes.** A ray through the pointer, met
+against the plane the cursor is on, then *snapped* — and that last word is the
+whole design. Letting the mouse place freely would look like precision and would
+throw away what makes the kit work: every part is a multiple of the snap, so
+pieces abut exactly and a wall meets a floor without anybody measuring. Free
+placement gives you walls a centimetre apart and hairline gaps you cannot see
+while building and cannot miss in the finished thing. Keys still nudge; whichever
+moved last wins, since a mouse that overrode the keys every frame would make them
+useless.
+
+The bench also stops capturing the cursor, which it should never have done. It is
+a *pointing* tool — aim at a cell, click it — and grabbing the pointer in order to
+place a fence rail fights the one input the job actually wants.
+
+**Painting is a mode, not a held key.** Going round a roof takes a minute, and
+holding a key for a minute is worse than pressing one twice. Painting a piece the
+colour it already is changes nothing and marks nothing unsaved.
+
+**A picture to build against, at a stated size in metres.** The one thing that
+would make a reference worse than useless is an unknown scale: trace a cottage off
+an image sized to whatever the loader felt like and you get a cottage of no
+particular dimensions, found out later standing beside something built properly.
+Sized in module steps, because "four modules wide" is what a maker wants and it
+puts every wall in the picture on the lattice. Upright it is an elevation; flat it
+is a plan. Stepping through the pictures passes through *none*, so putting one
+away is one press rather than as many as there are files.
+
+`assets/reference/` — drop a png or jpg in and press `I`.
+
+
 **2026-08-18** — **Ask the bench for one.**
 
 `G` fills the bench with a house, a fence, a tower or a shelter; `Shift+G` moves to
