@@ -60,7 +60,17 @@ pub struct Placed {
     /// different object with nothing to say it had moved. An id costs four bytes
     /// and is the difference between "move that" working and appearing to.
     pub id: u32,
-    /// What it is: the name of a plan in the catalogue.
+    /// What it is, by name.
+    ///
+    /// Resolved against two places, in this order: a building the bench baked into
+    /// `assets/buildings`, then a model in `assets/models/<kind>.glb`.
+    ///
+    /// One field for both, deliberately. A building made of parts and a mesh
+    /// generated from a picture are completely different things — one is boxes on
+    /// a lattice painted from a shelf, the other is arbitrary triangles carrying
+    /// their own materials — and almost nothing can be shared between them. What
+    /// they DO have in common is the only thing this file cares about: somebody
+    /// decided one of them stands here, facing this way, at this size.
     pub kind: String,
     /// Where it stands, in world metres. X and Z only — see the module note.
     pub at: Vec2,

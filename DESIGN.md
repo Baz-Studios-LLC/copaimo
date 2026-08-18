@@ -531,6 +531,30 @@ assets/
 
 ## Change log
 
+**2026-08-18** — **The placed sheet can stand a generated model.**
+
+Corrected after reading Opificium's **kiln**, which is the tool this was always
+being compared to: an image goes to a generation service and a **GLB comes back**.
+Nothing is traced. The reference-picture-to-trace-against was the wrong feature
+for the wrong job.
+
+The lesson worth taking whole, and it is in the kiln's own notes: **a generated
+mesh is not a part.** A part is a name that resolves to boxes on a lattice painted
+from a shelf; a model is arbitrary triangles carrying their own PBR materials. It
+cannot be painted, snapped to the lattice, or written into a building's `boxes`,
+and pretending otherwise breaks the brush and the bake at once. So a model stays a
+**file** and is carried whole.
+
+`placed.json`'s `kind` now resolves against two places in order: a building the
+bench baked, then `assets/models/<kind>.glb`. One field for both, because almost
+nothing is shared between them except the only thing that file cares about —
+somebody decided one of them stands here, facing this way, at this size.
+
+Running it found a real bug: the raiser bailed when the *catalogue* was empty, so a
+world furnished entirely with generated models raised nothing and said nothing
+about why. Only an empty sheet stops it now.
+
+
 **2026-08-18** — **The bench gets a mouse, a paint mode and a reference picture.**
 
 **The mouse proposes; the lattice disposes.** A ray through the pointer, met

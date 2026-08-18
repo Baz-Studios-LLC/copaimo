@@ -177,6 +177,7 @@ fn nudge_the_sheet(mut placed: ResMut<crate::world::placed::Standing>) {
 /// site the moment anybody placed one deliberately.
 fn raise_the_placed(
     mut commands: Commands,
+    assets: Res<AssetServer>,
     catalogue: Res<Catalogue>,
     placed: Res<crate::world::placed::Standing>,
     terrain: Res<TerrainSource>,
@@ -194,7 +195,11 @@ fn raise_the_placed(
     for entity in &already {
         commands.entity(entity).despawn();
     }
-    if catalogue.0.is_empty() || placed.is_empty() {
+    // Only an empty SHEET is a reason to stop. An empty catalogue is not: a
+    // building needs one and a model does not, so bailing on it meant a world
+    // furnished entirely with generated models raised nothing at all and said
+    // nothing about why.
+    if placed.is_empty() {
         return;
     }
 
@@ -205,18 +210,48 @@ fn raise_the_placed(
     let mut overhanging = 0;
 
     for thing in placed.all() {
-        let Some(plan) = catalogue.0.iter().find(|plan| plan.name == thing.kind) else {
-            unknown.push(&thing.kind);
-            continue;
-        };
-
-        // On the DRAWN surface plus whatever lift it was given. Storing the
-        // offset rather than an absolute height is what lets a house keep sitting
-        // on its hill after the hill is resculpted — see the module note.
+        // On the DRAWN surface plus whatever lift it was given, whichever kind of
+        // thing this turns out to be.
         let ground = terrain.drawn_height(thing.at.x, thing.at.y);
         let stance = Transform::from_xyz(thing.at.x, ground + thing.lift, thing.at.y)
             .with_rotation(Quat::from_rotation_y(thing.turn))
             .with_scale(Vec3::splat(thing.scale));
+
+        let Some(plan) = catalogue.0.iter().find(|plan| plan.name == thing.kind) else {
+            // Not a building the bench made — so a MODEL, if there is one by that
+            // name.
+            //
+            // # A generated mesh is not a part
+            //
+            // Worth being explicit about, because the temptation is to turn one
+            // into kit pieces so everything is the same kind of thing. It cannot
+            // be done honestly: a part is a name that resolves to boxes on a
+            // lattice painted from a shelf, and a model is arbitrary triangles
+            // carrying their own materials. It cannot be painted, snapped, or
+            // written into a building's boxes, and pretending otherwise would
+            // break the brush and the bake at once.
+            //
+            // So a model stays a FILE and is carried whole. The sheet places both
+            // the same way, which is the only thing they need to have in common.
+            let model = std::path::Path::new("assets/models").join(format!("{}.glb", thing.kind));
+            if model.exists() {
+                let scene: Handle<Scene> = assets.load(
+                    GltfAssetLabel::Scene(0).from_asset(format!("models/{}.glb", thing.kind)),
+                );
+                commands.spawn((
+                    Raised {
+                        kind: thing.kind.clone(),
+                    },
+                    Name::new(thing.kind.clone()),
+                    SceneRoot(scene),
+                    stance,
+                    FromSheet(thing.id),
+                ));
+                continue;
+            }
+            unknown.push(&thing.kind);
+            continue;
+        };
 
         // Standing at its middle, a building reaches its furthest corner. Told
         // once per site rather than once per building: a maker who has put twenty
@@ -250,7 +285,12 @@ fn raise_the_placed(
     if !unknown.is_empty() {
         unknown.sort_unstable();
         unknown.dedup();
-        warn!("placed but not in the catalogue: {} - not raised", unknown.join(", "));
+        // Both places it could have been, because "not in the catalogue" sent
+        // somebody looking in the buildings folder for a model.
+        warn!(
+            "placed but found in neither {BUILDINGS_DIR} nor assets/models: {} - not raised",
+            unknown.join(", ")
+        );
     }
     if overhanging > 0 {
         warn!("{overhanging} building(s) reach past their site's levelled ground");
