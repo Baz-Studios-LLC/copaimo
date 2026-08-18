@@ -96,7 +96,21 @@ pub enum Doing {
 /// Where the next piece would go, and what it would be.
 #[derive(Resource)]
 pub struct Hand {
-    pub part: Part,
+    /// What is in hand, or nothing.
+    ///
+    /// # An empty cursor is the resting state
+    ///
+    /// The bench always held a part, so every click anywhere placed one — which
+    /// made the move arrows unusable, because reaching for one meant clicking, and
+    /// clicking meant building. Guard after guard was added to say where a click
+    /// must NOT build, and each was a patch over the same wrong assumption.
+    ///
+    /// Nothing is held unless a part has been chosen, and placing it empties the
+    /// hand again. So the ordinary state of the pointer is harmless: it selects,
+    /// it grabs handles, it does nothing by accident. Building is the deliberate
+    /// act — choose a part, place it, choose again — which is also how it reads
+    /// when somebody watches you do it.
+    pub part: Option<Part>,
     pub at: Vec3,
     pub quarters: u8,
     pub tint: usize,
@@ -106,7 +120,7 @@ pub struct Hand {
 impl Default for Hand {
     fn default() -> Self {
         Self {
-            part: Part::Post,
+            part: None,
             at: Vec3::ZERO,
             quarters: 0,
             tint: 0,
@@ -384,7 +398,7 @@ fn choose(keys: Res<ButtonInput<KeyCode>>, mut hand: ResMut<Hand>) {
     ];
     for (key, part) in KEYS.iter().zip(Part::ALL) {
         if keys.just_pressed(*key) {
-            hand.part = part;
+            hand.part = Some(part);
         }
     }
     // R turns the piece in HAND, quarter by quarter. There is no free rotation on
@@ -608,7 +622,7 @@ fn place(
     buttons: Res<ButtonInput<MouseButton>>,
     over_panel: Query<&Interaction>,
     holding: Res<gizmo::Holding>,
-    hand: Res<Hand>,
+    mut hand: ResMut<Hand>,
     mut bench: ResMut<Bench>,
     mut next: ResMut<NextState<AppState>>,
 ) {
@@ -624,15 +638,27 @@ fn place(
     // maker nudging the cursor with W and A should not have to reach for the mouse
     // to put the piece down.
     let go = keys.just_pressed(KeyCode::Enter) || buttons.just_pressed(MouseButton::Left);
+    let mut emptied = false;
     if go {
         match hand.doing {
             Doing::Building => {
-                bench.add(hand.part, hand.at, hand.quarters, hand.tint);
+                // Only with something in hand. An empty cursor is the resting
+                // state and it builds nothing — see `Hand::part`.
+                if let Some(part) = hand.part {
+                    if bench.add(part, hand.at, hand.quarters, hand.tint).is_some() {
+                        // And the hand empties. Placing is one deliberate act, not
+                        // a mode you are left in afterwards.
+                        emptied = true;
+                    }
+                }
             }
             Doing::Painting => {
                 bench.paint_nearest(hand.at, kit::MODULE, hand.tint);
             }
         }
+    }
+    if emptied {
+        hand.part = None;
     }
     // Turning something already down. Getting a wall's facing wrong is the
     // commonest mistake on a lattice, and before this the only remedy was to
@@ -859,6 +885,11 @@ fn draw_ghost(
     for entity in &ghosts {
         commands.entity(entity).despawn();
     }
+    // Nothing in hand, nothing to preview. An empty cursor showing a ghost would
+    // be saying a click will build when it will not.
+    let Some(part) = hand.part else {
+        return;
+    };
 
     // The part itself, shown as it will be rather than as a box around it — a
     // wedge that previews as a cuboid puts the roof on the wrong way round about
@@ -870,10 +901,10 @@ fn draw_ghost(
         half_d: 0.0,
         high: 0.0,
         boxes: vec![plan::Block {
-            at: hand.at + Vec3::Y * hand.part.size().y * 0.5,
-            size: hand.part.size(),
+            at: hand.at + Vec3::Y * part.size().y * 0.5,
+            size: part.size(),
             turn: Quat::from_rotation_y(hand.quarters as f32 * std::f32::consts::FRAC_PI_2),
-            form: hand.part.form(),
+            form: part.form(),
             colour: Color::WHITE,
             stage: String::new(),
         }],
@@ -936,6 +967,11 @@ mod tests {
         app
     }
 
+    /// Puts a part in hand, as choosing one from the panel does.
+    fn take_up(app: &mut App, part: kit::Part) {
+        app.world_mut().resource_mut::<Hand>().part = Some(part);
+    }
+
     /// Presses the left button and runs one frame.
     fn click(app: &mut App) {
         app.world_mut()
@@ -952,12 +988,38 @@ mod tests {
     }
 
     #[test]
-    fn clicking_the_work_places_a_piece() {
-        // The control. Without this, every test below would pass on a bench that
-        // had quietly stopped placing anything at all.
+    fn clicking_the_work_places_what_is_in_hand_and_then_empties_it() {
+        // The control, and the new rule in one. Without the first half, every test
+        // below would pass on a bench that had quietly stopped placing anything at
+        // all.
         let mut app = bench_app();
+        take_up(&mut app, kit::Part::Wall);
         click(&mut app);
-        assert_eq!(pieces(&app), 1, "a click on the work placed nothing");
+        assert_eq!(pieces(&app), 1, "a click with a wall in hand placed nothing");
+
+        // Placing is one deliberate act, not a mode you are left in.
+        assert_eq!(
+            app.world().resource::<Hand>().part,
+            None,
+            "the hand still held a part after placing it"
+        );
+
+        // So the next click builds nothing.
+        click(&mut app);
+        assert_eq!(pieces(&app), 1, "a second click placed a piece from an empty hand");
+    }
+
+    #[test]
+    fn an_empty_cursor_builds_nothing() {
+        // The resting state, and the whole reason for it. The bench always held a
+        // part, so every click anywhere placed one — which made the move arrows
+        // unusable, because reaching for one means clicking and clicking meant
+        // building. Guard after guard was added to say where a click must NOT
+        // build; the answer was that it should not build by default.
+        let mut app = bench_app();
+        assert_eq!(app.world().resource::<Hand>().part, None, "the bench opened holding something");
+        click(&mut app);
+        assert_eq!(pieces(&app), 0, "an empty cursor placed a piece");
     }
 
     #[test]
@@ -965,6 +1027,7 @@ mod tests {
         // The reported bug, run rather than reasoned about: every attempt to move
         // something dropped a post on it first.
         let mut app = bench_app();
+        take_up(&mut app, kit::Part::Wall);
         app.world_mut().resource_mut::<gizmo::Holding>().hold_for_test(0);
         click(&mut app);
         assert_eq!(pieces(&app), 0, "taking hold of an arrow placed a piece");
@@ -973,6 +1036,7 @@ mod tests {
         // button goes down — nothing is being dragged yet, and that is exactly the
         // frame the click has to be kept off the ground.
         let mut app = bench_app();
+        take_up(&mut app, kit::Part::Wall);
         app.world_mut().resource_mut::<gizmo::Holding>().hover_for_test(1);
         click(&mut app);
         assert_eq!(pieces(&app), 0, "clicking on an arrow placed a piece");
@@ -983,12 +1047,14 @@ mod tests {
         // The same fault one layer out, which this bench has also had: pressing
         // WALL in the panel put a wall down behind it.
         let mut app = bench_app();
+        take_up(&mut app, kit::Part::Wall);
         app.world_mut().spawn(Interaction::Pressed);
         click(&mut app);
         assert_eq!(pieces(&app), 0, "a click on the panel reached the work");
 
         // And a panel the pointer is merely NEAR is not in the way.
         let mut app = bench_app();
+        take_up(&mut app, kit::Part::Wall);
         app.world_mut().spawn(Interaction::None);
         click(&mut app);
         assert_eq!(pieces(&app), 1, "an untouched panel blocked the work");

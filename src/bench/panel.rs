@@ -136,7 +136,8 @@ pub fn open(mut commands: Commands, font: Res<UiFont>) {
             // not something a maker will try unguessed on a tool where every other
             // gesture places something.
             widget::branch(panel, &font, "move", "MOVE A PIECE", |rows| {
-                widget::note(rows, &font, "move", "AIM", "arrows appear on the nearest");
+                widget::note(rows, &font, "move", "AIM", "arrows show on the nearest");
+                widget::note(rows, &font, "move", "EMPTY", "cursor: clicks grab, not build");
                 widget::note(rows, &font, "move", "DRAG", "an arrow to move it");
                 widget::note(rows, &font, "move", "SH", "hold for quarter-metres");
                 widget::note(rows, &font, "move", "R-G-B", "is X-Y-Z");
@@ -234,7 +235,7 @@ pub fn pressed(
             continue;
         }
         match choice.0 {
-            Press::Part(part) => hand.part = part,
+            Press::Part(part) => hand.part = Some(part),
             Press::Mode(doing) => hand.doing = doing,
             Press::Turn => hand.quarters = (hand.quarters + 1) % 4,
             Press::TurnPlaced => {
@@ -287,12 +288,14 @@ pub fn refresh(
 ) {
     // The part in hand and the mode, both lit from what the tool actually holds —
     // so a key press and a click can never leave the panel disagreeing with it.
+    // Nothing in hand lights nothing, which is the point: an empty cursor should
+    // LOOK empty, or a maker cannot tell whether the next click will build.
     widget::mark_chosen(
         &mut commands,
         &rows,
         &mut labels,
         &mut backgrounds,
-        &Press::Part(hand.part),
+        &hand.part.map_or(Press::Leave, Press::Part),
     );
     for (entity, choice, _, kids) in &rows {
         if choice.0 == Press::Mode(hand.doing) {
@@ -310,9 +313,19 @@ pub fn refresh(
 
     for (which, mut text) in &mut values {
         let said = match which {
+            // What is in hand comes FIRST, because it decides what the next click
+            // does. An empty cursor that looks the same as a loaded one is a maker
+            // guessing whether they are about to build.
             Readout::Cursor => format!(
-                "{:.2}, {:.2}, {:.2}  q{}",
-                hand.at.x, hand.at.y, hand.at.z, hand.quarters
+                "{}  ·  {:.2}, {:.2}, {:.2}  q{}",
+                match hand.part {
+                    Some(part) => part.name(),
+                    None => "EMPTY - pick a part",
+                },
+                hand.at.x,
+                hand.at.y,
+                hand.at.z,
+                hand.quarters
             ),
             Readout::Pieces => format!(
                 "{}{}",
