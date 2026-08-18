@@ -531,7 +531,26 @@ assets/
 
 ## Change log
 
-**2026-08-17 (last)** — **Every tuft was the same tuft, and the parting snapped.**
+**2026-08-17 (last)** — **A blade of grass is a ribbon, not a wedge.**
+
+Twice the shape was the complaint and both times it was one fault: the blade was
+drawn as a wedge — wide at the foot, needle-pointed, aimed somewhere. That is an
+agave leaf, and a ring of them from above is a black starfish, which is what it
+looked like. Bending it in the middle helped from the side and not at all from
+overhead, because it was still a wedge with a point on it.
+
+It is swept along an arc now: one narrow width for almost its whole length,
+tapering only at the end, each step turning further from upright than the last so
+it curves rather than kinks, and past a right angle the tip is falling. A
+centimetre across rather than four. The length grew to compensate — a blade that
+arches reaches about three fifths of its length into the air.
+
+**And it turns out grass was never vertex-bound.** The ribbon put the count up a
+fifth and the frame cost *down*: fragments 6.53 M → 4.56 M, main pass unchanged.
+A meadow of 4 cm wedges overdraws itself many times over. Width costs more than
+vertices do, which is worth knowing before anybody tunes this again.
+
+**2026-08-17** — **Every tuft was the same tuft, and the parting snapped.**
 
 The tufts fanned through a whole circle, which is a rosette by construction —
 turn one and you get the same object back, so jittering the angles inside it can

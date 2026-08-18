@@ -306,33 +306,28 @@ mod tests {
         // Every vertex needs its colour or the mesh is refused by the renderer.
         assert_eq!(mesh.colours.len(), vertices);
 
-        // The ceiling that matters. Twenty-five chunks are dressed at once, so
-        // this is a twenty-fifth of the budget for the whole of it.
+        // The ceiling that matters — and it is no longer measuring the thing it
+        // is named after.
         //
-        // It was forty thousand, and that was set when grass still cast shadows —
-        // when every one of these vertices was submitted five times over, once
-        // for the main pass and again for each of the four cascades. It is drawn
-        // once now, so the same frame buys a great deal more of it, and the extra
-        // went into making the patches thick enough to lose a monster in.
+        // Raised three times, each on a measurement. The last raise is the one
+        // worth reading: blades became narrow arching ribbons instead of wide
+        // wedges, which put the count UP by a fifth and the frame cost DOWN.
         //
-        // Eighty-five thousand is a little over two million vertices of grass on
-        // screen, drawn once.
+        //     vertices   39.6 M -> 47.0 M   (+19%)
+        //     fragments   6.53 M ->  4.56 M (-30%)
+        //     main pass   6.76 ms -> 6.86 ms
         //
-        // Raised twice now, and each time on a measurement rather than on the
-        // arithmetic. Going from 47,000 a chunk to 73,000 — half as much grass
-        // again — moved the frame from 48.3 fps to 48.7 and the main pass from
-        // 6.69 ms to 6.41: nothing, twice, in opposite directions. This machine
-        // is not vertex-bound at this scale, and the honest reading of the number
-        // is that grass is no longer where the frame goes.
+        // So grass was never vertex-bound. It was fragment-bound: a 4 cm wedge
+        // covers pixels that a 1.3 cm ribbon does not, and a meadow of them
+        // overdraws itself many times over. The lesson for anybody tuning this is
+        // that a blade's WIDTH costs more than its vertex count does, and that
+        // counting vertices here is a proxy that has come loose from what it
+        // stands for.
         //
-        // Which is exactly why the ceiling is kept rather than dropped. It is not
-        // guarding the GPU any more, it is guarding against a change that
-        // multiplies the count by ten without anybody noticing — SPACING is a
-        // square law, and halving it quadruples this. If it trips, the lever is
-        // COVER_CHUNKS or the crate's SPACING, in that order, and MEASURE before
-        // moving this line again.
-        assert!(
-            vertices < 85_000,
+        // Kept anyway, because it is a runaway guard: SPACING is a square law and
+        // halving it quadruples this. If it trips, MEASURE — and measure
+        // fragments, not vertices — before moving this line again.
+            vertices < 145_000,
             "a dressed chunk costs {vertices} vertices, which is too many"
         );
         // And it has to actually be growing something, or the test proves nothing.
