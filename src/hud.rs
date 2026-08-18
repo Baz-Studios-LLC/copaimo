@@ -107,7 +107,6 @@ fn update_hud(
         .map(|t| t.translation)
         .unwrap_or_default();
     let height = terrain.height(position.x, position.z);
-    let wooded = terrain.wooded(position.x, position.z);
     let slope = 1.0 - terrain.normal(position.x, position.z, 1.0).y;
 
     let source = if terrain.has_map() {
@@ -171,7 +170,7 @@ fn update_hud(
         "{fps:.0} fps   camera: {mode}\n\
          world: {:.0} x {:.0} m   source: {source}\n\
          position: {:.0}, {:.0}\n\
-         altitude: {height:.1} m   slope: {slope:.2}   wooded: {wooded:.2}\n\
+         altitude: {height:.1} m   slope: {slope:.2}\n\
          here: {} ({sure:.2} sure)   time: {}\n\
          map: {u:.3}, {v:.3}   country: {} ({belonging:.2} of it)\n\
          chunks: {} loaded, {} building   sculpted: {sculpted}\n\

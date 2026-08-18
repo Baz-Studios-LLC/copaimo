@@ -189,7 +189,6 @@ pub fn build_mesh(terrain: &Terrain, coord: IVec2) -> Mesh {
             let slope_z = sampled(px, pz + 1) - sampled(px, pz - 1);
             let normal = Vec3::new(-slope_x, 2.0 * step, -slope_z).normalize();
             let slope = 1.0 - normal.y;
-            let wooded = terrain.wooded(world.x, world.y);
             let character = terrain.shore_character(world.x, world.y);
             let worn = terrain.worn(world.x, world.y);
 
@@ -197,7 +196,7 @@ pub fn build_mesh(terrain: &Terrain, coord: IVec2) -> Mesh {
             normals.push([normal.x, normal.y, normal.z]);
             let (country, belonging) = terrain.region(world.x, world.y);
             colors.push(surface_color(
-                height, slope, wooded, character, worn, country, belonging,
+                height, slope, character, worn, country, belonging,
             ));
             uvs.push([ix as f32 / quads as f32, iz as f32 / quads as f32]);
         }

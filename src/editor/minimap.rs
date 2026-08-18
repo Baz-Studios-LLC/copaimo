@@ -338,7 +338,6 @@ fn render(terrain: &Terrain, size: UVec2) -> Vec<u8> {
             let color = surface_color(
                 height,
                 slope,
-                terrain.wooded(x, z),
                 terrain.shore_character(x, z),
                 terrain.worn(x, z),
                 terrain.region(x, z).0,

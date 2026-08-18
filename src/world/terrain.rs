@@ -79,7 +79,6 @@ pub struct Terrain {
     /// Where the water runs, and how far it cut to get there.
     rivers: terrain_core::river::Rivers,
     detail: Fbm<Perlin>,
-    moisture: Fbm<Perlin>,
     warp_x: Perlin,
     warp_z: Perlin,
     /// Only used when there's no map image.
@@ -140,7 +139,6 @@ impl Terrain {
             detail: Fbm::<Perlin>::new(WORLD_SEED.wrapping_add(1))
                 .set_octaves(4)
                 .set_frequency(1.0),
-            moisture: Fbm::<Perlin>::new(WORLD_SEED.wrapping_add(2)).set_octaves(3),
             warp_x: Perlin::new(WORLD_SEED.wrapping_add(3)),
             warp_z: Perlin::new(WORLD_SEED.wrapping_add(4)),
             continent: Fbm::<Perlin>::new(WORLD_SEED.wrapping_add(5)).set_octaves(5),
@@ -308,7 +306,6 @@ impl Terrain {
                 let sea = self.climate();
                 let natural = forest::natural_density(
                     ground.country,
-                    ground.wooded,
                     ground.height,
                     ground.slope,
                     ground.shore,
@@ -652,20 +649,6 @@ impl Terrain {
         terrain_core::region::at(Vec2::new(u, v))
     }
 
-    /// How wooded ordinary country is here, 0 open to 1 dense.
-    ///
-    /// This was `moisture`, and it decided whether somewhere was desert. It does
-    /// not any more — see [`terrain_core::region`]. All it says now is whether a
-    /// patch of the green world comes out meadow or wood, which is a thing a
-    /// noise field is genuinely good at and a thing nobody has to reason about a
-    /// climate to understand.
-    pub fn wooded(&self, x: f32, z: f32) -> f32 {
-        let local = self
-            .moisture
-            .get([x as f64 * MOISTURE_FREQ, z as f64 * MOISTURE_FREQ]) as f32;
-        (local * 0.5 + 0.5).clamp(0.0, 1.0)
-    }
-
     /// The thresholds that decide what sort of world this is.
     ///
     /// Built from `config.rs` rather than taken from the crate's defaults, so the
@@ -677,7 +660,6 @@ impl Terrain {
             treeline: TREELINE,
             snowline: SNOWLINE,
             rock_above: ROCK_SLOPE,
-            forest_above: FOREST_WOODED,
             cold_snowline: COLD_SNOWLINE,
             settled_above: SETTLED_LEVELLING,
         }
@@ -704,7 +686,6 @@ impl Terrain {
             slope: 1.0 - self.normal(x, z, 2.0).y,
             country: self.region(x, z).0,
             belonging: self.region(x, z).1,
-            wooded: self.wooded(x, z),
             shore: self.shore_meters(x, z),
             levelled: self
                 .settlements
@@ -1297,21 +1278,48 @@ mod tests {
             share(Biome::Rock) * 100.0
         );
 
-        // Where they were drawn: desert in the north of the middle landmass, snow
-        // in the east around the great mountain.
+        // Coast to coast, which is the whole reason the regions became bands.
+        //
+        // This used to check that the desert's middle sat in the north, because
+        // the desert was an ellipse and had a middle. A band has no middle
+        // north-to-south — it runs the height of the map — so what is worth
+        // asking is whether it actually turns up at every latitude there is land
+        // at, rather than tailing off before the coast the way a blob always did.
+        let mut latitudes = 0;
+        for row in 0..24 {
+            let v = (row as f32 + 0.5) / 24.0;
+            let mut any_land = false;
+            let mut any_desert = false;
+            for col in 0..160 {
+                let uv = Vec2::new((col as f32 + 0.5) / 160.0, v);
+                let at = (uv - 0.5) * half * 2.0;
+                match terrain.biome(at.x, at.y) {
+                    Biome::Water => {}
+                    Biome::Desert => {
+                        any_land = true;
+                        any_desert = true;
+                    }
+                    _ => any_land = true,
+                }
+            }
+            if any_land && any_desert {
+                latitudes += 1;
+            }
+        }
+        assert!(
+            latitudes >= 10,
+            "the desert only reaches {latitudes} of 24 latitudes — it is a blob again"
+        );
+
+        // And it sits between the two green bands rather than off to one side.
         let dry = seat(Biome::Desert);
         assert!(
-            (0.33..0.62).contains(&dry.x) && (0.15..0.45).contains(&dry.y),
-            "the desert has moved to u={:.2} v={:.2}",
-            dry.x,
-            dry.y
+            (0.30..0.70).contains(&dry.x),
+            "the desert has moved to u={:.2}",
+            dry.x
         );
         let cold = seat(Biome::Snow);
-        assert!(
-            cold.x > 0.68,
-            "the snow country has moved west to u={:.2}",
-            cold.x
-        );
+        assert!(cold.x > 0.68, "the snow country has moved west to u={:.2}", cold.x);
 
         // And not in the country the game starts in. This is the half that
         // catches a return to scatter — a noise field would put a little of each
@@ -1398,7 +1406,6 @@ mod tests {
                     let colour = crate::world::biome::surface_color(
                         terrain.height(at.x, at.y),
                         1.0 - terrain.normal(at.x, at.y, 2.0).y,
-                        terrain.wooded(at.x, at.y),
                         terrain.shore_character(at.x, at.y),
                         terrain.worn(at.x, at.y),
                         terrain.region(at.x, at.y).0,

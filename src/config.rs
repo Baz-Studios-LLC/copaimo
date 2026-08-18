@@ -440,13 +440,6 @@ pub const ROCK_SLOPE: f32 = 0.62;
 /// exactly where the snow starts, because it is the same line.
 pub const COLD_SNOWLINE: f32 = 45.0;
 
-/// How wooded ordinary country has to be before it counts as a wood.
-///
-/// The one remaining threshold on a noise field, and it decides only meadow or
-/// wood WITHIN the green world. It never decides which country somewhere is in —
-/// that was the arrangement that put deserts wherever a Perlin field dipped, and
-/// the map says it now.
-pub const FOREST_WOODED: f32 = 0.58;
 
 /// Metres from the coast within which ground counts as beach.
 ///
@@ -548,8 +541,6 @@ pub const OCEAN_DEPTH: f32 = 60.0;
 
 /// Frequency of the fine detail layer.
 pub const DETAIL_FREQ: f64 = 0.009;
-/// Frequency of the moisture field that decides dry plains vs. lush forest.
-pub const MOISTURE_FREQ: f64 = 0.000_9;
 /// How often the character of the coast changes — beach here, rock there. Low,
 /// so a beach runs the better part of a kilometer before giving way.
 ///
@@ -794,7 +785,6 @@ mod handing_over {
              \"snowline\": {SNOWLINE:?},\n  \
              \"rock_slope\": {ROCK_SLOPE:?},\n  \
              \"cold_snowline\": {COLD_SNOWLINE:?},\n  \
-             \"forest_wooded\": {FOREST_WOODED:?},\n  \
              \"settled_levelling\": {SETTLED_LEVELLING:?},\n  \
              \"flat\": {FLAT_WORLD}\n\
              }}\n"

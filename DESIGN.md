@@ -531,7 +531,35 @@ assets/
 
 ## Change log
 
-**2026-08-17 (last)** — **A hard choice still needs a soft edge.**
+**2026-08-17 (last)** — **Bands, not blobs.** Regions were ellipses, and an
+ellipse is the wrong shape for the job: a blob has a rim *everywhere*, so it
+always stopped short of something — the desert before the north coast, the snow
+before its own shoreline — and each time the answer was to grow the blob until it
+covered the land, which squeezed whatever was beside it. Every one of those was
+the same fault wearing a different number.
+
+The map is divided by **lines** now. Each band runs coast to coast by
+construction, so "the whole of this section is desert" is something the model can
+*express* rather than something it has to be tuned toward. The lines are tilted,
+because the continents are.
+
+The ragged edge moved inside `region::at`: how far along the axis a point counts
+as being is nudged by a fine speckle, so every question about that point gets the
+same broken boundary. Each caller dithering for itself is exactly how the painter
+and the classifier came to draw two different lines.
+
+**And moisture is gone entirely** — the field, the frequency constant, the green
+ramp, all of it. The green world has no climate. What decides a wood is the ground
+(not too steep, too high, the beach, or somebody's yard) or a person with the
+Plant brush. *Consequence worth knowing:* ordinary country is now uniformly
+`Grass` with trees scattered on it, so `Forest` only occurs as snow country's
+conifers. If distinct woods are wanted, forest should become a named band like
+the others.
+
+Standing at: grass 26.0%, desert 21.9%, settled 17.8%, snow 14.4%, shore 9.8%,
+forest 5.4%, rock 4.7%.
+
+**2026-08-17** — **A hard choice still needs a soft edge.**
 
 Naming countries instead of inferring them fixed the class of bug that had been
 eating the session, and immediately introduced its opposite: a country is a hard

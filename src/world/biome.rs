@@ -1,4 +1,4 @@
-//! Turns a point's height, slope and moisture into a surface color.
+//! Turns a point's height, slope and country into a surface color.
 //!
 //! Color is baked into the terrain mesh as vertex colors rather than painted
 //! with textures. That's deliberate for this stage: it reads clearly, costs
@@ -35,7 +35,6 @@ struct Palette {
     dirt: Vec3,
     shallow: Vec3,
     sand: Vec3,
-    dry_grass: Vec3,
     lush_grass: Vec3,
     forest: Vec3,
     rock: Vec3,
@@ -50,7 +49,6 @@ static PALETTE: LazyLock<Palette> = LazyLock::new(|| Palette {
     dirt: linear(0.40, 0.31, 0.20),
     shallow: linear(0.22, 0.38, 0.46),
     sand: linear(0.74, 0.68, 0.50),
-    dry_grass: linear(0.54, 0.55, 0.30),
     lush_grass: linear(0.26, 0.47, 0.22),
     forest: linear(0.15, 0.31, 0.17),
     rock: linear(0.36, 0.34, 0.32),
@@ -67,7 +65,6 @@ fn linear(r: f32, g: f32, b: f32) -> Vec3 {
 ///
 /// * `height` — meters relative to sea level
 /// * `slope`  — 0 for dead flat, approaching 1 for a vertical face
-/// * `wooded` — 0 open, 1 dense; only decides meadow against wood
 /// * `country` — which country this is, from [`terrain_core::region`]
 ///
 /// # The ground and the biome have to agree
@@ -85,18 +82,11 @@ fn linear(r: f32, g: f32, b: f32) -> Vec3 {
 pub fn surface_color(
     height: f32,
     slope: f32,
-    wooded: f32,
     character: f32,
     worn: f32,
     country: terrain_core::region::Country,
     belonging: f32,
 ) -> [f32; 4] {
-    // The same country the classifier decided on, from the same function.
-    //
-    // Painting from the raw region left a hard line on the ground where the
-    // biome had a ragged band — the two disagreeing about a boundary, which is
-    // this file's oldest habit.
-    let country = terrain_core::region::holding(country, belonging, wooded);
     let p = &*PALETTE;
 
     // Underwater, by **depth**: dark in the deep, lightening as it shallows.
@@ -106,29 +96,47 @@ pub fn surface_color(
     let depth = SEA_LEVEL - height;
     let underwater = p.silt.lerp(p.shallow, smoothstep(45.0, 3.0, depth));
 
-    // The green world: how wooded somewhere is picks open grass against wood.
-    // That is all this noise decides now, and it decides it inside one country.
-    let grass = p.dry_grass.lerp(p.lush_grass, smoothstep(0.25, 0.60, wooded));
-    let vegetated = grass.lerp(p.forest, smoothstep(0.58, 0.88, wooded));
+    // The green world is one green.
+    //
+    // This was a ramp from dry grass through lush grass to forest, driven by a
+    // moisture reading — and there is no moisture. A patch of the green world is
+    // not drier than the next patch; it is the same country, and what varies
+    // across it is what is STANDING on it, which is trees and grass and boulders
+    // rather than the colour of the dirt.
+    let vegetated = p.lush_grass;
 
-    // And then the country simply says what to paint, exactly as it says what a
-    // place IS. The two used to be worked out separately from a coldness and a
-    // dryness, with their own thresholds, and they disagreed — desert painted as
-    // dry grassland, snow country painted green to two hundred metres.
-    let (ground_colour, snowline) = match country {
-        // Sand, not the khaki at the dry end of a grass ramp. Sand existed in
-        // this palette all along and was reachable only from the shoreline band,
-        // so the driest thing the world could paint was a parched meadow.
+    // # Colour BLENDS where the biome switches
+    //
+    // A country is a hard choice and it has to be — a place either grows trees or
+    // it does not. But painting from a hard choice draws a LINE across the ground,
+    // and dithering the choice only makes the line wiggle: a threshold on a smooth
+    // field is a line however it is jittered.
+    //
+    // So the category stays discrete and the colour does not. How firmly somewhere
+    // belongs to its region mixes the two grounds, which is what turns a boundary
+    // into the band of sand-through-scrub-through-grass that a desert's edge
+    // actually is. The trees still stop along a ragged line, and that line is now
+    // somewhere inside the band instead of being the band.
+    let into = smoothstep(0.15, 0.85, belonging);
+
+    // Sand, not the khaki at the dry end of a grass ramp. Sand existed in this
+    // palette all along and was reachable only from the shoreline band, so the
+    // driest thing the world could paint was a parched meadow.
+    //
+    // Conifers below the stone in the cold, the stone band above them drawn from
+    // the same fraction of the snowline the classifier uses.
+    let (elsewhere, snowline) = match country {
         terrain_core::region::Country::Desert => (p.sand, SNOWLINE),
-        // Conifers below the line, snow above it, and one line for both.
-        // Conifers below, and the stone band above them is drawn from the same
-        // fraction of the snowline the classifier uses.
         terrain_core::region::Country::Snow => (
             if height > COLD_SNOWLINE * 0.55 { p.alpine } else { p.forest },
             COLD_SNOWLINE,
         ),
         terrain_core::region::Country::Ordinary => (vegetated, SNOWLINE),
     };
+    let ground_colour = vegetated.lerp(elsewhere, into);
+    // The snow line travels with it, or the ground fades from green to white
+    // across a band while the snow on it still starts along a line.
+    let snowline = SNOWLINE + (snowline - SNOWLINE) * into;
 
     // Altitude strips the greenery back to bare stone, then to snow.
     let above_treeline =
