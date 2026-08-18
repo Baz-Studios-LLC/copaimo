@@ -67,14 +67,6 @@ pub struct Holding {
 }
 
 impl Holding {
-    /// Whether an arrow has the click.
-    ///
-    /// Asked by whatever else would act on the same button, so a click on a handle
-    /// does not also reach the ground behind it.
-    pub fn dragging(&self) -> bool {
-        self.dragging.is_some()
-    }
-
     /// Whether the pointer is on a handle — hovering one or dragging it.
     ///
     /// What anything else acting on a click should ask. Dragging alone was not
