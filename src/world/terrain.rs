@@ -1336,7 +1336,10 @@ mod tests {
         let ranch = Vec2::new(RANCH_AT.0, RANCH_AT.1);
         let mut strays = 0;
         let mut looked = 0;
-        let step = 120.0;
+        // Fine enough that a smaller homeland still has plenty of points in it.
+        // At 120 m the count fell under its own floor the moment the radius came
+        // in, which is a test failing at its scaffolding rather than at its claim.
+        let step = 70.0;
         let mut away_z = -HOMELAND;
         while away_z <= HOMELAND {
             let mut away_x = -HOMELAND;
@@ -1383,7 +1386,9 @@ mod tests {
             }
             println!("nearest desert or snow to the ranch: {nearest:.0} m");
         }
-        assert!(looked > 100, "only {looked} points of homeland to check");
+        // Two hundred, not four: the ranch is near a coast and better than half
+        // of the ground within a kilometre of it is sea, which this loop skips.
+        assert!(looked > 200, "only {looked} points of homeland to check");
         assert_eq!(
             strays, 0,
             "{strays} of {looked} points around the ranch are desert or snow"
