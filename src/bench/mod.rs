@@ -230,7 +230,11 @@ fn open(
         brightness: 900.0,
         ..default()
     });
-    commands.insert_resource(ClearColor(Color::srgb(0.10, 0.11, 0.14)));
+    // Black, and nothing behind it. A workbench is a room with the thing you are
+    // making in it; a sky belongs to a world, and the one that used to show
+    // through was not this room's — it was the game's, still being driven while
+    // the bench was open.
+    commands.insert_resource(ClearColor(Color::BLACK));
 
     // The floor: a grid of the kit's own module, so a maker can count squares
     // instead of measuring. Drawn as thin slabs rather than lines because this

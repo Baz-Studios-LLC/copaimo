@@ -661,27 +661,51 @@ impl Terrain {
     /// short of it: a biome decided point by point is a scatter, and a scatter is
     /// not somewhere anybody can name or anything can live in.
     pub fn region(&self, x: f32, z: f32) -> (terrain_core::region::Country, f32) {
-        // What somebody PAINTED, before what the world would have said.
+        // What the world would say for itself, first — because it is also what a
+        // paint stroke falls back TO.
+        let (u, v) = self.to_map_uv(x, z);
+        let (natural, natural_share) = terrain_core::region::at(Vec2::new(u, v));
+
+        let Ok(painted) = self.country.read() else {
+            return (natural, natural_share);
+        };
+        let Some((mark, share)) = painted.choice(x, z) else {
+            return (natural, natural_share);
+        };
+        let Some(country) = terrain_core::region::Country::of_mark(mark) else {
+            return (natural, natural_share);
+        };
+
+        // # Painting a country over itself must not draw a boundary
         //
-        // The whole reason the layer exists. A maker can see where the desert
-        // belongs and cannot edit a constant; the generated regions could be
-        // edited and could not be seen. Painted wins outright, and the strength
-        // comes from how much of the neighbourhood agrees — see
-        // `Painted::choice`, which votes rather than blending, because halfway
-        // between grass and snow is not a country.
-        if let Ok(painted) = self.country.read() {
-            if let Some((mark, share)) = painted.choice(x, z) {
-                if let Some(country) = terrain_core::region::Country::of_mark(mark) {
-                    return (country, share);
-                }
-            }
+        // The strength of a stroke is how much of the neighbourhood voted for it,
+        // so at the rim of a stroke it is about a half — and a half is weak enough
+        // that the dither downstream turns it into the ordinary green world. Paint
+        // desert across desert and you got a GREEN OUTLINE around your own stroke:
+        // a boundary drawn between a country and itself.
+        //
+        // There is no boundary there, so the answer is not to soften one. Where the
+        // stroke agrees with the ground it is laid on, the two claims are the same
+        // claim and the stronger of them stands.
+        if country == natural {
+            return (country, share.max(natural_share));
         }
 
-        // And where nobody has painted, the world lays out its own — so a fresh
-        // map has continents with character rather than one green sheet.
-        let (u, v) = self.to_map_uv(x, z);
-        terrain_core::region::at(Vec2::new(u, v))
+        // Where it disagrees there IS a boundary, and it fades — but it fades back
+        // to the ground underneath, not to grass. A desert painted into snow country
+        // gives way to snow at its edge, which is the only thing next to it.
+        if share < Self::TAKES_HOLD {
+            return (natural, natural_share);
+        }
+        (country, share)
     }
+
+    /// How much of the neighbourhood a stroke must carry before it overrules the
+    /// ground it is painted on.
+    ///
+    /// Half: the point at which most of what surrounds a place agrees with the
+    /// brush rather than with the map.
+    const TAKES_HOLD: f32 = 0.5;
 
     /// The painted country layer, for the brush and for saving.
     #[cfg(feature = "tools")]
@@ -1689,6 +1713,124 @@ mod tests {
             "desert appeared between a grassland stroke and a snow one"
         );
         assert!(seen.contains(&terrain_core::region::Country::Snow), "the snow did not take");
+    }
+
+    #[test]
+    fn painting_a_country_over_itself_draws_no_boundary() {
+        use terrain_core::region::Country;
+        // Reported from the game: painting desert across ground that was ALREADY
+        // desert left a green outline round the stroke.
+        //
+        // The strength of a stroke is how much of the neighbourhood voted for it,
+        // so at its rim it is about a half — weak enough that the dither downstream
+        // turned it into the ordinary green world. A boundary was being drawn
+        // between a country and itself.
+        let terrain = Terrain::new();
+        let half = terrain.half();
+
+        // DEEP in the desert, not merely in it. A point near the region's own edge
+        // has grassland a short walk away for perfectly good reasons, and a test
+        // that painted there would be asking the world to be desert where it never
+        // claimed to be.
+        let deep = |at: Vec2| {
+            (-2..=2).all(|step_z| {
+                (-2..=2).all(|step_x| {
+                    let near = at + Vec2::new(step_x as f32, step_z as f32) * 60.0;
+                    terrain.region(near.x, near.y).0 == Country::Desert
+                })
+            })
+        };
+        let mut middle = None;
+        'hunt: for down in 0..80 {
+            for across in 0..160 {
+                let uv = Vec2::new(across as f32 / 160.0, down as f32 / 80.0);
+                let at = (uv - 0.5) * half * 2.0;
+                if terrain.region(at.x, at.y).0 == Country::Desert && deep(at) {
+                    middle = Some(at);
+                    break 'hunt;
+                }
+            }
+        }
+        let middle = middle.expect("the world should have a desert with a middle to it");
+        assert_eq!(terrain.region(middle.x, middle.y).0, Country::Desert);
+
+        // Paint desert over it, exactly as the brush does.
+        {
+            let mut layer = terrain.countries().write().unwrap();
+            layer.begin_stroke();
+            layer.stamp(middle, 90.0, Country::Desert.mark());
+        }
+
+        // And now nothing across the stroke or at its rim may have become the
+        // green world. Inside the painted radius, where the stroke is the only
+        // thing that has spoken.
+        let mut greened = 0;
+        for step_z in -9_i32..=9 {
+            for step_x in -9_i32..=9 {
+                let at = middle + Vec2::new(step_x as f32, step_z as f32) * 9.0;
+                if at.distance(middle) > 85.0 {
+                    continue;
+                }
+                if terrain.region(at.x, at.y).0 == Country::Ordinary {
+                    greened += 1;
+                }
+            }
+        }
+        assert_eq!(
+            greened, 0,
+            "{greened} samples turned green inside a desert painted over desert"
+        );
+    }
+
+    #[test]
+    fn a_coastline_survives_whatever_is_painted_behind_it() {
+        // Reported from the game: painting a biome took the coastlines with it.
+        //
+        // The shore had been excluded from snow country to stop a ring of sand
+        // appearing round a white island — which fixed a colour by deleting a
+        // PLACE. Things live on a coast that live nowhere else, so a coastline
+        // that stops existing because the ground behind it is cold takes its
+        // inhabitants with it. Whether it is sandy or frozen is a question for
+        // whatever paints it.
+        use terrain_core::region::Country;
+        let terrain = Terrain::new();
+        let half = terrain.half();
+
+        // Every stretch of coast the world has, before anything is painted.
+        let mut coast = Vec::new();
+        for down in 0..90 {
+            for across in 0..180 {
+                let uv = Vec2::new(across as f32 / 180.0, down as f32 / 90.0);
+                let at = (uv - 0.5) * half * 2.0;
+                if terrain.biome(at.x, at.y) == Biome::Shore {
+                    coast.push(at);
+                }
+            }
+        }
+        assert!(coast.len() > 50, "only {} of coast to test with", coast.len());
+
+        // Paint every country in turn over the whole map, and count what is left.
+        for country in Country::ALL {
+            {
+                let mut layer = terrain.countries().write().unwrap();
+                layer.begin_stroke();
+                for at in &coast {
+                    layer.stamp(*at, 200.0, country.mark());
+                }
+            }
+            let left = coast
+                .iter()
+                .filter(|at| terrain.biome(at.x, at.y) == Biome::Shore)
+                .count();
+            assert_eq!(
+                left,
+                coast.len(),
+                "painting {} took {} of {} stretches of coast with it",
+                country.name(),
+                coast.len() - left,
+                coast.len()
+            );
+        }
     }
 
     #[test]

@@ -93,82 +93,88 @@ pub fn open(mut commands: Commands, font: Res<UiFont>) {
 
             // What the left button does. First, because everything below it means
             // something different depending on this.
-            widget::branch(panel, &font, "mode", "MODE");
-            widget::row(panel, &font, "mode", "P", "BUILD", Press::Mode(Doing::Building));
-            widget::row(panel, &font, "mode", "P", "PAINT", Press::Mode(Doing::Painting));
-            panel.spawn(rule());
+            widget::branch(panel, &font, "mode", "MODE", |rows| {
+                widget::row(rows, &font, "mode", "P", "BUILD", Press::Mode(Doing::Building));
+                widget::row(rows, &font, "mode", "P", "PAINT", Press::Mode(Doing::Painting));
+            });
 
-            widget::branch(panel, &font, "parts", "PARTS");
-            for (at, part) in Part::ALL.iter().enumerate() {
+            widget::branch(panel, &font, "parts", "PARTS", |rows| {
+                for (at, part) in Part::ALL.iter().enumerate() {
+                    widget::row(
+                        rows,
+                        &font,
+                        "parts",
+                        &(at + 1).to_string(),
+                        part.name(),
+                        Press::Part(*part),
+                    );
+                }
+                widget::row(rows, &font, "parts", "R", "TURN A QUARTER", Press::Turn);
                 widget::row(
-                    panel,
+                    rows,
                     &font,
                     "parts",
-                    &(at + 1).to_string(),
-                    part.name(),
-                    Press::Part(*part),
+                    "SH-R",
+                    "TURN WHAT IS UNDER IT",
+                    Press::TurnPlaced,
                 );
-            }
-            widget::row(panel, &font, "parts", "R", "TURN A QUARTER", Press::Turn);
-            widget::row(
-                panel,
-                &font,
-                "parts",
-                "SH-R",
-                "TURN WHAT IS UNDER THE CURSOR",
-                Press::TurnPlaced,
-            );
-            panel.spawn(rule());
+            });
 
             // The camera, said out loud. Orbiting by dragging a button nobody
             // mentioned is a feature that does not exist as far as a maker is
             // concerned, which is what this whole panel is for.
-            widget::branch(panel, &font, "view", "VIEW");
-            widget::note(panel, &font, "view", "MIDDLE DRAG", "orbit");
-            widget::note(panel, &font, "view", "WHEEL", "zoom");
-            widget::note(panel, &font, "view", "[ ]", "square up a quarter");
-            widget::note(panel, &font, "view", "- =", "zoom a step");
-            panel.spawn(rule());
+            widget::branch(panel, &font, "view", "VIEW", |rows| {
+                widget::note(rows, &font, "view", "MID", "drag to orbit");
+                widget::note(rows, &font, "view", "WHL", "zoom");
+                widget::note(rows, &font, "view", "[ ]", "square up a quarter");
+                widget::note(rows, &font, "view", "- =", "zoom a step");
+            });
 
-            widget::branch(panel, &font, "colour", "COLOUR");
-            widget::swatches(panel, "colour", &TINTS);
-            panel.spawn(rule());
+            widget::branch(panel, &font, "colour", "COLOUR", |rows| {
+                widget::swatches(rows, "colour", &TINTS);
+            });
 
             // Folded shut to begin with. A maker laying a fence does not need four
             // generators on screen while they do it, and a shelf that keeps growing
             // is the whole reason branches exist.
-            widget::branch(panel, &font, "ask", "ASK FOR ONE");
-            for what in Pattern::ALL {
-                widget::row(panel, &font, "ask", "G", what.name(), Press::Ask(what));
-            }
-            panel.spawn(rule());
+            widget::branch(panel, &font, "ask", "ASK FOR ONE", |rows| {
+                for what in Pattern::ALL {
+                    widget::row(rows, &font, "ask", "G", what.name(), Press::Ask(what));
+                }
+            });
 
-            widget::branch(panel, &font, "picture", "PICTURE");
-            value_row(panel, &font, "showing", Readout::Picture);
-            widget::row(panel, &font, "picture", "I", "NEXT PICTURE", Press::NextPicture);
-            widget::row(panel, &font, "picture", "U", "UPRIGHT / FLAT", Press::FlipPicture);
-            widget::row(panel, &font, "picture", "F5", "MAKE A MODEL FROM IT", Press::Fire);
-            value_row(panel, &font, "kiln", Readout::Kiln);
-            panel.spawn(rule());
+            widget::branch(panel, &font, "picture", "PICTURE", |rows| {
+                value_row(rows, &font, "showing", Readout::Picture);
+                widget::row(rows, &font, "picture", "I", "NEXT PICTURE", Press::NextPicture);
+                widget::row(rows, &font, "picture", "U", "UPRIGHT / FLAT", Press::FlipPicture);
+                widget::row(rows, &font, "picture", "F5", "MAKE A MODEL", Press::Fire);
+                value_row(rows, &font, "kiln", Readout::Kiln);
+            });
 
-            widget::branch(panel, &font, "work", "WORK");
-            value_row(panel, &font, "cursor", Readout::Cursor);
-            value_row(panel, &font, "pieces", Readout::Pieces);
-            widget::row(panel, &font, "work", "Ctrl+Z", "UNDO", Press::Undo);
-            widget::row(panel, &font, "work", "Ctrl+S", "SAVE", Press::Save);
-            widget::row(panel, &font, "work", "ESC", "BACK TO THE MENU", Press::Leave);
-            panel.spawn(rule());
+            widget::branch(panel, &font, "work", "WORK", |rows| {
+                value_row(rows, &font, "cursor", Readout::Cursor);
+                value_row(rows, &font, "pieces", Readout::Pieces);
+                widget::row(rows, &font, "work", "Ctrl+Z", "UNDO", Press::Undo);
+                widget::row(rows, &font, "work", "Ctrl+S", "SAVE", Press::Save);
+                widget::row(rows, &font, "work", "ESC", "BACK TO THE MENU", Press::Leave);
+            });
 
+            // The gestures that are not rows, kept short: the boxes above say
+            // what each group does, and repeating all of it here was a wall of
+            // text under a set of menus built to replace one.
             for said in [
-                "mouse aims and snaps to the lattice",
-                "LEFT place or paint  ·  RIGHT take away",
-                "WASD/QE nudge  ·  SHIFT a whole module",
-                "[ ] turn the view  ·  -/= zoom",
+                "mouse aims and snaps",
+                "LEFT place  ·  RIGHT take away",
+                "WASD/QE nudge  ·  SHIFT a module",
             ] {
                 panel.spawn((
                     Text::new(said.to_string()),
-                    font.at(10.5),
+                    font.at(10.0),
                     TextColor(TEXT_DIM),
+                    Node {
+                        margin: UiRect::new(Val::Px(8.0), Val::Px(8.0), Val::Px(1.0), Val::Px(1.0)),
+                        ..default()
+                    },
                 ));
             }
         });

@@ -222,17 +222,18 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
                 ("grow", "GROW AND MARK", &[Brushing::Plant, Brushing::Country][..]),
                 ("back", "TAKE IT BACK", &[Brushing::Revert][..]),
             ] {
-                widget::branch(body, font, group, label);
-                for how in tools {
-                    widget::row(
-                        body,
-                        font,
-                        group,
-                        crate::editor::key_for(*how),
-                        how.name(),
-                        *how,
-                    );
-                }
+                widget::branch(body, font, group, label, |rows| {
+                    for how in tools {
+                        widget::row(
+                            rows,
+                            font,
+                            group,
+                            crate::editor::key_for(*how),
+                            how.name(),
+                            *how,
+                        );
+                    }
+                });
             }
             tool_saying(body, font);
 

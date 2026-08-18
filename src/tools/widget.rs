@@ -26,7 +26,9 @@
 
 use bevy::prelude::*;
 
-use super::theme::{UiFont, ACCENT, KEYCAP, ROW_ACTIVE, TEXT, TEXT_DIM, TEXT_MUTED};
+use super::theme::{
+    UiFont, ACCENT, CARD, CARD_EDGE, KEYCAP, ROW_ACTIVE, TEXT, TEXT_DIM, TEXT_MUTED,
+};
 
 /// How a row looks when the pointer is over it, and when it is being pressed.
 pub const ROW_HOVER: Color = Color::srgba(0.83, 0.68, 0.34, 0.09);
@@ -66,36 +68,86 @@ pub struct OfBranch(pub &'static str);
 #[derive(Component)]
 pub struct Swatch(pub usize);
 
-/// Spawns a heading that folds what is under it.
-pub fn branch(parent: &mut ChildSpawnerCommands, font: &UiFont, group: &'static str, label: &str) {
+/// A group: a heading you can press, and a box holding what it opens.
+///
+/// # A heading is not a container
+///
+/// This spawned a heading and left the rows as its siblings, so nothing said where
+/// one group stopped and the next began except a gap — eleven tool rows under four
+/// headings read as one list of fifteen things. The box is the cheapest thing that
+/// says "these belong together", and the eye takes it without being asked.
+///
+/// The rows go INSIDE it, which is why this takes a closure rather than being a
+/// heading you spawn and then follow with rows. Getting that wrong is not
+/// possible now: there is nowhere else to put them.
+pub fn branch(
+    parent: &mut ChildSpawnerCommands,
+    font: &UiFont,
+    group: &'static str,
+    label: &str,
+    inside: impl FnOnce(&mut ChildSpawnerCommands),
+) {
     parent
         .spawn((
-            Branch { group, open: true },
-            Button,
             Node {
                 width: Val::Percent(100.0),
-                flex_direction: FlexDirection::Row,
-                align_items: AlignItems::Center,
-                column_gap: Val::Px(6.0),
-                padding: UiRect::axes(Val::Px(2.0), Val::Px(5.0)),
+                flex_direction: FlexDirection::Column,
+                margin: UiRect::bottom(Val::Px(7.0)),
                 ..default()
             },
-            BackgroundColor(ROW_IDLE),
         ))
-        .with_children(|row| {
-            // A caret rather than a plus or a triangle glyph: the font may not
-            // have either, and a caret is two characters that every font has.
-            row.spawn((
-                BranchMark(group),
-                Text::new("v".to_string()),
-                font.at(10.0),
-                TextColor(TEXT_DIM),
-            ));
-            row.spawn((
-                Text::new(label.to_string()),
-                font.at(11.0),
-                TextColor(TEXT_DIM),
-            ));
+        .with_children(|group_node| {
+            group_node
+                .spawn((
+                    Branch { group, open: true },
+                    Button,
+                    Node {
+                        width: Val::Percent(100.0),
+                        flex_direction: FlexDirection::Row,
+                        align_items: AlignItems::Center,
+                        column_gap: Val::Px(7.0),
+                        padding: UiRect::new(
+                            Val::Px(8.0),
+                            Val::Px(8.0),
+                            Val::Px(6.0),
+                            Val::Px(6.0),
+                        ),
+                        ..default()
+                    },
+                    BackgroundColor(ROW_IDLE),
+                ))
+                .with_children(|row| {
+                    // A caret rather than a plus or a triangle glyph: the font may
+                    // not have either, and a caret is a character every font has.
+                    row.spawn((
+                        BranchMark(group),
+                        Text::new("v".to_string()),
+                        font.at(9.0),
+                        TextColor(ACCENT),
+                    ));
+                    row.spawn((
+                        Text::new(label.to_string()),
+                        font.at(11.0),
+                        TextColor(TEXT_DIM),
+                    ));
+                });
+
+            // The box itself.
+            group_node
+                .spawn((
+                    OfBranch(group),
+                    Node {
+                        width: Val::Percent(100.0),
+                        flex_direction: FlexDirection::Column,
+                        padding: UiRect::axes(Val::Px(5.0), Val::Px(5.0)),
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..default()
+                    },
+                    BorderColor(CARD_EDGE),
+                    BorderRadius::all(Val::Px(6.0)),
+                    BackgroundColor(CARD),
+                ))
+                .with_children(inside);
         });
 }
 

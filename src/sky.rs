@@ -103,7 +103,13 @@ impl Plugin for SkyPlugin {
             .add_systems(Startup, (spawn_sun, spawn_clouds, spawn_night_sky))
             .add_systems(
                 Update,
-                (read_the_clock, drive_the_sky, drift_clouds, carry_the_night).chain(),
+                (read_the_clock, drive_the_sky, drift_clouds, carry_the_night)
+                    .chain()
+                    // Not on the workbench. The sky writes `ClearColor` every
+                    // frame, so the bench setting its own background at open was
+                    // overwritten before the first frame was drawn — which is why
+                    // a room with no sky in it had a blue one.
+                    .run_if(not(in_state(crate::states::AppState::Bench))),
             );
     }
 }
@@ -112,6 +118,24 @@ fn spawn_sun(mut commands: Commands) {
     commands.spawn((
         DirectionalLight {
             shadows_enabled: true,
+            // # The bias has to move when the distance does
+            //
+            // These are in the light's own CLIP SPACE, not in metres — so what a
+            // given bias is worth on the ground depends on how deep the shadow
+            // volume is. Cutting `SHADOW_DISTANCE` from nine hundred metres to
+            // four hundred for the frame rate therefore cut the effective bias by
+            // the same factor and left the default in place, and the world came
+            // out streaked with self-shadowing: a surface shading itself because
+            // its own depth and the depth in the map disagreed by less than a
+            // texel.
+            //
+            // Raised in step with that change and then a little further, because
+            // acne is worse than the thing too much bias causes. The cost of
+            // overdoing it is peter-panning — a shadow creeping out from under
+            // the thing casting it — so if trees start looking like they are
+            // hovering, this is the number, and it is the depth one first.
+            shadow_depth_bias: 0.055,
+            shadow_normal_bias: 2.6,
             ..default()
         },
         // Cascades sized to the visible world: tight near the viewer where
@@ -520,6 +544,9 @@ const STAR_SIZE: f32 = 0.75;
 /// A shadow's job is to sit an object on the ground it is standing on, and that
 /// is read within a hundred metres or so. Past that it is texture on a hillside,
 /// which the terrain's own shading already gives.
+/// **Changing this changes what the shadow bias is worth.** The bias is in clip
+/// space, so halving the distance halves the metres it covers — see the light
+/// above, where both numbers are set together and why.
 const SHADOW_DISTANCE: f32 = 400.0;
 const SHADOW_CASCADES: usize = 3;
 

@@ -159,8 +159,18 @@ pub fn surface_color(
     let sandy = shoreline * character * gentle;
     let stony = shoreline * (1.0 - character * gentle);
 
-    color = color.lerp(p.rock, stony * 0.7);
-    color = color.lerp(p.sand, sandy);
+    // A frozen shore is still a shore, and it is not sand.
+    //
+    // The classifier used to answer this by deleting the shore in cold country,
+    // which fixed a ring of sand round a white island by removing the coastline —
+    // and a coastline is a PLACE, with things living on it that live nowhere else.
+    // So the shore stays everywhere and the cold is answered here, where the
+    // question was: what it looks like, not whether it exists.
+    let frozen = matches!(country, terrain_core::region::Country::Snow) as u8 as f32 * into;
+    let beach = p.sand.lerp(p.snow, frozen);
+
+    color = color.lerp(p.rock, stony * 0.7 * (1.0 - frozen));
+    color = color.lerp(beach, sandy);
 
     // Steep ground is bare rock no matter what biome it sits in — this is what
     // makes cliffs and mountainsides read as stone instead of vertical lawn.

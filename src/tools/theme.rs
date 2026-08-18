@@ -26,20 +26,33 @@ use crate::world::edit::Brushing;
 //
 // Gold is the accent for EVERYTHING here, which is why the tools below are told
 // apart by their own colours rather than by it.
-pub const PANEL: Color = Color::srgba(0.045, 0.050, 0.062, 0.985);
-pub const HEADER: Color = Color::srgba(0.028, 0.032, 0.042, 0.99);
-pub const RULE: Color = Color::srgba(0.83, 0.68, 0.34, 0.22);
-pub const ROW_ACTIVE: Color = Color::srgba(0.83, 0.68, 0.34, 0.13);
-pub const KEYCAP: Color = Color::srgba(0.83, 0.68, 0.34, 0.16);
-pub const METER_TRACK: Color = Color::srgba(0.83, 0.68, 0.34, 0.16);
+pub const PANEL: Color = Color::srgba(0.035, 0.042, 0.062, 0.985);
+pub const HEADER: Color = Color::srgba(0.055, 0.070, 0.110, 0.99);
+pub const RULE: Color = Color::srgba(0.62, 0.68, 0.86, 0.16);
+pub const ROW_ACTIVE: Color = Color::srgba(0.42, 0.47, 0.92, 0.26);
+pub const KEYCAP: Color = Color::srgba(0.55, 0.60, 0.86, 0.15);
+pub const METER_TRACK: Color = Color::srgba(0.55, 0.60, 0.86, 0.16);
+
+/// The inside of a group's box, and the line round it.
+///
+/// The panel was a flat column with headings in it, and a heading is not a
+/// container: nothing said where SHAPE stopped and BRUSH began except a gap, so
+/// eleven rows and four headings read as one list of fifteen things. A box is the
+/// cheapest thing that says "these belong together" and the eye reads it without
+/// being asked to.
+pub const CARD: Color = Color::srgba(0.075, 0.090, 0.135, 0.90);
+pub const CARD_EDGE: Color = Color::srgba(0.42, 0.50, 0.78, 0.18);
 
 /// Bone, not white. Paper-coloured writing on near-black is what gives the bench
 /// its look; pure white on it reads as a terminal.
-pub const TEXT: Color = Color::srgb(0.93, 0.90, 0.83);
-pub const TEXT_MUTED: Color = Color::srgb(0.72, 0.68, 0.60);
-pub const TEXT_DIM: Color = Color::srgb(0.48, 0.45, 0.40);
+pub const TEXT: Color = Color::srgb(0.90, 0.93, 0.99);
+pub const TEXT_MUTED: Color = Color::srgb(0.68, 0.73, 0.85);
+pub const TEXT_DIM: Color = Color::srgb(0.44, 0.49, 0.62);
 /// The gold the panels are edged and lit with.
-pub const ACCENT: Color = Color::srgb(0.83, 0.68, 0.34);
+/// Taken off the game's own mark: the blue-violet in the crest, and the silver
+/// the letters are cut from. The panels were tan and gold, which is a perfectly
+/// good scheme belonging to a different game.
+pub const ACCENT: Color = Color::srgb(0.60, 0.66, 0.98);
 pub const UNSAVED: Color = Color::srgb(0.86, 0.56, 0.22);
 
 /// As wide as Opificium's own panels stand, for the same reason it gives: a
