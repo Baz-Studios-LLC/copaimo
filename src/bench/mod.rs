@@ -37,7 +37,15 @@ const FLOOR_REACH: i32 = 8;
 
 /// Everything the bench has spawned, so it can all be taken away again.
 #[derive(Component)]
-struct OfBench;
+pub struct OfBench;
+
+/// The bench's own camera.
+///
+/// Named, because the world keeps one too and `iter().next()` on cameras is a coin
+/// toss. The cursor was being aimed down a ray cast from the world's camera, which
+/// is how it ended up three kilometres from the bench.
+#[derive(Component)]
+struct BenchEye;
 
 /// The work itself, as drawn. Cleared and rebuilt whenever a piece changes.
 #[derive(Component)]
@@ -147,14 +155,21 @@ impl Plugin for BenchPlugin {
 fn open(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<Shaded>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     mut bench: ResMut<Bench>,
+    mut elsewhere: Query<&mut Camera>,
 ) {
     // So the first frame draws whatever was already on the bench.
     bench.set_changed();
 
+    // The world's camera is switched off rather than despawned: it belongs to the
+    // world and will be wanted again the moment anybody leaves.
+    for mut other in &mut elsewhere {
+        other.is_active = false;
+    }
     commands.spawn((
         OfBench,
+        BenchEye,
         Camera3d::default(),
         Transform::from_translation(EYE).looking_at(Vec3::Y * PIVOT, Vec3::Y),
     ));
@@ -199,16 +214,22 @@ fn open(
     // instead of measuring. Drawn as thin slabs rather than lines because this
     // world has no line renderer and a checker reads the depth better anyway.
     let tile = meshes.add(Cuboid::new(kit::MODULE * 0.98, 0.02, kit::MODULE * 0.98));
-    let pale = materials.add(shaded(StandardMaterial {
+    // PLAIN materials, not the world's.
+    //
+    // The floor was made of the material every solid thing outdoors wears, which
+    // carries cloud shadows — so clouds nobody could see drifted across the
+    // workbench and the grid changed colour for no reason a maker could name.
+    // Nothing in this room is outdoors.
+    let pale = materials.add(StandardMaterial {
         base_color: Color::srgb(0.20, 0.22, 0.26),
         perceptual_roughness: 0.95,
         ..default()
-    }));
-    let dark = materials.add(shaded(StandardMaterial {
+    });
+    let dark = materials.add(StandardMaterial {
         base_color: Color::srgb(0.15, 0.16, 0.20),
         perceptual_roughness: 0.95,
         ..default()
-    }));
+    });
     for x in -FLOOR_REACH..FLOOR_REACH {
         for z in -FLOOR_REACH..FLOOR_REACH {
             let checker = (x + z).rem_euclid(2) == 0;
@@ -226,9 +247,17 @@ fn open(
     }
 }
 
-fn close(mut commands: Commands, mine: Query<Entity, With<OfBench>>) {
+fn close(
+    mut commands: Commands,
+    mine: Query<Entity, With<OfBench>>,
+    mut elsewhere: Query<&mut Camera, Without<BenchEye>>,
+) {
     for entity in &mine {
         commands.entity(entity).despawn();
+    }
+    // And the world gets its eye back.
+    for mut other in &mut elsewhere {
+        other.is_active = true;
     }
 }
 
@@ -313,7 +342,7 @@ fn generate(keys: Res<ButtonInput<KeyCode>>, mut asked: ResMut<Asked>, mut bench
 /// every frame would make them useless.
 fn aim(
     windows: Query<&Window, With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform)>,
+    cameras: Query<(&Camera, &GlobalTransform), With<BenchEye>>,
     mut hand: ResMut<Hand>,
     mut was: Local<Option<Vec2>>,
 ) {
@@ -339,8 +368,21 @@ fn aim(
     let Some(along) = ray.intersect_plane(Vec3::Y * hand.at.y, plane) else {
         return;
     };
+    // Within the room, and only just outside it.
+    //
+    // A ray aimed near the horizon meets a horizontal plane at a grazing angle and
+    // strikes it a very long way off — the cursor read three kilometres from the
+    // bench, which is a number a maker cannot even see, let alone build at. The
+    // floor is what there is; pointing past it holds the cursor at its edge rather
+    // than following the ray wherever the arithmetic says.
     let struck = ray.get_point(along);
-    let snapped = Bench::snapped(Vec3::new(struck.x, hand.at.y, struck.z));
+    let edge = FLOOR_REACH as f32 * kit::MODULE;
+    let held = Vec3::new(
+        struck.x.clamp(-edge, edge),
+        hand.at.y,
+        struck.z.clamp(-edge, edge),
+    );
+    let snapped = Bench::snapped(held);
     if snapped != hand.at {
         hand.at = snapped;
     }
@@ -457,7 +499,7 @@ fn place(
 fn turn_view(
     keys: Res<ButtonInput<KeyCode>>,
     mut view: ResMut<View>,
-    mut cameras: Query<&mut Transform, With<Camera3d>>,
+    mut cameras: Query<&mut Transform, With<BenchEye>>,
 ) {
     let mut moved = false;
     if keys.just_pressed(KeyCode::BracketLeft) {

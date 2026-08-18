@@ -113,10 +113,28 @@ impl Plugin for CameraPlugin {
                     // never trails a frame behind them.
                     drive_camera.after(move_player),
                 )
-                    // Frozen in the menu: the cursor is released there, and
-                    // moving the mouse toward a button must not swing the view.
-                    .run_if(not(in_state(AppState::Menu))),
+                    // Frozen wherever the world is not what you are looking at:
+                    // the menu, and the workbench.
+                    //
+                    // The bench had this camera running behind its own, which is
+                    // most of why it was unusable — W drove the world camera three
+                    // kilometres away while the bench thought it was nudging a
+                    // cursor, and the ray that aims the cursor was cast from
+                    // whichever of the two cameras came back first.
+                    .run_if(in_world),
             );
+    }
+}
+
+/// Whether the world is the thing on screen.
+fn in_world(state: Res<State<AppState>>) -> bool {
+    #[cfg(feature = "tools")]
+    {
+        matches!(state.get(), AppState::Playing | AppState::Editing)
+    }
+    #[cfg(not(feature = "tools"))]
+    {
+        matches!(state.get(), AppState::Playing)
     }
 }
 

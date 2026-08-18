@@ -76,6 +76,22 @@ impl WorldBounds {
     }
 }
 
+/// Whether the world is the thing on screen.
+///
+/// The workbench is a room with a floor and whatever you are building in it. The
+/// landscape has no business streaming behind it.
+fn a_world_is_on_screen(state: Res<State<crate::states::AppState>>) -> bool {
+    use crate::states::AppState;
+    #[cfg(feature = "tools")]
+    {
+        matches!(state.get(), AppState::Playing | AppState::Editing)
+    }
+    #[cfg(not(feature = "tools"))]
+    {
+        matches!(state.get(), AppState::Playing)
+    }
+}
+
 pub struct WorldPlugin;
 
 impl Plugin for WorldPlugin {
@@ -116,6 +132,11 @@ impl Plugin for WorldPlugin {
                     prop::collect_props,
                     prop::clear_chunks,
                 )
+                    // Not in the workbench. Streaming a world nobody is looking at
+                    // costs a frame's work every frame and, worse, keeps a second
+                    // camera and a whole landscape alive behind a room that is
+                    // meant to have nothing in it but what you are building.
+                    .run_if(a_world_is_on_screen)
                     .chain(),
             );
     }
