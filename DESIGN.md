@@ -531,7 +531,18 @@ assets/
 
 ## Change log
 
-**2026-08-17 (last)** — **The snow is a band; the desert is a place.** A band was
+**2026-08-17 (last)** — **The desert's two numbers do different jobs.** Asked to
+reach further south-east, it went *west*: the width was grown alongside the
+length and the rim tightened, both of which push the western edge out into the
+green world. Correcting that by sliding the middle south then lost the northern
+end and left a finger of sand on the western continent.
+
+`DESERT_REACH.y` is **length**, along the lean, north-west to south-east.
+`DESERT_REACH.x` is **width**, across it. Only the first does the asked-for job,
+and the file says so now. One number, changed on its own — desert 12.8%, and its
+near edge 1,280 m from the ranch.
+
+**2026-08-17** — **The snow is a band; the desert is a place.** A band was
 the wrong shape for the desert in the *other* direction. The snow is a whole end
 of the world and earns one — it has to hold from the north coast of its island to
 the south without stopping short, which is exactly what an ellipse could never
