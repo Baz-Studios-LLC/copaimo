@@ -132,14 +132,38 @@ fn axes(turn: Quat) -> [(Vec3, Color); 3] {
 /// Whatever is nearest the cursor, which is the same rule everything else on this
 /// bench follows for reaching an existing piece.
 pub fn choose(hand: Res<Hand>, bench: Res<Bench>, mut holding: ResMut<Holding>) {
+    // A piece stays chosen until another one is.
+    //
+    // # The deadlock this replaces
+    //
+    // The selection used to be let go of whenever the ground cursor wandered out
+    // of range, and that made the arrows impossible to click. Two frames:
+    //
+    // 1. The pointer is on the piece. It gets picked. Nothing is hovered.
+    // 2. The pointer moves ONTO an arrow — which throws the ground cursor far
+    //    away, because an arrow stands above the floor and the cursor is where the
+    //    view ray meets it. The selection is dropped for being out of range, and
+    //    the arrow-hovering test never runs, because there is no longer a piece to
+    //    test the arrows of.
+    //
+    // So the arrows vanished the instant they were pointed at, and no amount of
+    // fixing the hit test could have helped: nothing was ever hit-tested. Adding a
+    // "do not re-pick while hovering" rule did not help either, because hovering
+    // could never be discovered in the first place — the two systems each waited
+    // on the other.
+    //
+    // Holding on until something else is chosen breaks it, and it is the better
+    // behaviour anyway: a selection that evaporates when the pointer drifts is one
+    // nobody can act on.
+    // Not while the pointer is on a handle. Holding on to the selection is what
+    // stops it being dropped when the cursor wanders; this is what stops it being
+    // handed to a DIFFERENT piece that the wandering cursor happened to land on,
+    // which would take the arrows out from under the pointer just as surely.
     if holding.on_a_handle() {
-        // Not while the pointer is on a handle. Reaching for an arrow moves the
-        // ground cursor away from the piece — the arrow stands above the floor and
-        // the cursor is where the ray meets it — so re-picking here let go of the
-        // very piece being reached for. And during a drag the piece moves under
-        // the pointer, which would hand the arrows to whatever it passed over.
         return;
     }
+
+    // Whatever is under the cursor now, if anything is.
     let near = bench
         .pieces()
         .iter()
@@ -147,8 +171,19 @@ pub fn choose(hand: Res<Hand>, bench: Res<Bench>, mut holding: ResMut<Holding>) 
         .filter(|(away, _)| *away <= kit::MODULE * 1.5)
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, id)| id);
-    if holding.piece != near {
-        holding.piece = near;
+
+    if let Some(near) = near {
+        holding.piece = Some(near);
+        return;
+    }
+
+    // Nothing under the cursor: keep what was chosen, unless it has since been
+    // taken off the bench.
+    if let Some(held) = holding.piece {
+        if !bench.pieces().iter().any(|piece| piece.id == held) {
+            holding.piece = None;
+            holding.hovering = None;
+        }
     }
 }
 
@@ -372,6 +407,62 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_selection_survives_the_cursor_leaving_the_piece() {
+        // The exact sequence that made the arrows unclickable, run frame by frame.
+        //
+        // Pointing at an arrow throws the ground cursor away from the piece — an
+        // arrow stands above the floor, and the cursor is where the view ray meets
+        // it. The selection was dropped for being out of range, and the
+        // arrow-hovering test never ran, because there was no longer a piece to
+        // test the arrows of. Each system waited on the other.
+        let mut bench = Bench::default();
+        let post = bench.add(kit::Part::Post, Vec3::ZERO, 0, 0).expect("a post");
+        let far = bench
+            .add(kit::Part::Post, Vec3::new(30.0, 0.0, 30.0), 0, 0)
+            .expect("another post, well away");
+
+        let mut app = App::new();
+        app.insert_resource(bench)
+            .insert_resource(Hand::default())
+            .init_resource::<Holding>()
+            .add_systems(Update, choose);
+
+        // Frame one: the cursor is on the post, and it is chosen.
+        app.update();
+        assert_eq!(app.world().resource::<Holding>().piece, Some(post));
+
+        // Frame two: the pointer reaches for an arrow, which throws the ground
+        // cursor metres away. NOTHING is hovered yet — that is the whole point,
+        // since hovering cannot be discovered until the arrows survive this frame.
+        app.world_mut().resource_mut::<Hand>().at = Vec3::new(9.0, 0.0, 9.0);
+        app.update();
+        assert_eq!(
+            app.world().resource::<Holding>().piece,
+            Some(post),
+            "the piece was let go of the moment its own arrow was reached for"
+        );
+
+        // Pointing at a different piece does change the selection — holding on
+        // must not mean getting stuck.
+        app.world_mut().resource_mut::<Hand>().at = Vec3::new(30.0, 0.0, 30.0);
+        app.update();
+        assert_eq!(app.world().resource::<Holding>().piece, Some(far));
+
+        // And a piece taken off the bench is let go of rather than held for ever.
+        app.world_mut().resource_mut::<Bench>().remove_nearest(
+            Vec3::new(30.0, 0.0, 30.0),
+            kit::MODULE,
+        );
+        app.world_mut().resource_mut::<Hand>().at = Vec3::new(60.0, 0.0, 60.0);
+        app.update();
+        assert_eq!(
+            app.world().resource::<Holding>().piece,
+            None,
+            "the arrows stayed on a piece that is no longer there"
+        );
+    }
+
+    #[test]
     fn reaching_for_an_arrow_does_not_let_go_of_the_piece() {
         // The reported bug, and it made the arrows unclickable entirely.
         //
@@ -397,25 +488,30 @@ mod tests {
             "a piece under the cursor was not picked up"
         );
 
-        // Now the pointer reaches for an arrow, which drags the ground cursor well
-        // away from the piece. The selection has to hold.
+        // Another piece, which the ground cursor is about to wander over.
+        let other = app
+            .world_mut()
+            .resource_mut::<Bench>()
+            .add(kit::Part::Post, Vec3::new(40.0, 0.0, 40.0), 0, 0)
+            .expect("another post");
+
+        // Now the pointer is on an ARROW of the first piece, which throws the
+        // ground cursor across the room and onto the second. The arrows must not
+        // be handed over: they are being reached for.
         app.world_mut().resource_mut::<Holding>().hover_for_test(1);
         app.world_mut().resource_mut::<Hand>().at = Vec3::new(40.0, 0.0, 40.0);
         app.update();
         assert_eq!(
             app.world().resource::<Holding>().piece,
             Some(id),
-            "reaching for an arrow let go of the piece it belongs to"
+            "reaching for an arrow handed it to whatever the cursor landed on"
         );
 
-        // And with nothing hovered, a cursor that far off does let go.
+        // With nothing hovered, that same cursor does choose the second piece —
+        // holding on must not mean getting stuck.
         app.world_mut().resource_mut::<Holding>().hovering = None;
         app.update();
-        assert_eq!(
-            app.world().resource::<Holding>().piece,
-            None,
-            "the selection stuck to a piece the cursor had left"
-        );
+        assert_eq!(app.world().resource::<Holding>().piece, Some(other));
     }
 
     #[test]

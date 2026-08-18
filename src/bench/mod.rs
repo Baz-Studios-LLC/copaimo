@@ -217,8 +217,13 @@ impl Plugin for BenchPlugin {
                     // the guard, though: `place` also asks whether the arrows took
                     // the click, so the two do not depend on somebody keeping this
                     // list in the right order for ever.
-                    gizmo::choose,
+                    // Hovering is worked out BEFORE the selection is reconsidered.
+                    // Ordering is not what makes this correct any more — the
+                    // selection holds on by itself — but a frame's lag between
+                    // pointing at an arrow and the arrow knowing it is pointless
+                    // to inflict.
                     gizmo::drag,
+                    gizmo::choose,
                     place,
                     turn_view,
                     gizmo::show,
