@@ -1,50 +1,59 @@
-## A world with weather, water and a time of day
+## A world with weather, ground cover, and places you can name
 
 Still a world to walk and nothing yet to do in it — no monsters, no battles, no
-guild exams. This one is about making the world worth crossing.
+guild exams. This one is about what the ground under your feet is made of.
 
-**It keeps your clock.** Nine in the morning where you are is nine in the morning
-here: the sun, the sky, the light and every shadow follow your machine's own time.
-Playing before school is a different world from playing after dinner, and neither
-costs you a wait. Nights have a moon, nine hundred stars, and enough light to
-walk by.
+**Cloud shadows, and they are the actual clouds.** The usual way to do this is
+scrolling noise, which looks fine until you stand in a patch of shade, look up,
+and find clear sky. These come from the cloud list itself, one soft disc per
+cloud at the point the sun's own line through it strikes the ground — so look up
+from a shadow and the cloud casting it is overhead. They slide as the clouds
+drift and as the sun climbs, and they fade out near dawn and dusk, when a cloud
+two hundred metres up would throw its shadow a kilometre sideways.
 
-**Clouds** drift overhead and take the sun's colour, so they turn with the
-evening. Rounded, low enough to read as weather, and few enough that a clear day
-is still a clear day.
+**Tall grass you could lose something in.** Grass used to be single blades dotted
+evenly over every field in the world, which is the same thin stubble everywhere.
+The same amount is now *gathered* into meadows with bare ground between them, and
+a meadow's middle comes up past the knee — a different kind of ground, visible
+from across a field, and somewhere a wild monster could be without being seen.
+It parts as you walk through it and springs back behind you.
 
-**Towns have nothing standing on them yet.** The hand-written cottage that stood
-at every site while the building reader was being built has been taken out —
-buildings are drawn at Opificium now, and a stand-in raised twenty times was the
-world claiming something untrue about itself.
+Deserts don't get meadows. Dry scrub is sparse by nature, and gathering it into
+lush patches would be inventing oases.
 
-**Rivers**, and nobody placed them. Water falls on the continent, runs downhill
-and gathers, and where enough has gathered there is a river — so they lie in
-valleys, join as they descend, and reach the sea. Nearly 1,800 stretches of
-channel across the map, with still water standing in them.
+**Litter.** Boulders, scree, bushes, stumps, fallen logs, dead standing snags,
+cactus and dry brush, keyed to where they belong. A wood gets its floor of
+wreckage, bare rock sheds stone, dry country grows cactus and dead sticks, the
+shore gets driftwood. A landscape of ground and trees reads as a golf course.
 
-**Biomes.** The world knows what kind of place it is at any point — water, shore,
-grassland, forest, desert, rock, snow, or ground somebody has settled. It is what
-decides which trees grow where, where grass and flowers appear, and later which
-monsters live where.
+**Places you can name.** What kind of ground a point carried used to be decided
+point by point from a moisture field, so desert appeared wherever the noise
+happened to dip — patches inside grassland, no two hundred metres of the map the
+same as the next. You could not say "the northern desert" about a place whose
+character changed every time you walked a field's width.
 
-**Seven kinds of tree**, taken from real ones, each growing where it belongs: oak
-and birch in open country, spruce and pine on the mountain, acacia and palm in
-dry country, willow and palm on the shore. A birch is a pale whip, a spruce is a
-dark cone with its limbs to the ground, a pine is a tuft on a bare pole.
+The map is divided into countries now: the green world, the northern desert, and
+the snow country in the east. There is no humidity model behind it — a region
+simply *is* a country, which is the whole point. Boundaries are bands rather than
+lines, so sand gives way to scrub gives way to grass across a walk.
 
-**Grass, flowers and dry scrub**, thickest in open country, thinner under a
-canopy, sparse on rock and in yards, absent from open water.
+**Snow country reaches its own shoreline**, with conifers standing on the snow
+rather than a ring of green around every white island.
 
-**Roads are yours now.** The world no longer lays its own between towns — a
-graded run holds its grade across a ridge and cuts through, which is a machine's
-answer to a question that wants a person's. Use PATH in the terrain tool.
+**Trees no longer transparent.** Every tube in every tree had been wound
+inside-out, so a trunk was a crescent of its own dark interior and limbs behind
+it showed straight through. Every triangle a tree emits is now wound to agree
+with its own corners — walls, caps and leaves alike.
 
-**A tool you can work in.** Hold `Alt` to free the pointer and click the world
-overview to fly there. `0` is REVERT, which puts ground back exactly as it was
-generated — the tool that was missing when old paths could not be undone. Your
-work saves itself after two minutes, and `Esc` asks before it throws anything
-away.
+**Rivers are switched off.** The machinery is written, tested and shared with the
+bench; what killed them was width. A channel's cut spreads over three times its
+own width because banks do, so water at any useful depth spread about that far as
+well, and across the network that came to a fifth of the land under water. Not
+rivers through a landscape — a landscape with a lake on it. It wants solving
+rather than tuning.
+
+**F3 shows where you are on the map** — the coordinates the regions are written
+in, plus which country has claimed the ground you are standing on.
 
 ### Testing on macOS
 
