@@ -211,6 +211,16 @@ impl Bench {
         self.pieces.is_empty()
     }
 
+    /// Empties the bench.
+    ///
+    /// For generating into: a house drawn into a half-built one leaves two
+    /// buildings inside each other, and a maker who wanted to keep what they had
+    /// would have saved it.
+    pub fn clear(&mut self) {
+        self.pieces.clear();
+        self.unsaved = true;
+    }
+
     /// Snaps a point to the lattice.
     pub fn snapped(at: Vec3) -> Vec3 {
         (at / SNAP).round() * SNAP

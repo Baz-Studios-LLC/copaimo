@@ -19,6 +19,7 @@
 use bevy::prelude::*;
 
 use crate::build::kit::{self, Bench, Part, TINTS};
+use crate::build::pattern::{self, Pattern};
 use crate::build::plan;
 use crate::shade::{shaded, Shaded};
 use crate::states::AppState;
@@ -58,6 +59,18 @@ impl Default for Hand {
     }
 }
 
+/// What was last asked for, and with which seed.
+///
+/// Kept so that G asks again with a NEW seed and Shift+G asks for a different KIND
+/// of thing. Pressing generate twice and getting the same house back would make the
+/// feature useless: most of what anybody does with a generator is press it until
+/// they like what came out.
+#[derive(Resource, Default)]
+struct Asked {
+    what: usize,
+    seed: u32,
+}
+
 /// How the camera is looking at the work.
 #[derive(Resource)]
 struct View {
@@ -83,11 +96,21 @@ impl Plugin for BenchPlugin {
         app.init_resource::<Bench>()
             .init_resource::<Hand>()
             .init_resource::<View>()
+            .init_resource::<Asked>()
             .add_systems(OnEnter(AppState::Bench), open)
             .add_systems(OnExit(AppState::Bench), close)
             .add_systems(
                 Update,
-                (choose, move_hand, place, turn_view, rebuild, draw_ghost, say_state)
+                (
+                    choose,
+                    generate,
+                    move_hand,
+                    place,
+                    turn_view,
+                    rebuild,
+                    draw_ghost,
+                    say_state,
+                )
                     .chain()
                     .run_if(in_state(AppState::Bench)),
             );
@@ -207,6 +230,33 @@ fn choose(keys: Res<ButtonInput<KeyCode>>, mut hand: ResMut<Hand>) {
     if keys.just_pressed(KeyCode::KeyC) {
         hand.tint = (hand.tint + 1) % TINTS.len();
     }
+}
+
+/// Asking for something to be built.
+///
+/// `G` asks again with a new seed, the same kind of thing, because most of what
+/// anybody does with a generator is press it until they like what came out.
+/// `Shift+G` moves on to a different kind. What arrives is ordinary pieces, so the
+/// next thing you do is take a wall out and widen the door.
+fn generate(keys: Res<ButtonInput<KeyCode>>, mut asked: ResMut<Asked>, mut bench: ResMut<Bench>) {
+    if !keys.just_pressed(KeyCode::KeyG) {
+        return;
+    }
+    if keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]) {
+        asked.what = (asked.what + 1) % Pattern::ALL.len();
+    }
+    // A different seed every time, and repeatable across runs. The clock would do
+    // and cannot be read from here; the count of asks is as good and stays the
+    // same between sessions, which is worth more than being unpredictable.
+    asked.seed = asked.seed.wrapping_add(1);
+    let what = Pattern::ALL[asked.what];
+    pattern::draw(&mut bench, what, asked.seed);
+    info!(
+        "asked for a {} ({}), {} pieces",
+        what.name(),
+        asked.seed,
+        bench.len()
+    );
 }
 
 /// Moving the cursor about the bench.
@@ -408,9 +458,10 @@ fn say_state(
     };
     let said = format!(
         "WORKBENCH   {}   {}   turn {}   at {:.2}, {:.2}, {:.2}   {} piece(s){}
-         1-7 part  ·  R turn  ·  C colour  ·  WASD/QE move (SHIFT a whole module)
-         ENTER place  ·  DEL take back  ·  Ctrl+Z undo  ·  Ctrl+S save  ·  [ ] turn view  ·  -/= zoom
-         ESC to the menu - the work is kept",
+1-7 part  ·  R turn  ·  C colour  ·  WASD/QE move (SHIFT a whole module)
+G ask for one  ·  SHIFT+G a different kind  ·  it arrives as pieces you can edit
+ENTER place  ·  DEL take back  ·  Ctrl+Z undo  ·  Ctrl+S save  ·  [ ] turn view  ·  -/= zoom
+ESC to the menu - the work is kept",
         hand.part.name(),
         TINTS[hand.tint.min(TINTS.len() - 1)].0,
         hand.quarters,

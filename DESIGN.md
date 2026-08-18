@@ -531,6 +531,29 @@ assets/
 
 ## Change log
 
+**2026-08-18** — **Ask the bench for one.**
+
+`G` fills the bench with a house, a fence, a tower or a shelter; `Shift+G` moves to
+a different kind. A new seed every press, because most of what anybody does with a
+generator is press it until they like what came out — and repeatable, so "that one,
+but wider" is a thing you can actually do.
+
+**It hands you pieces, not a building.** That is the whole design constraint. The
+point is not to produce a finished house; it is to skip the boring half of making
+one — laying eight floor slabs and fourteen wall panels, every one of which goes
+exactly where the last one implies. The interesting part is what happens next: take
+a wall out for a wider door, drop the roof a storey, put a lean-to on the back. So
+what arrives is *ordinary pieces*, indistinguishable from placed ones, and there is
+a test that takes a generated house apart with the same calls that would have built
+it. If it could not be edited it would be a black box with a building inside it.
+
+Nothing structural is left to the seed: a house has a door, a roof covers its
+footprint, and nothing generates below the floor. Proportions, storeys and
+materials vary; whether there is a way in does not. A test checks the doorway
+across a dozen seeds — and caught its own first version, which counted the
+quarter-turned side walls as part of the face it was measuring.
+
+
 **2026-08-18** — **A workbench, and a kit of parts.**
 
 **Pieces, not shapes.** A building could be authored as arbitrary boxes at

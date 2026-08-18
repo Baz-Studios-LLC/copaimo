@@ -509,9 +509,10 @@ unblocks 3c and 3d as well.
   this world already carries its colour in its vertices.
 * **4d. Reference images.** Import a picture, stand it on a plane, build against
   it. Cheap and it is most of what "add an image" is asking for.
-* **4e. Generation.** **Out of scope 2026-08-18** — the maker asked for nothing to
-  be added to Opificium, which is where a generator would have belonged. It is not
-  cancelled, it just has no home yet; deciding that is a separate conversation.
+* **4e. Generation. DONE 2026-08-18.** In the workbench, here — Opificium was only
+  ever mentioned as a reference for the kind of tool, and nothing goes in it. `G`
+  asks for a house, fence, tower or shelter and what arrives is ordinary pieces to
+  edit. See `build/pattern.rs`.
 
 ## Recommended order
 

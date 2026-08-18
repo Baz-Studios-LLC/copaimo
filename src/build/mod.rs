@@ -30,6 +30,7 @@
 //! that is not true. It lives on as the fixture the tests below read.
 
 pub mod kit;
+pub mod pattern;
 pub mod plan;
 pub mod shape;
 
