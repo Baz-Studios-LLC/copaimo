@@ -14,7 +14,7 @@ use std::sync::LazyLock;
 use bevy::color::LinearRgba;
 use bevy::prelude::*;
 
-use crate::config::{COLD_SNOWLINE, SEA_LEVEL, SNOWLINE, TREELINE};
+use crate::config::{SEA_LEVEL, SNOWLINE, TREELINE};
 use crate::util::smoothstep;
 
 /// Palette in *linear* space, which is what mesh vertex colors are interpreted
@@ -36,7 +36,6 @@ struct Palette {
     shallow: Vec3,
     sand: Vec3,
     lush_grass: Vec3,
-    forest: Vec3,
     rock: Vec3,
     alpine: Vec3,
     snow: Vec3,
@@ -50,7 +49,6 @@ static PALETTE: LazyLock<Palette> = LazyLock::new(|| Palette {
     shallow: linear(0.22, 0.38, 0.46),
     sand: linear(0.74, 0.68, 0.50),
     lush_grass: linear(0.26, 0.47, 0.22),
-    forest: linear(0.15, 0.31, 0.17),
     rock: linear(0.36, 0.34, 0.32),
     alpine: linear(0.47, 0.45, 0.42),
     snow: linear(0.93, 0.94, 0.97),
@@ -123,14 +121,17 @@ pub fn surface_color(
     // palette all along and was reachable only from the shoreline band, so the
     // driest thing the world could paint was a parched meadow.
     //
-    // Conifers below the stone in the cold, the stone band above them drawn from
-    // the same fraction of the snowline the classifier uses.
+    // And snow country is WHITE, all of it, down to the water.
+    //
+    // Its low ground used to paint conifer green, because that is the biome down
+    // there — and the result was a ring of green around every white island, which
+    // reads as snow that stops before the shoreline. It does not: a snowy forest
+    // is conifers standing ON snow. The ground goes white and the trees are still
+    // planted, which is both what it looks like and what was actually wanted from
+    // "there should be trees in snowy areas".
     let (elsewhere, snowline) = match country {
         terrain_core::region::Country::Desert => (p.sand, SNOWLINE),
-        terrain_core::region::Country::Snow => (
-            if height > COLD_SNOWLINE * 0.55 { p.alpine } else { p.forest },
-            COLD_SNOWLINE,
-        ),
+        terrain_core::region::Country::Snow => (p.snow, -1_000.0),
         terrain_core::region::Country::Ordinary => (vegetated, SNOWLINE),
     };
     let ground_colour = vegetated.lerp(elsewhere, into);

@@ -531,7 +531,22 @@ assets/
 
 ## Change log
 
-**2026-08-17 (last)** — **Bands, not blobs.** Regions were ellipses, and an
+**2026-08-17 (last)** — **Snow country is white down to the water.** Its low
+ground painted conifer green, because that is the biome down there — and the
+result was a ring of green around every white island, which reads as snow
+stopping before the shoreline. It doesn't: a snowy forest is conifers standing
+*on* snow. The ground goes white and the trees are still planted, which is both
+what it looks like and what was actually wanted from "we could have trees in
+snowy areas".
+
+Band edges moved with it: the desert's western boundary was still landing on the
+western continent in the south, and the snow began east of its own island's
+western half.
+
+Standing at: grass 27.1%, settled 17.8%, snow 17.5%, desert 15.5%, shore 9.2%,
+forest 6.7%, rock 6.2%.
+
+**2026-08-17** — **Bands, not blobs.** Regions were ellipses, and an
 ellipse is the wrong shape for the job: a blob has a rim *everywhere*, so it
 always stopped short of something — the desert before the north coast, the snow
 before its own shoreline — and each time the answer was to grow the blob until it
