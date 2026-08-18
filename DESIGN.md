@@ -531,7 +531,25 @@ assets/
 
 ## Change log
 
-**2026-08-17 (last)** — **The regions grew to the areas they were drawn over.**
+**2026-08-17 (last)** — **Trees were the one path that never asked which region
+it was in.** Planting was keyed to the *global* treeline, so trees grew to 150 m
+everywhere — including snow country, where the treeline is ten. That is why the
+snowfields had a forest standing on them: the ground was classified snow, painted
+snow, and planted as though it were a temperate hillside.
+
+Desert grown south and east again. It now measures 16.8% of the land and its near
+edge sits **1,400 m from the ranch** — about three minutes at a jog.
+
+The region test's stray-check moved with it. It was a box over the whole
+south-west, which reached onto the middle landmass and started failing the moment
+that landmass was asked to be desert: the claim was right and the box was drawn
+around the wrong thing. It is anchored to the **ranch** now, because the corner of
+a map is arbitrary and the ranch is the thing that must not wake up in a desert.
+
+Standing at: snow 24.9%, grass 17.9%, settled 17.8%, desert 16.8%, shore 12.0%,
+rock 6.1%, forest 4.6%.
+
+**2026-08-17** — **The regions grew to the areas they were drawn over.**
 Both had to be pushed out twice, for the same reason each time: **a zone's rim is
 not its region's rim.** The falloff leaves the outer band merely dry, or merely
 cool, so the region lands well inside the ellipse that produced it — the desert

@@ -296,13 +296,23 @@ impl Terrain {
                     continue;
                 }
 
+                // The treeline of THIS PLACE, not the world's.
+                //
+                // This passed the global constant, so trees grew to a hundred and
+                // fifty metres everywhere — including snow country, where the
+                // treeline is ten. That is why the snowfields had a forest
+                // standing on them: the ground was classified snow, painted snow,
+                // and planted as though it were a temperate hillside, because the
+                // planting was the one path that never asked which region it was
+                // in.
+                let sea = self.climate_at(at.x, at.y);
                 let natural = forest::natural_density(
                     ground.moisture,
                     ground.height,
                     ground.slope,
                     ground.shore,
                     ground.levelled,
-                    TREELINE,
+                    sea.treeline,
                 );
                 let bias = painted.as_ref().map_or(0.0, |woods| woods.at(at.x, at.y));
                 let density = forest::density(natural, bias);
@@ -313,7 +323,7 @@ impl Terrain {
                 // WHICH tree, decided by where. Nothing at all in some places:
                 // open water grows none and a town's trees are somebody's
                 // business rather than the wild's.
-                let biome = Biome::of(ground, &self.climate_at(at.x, at.y));
+                let biome = Biome::of(ground, &sea);
                 let Some(variety) = terrain_core::tree::pick(
                     biome,
                     forest::chance(slot_x, slot_z, 4),
@@ -1171,6 +1181,17 @@ mod tests {
     }
 
 
+    /// How far around the ranch has to stay ordinary country, in metres.
+    ///
+    /// About three minutes at a jog. The desert's near edge measures 1,400 m from
+    /// the ranch as the regions currently stand — printed by this test — so this
+    /// leaves a real margin rather than sitting on the boundary and failing the
+    /// next time an ellipse moves a hair.
+    ///
+    /// It is not a rule that the desert must stay away. It is a rule that the
+    /// player does not walk out of their own front door into one.
+    const HOMELAND: f32 = 1_200.0;
+
     #[test]
     fn each_region_is_a_place_and_not_a_scatter() {
         // Biomes used to be decided point by point off a moisture field, so
@@ -1282,23 +1303,63 @@ mod tests {
             cold.x
         );
 
-        // And nowhere else. This is the half that catches a return to scatter: a
-        // noise field would put a little of each everywhere, and the south-west —
-        // which is where the game starts — must have none of either.
+        // And not in the country the game starts in. This is the half that
+        // catches a return to scatter — a noise field would put a little of each
+        // everywhere — and it is anchored to the RANCH rather than to a corner of
+        // the map, because the corner is arbitrary and the ranch is the thing
+        // that must not wake up in a desert.
+        //
+        // It used to be a box over the whole south-west, which reached onto the
+        // middle landmass and started failing the moment that landmass was asked
+        // to be desert. The claim was right and the box was drawn around the
+        // wrong thing.
+        let ranch = Vec2::new(RANCH_AT.0, RANCH_AT.1);
         let mut strays = 0;
-        for row in 0..60 {
-            for col in 0..120 {
-                let uv = Vec2::new((col as f32 + 0.5) / 120.0, (row as f32 + 0.5) / 60.0);
-                if uv.x > 0.35 || uv.y < 0.5 {
+        let mut looked = 0;
+        let step = 120.0;
+        let mut away_z = -HOMELAND;
+        while away_z <= HOMELAND {
+            let mut away_x = -HOMELAND;
+            while away_x <= HOMELAND {
+                let at = ranch + Vec2::new(away_x, away_z);
+                away_x += step;
+                if at.x.abs() > half.x || at.y.abs() > half.y {
                     continue;
                 }
-                let at = (uv - 0.5) * half * 2.0;
+                if terrain.biome(at.x, at.y) == Biome::Water {
+                    continue;
+                }
+                looked += 1;
                 if matches!(terrain.biome(at.x, at.y), Biome::Desert | Biome::Snow) {
                     strays += 1;
                 }
             }
+            away_z += step;
         }
-        assert_eq!(strays, 0, "{strays} patches of desert or snow in the south-west");
+        {
+            let mut nearest = f32::MAX;
+            let mut scan = 0.0_f32;
+            while scan < 4000.0 {
+                let ring = (scan / 60.0).ceil() as i32 * 8;
+                for step in 0..ring.max(1) {
+                    let turn = step as f32 / ring.max(1) as f32 * std::f32::consts::TAU;
+                    let at = ranch + Vec2::new(turn.cos(), turn.sin()) * scan;
+                    if at.x.abs() > half.x || at.y.abs() > half.y {
+                        continue;
+                    }
+                    if matches!(terrain.biome(at.x, at.y), Biome::Desert | Biome::Snow) {
+                        nearest = nearest.min(scan);
+                    }
+                }
+                scan += 40.0;
+            }
+            println!("nearest desert or snow to the ranch: {nearest:.0} m");
+        }
+        assert!(looked > 100, "only {looked} points of homeland to check");
+        assert_eq!(
+            strays, 0,
+            "{strays} of {looked} points around the ranch are desert or snow"
+        );
     }
 
     #[test]
