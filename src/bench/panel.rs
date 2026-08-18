@@ -125,9 +125,21 @@ pub fn open(mut commands: Commands, font: Res<UiFont>) {
             // concerned, which is what this whole panel is for.
             widget::branch(panel, &font, "view", "VIEW", |rows| {
                 widget::note(rows, &font, "view", "MID", "drag to orbit");
+                widget::note(rows, &font, "view", "SH-MID", "drag to pan");
                 widget::note(rows, &font, "view", "WHL", "zoom");
                 widget::note(rows, &font, "view", "[ ]", "square up a quarter");
                 widget::note(rows, &font, "view", "- =", "zoom a step");
+            });
+
+            // The arrows. Worth a group of its own, because a handle nobody has
+            // mentioned is one nobody grabs — and moving a piece by dragging it is
+            // not something a maker will try unguessed on a tool where every other
+            // gesture places something.
+            widget::branch(panel, &font, "move", "MOVE A PIECE", |rows| {
+                widget::note(rows, &font, "move", "AIM", "arrows appear on the nearest");
+                widget::note(rows, &font, "move", "DRAG", "an arrow to move it");
+                widget::note(rows, &font, "move", "SH", "hold for quarter-metres");
+                widget::note(rows, &font, "move", "R-G-B", "is X-Y-Z");
             });
 
             widget::branch(panel, &font, "colour", "COLOUR", |rows| {

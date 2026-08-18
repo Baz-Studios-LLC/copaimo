@@ -31,6 +31,7 @@ use bevy::prelude::*;
 use bevy::render::view::RenderLayers;
 use bevy::window::PrimaryWindow;
 
+pub mod gizmo;
 pub mod kiln;
 pub mod panel;
 pub mod reference;
@@ -72,7 +73,7 @@ pub struct OfBench;
 /// toss. The cursor was being aimed down a ray cast from the world's camera, which
 /// is how it ended up three kilometres from the bench.
 #[derive(Component)]
-struct BenchEye;
+pub struct BenchEye;
 
 /// The work itself, as drawn. Cleared and rebuilt whenever a piece changes.
 #[derive(Component)]
@@ -137,6 +138,13 @@ struct View {
     pitch: f32,
     /// How far off, in metres.
     away: f32,
+    /// What it is looking AT.
+    ///
+    /// Movable, which is the whole of panning. A camera that can only orbit a
+    /// fixed point can inspect one thing from every side and cannot reach the far
+    /// end of a long building at all — you end up placing pieces at arm's length
+    /// because that is where the orbit happens to reach.
+    pivot: Vec3,
 }
 
 impl Default for View {
@@ -145,6 +153,7 @@ impl Default for View {
             around: 0.6,
             pitch: 0.55,
             away: 13.0,
+            pivot: Vec3::Y * PIVOT,
         }
     }
 }
@@ -172,6 +181,7 @@ impl Plugin for BenchPlugin {
             .init_resource::<View>()
             .init_resource::<Asked>()
             .init_resource::<reference::Reference>()
+            .init_resource::<gizmo::Holding>()
             .init_resource::<kiln::Firing>()
             .add_systems(
                 OnEnter(AppState::Bench),
@@ -187,6 +197,9 @@ impl Plugin for BenchPlugin {
                     move_hand,
                     place,
                     turn_view,
+                    gizmo::choose,
+                    gizmo::drag,
+                    gizmo::show,
                     rebuild,
                     draw_ghost,
                     reference::show,
@@ -650,6 +663,10 @@ fn turn_view(
     // orbit is what every program that does this uses, which is the whole reason
     // to use it.
     let dragging = buttons.pressed(MouseButton::Middle);
+    // SHIFT with it pans instead of orbiting. The same button, because it is the
+    // same gesture — take hold of the view and move it — and every program that
+    // does both puts them on one button with a modifier between.
+    let panning = dragging && keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
     let mut swung = Vec2::ZERO;
     for motion in moved.read() {
         if dragging {
@@ -657,7 +674,21 @@ fn turn_view(
         }
     }
     let mut shifted = false;
-    if swung != Vec2::ZERO {
+    if swung != Vec2::ZERO && panning {
+        // Across the screen, not across the world: dragging right moves what you
+        // are looking at to the right, whichever way the camera happens to face.
+        // Panning in world axes is the thing that makes a camera feel broken.
+        let (sin, cos) = view.around.sin_cos();
+        let right = Vec3::new(cos, 0.0, -sin);
+        let ahead = Vec3::new(sin, 0.0, cos);
+        // Scaled by how far off the camera is, so a drag moves the same distance
+        // ACROSS THE SCREEN whether you are close in or far out.
+        let rate = view.away * PAN_RATE;
+        view.pivot += (right * -swung.x + ahead * swung.y) * rate;
+        // Never under the floor, for the same reason the pitch is clamped.
+        view.pivot.y = view.pivot.y.max(0.0);
+        shifted = true;
+    } else if swung != Vec2::ZERO {
         view.around -= swung.x * ORBIT_RATE;
         // Up drags the eye UP. The other way round is defensible and it is not
         // what anybody expects when they take hold of a thing and lift it.
@@ -698,7 +729,7 @@ fn turn_view(
         return;
     }
 
-    let pivot = Vec3::Y * PIVOT;
+    let pivot = view.pivot;
     let out = Vec3::new(
         view.around.sin() * view.pitch.cos(),
         view.pitch.sin(),
@@ -720,8 +751,12 @@ fn quarter_from(around: f32, way: f32) -> f32 {
     ((around / quarter).round() + way) * quarter
 }
 
-/// How far a pixel of drag turns the view, and how much one wheel notch zooms.
+/// How far a pixel of drag turns the view, pans it, and how much a notch zooms.
+///
+/// The pan is a share of the DISTANCE rather than a fixed number of metres, so a
+/// drag moves the same distance across the screen close in and far out.
 const ORBIT_RATE: f32 = 0.006;
+const PAN_RATE: f32 = 0.0016;
 const ZOOM_RATE: f32 = 1.18;
 
 /// Draws the work, from scratch, whenever it changes.

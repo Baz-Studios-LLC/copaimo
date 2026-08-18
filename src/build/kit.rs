@@ -364,6 +364,23 @@ impl Bench {
         Some(part)
     }
 
+    /// Moves one member to a new foot.
+    ///
+    /// By id rather than by nearness, because the arrows already know which piece
+    /// they are on — and a drag that re-picked by proximity every frame would hand
+    /// the piece over to whatever it was dragged past.
+    pub fn move_to(&mut self, id: u32, foot: Vec3) -> bool {
+        let Some(piece) = self.pieces.iter_mut().find(|p| p.id == id) else {
+            return false;
+        };
+        if piece.foot == foot {
+            return false;
+        }
+        piece.foot = foot;
+        self.unsaved = true;
+        true
+    }
+
     /// Turns the nearest member a quarter, and says which it was.
     ///
     /// Pieces already down, rather than the one in hand. Getting a wall's facing
