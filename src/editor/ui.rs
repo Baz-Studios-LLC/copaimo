@@ -63,6 +63,7 @@ enum Readout {
     Place,
     Edited,
     Planted,
+    Marked,
     Surfaced,
     History,
 }
@@ -214,6 +215,7 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
             body.spawn(section(font, "EDITS"));
             value_row(body, font, "Sculpted", Readout::Edited);
             value_row(body, font, "Planted", Readout::Planted);
+            value_row(body, font, "Biome", Readout::Marked);
             value_row(body, font, "Surfaced", Readout::Surfaced);
             value_row(body, font, "History", Readout::History);
 
@@ -461,9 +463,17 @@ fn refresh_tools(
     mut saying: Query<(&mut Text, &mut TextColor), (With<ToolSaying>, Without<ToolLabel>)>,
 ) {
     for (mut text, mut colour) in &mut saying {
-        let said = brush.how.said();
+        // The biome brush says WHICH country it is laying, because that is the
+        // half of its state a maker cannot see anywhere else. One brush lays
+        // three things and the swatch on the shelf can only be one colour, so
+        // the caption carries it. Press B again to cycle.
+        let said = if brush.how.is_countrying() {
+            format!("Painting {} - press B to change, right button clears", brush.laying.name())
+        } else {
+            brush.how.said().to_string()
+        };
         if **text != said {
-            **text = said.to_string();
+            **text = said;
         }
         // Tinted with the tool, so the caption, the highlighted row and the ring
         // on the ground are all one colour and none of them has to be read.
@@ -581,6 +591,7 @@ fn refresh_readouts(
             },
             Readout::Edited => format!("{cells} cells"),
             Readout::Planted => format!("{} cells", terrain.planted_cells()),
+            Readout::Marked => format!("{} cells", terrain.marked_cells()),
             Readout::Surfaced => format!("{} cells", terrain.worn_cells()),
             Readout::History => match (undo_depth, redo_depth) {
                 (false, _) => "nothing to undo".to_string(),

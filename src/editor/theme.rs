@@ -79,6 +79,10 @@ pub fn tool_color(how: Brushing) -> Color {
         // Grey, and the only one on the shelf that is. Every other tool makes
         // something and wears a colour; this one takes making back out.
         Brushing::Revert => Color::srgb(0.72, 0.74, 0.78),
+        // Sand, because the desert is the country a maker reaches for this brush
+        // to draw. Which country it is actually laying is said in words on the
+        // shelf — a single swatch cannot show three.
+        Brushing::Country => Color::srgb(0.86, 0.74, 0.46),
     }
 }
 

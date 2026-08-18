@@ -3,6 +3,7 @@
 pub mod biome;
 pub mod forest;
 pub mod chunk;
+pub mod country;
 pub mod cover;
 pub mod edit;
 pub mod heightmap;

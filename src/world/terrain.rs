@@ -96,6 +96,10 @@ pub struct Terrain {
     /// What the ground is made of where somebody said so. Same bargain as the
     /// woods: read on background threads, written by the brush on the main one.
     surface: RwLock<crate::world::surface::Painted>,
+    /// Which country the ground belongs to, where a maker painted one. Same
+    /// bargain again: chunks read it on background threads while the brush writes
+    /// on the main one.
+    country: RwLock<crate::world::country::Painted>,
 }
 
 impl Terrain {
@@ -145,6 +149,7 @@ impl Terrain {
             edits: RwLock::new(crate::world::edit::load(half)),
             forest: RwLock::new(crate::world::forest::load(half)),
             surface: RwLock::new(crate::world::surface::load(half)),
+            country: RwLock::new(crate::world::country::load(half)),
         };
 
         // The great mountain goes in the heartland — the point furthest from any
@@ -243,6 +248,11 @@ impl Terrain {
     /// How many cells of surface a maker has laid.
     pub fn worn_cells(&self) -> usize {
         self.surface.read().map_or(0, |worn| worn.painted_cells())
+    }
+
+    /// How many cells a maker has marked out as a country of their own.
+    pub fn marked_cells(&self) -> usize {
+        self.country.read().map_or(0, |them| them.painted_cells())
     }
 
     /// Every tree standing in a patch of ground.
@@ -645,8 +655,31 @@ impl Terrain {
     /// short of it: a biome decided point by point is a scatter, and a scatter is
     /// not somewhere anybody can name or anything can live in.
     pub fn region(&self, x: f32, z: f32) -> (terrain_core::region::Country, f32) {
+        // What somebody PAINTED, before what the world would have said.
+        //
+        // The whole reason the layer exists. A maker can see where the desert
+        // belongs and cannot edit a constant; the generated regions could be
+        // edited and could not be seen. Painted wins outright, and the strength
+        // comes from how much of the neighbourhood agrees — see
+        // `Painted::choice`, which votes rather than blending, because halfway
+        // between grass and snow is not a country.
+        if let Ok(painted) = self.country.read() {
+            if let Some((mark, share)) = painted.choice(x, z) {
+                if let Some(country) = terrain_core::region::Country::of_mark(mark) {
+                    return (country, share);
+                }
+            }
+        }
+
+        // And where nobody has painted, the world lays out its own — so a fresh
+        // map has continents with character rather than one green sheet.
         let (u, v) = self.to_map_uv(x, z);
         terrain_core::region::at(Vec2::new(u, v))
+    }
+
+    /// The painted country layer, for the brush and for saving.
+    pub fn countries(&self) -> &RwLock<crate::world::country::Painted> {
+        &self.country
     }
 
     /// The thresholds that decide what sort of world this is.
@@ -1549,6 +1582,106 @@ mod tests {
             trespass, 0,
             "{trespass} of {walkable} cells on the home continent are desert"
         );
+    }
+
+    #[test]
+    fn a_painted_country_overrules_the_generated_one() {
+        // The point of the whole layer. Five rounds of "the desert is in the
+        // wrong place" happened because the only way to move a region was for
+        // somebody who could not see it to guess at a constant. A brush ends
+        // that — but only if what it paints actually wins.
+        let terrain = Terrain::new();
+
+        // Somewhere the world has an opinion of its own, so this is a genuine
+        // override rather than filling in a blank.
+        let ranch = Vec2::new(RANCH_AT.0, RANCH_AT.1);
+        let before = terrain.region(ranch.x, ranch.y);
+        assert_eq!(
+            before.0,
+            terrain_core::region::Country::Ordinary,
+            "the ranch should start in ordinary country"
+        );
+
+        {
+            let mut them = terrain.countries().write().expect("country layer");
+            them.stamp(ranch, 120.0, terrain_core::region::Country::Snow.mark());
+        }
+
+        let (country, share) = terrain.region(ranch.x, ranch.y);
+        assert_eq!(country, terrain_core::region::Country::Snow, "paint lost to code");
+        assert!(share > 0.9, "painted ground only belongs {share:.2}");
+
+        // And the ground follows: the biome, not just the region.
+        assert_eq!(terrain.biome(ranch.x, ranch.y), Biome::Settled,
+            "the ranch is levelled, so it stays a town whatever is painted over it");
+        let out = ranch + Vec2::new(90.0, 0.0);
+        assert_eq!(
+            terrain.region(out.x, out.y).0,
+            terrain_core::region::Country::Snow,
+            "the rest of the stroke did not take"
+        );
+
+        // Well outside the stroke, the world still answers for itself — an
+        // unpainted map has to keep its own regions or a fresh world is blank.
+        let far = ranch + Vec2::new(900.0, 0.0);
+        assert_eq!(
+            terrain.region(far.x, far.y).0,
+            terrain_core::region::Country::Ordinary,
+            "the paint leaked past its own brush"
+        );
+
+        // Clearing gets back to no opinion at all, rather than painting grass —
+        // and it STAMPS zero rather than fading toward it. Fading a mark walks it
+        // through the other countries' marks on the way down: a snowfield being
+        // cleared would read as desert, then as grassland, then as nothing.
+        {
+            let mut them = terrain.countries().write().expect("country layer");
+            them.stamp(ranch, 130.0, 0.0);
+        }
+        assert_eq!(
+            terrain.region(ranch.x, ranch.y).0,
+            terrain_core::region::Country::Ordinary,
+            "fading did not reach the world's own answer"
+        );
+        assert_eq!(terrain.marked_cells(), 0, "fading left cells behind");
+    }
+
+    #[test]
+    fn a_painted_cell_never_holds_a_country_nobody_chose() {
+        // The invariant the layer rests on. Marks are NAMES — 1, 2, 3 — so any
+        // arithmetic on them invents a country: fade a snowfield and it passes
+        // through desert and grassland on the way out, average two neighbours and
+        // grass beside snow reads as desert.
+        //
+        // Nothing may write a mark except by stamping one, and this is what says
+        // so out loud.
+        let terrain = Terrain::new();
+        let ranch = Vec2::new(RANCH_AT.0, RANCH_AT.1);
+
+        {
+            let mut them = terrain.countries().write().expect("country layer");
+            them.stamp(ranch + Vec2::new(-80.0, 0.0), 70.0, 1.0);
+            them.stamp(ranch + Vec2::new(80.0, 0.0), 70.0, 3.0);
+        }
+
+        // Straight through both strokes and the gap between them. A three beside
+        // a one must never read as the two in between.
+        let mut seen = std::collections::HashSet::new();
+        for step in 0..=400 {
+            let at = ranch + Vec2::new(-220.0 + step as f32 * 1.1, 0.0);
+            let (country, share) = terrain.region(at.x, at.y);
+            seen.insert(country);
+            assert!(
+                (0.0..=1.0001).contains(&share),
+                "belonging {share} at {:.0}",
+                at.x
+            );
+        }
+        assert!(
+            !seen.contains(&terrain_core::region::Country::Desert),
+            "desert appeared between a grassland stroke and a snow one"
+        );
+        assert!(seen.contains(&terrain_core::region::Country::Snow), "the snow did not take");
     }
 
     #[test]

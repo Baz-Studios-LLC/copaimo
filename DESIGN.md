@@ -531,6 +531,45 @@ assets/
 
 ## Change log
 
+**2026-08-18** — **A biome brush, because I cannot see and the maker cannot edit
+constants.**
+
+Where the countries were was decided in code — a band across the east, an oval in
+the middle — and moving one meant reading a marker's position off a screenshot,
+guessing which constant that implied, and nudging it. That went wrong five times
+in one evening. Not carelessness: the person who can SEE where a desert belongs
+and the person who can edit the number were not the same person, and a picture is
+not a coordinate.
+
+`country.bin` is a fourth painted layer, as coarse as the woods because a country
+is kilometres across. **Painted ground overrules the generated regions; where
+nothing is painted the code still answers**, so a fresh world still has continents
+with character rather than one green sheet.
+
+It needed two things the other layers did not, and both come from the same fact:
+**a country is a NAME, not an amount.**
+
+* `stamp` writes an exact value instead of adding to what is there. You cannot
+  accumulate your way from grass to snow, and the clamp to ±1 that keeps a bias
+  sane would refuse to store a third option at all.
+* `choice` reads by VOTE instead of by blend. Blending four cells turns a two
+  beside a four into a three — grass beside snow reading as desert, a country
+  nobody painted appearing along every boundary between two that somebody did.
+  The corners vote, the winner takes the point, and the share of weight it carried
+  gives a painted edge its soft side without inventing anything.
+
+The same fact caught a live bug through a test: the right button originally
+*faded* like every other layer's eraser, which walks a mark down through the other
+countries' marks. A snowfield being cleared read as desert, then as grassland,
+then as nothing. It stamps zero now, and a test asserts no country nobody chose
+ever appears between two that somebody did.
+
+`B` picks the brush and cycles which country it lays; the caption says which,
+since one swatch cannot show three. The overview watches this layer as well as the
+ground — it is the only place a whole region can be seen at once, so it must not
+go stale while a region is being drawn.
+
+
 **2026-08-17 (last)** — **Stop guessing at boundaries; fill the continent and
 count.**
 

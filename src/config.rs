@@ -38,6 +38,12 @@ pub const FOREST_PATH: &str = "assets/world/forest.bin";
 /// What the ground is made of where somebody laid it: roads, yards, worn earth.
 pub const SURFACE_PATH: &str = "assets/world/surface.bin";
 
+/// Which country the ground belongs to, where a maker painted it.
+///
+/// Overrules the regions in `terrain_core::region`; an absent file is a world
+/// that lays out its own, which is how every world starts.
+pub const COUNTRY_PATH: &str = "assets/world/country.bin";
+
 /// Buildings baked at Opificium's builder — houses, signs, bridges, all boxes.
 /// Read at startup; an absent folder is a game whose buildings are not drawn yet.
 pub const BUILDINGS_DIR: &str = "assets/buildings";

@@ -483,12 +483,15 @@ Four independent things; the first two are small.
   `drawn_height + clearance`.
 * **3b. A heading on the overview.** The map has no north marker and no view
   cone, so it is impossible to tell which way you are facing.
-* **3c. Add and remove debris.** Props are WELDED per chunk — one mesh, one draw
+* **3c/3d. SCRATCHED 2026-08-17** by the maker. Left written down because the
+  reasoning is worth keeping: props are WELDED per chunk — one mesh, one draw
   call — so there is no per-boulder entity to click. This needs a placed-object
   list (4a) plus a per-cell suppression mask, the same bargain the woods make
   between `natural_density` and `forest.bin`.
-* **3d. Move anything.** Needs 4a first: a thing can only be moved if the world
-  remembers where it was put.
+  (3d, "move anything", went with it — same dependency on 4a.) The maker wants
+  both back **after the workbench is in**, which is the right order: 4a is what
+  makes a placed thing a thing the world remembers, and until that exists there
+  is nothing to select or drag.
 
 ## 4. A prop and building workbench
 
@@ -511,5 +514,5 @@ unblocks 3c and 3d as well.
 
 ## Recommended order
 
-2 → 3a, 3b → 4a → 3c, 3d → 4b → 4c, 4d. Item 2 pays for itself immediately;
-3a and 3b are an hour; 4a is the keystone.
+2 → 3a, 3b → 4a → 4b → 4c, 4d. Item 2 pays for itself immediately; 3a and 3b are
+an hour; 4a is the keystone.

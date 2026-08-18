@@ -100,6 +100,9 @@ pub struct Brush {
     /// something has to remember what that was — otherwise pressing it after
     /// planting silently reaches past the wood and takes back a hillside.
     order: Vec<Layer>,
+    /// Which country the BIOME brush lays. Chosen the way a colour is, by
+    /// pressing the tool's own key again.
+    laying: terrain_core::region::Country,
 }
 
 /// Which of the two painted layers a stroke touched.
@@ -114,6 +117,9 @@ enum Layer {
     /// have to stay in step: opening a surface group for every RAISE stroke
     /// would leave undo popping a road that was never laid.
     Road,
+    /// Which country the ground is in. Its own layer for the same reason the
+    /// woods are: it is a separate file with a separate history.
+    Country,
 }
 
 /// As deep as either layer's own history. Beyond this the layer has forgotten
@@ -132,6 +138,7 @@ impl Default for Brush {
             strokes: Layer::Ground,
             ramp_from: None,
             order: Vec::new(),
+            laying: terrain_core::region::Country::Desert,
         }
     }
 }
@@ -283,7 +290,7 @@ fn adjust_brush(
         brush.strength = (brush.strength / STRENGTH_STEP).max(MIN_STRENGTH);
     }
 
-    const TOOL_KEYS: [KeyCode; 10] = [
+    const TOOL_KEYS: [KeyCode; 11] = [
         KeyCode::Digit1,
         KeyCode::Digit2,
         KeyCode::Digit3,
@@ -295,9 +302,24 @@ fn adjust_brush(
         KeyCode::Digit9,
         // Reverting sits on 0, past the nine that make things.
         KeyCode::Digit0,
+        // And the biome brush on B, because the digits are full and because it
+        // is the one tool that paints a decision about a whole region rather
+        // than shaping a patch of ground.
+        KeyCode::KeyB,
     ];
     for (key, how) in TOOL_KEYS.iter().zip(Brushing::ALL) {
         if keys.just_pressed(*key) {
+            // Pressing B again cycles which country it lays, rather than
+            // spending three more keys on three more tools. One brush, and the
+            // country is chosen the way a colour is.
+            if how.is_countrying() && brush.how == how {
+                let all = terrain_core::region::Country::ALL;
+                let next = all
+                    .iter()
+                    .position(|c| *c == brush.laying)
+                    .map_or(0, |at| (at + 1) % all.len());
+                brush.laying = all[next];
+            }
             brush.how = how;
             // Half a ramp with a different tool selected would lay itself from
             // wherever it was left the next time the tool came back around.
@@ -336,7 +358,9 @@ fn paint(
     // two hundred frames undoes in one step rather than two hundred. Whichever
     // layer the tool writes to keeps its own, and `brush.order` remembers which
     // it was so undo can find it again.
-    let layer = if brush.how.is_planting() {
+    let layer = if brush.how.is_countrying() {
+        Layer::Country
+    } else if brush.how.is_planting() {
         Layer::Woods
     } else if brush.how.is_surfacing() || brush.how.is_reverting() {
         // Reverting takes back both halves of a road. Putting the ground back
@@ -366,6 +390,11 @@ fn paint(
             Layer::Woods => {
                 if let Ok(mut woods) = terrain.woods().write() {
                     woods.begin_stroke();
+                }
+            }
+            Layer::Country => {
+                if let Ok(mut countries) = terrain.countries().write() {
+                    countries.begin_stroke();
                 }
             }
             Layer::Road => {
@@ -404,7 +433,25 @@ fn paint(
 
     // Planting touches the woods and never the ground. A brush that moved earth
     // as well would dig a hole every time somebody grew a stand of trees.
-    let patch = if how.is_planting() {
+    let patch = if how.is_countrying() {
+        let Ok(mut countries) = terrain.countries().write() else {
+            return;
+        };
+        // Zero, stamped — NOT faded.
+        //
+        // The right button gets back to the world's own regions, and for every
+        // other layer that means fading: a bias is a quantity, and easing it
+        // toward nothing is exactly right.
+        //
+        // A country cannot be faded, because a mark is a NAME and not an amount.
+        // Fading three toward nothing takes it through two and one on the way,
+        // and two and one are other countries — so a snowfield being cleared
+        // would read as desert, then as grassland, then as nothing. Stamping zero
+        // means a cell only ever holds a country or no opinion at all, which is
+        // the invariant the whole layer rests on.
+        let mark = if inverted { 0.0 } else { brush.laying.mark() };
+        countries.stamp(at, brush.radius, mark)
+    } else if how.is_planting() {
         let Ok(mut woods) = terrain.woods().write() else {
             return;
         };
@@ -447,9 +494,21 @@ fn paint(
         }
     }
 
-    // Woods or ground, whichever the stroke touched. Sending planting through
-    // the mesh rebuild is what made it look like it did nothing.
-    if how.is_planting() {
+    // A country decides the ground's COLOUR, what grows on it and what is
+    // littered across it, so a stroke has to rebuild the meshes and the woods
+    // both — it is the one brush that changes every layer at once without
+    // touching the heightfield.
+    if how.is_countrying() {
+        invalidate_area(&mut commands, &terrain, &chunks, &busy, patch);
+        regrow_area(
+            &mut commands,
+            &terrain,
+            &chunks,
+            grove.as_deref(),
+            &standing,
+            patch,
+        );
+    } else if how.is_planting() {
         regrow_area(
             &mut commands,
             &terrain,
@@ -474,6 +533,11 @@ fn close_stroke(terrain: &TerrainSource, layer: Layer) {
         Layer::Woods => {
             if let Ok(mut woods) = terrain.woods().write() {
                 woods.end_stroke();
+            }
+        }
+        Layer::Country => {
+            if let Ok(mut countries) = terrain.countries().write() {
+                countries.end_stroke();
             }
         }
         Layer::Road => {
@@ -601,6 +665,13 @@ fn history(
                 woods.redo()
             }
         }),
+        Some(Layer::Country) => terrain.countries().write().ok().and_then(|mut them| {
+            if undo {
+                them.undo()
+            } else {
+                them.redo()
+            }
+        }),
         Some(Layer::Road) => {
             let ground = terrain.edits().write().ok().and_then(|mut edits| {
                 if undo {
@@ -638,8 +709,10 @@ fn history(
                 // Named, because taking back a hillside and taking back a wood
                 // look nothing alike and the wood may be behind you.
                 (true, Some(Layer::Woods)) => "Planting undone",
+                (true, Some(Layer::Country)) => "Biome undone",
                 (true, _) => "Undone",
                 (false, Some(Layer::Woods)) => "Planting redone",
+                (false, Some(Layer::Country)) => "Biome redone",
                 (false, _) => "Redone",
             });
             invalidate_area(&mut commands, &terrain, &chunks, &busy, patch);
@@ -842,24 +915,36 @@ fn save_edits(
         };
         crate::world::surface::save(&mut painted).map(|()| painted.painted_cells())
     };
+    let countries = {
+        let Ok(mut painted) = terrain.countries().write() else {
+            return;
+        };
+        crate::world::country::save(&mut painted).map(|()| painted.painted_cells())
+    };
 
-    match (ground, woods, worn) {
-        (Ok(cells), Ok(planted), Ok(laid)) => {
-            info!("saved {cells} sculpted, {planted} planted, {laid} surfaced");
-            toast.show(format!("Saved {cells} sculpted, {planted} planted, {laid} surfaced"));
+    match (ground, woods, worn, countries) {
+        (Ok(cells), Ok(planted), Ok(laid), Ok(marked)) => {
+            info!("saved {cells} sculpted, {planted} planted, {laid} surfaced, {marked} biome");
+            toast.show(format!(
+                "Saved {cells} sculpted, {planted} planted, {laid} surfaced, {marked} biome"
+            ));
         }
         // Said separately, because which one failed decides what was lost.
-        (Err(why), _, _) => {
+        (Err(why), ..) => {
             error!("could not save the sculpted ground: {why}");
             toast.show("Ground not saved - see log");
         }
-        (_, Err(why), _) => {
+        (_, Err(why), ..) => {
             error!("could not save the planted woods: {why}");
             toast.show("Woods not saved - see log");
         }
-        (_, _, Err(why)) => {
+        (_, _, Err(why), _) => {
             error!("could not save the worn surface: {why}");
             toast.show("Surface not saved - see log");
+        }
+        (.., Err(why)) => {
+            error!("could not save the painted biomes: {why}");
+            toast.show("Biomes not saved - see log");
         }
     }
 }
@@ -869,11 +954,12 @@ fn anything_outstanding(terrain: &TerrainSource) -> bool {
     let ground = terrain.edits().read().is_ok_and(|edits| edits.unsaved);
     let woods = terrain.woods().read().is_ok_and(|woods| woods.unsaved);
     let worn = terrain.surface().read().is_ok_and(|worn| worn.unsaved);
-    ground || woods || worn
+    let marked = terrain.countries().read().is_ok_and(|them| them.unsaved);
+    ground || woods || worn || marked
 }
 
 /// Writes every layer, and says what it wrote.
-fn write_everything(terrain: &TerrainSource) -> Result<(usize, usize, usize), String> {
+fn write_everything(terrain: &TerrainSource) -> Result<(usize, usize, usize, usize), String> {
     let cells = {
         let mut edits = terrain.edits().write().map_err(|_| "ground locked".to_string())?;
         crate::world::edit::save(&mut edits).map_err(|why| why.to_string())?;
@@ -889,7 +975,15 @@ fn write_everything(terrain: &TerrainSource) -> Result<(usize, usize, usize), St
         crate::world::surface::save(&mut worn).map_err(|why| why.to_string())?;
         worn.painted_cells()
     };
-    Ok((cells, planted, laid))
+    let marked = {
+        let mut them = terrain
+            .countries()
+            .write()
+            .map_err(|_| "biomes locked".to_string())?;
+        crate::world::country::save(&mut them).map_err(|why| why.to_string())?;
+        them.painted_cells()
+    };
+    Ok((cells, planted, laid, marked))
 }
 
 /// Keeps the work: writes it on its own after a while, and refuses to let ESC
@@ -933,8 +1027,10 @@ fn keep_the_work(
     }
     keeping.unsaved_for = 0.0;
     match write_everything(&terrain) {
-        Ok((cells, planted, laid)) => {
-            info!("kept the work: {cells} sculpted, {planted} planted, {laid} surfaced");
+        Ok((cells, planted, laid, marked)) => {
+            info!(
+                "kept the work: {cells} sculpted, {planted} planted, {laid} surfaced, {marked} biome"
+            );
             toast.show("Kept the work");
         }
         Err(why) => {

@@ -30,7 +30,12 @@ const QUIET_PERIOD: f32 = 1.2;
 
 #[derive(Resource, Default)]
 struct Minimap {
-    /// Sculpted-cell count at the last redraw, for spotting changes.
+    /// How many cells any layer had painted at the last redraw, added together.
+    ///
+    /// The ground alone once, which meant painting a country changed the world
+    /// and left the overview showing the old one — and the overview is the ONLY
+    /// place a maker can see a whole region at once, so it is the one view that
+    /// must not go stale while they are drawing a region.
     last_cells: usize,
     /// Seconds since the edit layer last changed.
     quiet: f32,
@@ -242,10 +247,13 @@ fn track_edits(
     terrain: Res<TerrainSource>,
     mut state: ResMut<Minimap>,
 ) {
-    let cells = terrain
-        .edits()
-        .read()
-        .map_or(state.last_cells, |edits| edits.sculpted_cells());
+    let ground = terrain.edits().read().map(|edits| edits.sculpted_cells());
+    let marked = terrain.countries().read().map(|them| them.painted_cells());
+    let cells = match (ground, marked) {
+        (Ok(ground), Ok(marked)) => ground + marked,
+        // A locked layer is a frame to wait, not a reason to redraw.
+        _ => state.last_cells,
+    };
 
     if cells != state.last_cells {
         state.last_cells = cells;
