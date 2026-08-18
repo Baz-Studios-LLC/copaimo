@@ -17,6 +17,9 @@
 //! the simplest thing that can possibly work and stays affordable at this size.
 
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
+
+pub mod reference;
 
 use crate::build::kit::{self, Bench, Part, TINTS};
 use crate::build::pattern::{self, Pattern};
@@ -39,6 +42,20 @@ struct OfBench;
 #[derive(Component)]
 struct Work;
 
+/// What the left button does.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Doing {
+    /// Putting pieces down.
+    #[default]
+    Building,
+    /// Changing the colour of pieces already down.
+    ///
+    /// A mode rather than a modifier key, because painting is something a maker
+    /// does for a minute at a time — going round a roof — and holding a key for a
+    /// minute is worse than pressing one twice.
+    Painting,
+}
+
 /// Where the next piece would go, and what it would be.
 #[derive(Resource)]
 pub struct Hand {
@@ -46,6 +63,7 @@ pub struct Hand {
     pub at: Vec3,
     pub quarters: u8,
     pub tint: usize,
+    pub doing: Doing,
 }
 
 impl Default for Hand {
@@ -55,6 +73,7 @@ impl Default for Hand {
             at: Vec3::ZERO,
             quarters: 0,
             tint: 0,
+            doing: Doing::Building,
         }
     }
 }
@@ -97,18 +116,21 @@ impl Plugin for BenchPlugin {
             .init_resource::<Hand>()
             .init_resource::<View>()
             .init_resource::<Asked>()
-            .add_systems(OnEnter(AppState::Bench), open)
+            .init_resource::<reference::Reference>()
+            .add_systems(OnEnter(AppState::Bench), (open, reference::open))
             .add_systems(OnExit(AppState::Bench), close)
             .add_systems(
                 Update,
                 (
                     choose,
                     generate,
+                    aim,
                     move_hand,
                     place,
                     turn_view,
                     rebuild,
                     draw_ghost,
+                    reference::show,
                     say_state,
                 )
                     .chain()
@@ -230,6 +252,15 @@ fn choose(keys: Res<ButtonInput<KeyCode>>, mut hand: ResMut<Hand>) {
     if keys.just_pressed(KeyCode::KeyC) {
         hand.tint = (hand.tint + 1) % TINTS.len();
     }
+    // Building or painting. A mode rather than a held modifier, because painting
+    // is something a maker does for a minute at a time — going round a roof — and
+    // holding a key for a minute is worse than pressing one twice.
+    if keys.just_pressed(KeyCode::KeyP) {
+        hand.doing = match hand.doing {
+            Doing::Building => Doing::Painting,
+            Doing::Painting => Doing::Building,
+        };
+    }
 }
 
 /// Asking for something to be built.
@@ -257,6 +288,58 @@ fn generate(keys: Res<ButtonInput<KeyCode>>, mut asked: ResMut<Asked>, mut bench
         asked.seed,
         bench.len()
     );
+}
+
+/// Aiming with the mouse.
+///
+/// # The mouse proposes; the lattice disposes
+///
+/// A ray through the pointer, met against the horizontal plane the cursor is
+/// already on, and then **snapped**. That last word is the whole design.
+///
+/// It would be easy to let the mouse place freely and call it precision. It would
+/// also throw away the thing that makes the kit work: every part is a multiple of
+/// the snap, so pieces abut exactly and a wall meets a floor without anybody
+/// measuring. Free placement gives you walls a centimetre apart and a building
+/// with hairline gaps you can see through — the kind of fault that is invisible
+/// while you build and obvious in the finished thing.
+///
+/// So the mouse says which cell, and the cell says where. The keys still work and
+/// still nudge, and whichever moved last wins — a mouse that overrode the keys
+/// every frame would make them useless.
+fn aim(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+    mut hand: ResMut<Hand>,
+    mut was: Local<Option<Vec2>>,
+) {
+    let (Some(window), Some((camera, eye))) = (windows.iter().next(), cameras.iter().next()) else {
+        return;
+    };
+    let Some(cursor) = window.cursor_position() else {
+        return;
+    };
+    // Only when the pointer has actually moved. Otherwise every key nudge would be
+    // undone on the very next frame by a mouse sitting still.
+    if *was == Some(cursor) {
+        return;
+    }
+    *was = Some(cursor);
+
+    let Ok(ray) = camera.viewport_to_world(eye, cursor) else {
+        return;
+    };
+    // The plane the cursor is already at, so raising the cursor with Q and E
+    // builds a storey up rather than aiming at the floor from a worse angle.
+    let plane = InfinitePlane3d::new(Vec3::Y);
+    let Some(along) = ray.intersect_plane(Vec3::Y * hand.at.y, plane) else {
+        return;
+    };
+    let struck = ray.get_point(along);
+    let snapped = Bench::snapped(Vec3::new(struck.x, hand.at.y, struck.z));
+    if snapped != hand.at {
+        hand.at = snapped;
+    }
 }
 
 /// Moving the cursor about the bench.
@@ -317,14 +400,33 @@ fn move_hand(keys: Res<ButtonInput<KeyCode>>, view: Res<View>, mut hand: ResMut<
 /// Putting a piece down, taking one back, and saving the work.
 fn place(
     keys: Res<ButtonInput<KeyCode>>,
+    buttons: Res<ButtonInput<MouseButton>>,
     hand: Res<Hand>,
     mut bench: ResMut<Bench>,
     mut next: ResMut<NextState<AppState>>,
 ) {
-    if keys.just_pressed(KeyCode::Enter) {
-        bench.add(hand.part, hand.at, hand.quarters, hand.tint);
+    // The left button and ENTER do the same thing, and what that is depends on the
+    // mode. The mouse is the one anybody will use; the key is there because a
+    // maker nudging the cursor with W and A should not have to reach for the mouse
+    // to put the piece down.
+    let go = keys.just_pressed(KeyCode::Enter) || buttons.just_pressed(MouseButton::Left);
+    if go {
+        match hand.doing {
+            Doing::Building => {
+                bench.add(hand.part, hand.at, hand.quarters, hand.tint);
+            }
+            Doing::Painting => {
+                bench.paint_nearest(hand.at, kit::MODULE, hand.tint);
+            }
+        }
     }
-    if keys.just_pressed(KeyCode::Delete) || keys.just_pressed(KeyCode::Backspace) {
+    // Taking away is the same gesture in both modes. There is no such thing as
+    // un-painting, and a right button that did nothing in one mode would read as
+    // broken.
+    if keys.just_pressed(KeyCode::Delete)
+        || keys.just_pressed(KeyCode::Backspace)
+        || buttons.just_pressed(MouseButton::Right)
+    {
         // Whatever is nearest the cursor, within a module — the same rule the
         // terrain tool follows for taking things away.
         bench.remove_nearest(hand.at, kit::MODULE);
@@ -451,17 +553,23 @@ struct Readout;
 fn say_state(
     bench: Res<Bench>,
     hand: Res<Hand>,
+    reference: Res<reference::Reference>,
     mut text: Query<&mut Text, With<Readout>>,
 ) {
     let Some(mut text) = text.iter_mut().next() else {
         return;
     };
     let said = format!(
-        "WORKBENCH   {}   {}   turn {}   at {:.2}, {:.2}, {:.2}   {} piece(s){}
-1-7 part  ·  R turn  ·  C colour  ·  WASD/QE move (SHIFT a whole module)
+        "WORKBENCH  -  {}   {}   {}   turn {}   at {:.2}, {:.2}, {:.2}   {} piece(s){}
+mouse aims and snaps  ·  LEFT {}  ·  RIGHT take away  ·  P {}
+1-7 part  ·  R turn  ·  C colour  ·  WASD/QE nudge (SHIFT a whole module)
 G ask for one  ·  SHIFT+G a different kind  ·  it arrives as pieces you can edit
-ENTER place  ·  DEL take back  ·  Ctrl+Z undo  ·  Ctrl+S save  ·  [ ] turn view  ·  -/= zoom
-ESC to the menu - the work is kept",
+I picture: {}  ·  U upright/flat  ·  , . size  ·  K fade
+Ctrl+Z undo  ·  Ctrl+S save  ·  [ ] turn view  ·  -/= zoom  ·  ESC to the menu",
+        match hand.doing {
+            Doing::Building => "BUILDING",
+            Doing::Painting => "PAINTING",
+        },
         hand.part.name(),
         TINTS[hand.tint.min(TINTS.len() - 1)].0,
         hand.quarters,
@@ -470,6 +578,15 @@ ESC to the menu - the work is kept",
         hand.at.z,
         bench.len(),
         if bench.unsaved { " *" } else { "" },
+        match hand.doing {
+            Doing::Building => "place",
+            Doing::Painting => "paint it",
+        },
+        match hand.doing {
+            Doing::Building => "start painting",
+            Doing::Painting => "back to building",
+        },
+        reference.said(),
     );
     if **text != said {
         **text = said;

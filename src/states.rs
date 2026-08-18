@@ -38,7 +38,11 @@ pub enum AppState {
 impl AppState {
     /// Whether this state drives a first-person-style cursor grab.
     fn captures_cursor(self) -> bool {
-        matches!(self, AppState::Playing | AppState::Editing | AppState::Bench)
+        // Not the bench. It is a POINTING tool — you aim at a lattice cell and
+        // click it — and a captured cursor is for looking around with the mouse.
+        // A tool that grabs the pointer in order to place a fence rail is fighting
+        // the one input the job actually wants.
+        matches!(self, AppState::Playing | AppState::Editing)
     }
 }
 

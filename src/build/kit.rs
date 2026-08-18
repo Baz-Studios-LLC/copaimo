@@ -253,6 +253,30 @@ impl Bench {
         Some(id)
     }
 
+    /// Paints the nearest member, and says which it was.
+    ///
+    /// By its MIDDLE rather than its foot, because that is where a maker is
+    /// looking when they point at a piece: a wall's foot is on the floor and its
+    /// body is the thing on screen.
+    pub fn paint_nearest(&mut self, to: Vec3, within: f32, tint: usize) -> Option<Part> {
+        let (_, id, part) = self
+            .pieces
+            .iter()
+            .map(|p| (p.middle().distance(to), p.id, p.part))
+            .filter(|(away, ..)| *away <= within)
+            .min_by(|a, b| a.0.total_cmp(&b.0))?;
+        let piece = self.pieces.iter_mut().find(|p| p.id == id)?;
+        if piece.tint == tint % TINTS.len() {
+            // Nothing changed, so nothing is unsaved and nothing redraws. Painting
+            // a roof the colour it already is should not mark an afternoon's work
+            // as needing to be written again.
+            return Some(part);
+        }
+        piece.tint = tint % TINTS.len();
+        self.unsaved = true;
+        Some(part)
+    }
+
     /// Takes the nearest member out, and says which it was.
     pub fn remove_nearest(&mut self, to: Vec3, within: f32) -> Option<Part> {
         let (_, id, part) = self
