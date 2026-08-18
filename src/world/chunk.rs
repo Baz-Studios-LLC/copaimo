@@ -195,7 +195,10 @@ pub fn build_mesh(terrain: &Terrain, coord: IVec2) -> Mesh {
 
             positions.push([local.x, height, local.y]);
             normals.push([normal.x, normal.y, normal.z]);
-            colors.push(surface_color(height, slope, moisture, character, worn));
+            let (arid, chill) = terrain.region(world.x, world.y);
+            colors.push(surface_color(
+                height, slope, moisture, character, worn, arid, chill,
+            ));
             uvs.push([ix as f32 / quads as f32, iz as f32 / quads as f32]);
         }
     }

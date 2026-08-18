@@ -1252,6 +1252,76 @@ mod tests {
     }
 
     #[test]
+    fn the_ground_looks_like_the_region_it_is_in() {
+        // The classifier and the painter are two separate paths, and for a long
+        // time they were told different things: the desert was CLASSIFIED desert
+        // and PAINTED dry grassland, and snow country was classified snow and
+        // painted green until two hundred metres up. Deciding what a place is and
+        // drawing what it looks like have to be checked together or they drift.
+        let terrain = Terrain::new();
+        let half = terrain.half();
+
+        // Averaged over the land in each region, because one sample is a rock.
+        let look = |want_desert: bool| {
+            let mut sum = [0.0_f32; 3];
+            let mut seen = 0;
+            for row in 0..80 {
+                for col in 0..160 {
+                    let uv = Vec2::new((col as f32 + 0.5) / 160.0, (row as f32 + 0.5) / 80.0);
+                    let at = (uv - 0.5) * half * 2.0;
+                    let biome = terrain.biome(at.x, at.y);
+                    let wanted = if want_desert { Biome::Desert } else { Biome::Snow };
+                    if biome != wanted {
+                        continue;
+                    }
+                    let colour = crate::world::biome::surface_color(
+                        terrain.height(at.x, at.y),
+                        1.0 - terrain.normal(at.x, at.y, 2.0).y,
+                        terrain.moisture(at.x, at.y),
+                        terrain.shore_character(at.x, at.y),
+                        terrain.worn(at.x, at.y),
+                        terrain.region(at.x, at.y).0,
+                        terrain.region(at.x, at.y).1,
+                    );
+                    for channel in 0..3 {
+                        sum[channel] += colour[channel];
+                    }
+                    seen += 1;
+                }
+            }
+            assert!(seen > 40, "only {seen} samples to judge by");
+            [sum[0] / seen as f32, sum[1] / seen as f32, sum[2] / seen as f32]
+        };
+
+        // Desert ground is SAND: warm, and warmer than it is cool. Dry grass —
+        // which is what it used to paint — is olive, so its green beats its red.
+        let sand = look(true);
+        assert!(
+            sand[0] > sand[1] && sand[1] > sand[2],
+            "the desert paints {sand:?}, which is not the colour of sand"
+        );
+        assert!(
+            sand[0] > 0.25,
+            "the desert paints {:.3} red — too dark for sand",
+            sand[0]
+        );
+
+        // Snow country is WHITE: bright, and near enough the same in every
+        // channel. Anything with a colour cast is ground showing through.
+        let snow = look(false);
+        let least = snow[0].min(snow[1]).min(snow[2]);
+        let most = snow[0].max(snow[1]).max(snow[2]);
+        assert!(
+            least > 0.5,
+            "snow country paints {snow:?} — that is not snow"
+        );
+        assert!(
+            most - least < 0.25,
+            "snow country paints {snow:?}, which has a colour in it"
+        );
+    }
+
+    #[test]
     fn a_town_is_a_town_in_any_region() {
         // Towns are placed on the ground's shape, and the regions are laid over
         // the top of it — so a site that happens to fall in the desert or the snow

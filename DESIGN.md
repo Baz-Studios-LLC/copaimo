@@ -531,7 +531,24 @@ assets/
 
 ## Change log
 
-**2026-08-17 (last)** — **The world has regions now, not scattered biomes.**
+**2026-08-17 (last)** — **The ground looks like the region it is in.** Deciding
+what a place *is* and drawing what it *looks like* are two separate paths here,
+and only the first one had been told about the regions. So the northern desert
+was classified desert and painted dry grassland — sand existed in the palette but
+was reachable only from the shoreline band — and snow country was classified snow
+and painted green until 200 m up.
+
+They were also reading two different snow lines: **165 m for deciding, 210 m for
+painting**. One idea, two numbers, and forty-five metres of world where the ground
+disagreed with itself about what it was. There is one number now and both paths
+read it, along with the same treeline and the same chill.
+
+Guarded by a test that averages the painted colour over every desert and every
+snow tile of the real world: desert has to come out warm with red over green
+(dry grass is olive, so the old behaviour fails it), snow has to come out bright
+with no colour cast.
+
+**2026-08-17** — **The world has regions now, not scattered biomes.**
 
 What kind of ground a point carried was decided entirely by that point: a
 moisture field said dry here and wet there, and desert appeared wherever the

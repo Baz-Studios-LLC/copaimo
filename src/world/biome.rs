@@ -14,7 +14,7 @@ use std::sync::LazyLock;
 use bevy::color::LinearRgba;
 use bevy::prelude::*;
 
-use crate::config::{SEA_LEVEL, SNOW_LINE};
+use crate::config::{CHILL_SNOWLINE, CHILL_TREELINE, SEA_LEVEL, SNOWLINE, TREELINE};
 use crate::util::smoothstep;
 
 /// Palette in *linear* space, which is what mesh vertex colors are interpreted
@@ -68,12 +68,28 @@ fn linear(r: f32, g: f32, b: f32) -> Vec3 {
 /// * `height` — meters relative to sea level
 /// * `slope`  — 0 for dead flat, approaching 1 for a vertical face
 /// * `moisture` — 0 arid, 1 lush
+/// * `arid`, `chill` — which region this is, from [`terrain_core::region`]
+///
+/// # The ground and the biome have to agree
+///
+/// This is a second path: [`terrain_core::biome::Biome::of`] decides what a place
+/// IS, and this decides what it LOOKS like, and for a long time they were told
+/// different things. The classifier knew about the regions and this did not, so
+/// the northern desert was classified desert and painted as dry grassland, and
+/// snow country was classified snow and painted green until two hundred metres up.
+///
+/// They were also working off two different snow lines — 165 m for deciding, 210 m
+/// for painting — which is the same fault in its purest form: one idea, two
+/// numbers, and forty-five metres of world where the ground disagreed with itself
+/// about what it was. There is one number now and both paths read it.
 pub fn surface_color(
     height: f32,
     slope: f32,
     moisture: f32,
     character: f32,
     worn: f32,
+    arid: f32,
+    chill: f32,
 ) -> [f32; 4] {
     let p = &*PALETTE;
 
@@ -89,9 +105,22 @@ pub fn surface_color(
     let grass = p.dry_grass.lerp(p.lush_grass, smoothstep(0.25, 0.60, moisture));
     let vegetated = grass.lerp(p.forest, smoothstep(0.58, 0.88, moisture));
 
-    // Altitude strips the greenery back to bare alpine ground, then to snow.
-    let above_treeline = vegetated.lerp(p.alpine, smoothstep(125.0, 190.0, height));
-    let capped = above_treeline.lerp(p.snow, smoothstep(SNOW_LINE - 30.0, SNOW_LINE + 20.0, height));
+    // And a dry region is SAND, not dry grass.
+    //
+    // Sand used to appear only in the shoreline band, so the driest ground the
+    // world could paint was the khaki at the bottom of the grass ramp — which is
+    // a parched meadow, not a desert. The rim of the region keeps that khaki and
+    // the heart of it is sand, which is also roughly how a desert actually goes.
+    let parched = vegetated.lerp(p.sand, smoothstep(0.30, 0.85, arid));
+
+    // Altitude strips the greenery back to bare alpine ground, then to snow —
+    // and a cold region brings both lines down to meet the ground, exactly as it
+    // does for the classifier. That is what makes snow country white rather than
+    // green with a white mountain in the middle of it.
+    let treeline = TREELINE - TREELINE * CHILL_TREELINE * chill;
+    let snowline = SNOWLINE - SNOWLINE * CHILL_SNOWLINE * chill;
+    let above_treeline = parched.lerp(p.alpine, smoothstep(treeline - 25.0, treeline + 40.0, height));
+    let capped = above_treeline.lerp(p.snow, smoothstep(snowline - 30.0, snowline + 20.0, height));
 
     let mut color = if height >= SEA_LEVEL { capped } else { underwater };
 

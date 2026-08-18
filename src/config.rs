@@ -555,8 +555,6 @@ pub const DETAIL_ELEVATION: f32 = 8.0;
 /// How deep the sea floor sinks where the map is fully black.
 pub const OCEAN_DEPTH: f32 = 60.0;
 
-/// Height at which snow has fully taken over. Surface coloring only.
-pub const SNOW_LINE: f32 = 210.0;
 
 // ---------------------------------------------------------------- noise shape
 
