@@ -87,7 +87,22 @@ fn spawn_player(
     mut materials: ResMut<Assets<Shaded>>,
     terrain: Res<TerrainSource>,
     bounds: Res<WorldBounds>,
+    progress: Res<crate::save::Progress>,
 ) {
+    // Continuing: exactly where they left off, facing the way they left off
+    // facing. Landing a returning player at the ranch every time would make
+    // Continue a slower New Game.
+    if let Some(save) = &progress.from {
+        let ground = terrain.height(save.at.x, save.at.z);
+        // The ground rather than the stored height. A save carries a Y, but the
+        // world under it can be resculpted between sittings — and a warden
+        // restored to last week's height stands in the air or inside a hill.
+        let at = Vec3::new(save.at.x, ground, save.at.z);
+        info!("continuing at {:.0}, {:.0}", at.x, at.z);
+        raise_the_warden(&mut commands, &mut meshes, &mut materials, at, save.facing);
+        return;
+    }
+
     // On the ranch, which is where the game begins. `find_spawn` is kept as the
     // fallback for a world whose map does not put land there — a redrawn map
     // could leave the pinned spot at sea, and dropping the warden into the water
@@ -102,6 +117,21 @@ fn spawn_player(
     };
     info!("warden spawning at {:.0}, {:.0}", spawn.x, spawn.z);
 
+    raise_the_warden(&mut commands, &mut meshes, &mut materials, spawn, 0.0);
+}
+
+/// Stands the warden up, wherever they are starting from.
+///
+/// One body, built once. Both ways into the world need it — a new game at the
+/// ranch and a continued one where the save left off — and a warden assembled in
+/// two places is a warden that grows a hat in one of them.
+fn raise_the_warden(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<Shaded>,
+    spawn: Vec3,
+    facing: f32,
+) {
     let mut solid = |r: f32, g: f32, b: f32| {
         materials.add(shaded(StandardMaterial {
             base_color: Srgba::rgb(r, g, b).into(),
@@ -121,7 +151,7 @@ fn spawn_player(
             // Pushes the grass aside as they go. About the width of a person
             // plus an arm — what actually brushes past is wider than what walks.
             crate::shade::Wades { reach: 1.8 },
-            Transform::from_translation(spawn),
+            Transform::from_translation(spawn).with_rotation(Quat::from_rotation_y(facing)),
             Visibility::default(),
         ))
         .with_children(|parent| {

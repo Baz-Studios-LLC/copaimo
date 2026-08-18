@@ -13,7 +13,8 @@
 //!   * `world`  — terrain generation, chunk streaming, the sea
 //!   * `player` — the warden and their character controller
 //!   * `camera` — third-person orbit rig, plus free-fly
-//!   * `menu`   — the main menu
+//!   * `menu`   — the title screen
+//!   * `save`   — what a player has done, kept between sittings
 //!
 //!   * `editor` — the terrain tool, driving `terrain-core`'s brush
 //!   * `bench`  — the workbench: buildings and fences, piece by piece
@@ -47,6 +48,7 @@ mod tools;
 mod hud;
 mod menu;
 mod player;
+mod save;
 mod shade;
 mod sky;
 mod states;
@@ -128,6 +130,7 @@ fn main() {
             player::PlayerPlugin,
             camera::CameraPlugin,
             menu::MenuPlugin,
+            save::SavePlugin,
             hud::HudPlugin,
         ));
 
