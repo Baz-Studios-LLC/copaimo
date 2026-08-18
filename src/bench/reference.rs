@@ -113,6 +113,11 @@ impl Reference {
         self.showing.and_then(|at| self.found.get(at))
     }
 
+    /// Turns the picture between an elevation and a plan.
+    pub fn flip(&mut self) {
+        self.upright = !self.upright;
+    }
+
     /// The picture a firing would be made from.
     ///
     /// The same one that is up, so what a maker sends is what they can see. A key

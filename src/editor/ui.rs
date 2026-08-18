@@ -8,7 +8,7 @@
 use bevy::prelude::*;
 use bevy::text::LineBreak;
 
-use crate::editor::theme::{
+use crate::tools::theme::{
     self, keycap, rule, section, tool_color, UiFont, ACCENT, PANEL, PANEL_WIDTH, ROW_ACTIVE, RULE,
     TEXT,
     TEXT_DIM, TEXT_MUTED, UNSAVED,

@@ -15,7 +15,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task};
 
 use crate::camera::MainCamera;
-use crate::editor::theme::{self, UiFont, TEXT_DIM, TEXT_MUTED};
+use crate::tools::theme::{self, UiFont, TEXT_DIM, TEXT_MUTED};
 use crate::states::AppState;
 use crate::world::biome::surface_color;
 use crate::world::terrain::{Terrain, TerrainSource};

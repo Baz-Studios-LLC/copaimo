@@ -42,6 +42,8 @@ mod config;
 #[cfg(feature = "tools")]
 #[cfg(feature = "tools")]
 mod editor;
+#[cfg(feature = "tools")]
+mod tools;
 mod hud;
 mod menu;
 mod player;

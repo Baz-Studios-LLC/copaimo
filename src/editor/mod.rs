@@ -26,7 +26,6 @@
 //! * a camera to aim from — any entity with a `GlobalTransform`
 
 mod minimap;
-mod theme;
 pub mod ui;
 
 use bevy::prelude::*;
@@ -812,7 +811,7 @@ fn draw_brush(mut gizmos: Gizmos, terrain: Res<TerrainSource>, brush: Res<Brush>
     // Rings sampled at ground height rather than a flat circle, so on a slope
     // the brush wraps the terrain and you can see exactly what a stroke covers.
     const SEGMENTS: usize = 72;
-    let colour = theme::tool_color(brush.how);
+    let colour = crate::tools::theme::tool_color(brush.how);
 
     let point_at = |index: usize, radius: f32| {
         let angle = index as f32 / SEGMENTS as f32 * std::f32::consts::TAU;

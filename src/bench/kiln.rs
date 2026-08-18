@@ -347,6 +347,13 @@ pub fn ask(
     if !keys.just_pressed(KeyCode::F5) {
         return;
     }
+    start(&reference, &mut firing);
+}
+
+/// The firing itself, so the key and the panel's button do exactly one thing.
+///
+/// Two paths to something that spends money is two chances to spend it twice.
+pub fn start(reference: &super::reference::Reference, firing: &mut Firing) {
     if firing.busy() {
         firing.said = "already firing - one at a time".into();
         return;
@@ -360,7 +367,7 @@ pub fn ask(
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "model".into());
 
-    firing.said = format!("sending {name} - this costs credits and takes minutes");
+    firing.said = format!("sending {name} - costs credits, minutes");
     let picture = picture.clone();
     firing.job = Some(AsyncComputeTaskPool::get().spawn(async move { fire(picture, name) }));
 }

@@ -20,6 +20,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 
 pub mod kiln;
+pub mod panel;
 pub mod reference;
 
 use crate::build::kit::{self, Bench, Part, TINTS};
@@ -94,9 +95,9 @@ impl Default for Hand {
 /// feature useless: most of what anybody does with a generator is press it until
 /// they like what came out.
 #[derive(Resource, Default)]
-struct Asked {
-    what: usize,
-    seed: u32,
+pub struct Asked {
+    pub what: usize,
+    pub seed: u32,
 }
 
 /// How the camera is looking at the work.
@@ -127,7 +128,10 @@ impl Plugin for BenchPlugin {
             .init_resource::<Asked>()
             .init_resource::<reference::Reference>()
             .init_resource::<kiln::Firing>()
-            .add_systems(OnEnter(AppState::Bench), (open, reference::open))
+            .add_systems(
+                OnEnter(AppState::Bench),
+                (open, reference::open, panel::open),
+            )
             .add_systems(OnExit(AppState::Bench), close)
             .add_systems(
                 Update,
@@ -143,7 +147,13 @@ impl Plugin for BenchPlugin {
                     reference::show,
                     kiln::ask,
                     kiln::collect,
-                    say_state,
+                    // The panel: what was pressed, then what everything says.
+                    panel::pressed,
+                    panel::pressed_swatch,
+                    crate::tools::widget::fold_branches,
+                    crate::tools::widget::light_rows::<panel::Press>,
+                    panel::refresh,
+                    panel::colour_unsaved,
                 )
                     .chain()
                     .run_if(in_state(AppState::Bench)),
@@ -192,23 +202,6 @@ fn open(
         ..default()
     });
     commands.insert_resource(ClearColor(Color::srgb(0.10, 0.11, 0.14)));
-
-    commands.spawn((
-        OfBench,
-        Readout,
-        Text::new(String::new()),
-        TextFont {
-            font_size: 13.0,
-            ..default()
-        },
-        TextColor(Color::srgb(0.82, 0.86, 0.94)),
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(16.0),
-            top: Val::Px(14.0),
-            ..default()
-        },
-    ));
 
     // The floor: a grid of the kit's own module, so a maker can count squares
     // instead of measuring. Drawn as thin slabs rather than lines because this
@@ -341,6 +334,7 @@ fn generate(keys: Res<ButtonInput<KeyCode>>, mut asked: ResMut<Asked>, mut bench
 /// still nudge, and whichever moved last wins — a mouse that overrode the keys
 /// every frame would make them useless.
 fn aim(
+    over_panel: Query<&Interaction>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<BenchEye>>,
     mut hand: ResMut<Hand>,
@@ -352,6 +346,14 @@ fn aim(
     let Some(cursor) = window.cursor_position() else {
         return;
     };
+    // Reaching for the panel, not aiming at the floor. Letting the cursor follow
+    // would slide it across the work every time somebody went for a button.
+    if over_panel
+        .iter()
+        .any(|touch| matches!(touch, Interaction::Hovered | Interaction::Pressed))
+    {
+        return;
+    }
     // Only when the pointer has actually moved. Otherwise every key nudge would be
     // undone on the very next frame by a mouse sitting still.
     if *was == Some(cursor) {
@@ -447,15 +449,25 @@ fn move_hand(keys: Res<ButtonInput<KeyCode>>, view: Res<View>, mut hand: ResMut<
 fn place(
     keys: Res<ButtonInput<KeyCode>>,
     buttons: Res<ButtonInput<MouseButton>>,
+    over_panel: Query<&Interaction>,
     hand: Res<Hand>,
     mut bench: ResMut<Bench>,
     mut next: ResMut<NextState<AppState>>,
 ) {
+    // The pointer is on the panel, not on the work.
+    //
+    // Without this, pressing WALL in the panel also puts a wall down wherever the
+    // cursor happened to be — the same click reaching two places, which is the
+    // oldest fault in any tool that has both a world and an interface over it.
+    let reaching = over_panel
+        .iter()
+        .any(|touch| matches!(touch, Interaction::Hovered | Interaction::Pressed));
     // The left button and ENTER do the same thing, and what that is depends on the
     // mode. The mouse is the one anybody will use; the key is there because a
     // maker nudging the cursor with W and A should not have to reach for the mouse
     // to put the piece down.
-    let go = keys.just_pressed(KeyCode::Enter) || buttons.just_pressed(MouseButton::Left);
+    let go = keys.just_pressed(KeyCode::Enter)
+        || (!reaching && buttons.just_pressed(MouseButton::Left));
     if go {
         match hand.doing {
             Doing::Building => {
@@ -471,7 +483,7 @@ fn place(
     // broken.
     if keys.just_pressed(KeyCode::Delete)
         || keys.just_pressed(KeyCode::Backspace)
-        || buttons.just_pressed(MouseButton::Right)
+        || (!reaching && buttons.just_pressed(MouseButton::Right))
     {
         // Whatever is nearest the cursor, within a module — the same rule the
         // terrain tool follows for taking things away.
@@ -584,62 +596,6 @@ fn rebuild(
             MeshMaterial3d(cloth),
             Transform::IDENTITY,
         ));
-    }
-}
-
-/// The readout.
-///
-/// A tool has to say what it is holding. Without this the part in hand, the colour,
-/// where the cursor is and how many pieces are down are all invisible — and a
-/// builder guessing at which of seven parts is selected will place the wrong one
-/// and blame the tool.
-#[derive(Component)]
-struct Readout;
-
-fn say_state(
-    bench: Res<Bench>,
-    hand: Res<Hand>,
-    reference: Res<reference::Reference>,
-    firing: Res<kiln::Firing>,
-    mut text: Query<&mut Text, With<Readout>>,
-) {
-    let Some(mut text) = text.iter_mut().next() else {
-        return;
-    };
-    let said = format!(
-        "WORKBENCH  -  {}   {}   {}   turn {}   at {:.2}, {:.2}, {:.2}   {} piece(s){}
-mouse aims and snaps  ·  LEFT {}  ·  RIGHT take away  ·  P {}
-1-7 part  ·  R turn  ·  C colour  ·  WASD/QE nudge (SHIFT a whole module)
-G ask for one  ·  SHIFT+G a different kind  ·  it arrives as pieces you can edit
-I picture: {}  ·  U upright/flat  ·  , . size  ·  K fade
-F5 make a MODEL from it  ·  costs credits, uploads the picture, takes minutes
-{}
-Ctrl+Z undo  ·  Ctrl+S save  ·  [ ] turn view  ·  -/= zoom  ·  ESC to the menu",
-        match hand.doing {
-            Doing::Building => "BUILDING",
-            Doing::Painting => "PAINTING",
-        },
-        hand.part.name(),
-        TINTS[hand.tint.min(TINTS.len() - 1)].0,
-        hand.quarters,
-        hand.at.x,
-        hand.at.y,
-        hand.at.z,
-        bench.len(),
-        if bench.unsaved { " *" } else { "" },
-        match hand.doing {
-            Doing::Building => "place",
-            Doing::Painting => "paint it",
-        },
-        match hand.doing {
-            Doing::Building => "start painting",
-            Doing::Painting => "back to building",
-        },
-        reference.said(),
-        if firing.said.is_empty() { "" } else { &firing.said },
-    );
-    if **text != said {
-        **text = said;
     }
 }
 
