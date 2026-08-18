@@ -910,6 +910,82 @@ fn draw_ghost(
 mod tests {
     use super::*;
 
+    /// A bench with the real systems in it, and no window.
+    ///
+    /// # "It needs a window" was not true
+    ///
+    /// I had been testing the arithmetic and leaving the BEHAVIOUR to be found by
+    /// whoever ran the game, on the grounds that input needs a window. It does
+    /// not: `place` queries a keyboard, a mouse, some interactions and the bench,
+    /// and every one of those is a resource a test can set. What needed a window
+    /// was my excuse.
+    ///
+    /// So the click routing is exercised for real here — the systems, the actual
+    /// resources, a simulated press — rather than a pure function that agrees with
+    /// itself.
+    fn bench_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .init_state::<AppState>()
+            .init_resource::<Bench>()
+            .init_resource::<Hand>()
+            .init_resource::<gizmo::Holding>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .add_systems(Update, place);
+        app
+    }
+
+    /// Presses the left button and runs one frame.
+    fn click(app: &mut App) {
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .clear();
+    }
+
+    fn pieces(app: &App) -> usize {
+        app.world().resource::<Bench>().len()
+    }
+
+    #[test]
+    fn clicking_the_work_places_a_piece() {
+        // The control. Without this, every test below would pass on a bench that
+        // had quietly stopped placing anything at all.
+        let mut app = bench_app();
+        click(&mut app);
+        assert_eq!(pieces(&app), 1, "a click on the work placed nothing");
+    }
+
+    #[test]
+    fn clicking_a_move_arrow_does_not_also_place_a_piece() {
+        // The reported bug, run rather than reasoned about: every attempt to move
+        // something dropped a post on it first.
+        let mut app = bench_app();
+        app.world_mut().resource_mut::<gizmo::Holding>().hold_for_test(0);
+        click(&mut app);
+        assert_eq!(pieces(&app), 0, "taking hold of an arrow placed a piece");
+    }
+
+    #[test]
+    fn clicking_the_panel_does_not_also_place_a_piece() {
+        // The same fault one layer out, which this bench has also had: pressing
+        // WALL in the panel put a wall down behind it.
+        let mut app = bench_app();
+        app.world_mut().spawn(Interaction::Pressed);
+        click(&mut app);
+        assert_eq!(pieces(&app), 0, "a click on the panel reached the work");
+
+        // And a panel the pointer is merely NEAR is not in the way.
+        let mut app = bench_app();
+        app.world_mut().spawn(Interaction::None);
+        click(&mut app);
+        assert_eq!(pieces(&app), 1, "an untouched panel blocked the work");
+    }
+
     #[test]
     fn a_click_stops_at_the_nearest_thing_it_lands_on() {
         // Twice now this bench has let one click reach two places. Pressing WALL in

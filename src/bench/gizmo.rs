@@ -58,6 +58,16 @@ impl Holding {
     pub fn dragging(&self) -> bool {
         self.dragging.is_some()
     }
+
+    /// Puts the arrows in hand, for a test that cannot aim a mouse.
+    ///
+    /// The alternative is making the field public, which would let anything set
+    /// it — and what it means is "a drag is in progress", which only the drag
+    /// itself can honestly say.
+    #[cfg(test)]
+    pub fn hold_for_test(&mut self, axis: usize) {
+        self.dragging = Some(axis);
+    }
 }
 
 /// Marks the arrows, so they can be cleared and redrawn together.
