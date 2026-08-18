@@ -521,3 +521,98 @@ unblocks 3c and 3d as well.
 
 2 → 3a, 3b → 4a → 4b → 4c, 4d. Item 2 pays for itself immediately; 3a and 3b are
 an hour; 4a is the keystone.
+
+---
+
+# Copaimo: The Wardens Guild — state at 2026-08-18
+
+## The rename
+
+The game was **Ranger**, which was also what the player was called: one word doing
+two jobs. It is **Copaimo: The Wardens Guild**, and the player is a **Warden**.
+Two words, and they went to different places — a single blanket rename would have
+made the player a Copaimo and the game a Warden.
+
+* repo `Baz-Studios-LLC/copaimo`, crate and binary `copaimo`, folder
+  `Desktop/copaimo`
+* title art `assets/Title/Copaimo.png`; the icon is the **crest** cut from under
+  the wordmark (a wordmark is 3:1 and an icon is square; the big `C` cannot be
+  cropped because the C and O interlock)
+* three icon mechanisms, all different: the running window (winit, pinned to
+  **0.30.13** — a second winit crate compiles and then refuses to talk), a
+  resource compiled into the `.exe` by `build.rs`, and an `.icns` the mac runner
+  builds with `iconutil`
+* launcher entry renamed; `"ranger"` is in `RETIRED_SLUGS` and **must stay** —
+  a slug is an install folder, and dropping it orphans gigabytes
+
+## Released
+
+**v0.1.9** — both platforms, three assets. v0.1.8 was deleted: it half-published
+because of the fault below.
+
+## Two failures worth not repeating
+
+**The tools check killed the release in silence.** `BIN=$(ls a b | head -1)` —
+GitHub runs bash with `-eo pipefail`, `ls` on two paths where one exists returns
+non-zero, and `-e` ended the step *before its first echo*. A check written to stop
+a silent failure became one.
+
+**A guard that lied about succeeding.** Guarding the icon build with
+`if build_icon; then` and `set -e` inside it: bash **suppresses `set -e` for any
+command whose status is being tested**, so it ran to the end with every `sips`
+failing and returned the status of the final `rm`. It reported "icon built" over a
+bundle with no icon. Every step is checked by hand now, and the last check is that
+the file arrived — `iconutil` can exit 0 having written nothing.
+
+Both were only ever caught by RUNNING the thing. So was the terrain panel's
+two-mutable-borrows panic, which compiled clean and died the instant the tool
+opened.
+
+## What is in the game now
+
+* **Saves.** `save.rs` — the player's, not the world's. Written whole (temp file
+  *beside* the save, then renamed; a rename across filesystems degrades to a copy).
+  Continuing takes the position from the file and the HEIGHT from the ground,
+  because the world can be resculpted between sittings. Unreadable saves always
+  answer "start a new game".
+* **Title screen** — full-screen, opaque field, logo art, Continue first and only
+  when there is one.
+* **Typeface** — `typeface.rs`, always compiled. It was in `tools`, which is
+  compiled out of releases, so a *player's* build fell back to a monospace. The
+  asset root is worked out once in `main::asset_root()` and given to Bevy —
+  absolute, because Bevy joins a relative one onto the executable's folder.
+
+## The workbench
+
+**It shares nothing with the world.** Not the terrain, not the streaming, not even
+the material — the game's `Shaded` carries cloud-shadow uniforms and a room with
+two lamps has no clouds. The single connection runs the other way: work is **baked
+to a file** the game reads as an asset.
+
+* the lattice is a **sixteenth of a metre**: fine, and a power of two, so snapping
+  is idempotent and abutting pieces meet on the same coordinate
+* the piece in hand is solid; drawn see-through it read as a piece that failed to
+  load
+* `pattern.rs` generates a house/fence/tower/shelter as **ordinary pieces** you can
+  take apart — a generator that hands back a black box is worse than no generator
+* `kiln.rs` sends a picture away and gets a GLB back. **It has never fired against
+  the live service** — that needs a key and spends credits. If it fails, the likely
+  spots are the `task_id` field name and the status strings.
+
+## Loading, measured
+
+The whole world is **never** loaded. The map is ~2,130 chunks; a 9-radius **disc**
+(not a square) holds ~254, so about **12%**, nearest-first, with a chunk of
+hysteresis on unload. Off-screen chunks are loaded but not drawn — nothing sets
+`NoFrustumCulling`. Cover reaches 2 chunks and props 3.
+
+Loading only what faces the camera would make turning round a stall. The lever if
+the frame needs it is `VIEW_CHUNKS`, and the cost goes as its square.
+
+## Still open
+
+* the kiln's first real firing
+* the terrain and bench panels have never been SEEN by me — they run and measure
+  right, but carets, swatches, folding and scrolling want eyes
+* 4 pre-existing `B0004` visibility warnings from world spawning
+* rivers remain switched off; the reason is width, written up in `config.rs`
