@@ -41,10 +41,21 @@ use crate::config::BUILDINGS_DIR;
 
 /// Metres between the places a piece can stand.
 ///
-/// A quarter of a metre. Every part's own size is a multiple of it, so pieces abut
-/// exactly when placed a part apart — and a maker who wants a post half a module
-/// off a wall can still have it.
-pub const SNAP: f32 = 0.25;
+/// A SIXTEENTH of a metre, and the number is chosen for two reasons.
+///
+/// Fine, first: a quarter-metre lattice is coarse enough that a maker lining a
+/// trim piece up against a post cannot put it where they mean to. Sixteenths give
+/// sixteen positions per metre, which is finer than anything anybody eyeballs.
+///
+/// And EXACT, second, which matters more. A sixteenth is a power of two, so every
+/// position on this lattice is a number a float can hold with nothing left over:
+/// snap a thousand times and the answer never drifts, and two pieces placed a part
+/// apart meet on exactly the same coordinate rather than within a hair of it. A
+/// tenth of a metre would look tidier written down and would leave a sliver of gap
+/// between abutting pieces that no amount of care could close.
+///
+/// Every part's own size is a multiple of it, so pieces abut exactly.
+pub const SNAP: f32 = 0.0625;
 
 /// The module the kit is built around, in metres.
 ///
@@ -550,14 +561,34 @@ mod tests {
             .expect("the first post");
         let post = bench.pieces()[0];
         assert_eq!(post.id, id);
-        assert_eq!(post.foot, Vec3::new(1.25, 0.0, -2.75));
+        assert_eq!(post.foot, Vec3::new(1.3125, 0.0625, -2.6875));
+
+        // And the lattice is EXACT, which is the property that matters rather
+        // than any particular coordinate. A sixteenth is a power of two, so every
+        // position is a number a float holds with nothing left over: snapping an
+        // already-snapped point never moves it, however many times it is done.
+        // On a lattice of tenths this loop drifts.
+        let mut at = post.foot;
+        for _ in 0..1_000 {
+            at = Bench::snapped(at);
+        }
+        assert_eq!(at, post.foot, "the lattice drifts under repeated snapping");
+
+        // Every position is a whole number of snaps from the origin, exactly.
+        for axis in [at.x, at.y, at.z] {
+            let steps = axis / SNAP;
+            assert_eq!(steps, steps.round(), "{axis} is not a whole number of snaps");
+        }
         // Seven quarter-turns is three, not an error and not seven.
         assert_eq!(post.quarters, 3);
 
         // And a piece's foot is its foot: the box's middle is half its height up,
         // which is the conversion the format wants and a maker should never think
         // about.
-        assert!((post.middle().y - Part::Post.size().y * 0.5).abs() < 1.0e-6);
+        // Measured from the FOOT, which is the whole point of storing a foot: the
+        // box's middle is half its height above wherever it stands, not half its
+        // height above the ground.
+        assert!((post.middle().y - post.foot.y - Part::Post.size().y * 0.5).abs() < 1.0e-6);
     }
 
     #[test]

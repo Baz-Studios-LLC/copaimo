@@ -11,10 +11,21 @@
 //! mouse. What joins them is the placed sheet: the bench makes a building, the
 //! terrain tool stands it somewhere.
 //!
-//! It also means the bench has no terrain, no streaming, no weather and no
-//! seventeen-thousand-tuft meadow. A building is a few dozen boxes, so the whole
-//! room redraws from scratch every time anything changes — see `rebuild`, which is
-//! the simplest thing that can possibly work and stays affordable at this size.
+//! # It shares nothing with the world
+//!
+//! No terrain, no streaming, no weather, no meadow — and, deliberately, not even
+//! the world's MATERIAL. Everything the game draws wears `shade::Shaded`, which
+//! carries the cloud-shadow uniforms; the bench is a room with two lamps in it and
+//! has no clouds to be shadowed by, so it uses a plain standard material and owes
+//! the world nothing.
+//!
+//! The single connection runs the other way: what is made here is BAKED into the
+//! buildings folder, and the game reads it as an asset like any other. That is the
+//! whole of the coupling, and it is a file rather than a dependency.
+//!
+//! A building is a few dozen boxes, so the whole room redraws from scratch every
+//! time anything changes — see `rebuild`, the simplest thing that can possibly
+//! work and affordable at this size.
 
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
@@ -26,7 +37,6 @@ pub mod reference;
 use crate::build::kit::{self, Bench, Part, TINTS};
 use crate::build::pattern::{self, Pattern};
 use crate::build::plan;
-use crate::shade::{shaded, Shaded};
 use crate::states::AppState;
 
 /// How far the camera looks from, and at what height it pivots.
@@ -206,7 +216,10 @@ fn open(
     // The floor: a grid of the kit's own module, so a maker can count squares
     // instead of measuring. Drawn as thin slabs rather than lines because this
     // world has no line renderer and a checker reads the depth better anyway.
-    let tile = meshes.add(Cuboid::new(kit::MODULE * 0.98, 0.02, kit::MODULE * 0.98));
+    // Full module, edge to edge. They were drawn at 98% so each tile read as its
+    // own square, which put a gap between every pair — and a grid a maker measures
+    // against must not have gaps in it. The checker does that job on colour alone.
+    let tile = meshes.add(Cuboid::new(kit::MODULE, 0.02, kit::MODULE));
     // PLAIN materials, not the world's.
     //
     // The floor was made of the material every solid thing outdoors wears, which
@@ -555,7 +568,7 @@ fn rebuild(
     bench: Res<Bench>,
     standing: Query<Entity, With<Work>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<Shaded>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     if !bench.is_changed() {
         return;
@@ -572,12 +585,12 @@ fn rebuild(
     // you get when it is raised in the world.
     let plan = bench.to_plan();
     let (solid, glass) = crate::build::shape::raise(&plan);
-    let cloth = materials.add(shaded(StandardMaterial {
+    let cloth = materials.add(StandardMaterial {
         base_color: Color::WHITE,
         perceptual_roughness: 0.88,
         reflectance: 0.05,
         ..default()
-    }));
+    });
 
     if !solid.is_empty() {
         commands.spawn((
@@ -608,7 +621,7 @@ fn draw_ghost(
     hand: Res<Hand>,
     ghosts: Query<Entity, With<Ghost>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<Shaded>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     if !hand.is_changed() && !ghosts.is_empty() {
         return;
@@ -646,14 +659,18 @@ fn draw_ghost(
         OfBench,
         Ghost,
         Mesh3d(meshes.add(solid.into_mesh())),
-        MeshMaterial3d(materials.add(shaded(StandardMaterial {
-            // Lit and see-through, so it reads as "about to be" rather than as
-            // part of the work.
-            base_color: Color::srgba_u8(r, g, b, 130),
-            alpha_mode: AlphaMode::Blend,
-            unlit: true,
+        MeshMaterial3d(materials.add(StandardMaterial {
+            // SOLID, in the colour it will actually be.
+            //
+            // It was drawn see-through on the idea that "about to be" should look
+            // provisional. It reads as a fault instead: every piece in hand looks
+            // like a piece that failed to load, and the one thing a maker wants
+            // from a preview is to see what they are about to get.
+            base_color: Color::srgb_u8(r, g, b),
+            // Lit like the work, so it sits in the room rather than glowing in it.
+            perceptual_roughness: 0.85,
             ..default()
-        }))),
+        })),
         Transform::IDENTITY,
     ));
 }

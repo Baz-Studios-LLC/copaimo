@@ -45,6 +45,7 @@ mod config;
 mod editor;
 #[cfg(feature = "tools")]
 mod tools;
+#[cfg(feature = "tools")]
 mod hud;
 mod menu;
 mod player;
@@ -182,7 +183,7 @@ fn main() {
             camera::CameraPlugin,
             menu::MenuPlugin,
             save::SavePlugin,
-            hud::HudPlugin,
+
         ));
 
     // The maker's tools, and only in a maker's build.
@@ -193,7 +194,7 @@ fn main() {
     // player's hands, and the surest way for them not to be there is for them not
     // to be compiled.
     #[cfg(feature = "tools")]
-    app.add_plugins((editor::EditorPlugin, bench::BenchPlugin));
+    app.add_plugins((editor::EditorPlugin, bench::BenchPlugin, hud::HudPlugin));
 
     app.run();
 }

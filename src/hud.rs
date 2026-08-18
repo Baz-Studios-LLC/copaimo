@@ -1,4 +1,14 @@
-//! Debug overlay (F3) for the game.
+//! The maker's overlay: frame rate, position, what the world thinks is here.
+//!
+//! # Off unless asked for, and not in a release at all
+//!
+//! It used to open showing, which meant the game began behind a wall of numbers —
+//! chunk counts and sculpted-cell tallies are things a maker wants on demand and a
+//! player should never see at all. `F3` brings it up.
+//!
+//! And the whole module is compiled out of a release, like the terrain tool and
+//! the workbench. A player's build has no debug overlay to leave switched on by
+//! accident.
 //!
 //! Purely a development tool, but an important one right now: tuning a world
 //! this size means being able to say "the coast at −2400, 900 is a cliff, not a
@@ -28,7 +38,9 @@ pub struct HudPlugin;
 
 impl Plugin for HudPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(HudEnabled(true))
+        // OFF to begin with. A tool that opens over the game is a tool that has
+        // decided the numbers matter more than the thing they describe.
+        app.insert_resource(HudEnabled(false))
             .add_systems(Startup, spawn_hud)
             .add_systems(
                 Update,

@@ -92,6 +92,22 @@ fn a_world_is_on_screen(state: Res<State<crate::states::AppState>>) -> bool {
     }
 }
 
+/// Whether the sea still needs putting up.
+fn no_sea_yet(seas: Query<(), With<water::Water>>) -> bool {
+    seas.is_empty()
+}
+
+/// Takes it down again on the way out.
+///
+/// The sea is the one that matters: it is a single plane eight kilometres across
+/// sitting at nought, and anything else drawn near that height ends up fighting it
+/// for pixels or standing underneath it.
+fn clear_the_world(mut commands: Commands, seas: Query<Entity, With<water::Water>>) {
+    for sea in &seas {
+        commands.entity(sea).despawn();
+    }
+}
+
 pub struct WorldPlugin;
 
 impl Plugin for WorldPlugin {
@@ -110,12 +126,33 @@ impl Plugin for WorldPlugin {
                 (
                     chunk::setup_material,
                     cover::setup_material,
-                    prop::setup_props,
                     stream::setup_river_material,
-                    water::spawn_water,
-                    stream::grow_the_grove,
                 ),
             )
+            // The world's CONTENT arrives with the world, and leaves with it.
+            //
+            // The sea used to be spawned at startup and never taken away — so it
+            // was still there in the workbench, an eight-kilometre plane at y=0
+            // with the bench floor a centimetre under it. That is the whole of
+            // what looked like a grid with colours in it: z-fighting where the two
+            // nearly coincide, and pieces standing in it going blue below the
+            // waterline because they were UNDERWATER.
+            //
+            // Growing the trees and the props costs real work too, and a maker who
+            // opened the bench paid for a forest they never saw.
+            // Each guarded on its own, so entering a world twice does not grow a
+            // second forest or float a second sea. Run conditions rather than one
+            // system calling the others: a system called as a function has to be
+            // handed borrows it was never written to take.
+            .add_systems(
+                OnEnter(crate::states::AppState::Playing),
+                (
+                    water::spawn_water.run_if(no_sea_yet),
+                    stream::grow_the_grove.run_if(not(resource_exists::<stream::Grove>)),
+                    prop::setup_props.run_if(not(resource_exists::<prop::PropPool>)),
+                ),
+            )
+            .add_systems(OnExit(crate::states::AppState::Playing), clear_the_world)
             .add_systems(
                 Update,
                 (
