@@ -102,11 +102,24 @@ impl UiFont {
 }
 
 pub fn load_ui_font(mut commands: Commands, assets: Res<AssetServer>) {
-    // Checked on disk rather than handed to the asset server blind, so a
-    // missing font is a quiet fallback instead of a load error every run.
-    let present = Path::new("assets").join(UI_FONT_PATH).exists();
+    // Checked on disk rather than handed to the asset server blind, so a missing
+    // font is a quiet fallback instead of a load error every run.
+    //
+    // Both roots, because the check and the load do not agree about where `assets`
+    // is: this looks beside the working directory and the asset server looks beside
+    // the executable. Running through cargo those are the same place and running
+    // the binary directly they are not, which showed up as a font that existed and
+    // an error saying it did not.
+    let beside_cwd = Path::new("assets").join(UI_FONT_PATH);
+    let beside_exe = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|at| at.join("assets").join(UI_FONT_PATH)));
+    let present =
+        beside_cwd.exists() || beside_exe.is_some_and(|road| road.exists());
     if present {
-        info!("terrain tool using {UI_FONT_PATH}");
+        info!("tool panels using {UI_FONT_PATH}");
+    } else {
+        warn!("{UI_FONT_PATH} not found beside the working directory or the binary");
     }
     commands.insert_resource(UiFont(present.then(|| assets.load(UI_FONT_PATH))));
 }
