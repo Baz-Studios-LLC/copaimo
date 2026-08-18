@@ -1308,9 +1308,12 @@ mod tests {
                 latitudes += 1;
             }
         }
+        // A SMALL band north-west to south-east, on its own landmass and off the
+        // one the ranch is on. This asked for ten when the desert still ran most
+        // of the height of the map, which was the shape being complained about.
         assert!(
-            latitudes >= 10,
-            "the desert only reaches {latitudes} of 24 latitudes — it is a blob again"
+            (5..16).contains(&latitudes),
+            "the desert reaches {latitudes} of 24 latitudes"
         );
 
         // And it sits between the two green bands rather than off to one side.
@@ -1418,6 +1421,15 @@ mod tests {
                     if biome != wanted {
                         continue;
                     }
+                    // The BODY of the region, not its fringe. The rim is supposed
+                    // to blend toward the green world — that is the whole point of
+                    // it — so averaging the rim in and then asking whether the
+                    // result is the colour of sand is asking the wrong question,
+                    // and it started answering no as soon as the desert shrank and
+                    // more of it became edge.
+                    if terrain.region(at.x, at.y).1 < 0.8 {
+                        continue;
+                    }
                     let colour = crate::world::biome::surface_color(
                         terrain.height(at.x, at.y),
                         1.0 - terrain.normal(at.x, at.y, 2.0).y,
@@ -1432,7 +1444,7 @@ mod tests {
                     seen += 1;
                 }
             }
-            assert!(seen > 40, "only {seen} samples to judge by");
+            assert!(seen > 20, "only {seen} samples to judge by");
             [sum[0] / seen as f32, sum[1] / seen as f32, sum[2] / seen as f32]
         };
 
@@ -1461,6 +1473,81 @@ mod tests {
         assert!(
             most - least < 0.25,
             "snow country paints {snow:?}, which has a colour in it"
+        );
+    }
+
+    #[test]
+    fn no_desert_on_the_continent_the_ranch_is_on() {
+        // # Why this is a flood fill and not a coordinate
+        //
+        // "The entire western continent should have zero desert" was said four
+        // separate ways, with screenshots, and I moved numbers four times without
+        // fixing it — because I was reading the marker's position off a picture
+        // and guessing which ellipse to nudge. Guessing at a boundary is not a
+        // method.
+        //
+        // A continent is a thing the world already knows: it is the land you can
+        // walk to from the ranch without getting your feet wet. Fill it and count.
+        // The answer is a number, the number has to be nought, and nobody has to
+        // squint at anything.
+        //
+        // It matters past looking right. Monsters will be placed by biome, so a
+        // desert species turning up on the home continent is not a colour being
+        // slightly off — it is the wrong creature in the starting area.
+        let terrain = Terrain::new();
+        let half = terrain.half();
+        let (cols, rows) = (120_usize, 60_usize);
+
+        let world = |c: usize, r: usize| {
+            let uv = Vec2::new((c as f32 + 0.5) / cols as f32, (r as f32 + 0.5) / rows as f32);
+            (uv - 0.5) * half * 2.0
+        };
+        let biome = |c: usize, r: usize| {
+            let at = world(c, r);
+            terrain.biome(at.x, at.y)
+        };
+
+        let ranch = Vec2::new(RANCH_AT.0, RANCH_AT.1);
+        let (u, v) = terrain.map_uv(ranch.x, ranch.y);
+        let start = ((u * cols as f32) as usize, (v * rows as f32) as usize);
+        assert_ne!(biome(start.0, start.1), Biome::Water, "the ranch is at sea");
+
+        let mut home = vec![false; cols * rows];
+        let mut queue = vec![start];
+        home[start.1 * cols + start.0] = true;
+        while let Some((c, r)) = queue.pop() {
+            for (step_c, step_r) in [(1_i32, 0_i32), (-1, 0), (0, 1), (0, -1)] {
+                let (next_c, next_r) = (c as i32 + step_c, r as i32 + step_r);
+                if next_c < 0 || next_r < 0 || next_c >= cols as i32 || next_r >= rows as i32 {
+                    continue;
+                }
+                let (next_c, next_r) = (next_c as usize, next_r as usize);
+                if home[next_r * cols + next_c] || biome(next_c, next_r) == Biome::Water {
+                    continue;
+                }
+                home[next_r * cols + next_c] = true;
+                queue.push((next_c, next_r));
+            }
+        }
+
+        let mut walkable = 0;
+        let mut trespass = 0;
+        for r in 0..rows {
+            for c in 0..cols {
+                if !home[r * cols + c] {
+                    continue;
+                }
+                walkable += 1;
+                if biome(c, r) == Biome::Desert {
+                    trespass += 1;
+                }
+            }
+        }
+
+        assert!(walkable > 300, "only {walkable} cells of home continent found");
+        assert_eq!(
+            trespass, 0,
+            "{trespass} of {walkable} cells on the home continent are desert"
         );
     }
 

@@ -531,7 +531,32 @@ assets/
 
 ## Change log
 
-**2026-08-17 (last)** — **The desert's two numbers do different jobs.** Asked to
+**2026-08-17 (last)** — **Stop guessing at boundaries; fill the continent and
+count.**
+
+"The entire western continent should have zero desert" was said four separate
+ways, with marked-up screenshots, and four times I moved a number without fixing
+it — because I was reading a marker's position off a picture and guessing which
+ellipse to nudge. Guessing at a boundary is not a method.
+
+A continent is something the world already knows: it is the land you can walk to
+from the ranch without getting your feet wet. Flood-fill it and count the desert
+cells on it. **It was 57. It is 0**, and there is a test that says so, so it
+cannot quietly come back.
+
+That also surfaced how wrong my mental picture was — the home continent reaches
+east to **u=0.529**, far further than I had assumed, which is why every nudge kept
+missing. The desert now sits on the northern landmass only, a small band
+north-west to south-east.
+
+This matters past looking right: monsters will be placed by biome, so a desert
+species turning up on the home continent is not a colour being slightly off — it
+is the wrong creature in the starting area.
+
+Standing at: grass 32.4%, settled 17.8%, snow 17.5%, desert 10.2%, shore 9.2%,
+forest 6.7%, rock 6.2%. Nearest desert to the ranch: 1,640 m.
+
+**2026-08-17** — **The desert's two numbers do different jobs.** Asked to
 reach further south-east, it went *west*: the width was grown alongside the
 length and the rim tightened, both of which push the western edge out into the
 green world. Correcting that by sliding the middle south then lost the northern
