@@ -195,10 +195,18 @@ impl Plugin for BenchPlugin {
                     generate,
                     aim,
                     move_hand,
-                    place,
-                    turn_view,
+                    // The arrows get the click BEFORE anything places with it.
+                    //
+                    // They ran after, so a click on an arrow placed a piece and
+                    // then took hold of the handle — every attempt to move
+                    // something dropped a post on it first. Ordering alone is not
+                    // the guard, though: `place` also asks whether the arrows took
+                    // the click, so the two do not depend on somebody keeping this
+                    // list in the right order for ever.
                     gizmo::choose,
                     gizmo::drag,
+                    place,
+                    turn_view,
                     gizmo::show,
                     rebuild,
                     draw_ghost,
@@ -576,28 +584,46 @@ fn move_hand(keys: Res<ButtonInput<KeyCode>>, view: Res<View>, mut hand: ResMut<
 }
 
 /// Putting a piece down, taking one back, and saving the work.
+/// Whether a click on the mouse belongs to the WORK, or to something in front of
+/// it.
+///
+/// # One rule, in one place
+///
+/// A click lands on whatever is nearest the eye and stops there. That is obvious
+/// and it is exactly what a tool with layers over its world keeps getting wrong,
+/// twice here already: pressing WALL in the panel also put a wall down behind it,
+/// and taking hold of a move arrow dropped a piece before it grabbed. Both times
+/// the fix was an `if` in one system, and both times the next layer added had to
+/// remember to write its own.
+///
+/// So it is one function. Anything that comes to sit over the work adds itself
+/// here, and everything that acts on a click asks here — rather than each caller
+/// keeping its own list of what might be in the way.
+fn reaches_the_work(on_panel: bool, on_a_handle: bool) -> bool {
+    !on_panel && !on_a_handle
+}
+
 fn place(
     keys: Res<ButtonInput<KeyCode>>,
     buttons: Res<ButtonInput<MouseButton>>,
     over_panel: Query<&Interaction>,
+    holding: Res<gizmo::Holding>,
     hand: Res<Hand>,
     mut bench: ResMut<Bench>,
     mut next: ResMut<NextState<AppState>>,
 ) {
-    // The pointer is on the panel, not on the work.
-    //
-    // Without this, pressing WALL in the panel also puts a wall down wherever the
-    // cursor happened to be — the same click reaching two places, which is the
-    // oldest fault in any tool that has both a world and an interface over it.
-    let reaching = over_panel
-        .iter()
-        .any(|touch| matches!(touch, Interaction::Hovered | Interaction::Pressed));
+    // Whether this click is the work's at all — see `reaches_the_work`, which is
+    // where that question is answered for good.
+    let on_panel = over_panel.iter().any(|touch| *touch != Interaction::None);
+    if !reaches_the_work(on_panel, holding.dragging()) {
+        return;
+    }
+
     // The left button and ENTER do the same thing, and what that is depends on the
     // mode. The mouse is the one anybody will use; the key is there because a
     // maker nudging the cursor with W and A should not have to reach for the mouse
     // to put the piece down.
-    let go = keys.just_pressed(KeyCode::Enter)
-        || (!reaching && buttons.just_pressed(MouseButton::Left));
+    let go = keys.just_pressed(KeyCode::Enter) || buttons.just_pressed(MouseButton::Left);
     if go {
         match hand.doing {
             Doing::Building => {
@@ -622,7 +648,7 @@ fn place(
     // broken.
     if keys.just_pressed(KeyCode::Delete)
         || keys.just_pressed(KeyCode::Backspace)
-        || (!reaching && buttons.just_pressed(MouseButton::Right))
+        || buttons.just_pressed(MouseButton::Right)
     {
         // Whatever is nearest the cursor, within a module — the same rule the
         // terrain tool follows for taking things away.
@@ -883,6 +909,20 @@ fn draw_ghost(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_click_stops_at_the_nearest_thing_it_lands_on() {
+        // Twice now this bench has let one click reach two places. Pressing WALL in
+        // the panel also put a wall down behind it, and taking hold of a move arrow
+        // dropped a piece before it grabbed — the second one after I had written
+        // the failure mode into the gizmo's own comment and then not guarded it.
+        //
+        // A click lands on whatever is nearest the eye and stops there.
+        assert!(reaches_the_work(false, false), "a click on nothing should reach the work");
+        assert!(!reaches_the_work(true, false), "a click on the panel reached the work");
+        assert!(!reaches_the_work(false, true), "a click on an arrow reached the work");
+        assert!(!reaches_the_work(true, true));
+    }
 
     /// Where the camera ends up, which is the arithmetic `turn_view` runs.
     fn eye(view: &View) -> Vec3 {

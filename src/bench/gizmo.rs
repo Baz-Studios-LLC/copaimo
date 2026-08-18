@@ -50,6 +50,16 @@ pub struct Holding {
     stretched: i32,
 }
 
+impl Holding {
+    /// Whether an arrow has the click.
+    ///
+    /// Asked by whatever else would act on the same button, so a click on a handle
+    /// does not also reach the ground behind it.
+    pub fn dragging(&self) -> bool {
+        self.dragging.is_some()
+    }
+}
+
 /// Marks the arrows, so they can be cleared and redrawn together.
 #[derive(Component)]
 pub struct Arrow;
