@@ -1,59 +1,69 @@
-## A world with weather, ground cover, and places you can name
+## The tools you shape it with — and the first build that ships without them
 
-Still a world to walk and nothing yet to do in it — no monsters, no battles, no
-guild exams. This one is about what the ground under your feet is made of.
+Still a world to walk and nothing yet to do in it. This one is almost entirely
+about the tools, and about making sure none of them reach a player.
 
-**Cloud shadows, and they are the actual clouds.** The usual way to do this is
-scrolling noise, which looks fine until you stand in a patch of shade, look up,
-and find clear sky. These come from the cloud list itself, one soft disc per
-cloud at the point the sun's own line through it strikes the ground — so look up
-from a shadow and the cloud casting it is overhead. They slide as the clouds
-drift and as the sun climbs, and they fade out near dawn and dusk, when a cloud
-two hundred metres up would throw its shadow a kilometre sideways.
+**No maker's tools in this build.** The terrain brush, the workbench and the model
+kiln are not hidden behind a menu — they are not compiled in. A player's build
+should not carry a way to break a save, and it certainly should not carry code
+that can spend somebody's credits. The release workflow checks the binary itself
+and refuses to publish one with the tools in it, because a dropped build flag is
+otherwise a silent failure: a release that ships a brush looks exactly like one
+that does not.
 
-**Tall grass you could lose something in.** Grass used to be single blades dotted
-evenly over every field in the world, which is the same thin stubble everywhere.
-The same amount is now *gathered* into meadows with bare ground between them, and
-a meadow's middle comes up past the knee — a different kind of ground, visible
-from across a field, and somewhere a wild monster could be without being seen.
-It parts as you walk through it and springs back behind you.
+Everything below is in a maker's build, built from the same source with the tools
+switched on.
 
-Deserts don't get meadows. Dry scrub is sparse by nature, and gathering it into
-lush patches would be inventing oases.
+### Painting the map's biomes
 
-**Litter.** Boulders, scree, bushes, stumps, fallen logs, dead standing snags,
-cactus and dry brush, keyed to where they belong. A wood gets its floor of
-wreckage, bare rock sheds stone, dry country grows cactus and dead sticks, the
-shore gets driftwood. A landscape of ground and trees reads as a golf course.
+Where the deserts and the snow country sit used to be decided by numbers in code,
+and moving one meant reading a marker's position off a screenshot and guessing
+which constant it implied. That went wrong five times in one evening — not through
+carelessness, but because the person who can *see* where a desert belongs and the
+person who can edit the number were not the same person.
 
-**Places you can name.** What kind of ground a point carried used to be decided
-point by point from a moisture field, so desert appeared wherever the noise
-happened to dip — patches inside grassland, no two hundred metres of the map the
-same as the next. You could not say "the northern desert" about a place whose
-character changed every time you walked a field's width.
+There is a brush now. `B` in Shape the World, press again to cycle ordinary,
+desert and snow country; the right button clears back to whatever the world would
+have decided for itself. It undoes and saves with everything else, and the
+overview redraws so you can see the region while you are drawing it.
 
-The map is divided into countries now: the green world, the northern desert, and
-the snow country in the east. There is no humidity model behind it — a region
-simply *is* a country, which is the whole point. Boundaries are bands rather than
-lines, so sand gives way to scrub gives way to grass across a walk.
+### A workbench
 
-**Snow country reaches its own shoreline**, with conifers standing on the snow
-rather than a ring of green around every white island.
+**Workbench** on the main menu: houses and fences built piece by piece from a kit
+of seven parts — posts, rails, walls, floors, beams, roof panels, ridge caps — on
+a quarter-metre lattice.
 
-**Trees no longer transparent.** Every tube in every tree had been wound
-inside-out, so a trunk was a crescent of its own dark interior and limbs behind
-it showed straight through. Every triangle a tree emits is now wound to agree
-with its own corners — walls, caps and leaves alike.
+The sizes are fixed and the turns are quarters, and both are the point. Free boxes
+at free angles give you the freedom to make every wall a slightly different
+thickness and stand it three degrees off, which is a freedom nobody wants and
+every eye notices. A fence and a house come out of the same parts.
 
-**Rivers are switched off.** The machinery is written, tested and shared with the
-bench; what killed them was width. A channel's cut spreads over three times its
-own width because banks do, so water at any useful depth spread about that far as
-well, and across the network that came to a fifth of the land under water. Not
-rivers through a landscape — a landscape with a lake on it. It wants solving
-rather than tuning.
+The mouse aims and **snaps**; keys still nudge. `G` asks for a house, a fence, a
+tower or a shelter — and what arrives is ordinary pieces, so the next thing you do
+is take a wall out for a wider door. Generating is for skipping the boring half of
+making a building, not for handing you one you cannot change.
 
-**F3 shows where you are on the map** — the coordinates the regions are written
-in, plus which country has claimed the ground you are standing on.
+### Things stand where you put them
+
+The world used to raise one building at the middle of every town site, cycling
+through whatever was in the folder. `assets/world/placed.json` says *this thing,
+here, turned this way, this big* — and it survives the ground being resculpted,
+because what is stored is the height above the ground rather than a height.
+
+It stands buildings from the bench and **models generated from a picture**, which
+is the other new thing: `F5` sends the image on the bench wall away to be made
+into a 3D model, and what comes back lands in `assets/models` ready to place.
+
+### Editor
+
+The free-fly camera can no longer go under the ground. Under the map is not a
+place — the world is a single surface with no underside, so from below you see the
+backs of hills and the sea from inside, and nothing about the view tells you that
+is what happened.
+
+The overview has a heading needle and says which way is north. A dot tells you
+where you are and nothing about where you are facing, which on a map with no
+landmarks is half the information missing.
 
 ### Testing on macOS
 
@@ -83,19 +93,3 @@ the binary. Keep it there — macOS launches an app with the working directory a
 
 `F6` and `F7` push the hour back and forward so you can look at a dusk without
 waiting for one; `F8` gives you back real time.
-
-### Shaping it
-
-**Shape the World** from the main menu. `1`–`9` pick a tool and `0` reverts,
-drag to apply, right drag inverts, the wheel sizes the brush and `[` `]` set its
-strength. Hold `Alt` to free the pointer and click the overview to fly somewhere.
-`Ctrl+Z` and `Ctrl+Y` take strokes back and put them again — across ground, woods
-and roads alike, in the order you did them. `Ctrl+S` saves all three. Ramp is
-*clicked* rather than dragged: one end, then the other.
-
-Sculpting is read at startup, so relaunch to walk what you shaped. An installed
-build has its own copy of the world, so shaping one does not change the other.
-
-The same tool is also a bench in
-**[Opificium](https://github.com/Baz-Studios-LLC/Opificium)**, for shaping a
-world without opening the game. See `DESIGN.md`.
