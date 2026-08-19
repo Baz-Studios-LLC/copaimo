@@ -88,6 +88,8 @@ struct Cloud {
     origin: Vec2,
     /// Metres per second, its own, so a sky does not move as one sheet.
     speed: f32,
+    /// How big it is drawn when it is not fading — see `drift_clouds`.
+    size: f32,
 }
 
 /// The one material every cloud wears, retinted as the light changes.
@@ -369,7 +371,7 @@ fn spawn_clouds(
         });
 
         commands.spawn((
-            Cloud { origin, speed },
+            Cloud { origin, speed, size },
             Mesh3d(shape.clone()),
             MeshMaterial3d(skin.clone()),
             Transform::from_xyz(origin.x, height, origin.y)
@@ -574,6 +576,26 @@ fn drift_clouds(
         let wrapped = drifted - CLOUD_SPREAD * ((drifted - here) / CLOUD_SPREAD).round();
         place.translation.x = wrapped.x;
         place.translation.z = wrapped.y;
+
+        // # A cloud that teleports where you can see it is a cloud that pops
+        //
+        // The wrap above is what keeps thirty clouds dressing an eight-kilometre
+        // world, and it puts the seam half a tile away — a kilometre, which is
+        // well inside sight. So a cloud reaching the edge of its tile vanished
+        // from one side of the sky and reappeared on the other, in view, and did
+        // it again every time the viewer walked far enough.
+        //
+        // It is faded instead: a cloud shrinks away as it nears the seam and grows
+        // back out of nothing on the far side. Which is roughly what a cloud does
+        // at that distance anyway, so the honest fix and the cheap one agree.
+        //
+        // The shadow it lays is NOT faded with it. The shader tiles the sky around
+        // each patch of GROUND rather than around the viewer, so its seam is
+        // somewhere else entirely — and a shadow a kilometre off, under a cloud
+        // that is fading out, is not something anybody can catch.
+        let edge = (wrapped - here).abs().max_element() / (CLOUD_SPREAD * 0.5);
+        let fade = crate::util::smoothstep(1.0, CLOUD_FADE_FROM, edge);
+        place.scale = Vec3::splat(cloud.size * fade);
     }
 }
 
@@ -583,15 +605,25 @@ struct StarSkin(Handle<StandardMaterial>);
 
 // ------------------------------------------------------------------- the palette
 
+/// How far across its own tile a cloud is before it begins fading out.
+///
+/// Not quite three quarters of the way to the seam, so the fade has a good stretch
+/// of sky to happen over rather than being a dissolve nobody believes.
+const CLOUD_FADE_FROM: f32 = 0.72;
+
 /// How far off the moon hangs, and how big it is drawn.
 ///
 /// Both arbitrary and only their ratio matters — this is the angle it subtends,
-/// which is the only thing anybody can see.
-const MOON_DISTANCE: f32 = 1_400.0;
-const MOON_SIZE: f32 = 62.0;
+/// which is the only thing anybody can see. Which is exactly why they moved: at
+/// 1,400 m the moon hung outside what the camera can see at all, so the night sky
+/// had no moon in it and nothing to compare a missing moon against. The ratio is
+/// unchanged, so it is the same moon at the same size in the sky.
+const MOON_DISTANCE: f32 = 1_050.0;
+const MOON_SIZE: f32 = 46.5;
 
-/// How far off the stars sit. Inside the moon, so it never hides behind them.
-const STAR_DOME: f32 = 1_150.0;
+/// How far off the stars sit. Inside the moon, so it never hides behind them —
+/// and inside what the camera can see, which the moon's own note explains.
+const STAR_DOME: f32 = 940.0;
 /// How big a star is drawn, at `STAR_DOME` away.
 ///
 /// Tiny, and it has to be. At two and a half units these were five or six pixels

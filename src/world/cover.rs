@@ -126,15 +126,26 @@ pub fn collect_cover(
     mut commands: Commands,
     material: Option<Res<CoverMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut pending: Query<(Entity, &mut PendingCover)>,
+    mut pending: Query<(Entity, &mut PendingCover, Option<&Children>)>,
+    standing: Query<(), With<Cover>>,
 ) {
     let Some(material) = material else {
         return;
     };
-    for (entity, mut task) in &mut pending {
+    for (entity, mut task, dressing) in &mut pending {
         let Some(cover) = block_on(future::poll_once(&mut task.0)) else {
             continue;
         };
+        // Whatever was standing here goes now, as the new is put down — not when
+        // the ground was re-meshed. A chunk under the brush would otherwise be
+        // bare for the frames the rebuild takes, which is the flicker.
+        if let Some(dressing) = dressing {
+            for old in dressing.iter() {
+                if standing.contains(old) {
+                    commands.entity(old).despawn();
+                }
+            }
+        }
         // The answer is recorded even when it is "nothing grows here" — see
         // `HasCover`. A barren chunk that recorded nothing was asked again
         // every frame for as long as it stayed loaded.

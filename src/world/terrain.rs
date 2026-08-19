@@ -2422,3 +2422,118 @@ mod look {
         }
     }
 }
+
+#[cfg(test)]
+mod atlas {
+    use super::*;
+
+    /// Draws the whole world, for deciding where things go.
+    ///
+    /// `cargo test dump_the_world -- --ignored --nocapture | python dev/ground.py
+    /// world.png 2`. The same colouring the game uses, so what comes out is the
+    /// world as it looks rather than a diagram of it — which is what siting a
+    /// mountain range or a region needs.
+    #[test]
+    #[ignore = "a picture, not a check"]
+    fn dump_the_world() {
+        let terrain = Terrain::new();
+        let half = terrain.half();
+        const WIDE: i32 = 400;
+        let high = (WIDE as f32 * half.y / half.x).round() as i32;
+
+        println!("GROUND {WIDE} {high}");
+        for pz in 0..high {
+            let mut row = String::with_capacity(WIDE as usize * 6);
+            for px in 0..WIDE {
+                let at = Vec2::new(
+                    (px as f32 / (WIDE - 1) as f32 * 2.0 - 1.0) * half.x,
+                    (pz as f32 / (high - 1) as f32 * 2.0 - 1.0) * half.y,
+                );
+                let (country, belonging) = terrain.region(at.x, at.y);
+                let colour = crate::world::biome::surface_color(
+                    at,
+                    terrain.height(at.x, at.y),
+                    1.0 - terrain.normal(at.x, at.y, 8.0).y,
+                    terrain.shore_character(at.x, at.y),
+                    terrain.worn(at.x, at.y),
+                    country,
+                    belonging,
+                );
+                let byte = |v: f32| {
+                    let s = if v <= 0.003_130_8 {
+                        v * 12.92
+                    } else {
+                        1.055 * v.powf(1.0 / 2.4) - 0.055
+                    };
+                    (s.clamp(0.0, 1.0) * 255.0).round() as u8
+                };
+                row.push_str(&format!(
+                    "{:02x}{:02x}{:02x}",
+                    byte(colour[0]),
+                    byte(colour[1]),
+                    byte(colour[2])
+                ));
+            }
+            println!("{row}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod probe {
+    use super::*;
+
+    #[test]
+    #[ignore = "a probe"]
+    fn the_land_around_the_desert_edge() {
+        let terrain = Terrain::new();
+        // Land and country over the ground the pass would sit on.
+        for row in 0..30 {
+            let z = -1300.0 + row as f32 * 60.0;
+            let line: String = (0..46)
+                .map(|col| {
+                    let x = -200.0 + col as f32 * 40.0;
+                    let h = terrain.height(x, z);
+                    if h < 0.0 {
+                        return '.';
+                    }
+                    match terrain.region(x, z).0 {
+                        terrain_core::region::Country::Desert => 'D',
+                        terrain_core::region::Country::Snow => 'S',
+                        terrain_core::region::Country::Ordinary => {
+                            if h > 60.0 { '^' } else { 'g' }
+                        }
+                    }
+                })
+                .collect();
+            println!("z{z:6.0} {line}");
+        }
+    }
+
+    #[test]
+    #[ignore = "a probe"]
+    fn walk_east_across_the_desert_edge() {
+        let terrain = Terrain::new();
+        for z in [-700, -500, -340, -150, 40, 250] {
+            println!("--- z = {z}");
+            let mut line = String::new();
+            for step in 0..34 {
+                let x = 200.0 + step as f32 * 40.0;
+                let h = terrain.height(x, z as f32);
+                let c = match terrain.region(x, z as f32).0 {
+                    terrain_core::region::Country::Desert => 'D',
+                    terrain_core::region::Country::Snow => 'S',
+                    terrain_core::region::Country::Ordinary => 'g',
+                };
+                let c = if h < 0.0 { '.' } else { c };
+                line.push(c);
+            }
+            println!("{line}");
+            let heights: Vec<String> = (0..34)
+                .step_by(4)
+                .map(|s| format!("{:.0}", terrain.height(200.0 + s as f32 * 40.0, z as f32)))
+                .collect();
+            println!("x 200..1520 step 160: {}", heights.join(" "));
+        }
+    }
+}

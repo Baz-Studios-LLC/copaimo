@@ -125,6 +125,7 @@ pub fn collect_chunks(
     terrain: Res<TerrainSource>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut pending: Query<(Entity, &mut PendingChunk, &Chunk, Option<&Children>)>,
+    dressed: Query<(), Or<(With<super::cover::Cover>, With<super::prop::Props>)>>,
 ) {
     // The shared material is created in Startup; on the very first frames a
     // task could finish before it exists, so hold the mesh until it does.
@@ -141,22 +142,35 @@ pub fn collect_chunks(
             .remove::<PendingChunk>()
             .insert((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material.0.clone())));
 
-        // Everything the chunk was carrying goes first — its wood AND its water.
+        // The wood and the water this chunk was carrying go first, and go
+        // unconditionally: sculpting re-meshes a chunk, so this runs again for
+        // ground that already had both, and clearing inside the planting instead
+        // meant a chunk whose grove had not loaded yet kept its old surface and
+        // gained a second one on top.
         //
-        // Before either is put back, and unconditionally. Sculpting re-meshes a
-        // chunk, so this runs again for ground that already had both; clearing
-        // inside the planting instead meant a chunk whose grove had not loaded
-        // yet kept its old surface and gained a second one on top. That is the
-        // same doubling the trees had, and it was one `continue` away from
-        // happening again.
+        // # But NOT its grass and its litter
+        //
+        // Those took the same trip and it made the tool flicker: dragging the
+        // brush re-meshes a chunk many times a second, and each pass swept the
+        // cover and the props off the ground and left it bare until a background
+        // task handed new ones back a frame or three later. Grass and rocks
+        // strobing under the brush, reported exactly that way.
+        //
+        // They are left standing on the old ground instead, and swapped for the
+        // new ones when those arrive — the same bargain the chunk's own mesh
+        // already makes, and for the same reason. Wrong by a few centimetres for
+        // a moment beats absent.
         if let Some(standing) = standing {
             for old in standing.iter() {
-                commands.entity(old).despawn();
+                if !dressed.contains(old) {
+                    commands.entity(old).despawn();
+                }
             }
         }
-        // Its cover and props went with them, so the chunk's records must too,
-        // or the layers that read them would believe ground the sculpting just
-        // cleared was still dressed and never dress it again.
+        // The chunk forgets that it is dressed, so the ground it now has gets
+        // dressed again. What is standing there in the meantime is the OLD
+        // dressing, which `collect_cover` and `collect_props` clear as they put
+        // the new down.
         commands
             .entity(entity)
             .remove::<(super::cover::HasCover, super::prop::HasProps)>();
@@ -254,13 +268,21 @@ pub struct CastsNoShade;
 
 /// How far out a tree still casts a shadow, in chunks from the viewer.
 ///
-/// Two, which is a bit past two hundred and fifty metres. A shadow's job is to
-/// sit a thing on the ground it stands on, and that is read close by; past this
-/// ring a tree's shadow is a few grey pixels on a hillside. The cascades were
-/// measured at 16.7 ms of a 23.8 ms frame, and nearly all of it was re-submitting
-/// every tree in the streamed disc to all three of them — the disc holds ~254
-/// chunks and this ring keeps 25, so most of that work is simply gone.
-const SHADOW_CHUNKS: i32 = 2;
+/// The cascades were measured at 16.7 ms of a 23.8 ms frame, and nearly all of it
+/// was re-submitting every tree in the streamed disc to all three of them — the
+/// disc holds ~254 chunks, and a ring keeps a handful.
+///
+/// # It has to end where the SHADOWS end, not sooner
+///
+/// This was two chunks, and two chunks is 256 m against a `SHADOW_DISTANCE` of
+/// 400 — so a tree's shadow blinked out well inside the range where every other
+/// shadow in the world was still being drawn, and walking toward a wood switched
+/// its shadows on a ring at a time. Reported as trees popping, and rightly.
+///
+/// Three chunks is 384 m: just inside the shadow distance, where the last cascade
+/// is already giving out anyway, so there is only ONE place in the world where
+/// shadows stop instead of two.
+const SHADOW_CHUNKS: i32 = 3;
 
 /// Parks and wakes tree shadows as chunks cross the shadow ring.
 ///

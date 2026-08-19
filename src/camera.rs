@@ -33,6 +33,28 @@ const FOLLOW_STIFFNESS: f32 = 14.0;
 /// pushes it up instead of burying it in the terrain.
 const GROUND_CLEARANCE: f32 = 2.0;
 
+/// How far the camera can see, in metres.
+///
+/// # It is the streamed terrain's own radius, and it has to be
+///
+/// Bevy's default is a thousand metres and `VIEW_CHUNKS` streams ground to 1,152 —
+/// so the world was CUT a hundred and fifty metres short of the ground it had
+/// already built. A hard edge slicing through the landscape, moving with the
+/// viewer, and chunks meshed on background threads only to be thrown away by the
+/// clip.
+///
+/// Just past the terrain, and deliberately not far past it. Set much further, the
+/// sea (which is four times the world across) carries on beyond where the ground
+/// stops, and the streamed disc's own edge appears as land ending in a circle
+/// around you. Ending both together is what makes the join read as a horizon
+/// rather than as the end of the map — which is the same bargain the missing fog
+/// makes, see `VIEW_CHUNKS`.
+///
+/// **Everything meant to be seen must fit inside this.** The moon and the stars
+/// sit at arbitrary distances chosen so they do — only the angle they subtend is
+/// real, so they were moved in rather than this being pushed out.
+const SIGHT: f32 = 1_260.0;
+
 const FLY_SPEED: f32 = 70.0;
 const FLY_BOOST: f32 = 5.0;
 /// How far the fly speed can be wound either side of its default.
@@ -162,6 +184,22 @@ fn spawn_camera(mut commands: Commands) {
             ..default()
         },
         Msaa::Sample4,
+        // # How far the camera can see, said out loud
+        //
+        // Bevy's default is a thousand metres, and every distance in this world is
+        // past it: terrain streams to `VIEW_CHUNKS` at 1,152 m, the star dome sits
+        // at 1,150 and the moon at 1,400. So the world was being CUT at a
+        // thousand metres — a hard edge slicing through the landscape that moved
+        // with the viewer, ground built on background threads and then thrown
+        // away by the clip, and a night sky with no moon and no stars in it at
+        // all.
+        //
+        // Set from the ground it has to show rather than picked — see `SIGHT`.
+        // Shadows are unaffected; they have their own distance.
+        Projection::Perspective(PerspectiveProjection {
+            far: SIGHT,
+            ..default()
+        }),
         // No distance fog. It used to hide the streaming boundary, but haze
         // over the whole view is the wrong trade when the point is reading the
         // shape of the land — see the note on `VIEW_CHUNKS` in config.rs.

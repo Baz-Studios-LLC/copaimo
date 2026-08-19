@@ -136,15 +136,24 @@ pub fn collect_props(
     mut commands: Commands,
     material: Option<Res<PropMaterial>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut pending: Query<(Entity, &mut PendingProps)>,
+    mut pending: Query<(Entity, &mut PendingProps, Option<&Children>)>,
+    standing: Query<(), With<Props>>,
 ) {
     let Some(material) = material else {
         return;
     };
-    for (entity, mut task) in &mut pending {
+    for (entity, mut task, littered) in &mut pending {
         let Some(litter) = block_on(future::poll_once(&mut task.0)) else {
             continue;
         };
+        // The old litter goes as the new is put down — see `collect_cover`.
+        if let Some(littered) = littered {
+            for old in littered.iter() {
+                if standing.contains(old) {
+                    commands.entity(old).despawn();
+                }
+            }
+        }
         // Recorded even when the answer is "nothing stands here" — see
         // `HasProps`.
         commands.entity(entity).remove::<PendingProps>().insert(HasProps);
@@ -254,13 +263,9 @@ pub fn litter(terrain: &Terrain, pool: &[Prop], low: Vec2) -> Geometry {
 
             mesh.stamp(
                 &grown.mesh,
-                // On the DRAWN surface, like the trees and the grass. The chunk
-                // mesh is a grid of flat triangles and on bulging ground it sits
-                // below the true height, so anything stood at the true height
-                // stands off the ground it is meant to be sitting on.
                 Vec3::new(
                     at.x - low.x,
-                    terrain.drawn_height(at.x, at.y),
+                    bedded(terrain, at, grown.reach * scale),
                     at.y - low.y,
                 ),
                 turn,
@@ -271,8 +276,109 @@ pub fn litter(terrain: &Terrain, pool: &[Prop], low: Vec2) -> Geometry {
     mesh
 }
 
+/// The height to stand something of a given size at, so it sits IN the ground
+/// rather than on one point of it.
+///
+/// # A boulder on a dune was floating
+///
+/// On the DRAWN surface, like the trees and the grass — the chunk mesh is a grid
+/// of flat triangles and on bulging ground it sits below the true height, so
+/// anything stood at the true height stands off the ground it is meant to be
+/// sitting on. That was the first half of it and it was already fixed.
+///
+/// The other half is that a prop is RIGID and the ground is not flat. Stood at
+/// the height under its middle, a four-metre boulder on a dune crest has its whole
+/// rim hanging over ground that falls away underneath — which is exactly what a
+/// crest does. The picture was unmistakable: a rock with daylight under both
+/// sides of it and its shadow on the sand below.
+///
+/// So the ground is asked around the thing's own footprint and the LOWEST answer
+/// wins, then it is pressed a little further in. A boulder is half-buried and a
+/// bush grows out of the soil; nothing in a landscape balances on the one point
+/// directly beneath its middle.
+fn bedded(terrain: &Terrain, at: Vec2, reach: f32) -> f32 {
+    let mut lowest = terrain.drawn_height(at.x, at.y);
+    for step in 0..AROUND {
+        let turn = step as f32 / AROUND as f32 * std::f32::consts::TAU;
+        // Most of the way out rather than all of it: the very rim of a prop's
+        // reach is its widest lump at its widest point, which is not what rests on
+        // the ground.
+        let round = at + Vec2::new(turn.cos(), turn.sin()) * reach * 0.75;
+        lowest = lowest.min(terrain.drawn_height(round.x, round.y));
+    }
+    lowest - reach * BEDDED
+}
+
+/// How many places around a prop the ground is asked about, and how far into it
+/// the thing is then pressed as a share of its own reach.
+///
+/// Eight is enough to catch a crest or a lip from any direction, and it is eight
+/// height samples against the four and a half thousand a chunk's mesh already
+/// costs — which is to say, nothing.
+const AROUND: usize = 8;
+const BEDDED: f32 = 0.06;
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn a_prop_on_a_crest_beds_in_rather_than_perching() {
+        // The reported fault: a boulder on a dune with daylight under both sides
+        // of it. A rigid thing stood at the height under its own middle hangs over
+        // whatever the ground does on the way out to its rim, and on a crest the
+        // ground goes DOWN in every direction — which is what a crest is.
+        //
+        // Measured against the ground it actually stands on rather than against a
+        // fixture: somewhere on this world is a crest, and the rule has to hold
+        // wherever it is.
+        let terrain = Terrain::new();
+        let reach = 3.0;
+
+        let mut found = 0;
+        let mut worst_hang = 0.0_f32;
+        for step in 0..4_000 {
+            // A scatter over the map rather than a grid, so this is not sampling
+            // one hillside.
+            let at = Vec2::new(
+                terrain_core::forest::chance(step, 0, 91) - 0.5,
+                terrain_core::forest::chance(step, 0, 92) - 0.5,
+            ) * terrain.half()
+                * 1.9;
+            let middle = terrain.drawn_height(at.x, at.y);
+            if middle < 2.0 {
+                continue;
+            }
+            // How far the ground falls away under the thing's own footprint.
+            let mut lowest = middle;
+            for turn in 0..8 {
+                let angle = turn as f32 / 8.0 * std::f32::consts::TAU;
+                let round = at + Vec2::new(angle.cos(), angle.sin()) * reach * 0.75;
+                lowest = lowest.min(terrain.drawn_height(round.x, round.y));
+            }
+            if middle - lowest < 0.35 {
+                // Flat enough that there was nothing to hang over.
+                continue;
+            }
+            found += 1;
+            let stood = bedded(&terrain, at, reach);
+            worst_hang = worst_hang.max(stood - lowest);
+            assert!(
+                stood <= lowest + 1.0e-4,
+                "stood at {stood:.2} m with ground down to {lowest:.2} under it",
+            );
+        }
+
+        assert!(found > 50, "only {found} crests to test against");
+        assert!(
+            worst_hang <= 0.0,
+            "something still hangs {worst_hang:.2} m over its own ground"
+        );
+    }
+}
+
+#[cfg(test)]
+mod affordable {
     use super::*;
 
     #[test]

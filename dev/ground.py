@@ -17,6 +17,7 @@ SCALE = 4
 
 def main() -> None:
     out = sys.argv[1] if len(sys.argv) > 1 else "ground.png"
+    scale = int(sys.argv[2]) if len(sys.argv) > 2 else SCALE
     wide = high = 0
     rows: list[bytes] = []
 
@@ -36,10 +37,10 @@ def main() -> None:
 
     raw = bytearray()
     for row in rows:
-        for _ in range(SCALE):
+        for _ in range(scale):
             raw.append(0)
             for x in range(wide):
-                raw += row[x * 3 : x * 3 + 3] * SCALE
+                raw += row[x * 3 : x * 3 + 3] * scale
 
     def chunk(kind: bytes, body: bytes) -> bytes:
         return (
@@ -49,7 +50,7 @@ def main() -> None:
             + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
         )
 
-    header = struct.pack(">IIBBBBB", wide * SCALE, len(rows) * SCALE, 8, 2, 0, 0, 0)
+    header = struct.pack(">IIBBBBB", wide * scale, len(rows) * scale, 8, 2, 0, 0, 0)
     with open(out, "wb") as f:
         f.write(
             b"\x89PNG\r\n\x1a\n"
