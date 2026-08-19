@@ -179,14 +179,24 @@ Reading Opificium is allowed and encouraged. **Editing it is not**, and a stray
 `cd` has already caused one accidental write to its `Cargo.toml` — check `pwd`
 before anything that writes.
 
-## The bench builds buildings WITHOUT the arrows
+## The arrows are how a piece is RESIZED, and that is not optional
 
-Worth knowing before assuming the tool is blocked. Everything needed to make a
-building works: pick a part, click to place, right-click to take away, `R` to
-turn what is in hand, `SHIFT+R` to turn what is down, `G` to generate one to edit,
-`Ctrl+S` to save it into `assets/buildings`. The arrows only MOVE a piece that is
-already placed — a convenience, not the path. A building can be made today by
-placing and deleting.
+I wrote in an earlier version of this file that they were a convenience for moving
+things. That is wrong, and the maker corrected it: **stretching is done by
+dragging the length arrow**, so a broken gizmo means the kit can only make
+buildings out of one-module pieces. It is on the critical path, not beside it.
+
+The rest of the bench does work — place, take away, turn, generate, save — so a
+building of unstretched parts can be made today. That is a smaller tool than the
+one that was designed.
+
+## Ownership is not a reason to avoid taking Opificium's code
+
+Also corrected by the maker: **the same organisation owns both.** Any argument for
+writing our own that rests on it being somebody else's code is void. The only
+honest arguments left are technical — how much of Opificium's data model comes
+with the part being taken — and after five failed attempts here, that argument has
+already lost once.
 
 ## Still open in the tool
 
