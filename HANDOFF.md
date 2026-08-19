@@ -136,7 +136,38 @@ glam's — and every Bevy release carries its own glam. Bevy 0.16 has 0.29, Bevy
 compiler spends two dozen errors insisting `Vec2` is not `Vec2`. **Widen the
 upper bound when either program moves to a newer Bevy.**
 
-### Still open in the tool
+### The bench gizmo — read this before touching it
+
+Five rounds went into the move arrows and they are still not right. The failures
+are worth listing because four of them were the same mistake:
+
+1. clicking an arrow also placed a piece (`place` ran first)
+2. reaching for an arrow deselected the piece — a **deadlock**: the ground cursor
+   is where the view ray meets the floor, so pointing at an arrow throws it off
+   the piece; the selection was dropped, and hovering could never be discovered
+   because that needs a selected piece
+3. nothing lit up, so a working grab and a dead control looked identical
+4. dragging jittered — the drag measured against the arrows' CURRENT position,
+   and the arrows sit on the piece the drag is moving
+5. still reported: the red arrow "worked once then disappeared"
+
+**The root cause of the class is two sources of truth for where an arrow is.**
+`gizmo::show` draws meshes at one place; `ray_against_axis` hit-tests an abstract
+line it believes matches. They can disagree, and every symptom above is a version
+of them disagreeing.
+
+**The fix is to hit-test the entities that are actually drawn**, which is what
+Opificium's `ray_scan` in `src/builder/hand.rs` does: for each candidate it
+inverts the object's rotation, brings the ray into local space, and does a slab
+test against the box. Its `Hovered { grab: Option<Entity>, build: Option<Hit> }`
+is the shape to copy — the IDEA, not the code, which is wired into `Placed`,
+`PartKind` and `Slab` and would be a data-model rewrite to lift.
+
+Do not port the file. Port the approach: spawn the arrows with their sizes,
+ray-vs-box each one in its own local space, and let the entity you hit BE the
+answer. Then there is nothing for a hit test to disagree with.
+
+## Still open in the tool
 
 * **Nothing about a tree's look** can be adjusted; the knobs ride in `world.json`
   and no shelf reads them.
