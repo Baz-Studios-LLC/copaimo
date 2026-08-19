@@ -34,16 +34,27 @@ use terrain_core::Geometry;
 
 /// Where the middle of the bore stands, in metres.
 ///
-/// On the desert's eastern edge, on the long unbroken corridor of land at
-/// z ≈ -880 — the map printed by `dump_the_world` is what this was read off. The
-/// journey east is desert, then this, then the green country, then the snow.
-pub const AT: Vec2 = Vec2::new(200.0, -880.0);
+/// Placed so the mountain's WESTERN foot lands on the desert's own eastern edge,
+/// which is at about (180, -880) — the map printed by `dump_the_world` is what
+/// that was read off. So the journey east is desert, then the west foot, then the
+/// mountain, then the green country, then the snow, and neither flank has the
+/// wrong country on it.
+pub const AT: Vec2 = Vec2::new(456.0, -997.0);
 
 /// Which way the tunnel runs, in radians about Y. Nought is due east.
 ///
-/// A number rather than a hard-coded axis so the whole pass can be turned to meet
-/// the country's own lean without anything else being touched.
-pub const HEADING: f32 = 0.0;
+/// # It leans, because the country does
+///
+/// This was due east, and the wall it makes therefore ran due north-south — across
+/// a desert boundary that runs on a diagonal, because `region`'s own axis is
+/// tilted and the world is half as deep as it is wide. So the wall crossed the
+/// boundary at an angle and one end of it had desert on the side that was supposed
+/// to be green.
+///
+/// Set from the region's own lean rather than picked: the boundary runs along
+/// `(TILT, 1)` in map coordinates, which is `(0.39, 0.92)` on the ground once each
+/// axis is scaled by its own extent, and the tunnel runs across that.
+pub const HEADING: f32 = -0.40;
 
 /// How high the mountain stands above the ground it is raised on, in metres.
 ///
@@ -55,7 +66,8 @@ const RIDGE_HIGH: f32 = 165.0;
 /// across the tunnel, and its THICKNESS, measured along the tunnel.
 ///
 /// The wall is long and the bore is short, which is the whole shape of a pass: a
-/// barrier you cannot walk round and a way through you can walk in a minute.
+/// barrier you cannot walk round and a way through you can walk in a couple of
+/// minutes.
 ///
 /// **Named for the wall rather than for the tunnel, and that is worth the extra
 /// word.** They were `ALONG` and `ACROSS`, which read naturally and meant the
@@ -64,7 +76,7 @@ const RIDGE_HIGH: f32 = 165.0;
 /// tests said so at once: the wall gave out 143 m to the side, and the plug was
 /// still 156 m thick at its own edge.
 const WALL_LONG: f32 = 760.0;
-const WALL_THICK: f32 = 150.0;
+const WALL_THICK: f32 = 300.0;
 
 /// How much of the wall's LENGTH is its shoulders rather than its body.
 ///
@@ -77,21 +89,24 @@ const WALL_THICK: f32 = 150.0;
 /// the tallest part of it.
 const SHOULDER: f32 = 0.72;
 
-/// Half the width of the walkable floor, and how far past that the walls take to
-/// close, both in metres.
+/// Half the width of the bore, and how far past it the rock takes to close back
+/// up, both in metres.
 ///
-/// Fourteen metres of floor is a road, not a corridor: wide enough for whatever
-/// ends up walking through it and for a branch to open off it later. The walls
-/// come back in over four, which on a hundred and sixty metres of mountain is as
-/// near vertical as a heightfield can say.
-const BORE_WIDE: f32 = 7.0;
-const BORE_WALL: f32 = 4.0;
+/// Eleven metres across the floor: wide enough for whatever ends up walking
+/// through and for a branch to open off it later, narrow enough to read as a hole
+/// bored through rock rather than a road cutting. The walls come back over three,
+/// which against a hundred and sixty metres of mountain is as near vertical as a
+/// heightfield can say.
+const BORE_WIDE: f32 = 5.5;
+const BORE_WALL: f32 = 3.0;
 
-/// Headroom from the floor to the crown of the arch, in metres.
+/// Height from the floor to the crown, in metres.
 ///
-/// Nine, which is generous for a person and is meant to be: this is a way through
-/// a mountain, and a tunnel you have to stoop in reads as a drain.
-const BORE_HIGH: f32 = 9.0;
+/// Close to the bore's own half-width, so the section is round rather than a
+/// letterbox — a tunnel is a hole bored through rock and it should read as one.
+/// Seven metres still gives a person four times their own height overhead, which
+/// is the other thing this has to be: a tunnel you stoop in reads as a drain.
+const BORE_HIGH: f32 = 7.0;
 
 /// How much of the mountain this point stands under, 0 to 1.
 ///
@@ -169,6 +184,17 @@ fn ceiling(natural: f32, across: f32) -> f32 {
     natural + BORE_HIGH * (1.0 - t * t).max(0.0).sqrt()
 }
 
+/// How far the rock's underside is held clear of the ground it lies against.
+///
+/// Where the walls climb, the plug's underside IS the carved terrain — the same
+/// surface, computed twice — and two coincident surfaces fight for the depth
+/// buffer. Seen from the air that came out as a black ribbon with a sawtooth edge
+/// down the whole pass, which is what the mountain looked like before this.
+///
+/// A quarter of a metre lifts the rock clear without opening a gap anybody can see
+/// into: both surfaces are stone and one is standing just inside the other.
+const CLEAR_OF_THE_GROUND: f32 = 0.25;
+
 /// How many steps the plug is built in, along the tunnel and across it.
 ///
 /// The bore is a couple of hundred metres long and twenty-odd wide, so these are
@@ -212,9 +238,11 @@ pub fn rock_over_the_bore(natural: impl Fn(Vec2) -> f32) -> Geometry {
             let ground = natural(at);
 
             let skin = uncarved(ground, at);
-            // The rock's underside: the arch where it is over the passage, and the
-            // carved wall where it is not.
-            let below = ceiling(ground, across).max(carved(ground, at));
+            // The rock's underside: the arch where it is over the passage, and
+            // the carved wall where it is not — held just clear of that wall so
+            // the two are never the same surface twice.
+            let below =
+                ceiling(ground, across).max(carved(ground, at) + CLEAR_OF_THE_GROUND);
             // Pinched shut wherever the mountain is no taller than the tunnel.
             let below = below.min(skin);
 
@@ -227,7 +255,41 @@ pub fn rock_over_the_bore(natural: impl Fn(Vec2) -> f32) -> Geometry {
     let mut rock = Geometry::default();
     sheet(&mut rock, &top, true);
     sheet(&mut rock, &under, false);
+    settle_the_normals(&mut rock);
     rock
+}
+
+/// Gives every vertex the average of the faces that meet at it.
+///
+/// The ordinary way to normal a welded mesh, and here it is also the guarantee:
+/// a normal built OUT OF the winding cannot contradict it. `up` decides which way
+/// a sheet is wound and the shading follows, rather than the two being written
+/// down separately and drifting.
+fn settle_the_normals(mesh: &mut Geometry) {
+    for face in mesh.indices.chunks(3) {
+        let corner = |i: usize| Vec3::from_array(mesh.places[face[i] as usize]);
+        let (a, b, c) = (corner(0), corner(1), corner(2));
+        // Not normalised: a big triangle should count for more than a sliver, and
+        // a face pinched to nothing should count for nothing at all.
+        let weight = (b - a).cross(c - a);
+        for slot in face {
+            let normal = &mut mesh.normals[*slot as usize];
+            normal[0] += weight.x;
+            normal[1] += weight.y;
+            normal[2] += weight.z;
+        }
+    }
+    for (normal, place) in mesh.normals.iter_mut().zip(&mesh.places) {
+        let settled = Vec3::from_array(*normal).normalize_or_zero();
+        // A vertex with no face of any area at it — the very rim of the pinch.
+        // Pointed at the sky, which is what the ground it is lying on does.
+        *normal = if settled.length_squared() < 0.5 {
+            let _ = place;
+            [0.0, 1.0, 0.0]
+        } else {
+            settled.to_array()
+        };
+    }
 }
 
 /// Adds one grid of points to the mesh as a surface.
@@ -239,32 +301,16 @@ fn sheet(mesh: &mut Geometry, grid: &[Vec3], up: bool) {
     let base = mesh.places.len() as u32;
 
     for (index, point) in grid.iter().enumerate() {
-        let (row, col) = (index / wide, index % wide);
-        // From the grid itself rather than from the formulae, so a normal is the
-        // normal of the thing actually drawn — including wherever it has been
-        // pinched flat against the other sheet.
-        let step = |a: usize, b: usize| grid[b.min(grid.len() - 1)] - grid[a.min(grid.len() - 1)];
-        let along = if row + 1 < grid.len() / wide {
-            step(index, index + wide)
-        } else {
-            step(index - wide, index)
-        };
-        let across = if col + 1 < wide {
-            step(index, index + 1)
-        } else {
-            step(index - 1, index)
-        };
-        let mut normal = across.cross(along).normalize_or_zero();
-        if normal.length_squared() < 0.5 {
-            normal = Vec3::Y;
-        }
-        if (normal.y > 0.0) != up {
-            normal = -normal;
-        }
-
+        let col = index % wide;
         mesh.places.push(point.to_array());
-        mesh.normals.push(normal.to_array());
-        mesh.uvs.push([col as f32 / wide as f32, row as f32]);
+        // Filled in from the faces once they exist — see `settle_the_normals`.
+        // Worked out from neighbouring grid points instead, a normal flips
+        // wherever the sheet is pinched flat against its opposite number, and a
+        // normal that disagrees with its own winding is a face lit from the wrong
+        // side. Deriving one from the other is the only arrangement where they
+        // cannot differ.
+        mesh.normals.push([0.0, 0.0, 0.0]);
+        mesh.uvs.push([col as f32 / wide as f32, (index / wide) as f32]);
         mesh.colours.push(stone(*point, up));
     }
 
@@ -272,10 +318,18 @@ fn sheet(mesh: &mut Geometry, grid: &[Vec3], up: bool) {
         for col in 0..STEPS_ACROSS {
             let a = base + (row * wide + col) as u32;
             let (b, c, d) = (a + 1, a + wide as u32, a + wide as u32 + 1);
+            // Wound so the face points the way its own normals do.
+            //
+            // These were the other way round, and both sheets were therefore
+            // backface-culled: from above you looked straight THROUGH the
+            // mountain's skin into the slot, which is why a tunnel read as a
+            // ridge with a cut in it, and from inside there was no ceiling at
+            // all. `every_face_is_wound_the_way_it_faces` is the check that
+            // will not let it happen again.
             if up {
-                mesh.indices.extend_from_slice(&[a, c, b, b, c, d]);
-            } else {
                 mesh.indices.extend_from_slice(&[a, b, c, b, d, c]);
+            } else {
+                mesh.indices.extend_from_slice(&[a, c, b, b, c, d]);
             }
         }
     }
@@ -564,5 +618,181 @@ mod section {
                 println!("{y:6.0} |{line}|");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod against_the_world {
+    use super::*;
+
+    #[test]
+    #[ignore = "a probe"]
+    fn what_the_roof_actually_covers() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let natural = |at: Vec2| terrain.height(at.x, at.y) - lift(at);
+
+        println!("ground at the bore: {:.1}", natural(AT));
+        println!("ridge there: {:.1}", ridge(AT));
+        println!("carved (drawn) there: {:.1}", terrain.height(AT.x, AT.y));
+        let (sin, cos) = HEADING.sin_cos();
+        let across_way = Vec2::new(-sin, cos);
+        for step in 0..10 {
+            let d = step as f32 * 4.0;
+            let at = AT + across_way * d;
+            println!(
+                "  across {d:5.1}: bore {:.2} lift {:6.1} drawn {:6.1}",
+                bore(at),
+                lift(at),
+                terrain.height(at.x, at.y)
+            );
+        }
+
+        let rock = rock_over_the_bore(natural);
+        let mut low = f32::MAX;
+        let mut high = f32::MIN;
+        for place in &rock.places {
+            low = low.min(place[1]);
+            high = high.max(place[1]);
+        }
+        println!(
+            "roof: {} verts, {} tris, y {:.1}..{:.1}",
+            rock.places.len(),
+            rock.indices.len() / 3,
+            low,
+            high
+        );
+    }
+}
+
+#[cfg(test)]
+mod winding {
+    use super::*;
+
+    /// Every face has to be seen from the side it is meant to be seen from.
+    ///
+    /// # The whole mountain was inside out
+    ///
+    /// Both sheets were wound backwards, so both were culled: from above you
+    /// looked straight through the mountain's skin into the slot — reported as
+    /// "this is just a tall ridge with a cut" — and from inside the bore there was
+    /// no ceiling overhead either.
+    ///
+    /// The first version of this test compared each face against its own vertices'
+    /// normals, which is the check terrain-core makes on a tree and is the wrong
+    /// check here: the bore's lining is one folded sheet that turns through more
+    /// than a right angle on its way from the wall to the crown, so a face and the
+    /// average at its corners genuinely disagree at the crease. What matters is
+    /// not agreement — it is which side each surface is looked at from, and there
+    /// are exactly two answers: the mountain's skin is seen from the sky, and the
+    /// lining is seen from the space you walk in.
+    #[test]
+    fn the_skin_faces_the_sky_and_the_lining_faces_the_tunnel() {
+        let ground = 20.0;
+        let rock = rock_over_the_bore(|_| ground);
+        assert!(rock.indices.len() > 3_000, "too little rock to be a test");
+
+        // The two sheets are pushed in order, so the first half is the skin.
+        let half = rock.places.len() / 2;
+        let (sin, cos) = HEADING.sin_cos();
+        let across_way = Vec3::new(-sin, 0.0, cos);
+
+        let mut sky_wrong = 0;
+        let mut lining_wrong = 0;
+        let mut pinched = 0;
+        for face in rock.indices.chunks(3) {
+            let corner = |i: usize| Vec3::from_array(rock.places[face[i] as usize]);
+            let (a, b, c) = (corner(0), corner(1), corner(2));
+            let wound = (b - a).cross(c - a);
+            if wound.length_squared() < 1.0e-8 {
+                // Pinched shut against the other sheet — that is how the mouths
+                // close, and a face with no area is drawn as nothing.
+                pinched += 1;
+                continue;
+            }
+            let out = wound.normalize();
+            let middle = (a + b + c) / 3.0;
+
+            if (face[0] as usize) < half {
+                // The mountain's skin. It is a height over the ground and never
+                // folds, so every one of its faces looks at the sky.
+                if out.y <= 0.0 {
+                    sky_wrong += 1;
+                }
+            } else {
+                // The bore's lining, where it is the CEILING — the part a warden
+                // walks under and looks up at. It has to face down.
+                //
+                // Only there. The lining is one folded sheet: it turns through
+                // more than a right angle from the arch's crown down the wall to
+                // where it lies flat against the mountainside, so a face out on
+                // the wall points sideways and a face at the pinch points up, and
+                // both are correct. What can be stated plainly is the ceiling.
+                let across = (middle - Vec3::new(AT.x, 0.0, AT.y)).dot(across_way);
+                if across.abs() < BORE_WIDE * 0.7 && middle.y > ground + BORE_HIGH * 0.4 {
+                    if out.y >= 0.0 {
+                        lining_wrong += 1;
+                    }
+                }
+            }
+        }
+
+        assert_eq!(sky_wrong, 0, "{sky_wrong} faces of the mountain's skin face the ground");
+        assert_eq!(
+            lining_wrong, 0,
+            "{lining_wrong} faces of the tunnel's ceiling face up into the rock"
+        );
+        assert!(
+            pinched < rock.indices.len() / 6,
+            "{pinched} faces have no area — the plug is mostly pinched shut"
+        );
+    }
+}
+
+#[cfg(test)]
+mod country {
+    use super::*;
+
+    /// The mountain has to be the JOIN between the two countries, not a wall
+    /// standing across one of them.
+    ///
+    /// Reported from the game as "this side of the mountain should be desert not
+    /// grass": the wall ran due north-south across a boundary that runs on a
+    /// diagonal, so it crossed rather than followed it and one end had the wrong
+    /// country on the wrong flank.
+    #[test]
+    fn the_desert_meets_its_western_foot_and_the_green_world_its_eastern() {
+        use terrain_core::region::Country;
+        let terrain = crate::world::terrain::Terrain::new();
+        let (sin, cos) = HEADING.sin_cos();
+        let along_way = Vec2::new(cos, sin);
+        let across_way = Vec2::new(-sin, cos);
+
+        // Along the whole length of the wall, not at one point on it — crossing
+        // the boundary at an angle is exactly what this is here to catch.
+        let mut desert = 0;
+        let mut green = 0;
+        let mut looked = 0;
+        for step in -6..=6 {
+            let down = across_way * step as f32 * (WALL_LONG * 0.1);
+            let west = AT + down - along_way * WALL_THICK * 1.1;
+            let east = AT + down + along_way * WALL_THICK * 1.1;
+            // Only where there is land on both sides to have an opinion about.
+            if terrain.height(west.x, west.y) < 1.0 || terrain.height(east.x, east.y) < 1.0 {
+                continue;
+            }
+            looked += 1;
+            desert += (terrain.region(west.x, west.y).0 == Country::Desert) as i32;
+            green += (terrain.region(east.x, east.y).0 == Country::Ordinary) as i32;
+        }
+
+        assert!(looked >= 5, "only {looked} places along the wall have land both sides");
+        assert!(
+            desert * 3 >= looked * 2,
+            "the western foot is desert at only {desert} of {looked} places along the wall"
+        );
+        assert!(
+            green * 3 >= looked * 2,
+            "the eastern foot is the green world at only {green} of {looked} places"
+        );
     }
 }
