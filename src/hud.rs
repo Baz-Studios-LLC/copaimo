@@ -94,6 +94,7 @@ fn sync_visibility(
 }
 
 fn update_hud(
+    enabled: Res<HudEnabled>,
     diagnostics: Res<DiagnosticsStore>,
     mode: Res<CameraMode>,
     terrain: Res<TerrainSource>,
@@ -104,6 +105,12 @@ fn update_hud(
     players: Query<&Transform, With<Player>>,
     mut hud: Query<&mut Text, With<HudText>>,
 ) {
+    // Hidden is hidden: with the overlay off this was still sampling the
+    // terrain six ways, formatting strings and re-laying-out glyphs every
+    // frame, for text nobody could see.
+    if !enabled.0 {
+        return;
+    }
     let Some(mut text) = hud.iter_mut().next() else {
         return;
     };

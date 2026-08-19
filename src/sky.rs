@@ -301,13 +301,17 @@ fn drive_the_sky(
 
     // Clouds take the sun's own colour, which is what turns a sky pink at dusk.
     if let Some(skin) = skin {
-        if let Some(material) = materials.get_mut(&skin.0) {
-            let lit = if when.is_day() {
-                mix_colour(DUSK_CLOUD, DAY_CLOUD, smoothstep_up(height, 0.0, 0.3))
-            } else {
-                NIGHT_CLOUD
-            };
-            material.base_color = lit;
+        let lit = if when.is_day() {
+            mix_colour(DUSK_CLOUD, DAY_CLOUD, smoothstep_up(height, 0.0, 0.3))
+        } else {
+            NIGHT_CLOUD
+        };
+        // Only when it differs — see the star skin in `carry_the_night` for why
+        // an unconditional `get_mut` is a re-upload per frame for nothing.
+        if materials.get(&skin.0).is_some_and(|was| was.base_color != lit) {
+            if let Some(material) = materials.get_mut(&skin.0) {
+                material.base_color = lit;
+            }
         }
     }
 }
@@ -519,8 +523,15 @@ fn carry_the_night(
         place.translation = middle;
     }
     if let Some(skin) = skin {
-        if let Some(material) = materials.get_mut(&skin.0) {
-            material.base_color = Color::srgba(1.0, 1.0, 0.96, night);
+        // Only touched when the answer changes. `get_mut` marks the material
+        // modified whether or not anything differs, and a modified material
+        // re-prepares its GPU state — so an unconditional write here re-uploaded
+        // the star skin every frame of the whole DAY to keep saying alpha nought.
+        let wanted = Color::srgba(1.0, 1.0, 0.96, night);
+        if materials.get(&skin.0).is_some_and(|was| was.base_color != wanted) {
+            if let Some(material) = materials.get_mut(&skin.0) {
+                material.base_color = wanted;
+            }
         }
     }
 

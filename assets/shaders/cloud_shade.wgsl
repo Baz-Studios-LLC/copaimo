@@ -38,16 +38,54 @@ struct Discs {
 }
 @group(2) @binding(101) var<uniform> discs: Discs;
 
-/// x: 1 where this material's geometry is pushed aside, 0 where it stands still.
-/// y: how far a mover pushes it, in metres.
-/// z: how many of the movers below are real.
+/// x: what this material's geometry DOES — 0 stands still, 1 is grass pushed
+///    aside by movers, 2 is the sea carried by the swell.
+/// y: how far a mover pushes it, in metres (grass only).
+/// z: how many of the movers below are real (grass only).
 @group(2) @binding(102) var<uniform> bending: vec4<f32>;
 
 struct Movers {
-    /// xyz: where something is standing. w: how far out it parts what it stands in.
+    /// For grass — xyz: where something is standing. w: how far out it parts
+    /// what it stands in.
+    ///
+    /// For the sea the same slots carry the swell instead: [0] and [1] are
+    /// (height, length, period, -) of the two layers, [2] is (tide height,
+    /// tide period, sea level, -). Numbers, not a second opinion: they are fed
+    /// from the same Rust constants the CPU's `sea_height` reads, so only the
+    /// formula itself exists twice — see `sea_surface_at`.
     list: array<vec4<f32>, 8>,
 }
 @group(2) @binding(103) var<uniform> movers: Movers;
+
+const TAU: f32 = 6.28318530718;
+
+/// How high the sea stands at a point, right now.
+///
+/// # The mirror of `water::sea_height`, and why it moved here
+///
+/// The sea's vertices used to be walked on the CPU every frame — twenty-six
+/// thousand of them, marking the mesh asset modified and re-uploading more than
+/// a megabyte of attributes per frame to describe motion a vertex shader gets
+/// for free. The mesh is static now and the swell happens here, from the same
+/// constants, against the same clock.
+///
+/// **These two functions must agree** — the CPU one still answers gameplay
+/// (where the waterline is, how deep a wade is). Both are three sines: two
+/// layers of swell at their own angles, and the tide. Change one, change both.
+fn sea_surface_at(ground: vec2<f32>) -> f32 {
+    let tide = sin(globals.time / movers.list[2].y * TAU) * movers.list[2].x;
+    var swell = 0.0;
+    for (var i = 0; i < 2; i = i + 1) {
+        let layer = movers.list[i];
+        // Each layer runs at its own angle so they interfere rather than
+        // marching in step — waves in lockstep read as corrugated iron.
+        let angle = f32(i) * 2.1;
+        let along = ground.x * cos(angle) + ground.y * sin(angle);
+        let phase = along / layer.y - globals.time / layer.z;
+        swell += sin(phase * TAU) * layer.x;
+    }
+    return movers.list[2].z + tide + swell;
+}
 
 /// How much of a mover's reach is "underfoot" rather than "beside".
 const UNDERFOOT: f32 = 0.55;
@@ -153,8 +191,14 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         world_from_local,
         vec4<f32>(vertex.position, 1.0)
     );
+    // What kind of thing this is decides how it moves. A uniform branch is
+    // free: every vertex of a draw agrees on it.
+    if bending.x > 1.5 {
+        // The sea: the flat plane is lifted to wherever the surface stands.
+        out.world_position.y = sea_surface_at(out.world_position.xz);
+    }
 #ifdef VERTEX_UVS_A
-    if bending.x > 0.0 {
+    else if bending.x > 0.0 {
         out.world_position = vec4<f32>(
             parted(out.world_position.xyz, vertex.uv.x),
             out.world_position.w

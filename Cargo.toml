@@ -89,3 +89,11 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+# What players get. Thin LTO and one codegen unit buy a few percent of CPU frame
+# time — the cascade cost is largely submission work inside bevy_render, which
+# cross-crate inlining helps — for nothing but a slower release build, and a
+# release is built once per tag.
+[profile.release]
+lto = "thin"
+codegen-units = 1

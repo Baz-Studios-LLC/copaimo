@@ -50,6 +50,12 @@ pub struct Props;
 #[derive(Component)]
 pub struct PendingProps(Task<Geometry>);
 
+/// The chunk's litter question has been ANSWERED — including "nothing stands
+/// here". Same record, same reason as [`crate::world::cover::HasCover`]: a
+/// barren chunk that records nothing is asked again every frame forever.
+#[derive(Component)]
+pub struct HasProps;
+
 /// The grown pool, shared with every background thread that stamps from it.
 ///
 /// Grown once. Two dozen objects is nothing to grow, and growing one per boulder
@@ -84,8 +90,7 @@ pub fn litter_chunks(
     pool: Option<Res<PropPool>>,
     chunks: Res<ChunkMap>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
-    littered: Query<(), Or<(With<Props>, With<PendingProps>)>>,
-    children: Query<Option<&Children>, With<Chunk>>,
+    answered: Query<(), Or<(With<HasProps>, With<PendingProps>)>>,
     busy: Query<(), With<PendingProps>>,
 ) {
     let (Some(anchor), Some(pool)) = (anchors.iter().next(), pool) else {
@@ -110,12 +115,9 @@ pub fn litter_chunks(
             let Some(&entity) = chunks.loaded.get(&coord) else {
                 continue;
             };
-            let has_props = children
-                .get(entity)
-                .ok()
-                .flatten()
-                .is_some_and(|kids| kids.iter().any(|kid| littered.contains(kid)));
-            if has_props || littered.contains(entity) {
+            // Already answered, or already being asked — one component test on
+            // the chunk, where this used to walk its children every frame.
+            if answered.contains(entity) {
                 continue;
             }
 
@@ -143,7 +145,9 @@ pub fn collect_props(
         let Some(litter) = block_on(future::poll_once(&mut task.0)) else {
             continue;
         };
-        commands.entity(entity).remove::<PendingProps>();
+        // Recorded even when the answer is "nothing stands here" — see
+        // `HasProps`.
+        commands.entity(entity).remove::<PendingProps>().insert(HasProps);
         if litter.is_empty() {
             // Open water, or a town's levelled ground. Nothing is spawned rather
             // than an empty mesh being kept about.
@@ -162,12 +166,17 @@ pub fn collect_props(
 }
 
 /// Takes litter off chunks the viewer has walked away from.
+///
+/// Iterates the LITTERED, not the loaded — the same inversion as
+/// [`crate::world::cover::undress_chunks`], for the same reason: the dressed
+/// ring is a few dozen entities where the loaded disc is a couple of hundred
+/// chunks of children.
 pub fn clear_chunks(
     mut commands: Commands,
-    chunks: Res<ChunkMap>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
-    children: Query<&Children>,
-    props: Query<(), With<Props>>,
+    props: Query<(Entity, &ChildOf), With<Props>>,
+    coords: Query<&Chunk>,
+    answered: Query<(Entity, &Chunk), Or<(With<HasProps>, With<PendingProps>)>>,
 ) {
     let Some(anchor) = anchors.iter().next() else {
         return;
@@ -176,21 +185,20 @@ pub fn clear_chunks(
     // One chunk of slack past the littering radius, so standing on a boundary
     // does not build and throw away the same ring every other frame.
     let keep = PROP_CHUNKS + 1;
-
-    for (&coord, &entity) in &chunks.loaded {
+    let out = |coord: bevy::math::IVec2| {
         let away = (coord - middle).abs();
-        if away.x <= keep && away.y <= keep {
-            continue;
+        away.x > keep || away.y > keep
+    };
+
+    for (entity, of) in &props {
+        if coords.get(of.parent()).is_ok_and(|chunk| out(chunk.0)) {
+            commands.entity(entity).despawn();
         }
-        let Ok(kids) = children.get(entity) else {
-            continue;
-        };
-        for kid in kids.iter() {
-            if props.contains(kid) {
-                commands.entity(kid).despawn();
-            }
+    }
+    for (entity, chunk) in &answered {
+        if out(chunk.0) {
+            commands.entity(entity).remove::<(HasProps, PendingProps)>();
         }
-        commands.entity(entity).remove::<PendingProps>();
     }
 }
 

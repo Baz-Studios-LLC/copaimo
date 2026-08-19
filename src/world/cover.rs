@@ -42,6 +42,17 @@ pub struct Cover;
 #[derive(Component)]
 pub struct PendingCover(Task<Geometry>);
 
+/// The chunk's cover question has been ANSWERED — including "nothing grows
+/// here".
+///
+/// On the chunk, not inferred from its children, and the barren case is the
+/// reason: a chunk of rock or levelled town spawns no cover child, so asking
+/// "does it have one" said no every frame and the same barren chunk was
+/// re-dressed forever — a background task per frame per barren chunk, to
+/// conclude nothing, again.
+#[derive(Component)]
+pub struct HasCover;
+
 /// The one material every tuft in the world wears.
 #[derive(Resource, Deref)]
 pub struct CoverMaterial(pub Handle<Shaded>);
@@ -69,8 +80,7 @@ pub fn dress_chunks(
     terrain: Res<TerrainSource>,
     chunks: Res<ChunkMap>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
-    dressed: Query<(), Or<(With<Cover>, With<PendingCover>)>>,
-    children: Query<Option<&Children>, With<Chunk>>,
+    answered: Query<(), Or<(With<HasCover>, With<PendingCover>)>>,
     busy: Query<(), With<PendingCover>>,
 ) {
     let Some(anchor) = anchors.iter().next() else {
@@ -95,13 +105,10 @@ pub fn dress_chunks(
             let Some(&entity) = chunks.loaded.get(&coord) else {
                 continue;
             };
-            // Already dressed, or already being dressed.
-            let has_cover = children
-                .get(entity)
-                .ok()
-                .flatten()
-                .is_some_and(|kids| kids.iter().any(|kid| dressed.contains(kid)));
-            if has_cover || dressed.contains(entity) {
+            // Already answered, or already being asked. One component test on
+            // the chunk itself — this used to walk every chunk's children every
+            // frame to rediscover the same answer.
+            if answered.contains(entity) {
                 continue;
             }
 
@@ -128,7 +135,10 @@ pub fn collect_cover(
         let Some(cover) = block_on(future::poll_once(&mut task.0)) else {
             continue;
         };
-        commands.entity(entity).remove::<PendingCover>();
+        // The answer is recorded even when it is "nothing grows here" — see
+        // `HasCover`. A barren chunk that recorded nothing was asked again
+        // every frame for as long as it stayed loaded.
+        commands.entity(entity).remove::<PendingCover>().insert(HasCover);
         if cover.is_empty() {
             // Rock, water, a levelled town — nothing grows and nothing is spawned
             // rather than an empty mesh being kept about.
@@ -157,12 +167,21 @@ pub fn collect_cover(
 }
 
 /// Takes cover off chunks the viewer has walked away from.
+///
+/// # Iterate the dressed, not the loaded
+///
+/// This walked every loaded chunk outside the keep ring — two hundred odd — and
+/// every child of each, every frame, and then queued a no-op `remove` per chunk
+/// on top: tens of thousands of entity lookups a frame to find the handful of
+/// cover meshes that actually exist. The handful is what the query is FOR: there
+/// are at most a few dozen dressed chunks, so ask for the cover and look UP to
+/// its chunk instead.
 pub fn undress_chunks(
     mut commands: Commands,
-    chunks: Res<ChunkMap>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
-    children: Query<&Children>,
-    cover: Query<(), With<Cover>>,
+    cover: Query<(Entity, &ChildOf), With<Cover>>,
+    coords: Query<&Chunk>,
+    answered: Query<(Entity, &Chunk), Or<(With<HasCover>, With<PendingCover>)>>,
 ) {
     let Some(anchor) = anchors.iter().next() else {
         return;
@@ -171,22 +190,23 @@ pub fn undress_chunks(
     // One chunk of slack past the dressing radius, so standing on a boundary
     // does not dress and undress the same ring every other frame.
     let keep = COVER_CHUNKS + 1;
-
-    for (&coord, &entity) in &chunks.loaded {
+    let out = |coord: IVec2| {
         let away = (coord - middle).abs();
-        if away.x <= keep && away.y <= keep {
-            continue;
+        away.x > keep || away.y > keep
+    };
+
+    for (entity, of) in &cover {
+        if coords.get(of.parent()).is_ok_and(|chunk| out(chunk.0)) {
+            commands.entity(entity).despawn();
         }
-        let Ok(kids) = children.get(entity) else {
-            continue;
-        };
-        for kid in kids.iter() {
-            if cover.contains(kid) {
-                commands.entity(kid).despawn();
-            }
+    }
+    // And the chunk forgets its answer on the way out of the ring, so walking
+    // back asks the question again. A chunk mid-build that has gone out of
+    // range stops building.
+    for (entity, chunk) in &answered {
+        if out(chunk.0) {
+            commands.entity(entity).remove::<(HasCover, PendingCover)>();
         }
-        // A chunk that is being dressed and has gone out of range should stop.
-        commands.entity(entity).remove::<PendingCover>();
     }
 }
 

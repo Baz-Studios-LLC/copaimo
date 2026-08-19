@@ -81,7 +81,15 @@ pub fn queue_chunks(
         // is what stops the same chunk being queued again next frame.
         let origin = chunk_origin(coord);
         let entity = commands
-            .spawn((Chunk(coord), Transform::from_xyz(origin.x, 0.0, origin.y)))
+            .spawn((
+                Chunk(coord),
+                Transform::from_xyz(origin.x, 0.0, origin.y),
+                // Spawned WITH visibility, not just a transform: four kinds of
+                // children hang off a chunk — trees, cover, props, river — and
+                // every one of them warned (B0004) that inherited visibility was
+                // undefined because the parent had none.
+                Visibility::default(),
+            ))
             .id();
         spawn_chunk_mesh(&mut commands, entity, &terrain, coord);
 
@@ -146,6 +154,12 @@ pub fn collect_chunks(
                 commands.entity(old).despawn();
             }
         }
+        // Its cover and props went with them, so the chunk's records must too,
+        // or the layers that read them would believe ground the sculpting just
+        // cleared was still dressed and never dress it again.
+        commands
+            .entity(entity)
+            .remove::<(super::cover::HasCover, super::prop::HasProps)>();
 
         // Still water in whatever channels cross this chunk. A child, so it
         // streams and dies with the ground it stands in.
@@ -206,18 +220,110 @@ pub fn plant_chunk(
         commands.entity(entity).with_children(|chunk| {
             chunk
                 .spawn((
+                    Timber,
                     Mesh3d(variety.wood.clone()),
                     MeshMaterial3d(variety.bark.clone()),
                     stance,
                 ))
                 .with_children(|trunk| {
                     trunk.spawn((
+                        Timber,
                         Mesh3d(variety.leaves.clone()),
                         MeshMaterial3d(variety.leaf.clone()),
                         Transform::IDENTITY,
                     ));
                 });
         });
+    }
+    // Freshly planted wood casts until the gate looks at it again — see
+    // `shade_far_wood`. Without this, a far chunk re-planted by the brush would
+    // keep the chunk-level record while its new trees missed the component the
+    // record stands for.
+    commands.entity(entity).remove::<CastsNoShade>();
+}
+
+/// A tree's drawn body — the wood or the leaves — so the shadow gate can find
+/// them without caring what else hangs off a chunk.
+#[derive(Component)]
+pub struct Timber;
+
+/// A chunk whose wood has been told not to cast, so the gate only walks a
+/// chunk's trees when it CROSSES the ring rather than every frame.
+#[derive(Component)]
+pub struct CastsNoShade;
+
+/// How far out a tree still casts a shadow, in chunks from the viewer.
+///
+/// Two, which is a bit past two hundred and fifty metres. A shadow's job is to
+/// sit a thing on the ground it stands on, and that is read close by; past this
+/// ring a tree's shadow is a few grey pixels on a hillside. The cascades were
+/// measured at 16.7 ms of a 23.8 ms frame, and nearly all of it was re-submitting
+/// every tree in the streamed disc to all three of them — the disc holds ~254
+/// chunks and this ring keeps 25, so most of that work is simply gone.
+const SHADOW_CHUNKS: i32 = 2;
+
+/// Parks and wakes tree shadows as chunks cross the shadow ring.
+///
+/// Chunk-level bookkeeping, deliberately: the naive version asks every tree in
+/// every loaded chunk every frame, which is tens of thousands of entity lookups
+/// to conclude nothing changed. A chunk remembers which side of the ring it is
+/// on, and its trees are only walked on the frame it crosses — with a chunk of
+/// hysteresis so standing on a boundary does not flip the same ring every step.
+pub fn shade_far_wood(
+    mut commands: Commands,
+    map: Res<ChunkMap>,
+    anchors: Query<&GlobalTransform, With<StreamAnchor>>,
+    gated: Query<(), With<CastsNoShade>>,
+    children: Query<&Children>,
+    timber: Query<(), With<Timber>>,
+) {
+    let Some(anchor) = anchors.iter().next() else {
+        return;
+    };
+    let middle = chunk_at(anchor.translation());
+
+    for (&coord, &entity) in &map.loaded {
+        let away = (coord - middle).abs().max_element();
+        let is_parked = gated.contains(entity);
+        let wants_parking = if is_parked {
+            away > SHADOW_CHUNKS
+        } else {
+            away > SHADOW_CHUNKS + 1
+        };
+        if wants_parking == is_parked {
+            continue;
+        }
+
+        // The chunk's trees: wood as children, leaves as grandchildren.
+        let Ok(kids) = children.get(entity) else {
+            // Nothing planted yet. Leave the record unset so the walk happens
+            // once the trees exist.
+            continue;
+        };
+        for kid in kids.iter() {
+            let mut toggle = |body: Entity| {
+                if wants_parking {
+                    commands.entity(body).insert(bevy::pbr::NotShadowCaster);
+                } else {
+                    commands.entity(body).remove::<bevy::pbr::NotShadowCaster>();
+                }
+            };
+            if timber.contains(kid) {
+                toggle(kid);
+            }
+            if let Ok(grandkids) = children.get(kid) {
+                for grandkid in grandkids.iter() {
+                    if timber.contains(grandkid) {
+                        toggle(grandkid);
+                    }
+                }
+            }
+        }
+        if wants_parking {
+            commands.entity(entity).insert(CastsNoShade);
+        } else {
+            commands.entity(entity).remove::<CastsNoShade>();
+        }
     }
 }
 

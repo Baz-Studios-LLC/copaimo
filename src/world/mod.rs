@@ -152,14 +152,32 @@ impl Plugin for WorldPlugin {
                     prop::setup_props.run_if(not(resource_exists::<prop::PropPool>)),
                 ),
             )
-            .add_systems(OnExit(crate::states::AppState::Playing), clear_the_world)
-            .add_systems(
+            .add_systems(OnExit(crate::states::AppState::Playing), clear_the_world);
+
+        // The terrain tool streams the same world, so it needs the same content
+        // — the sea, the grove, the props. It got none of them: entering the
+        // tool without having played first showed a world with no trees and no
+        // water, and the PLANT brush painted the woods layer invisibly because
+        // there was no grove to draw from. Same guards, same teardown, so
+        // whichever door you come through the world is the world.
+        #[cfg(feature = "tools")]
+        app.add_systems(
+            OnEnter(crate::states::AppState::Editing),
+            (
+                water::spawn_water.run_if(no_sea_yet),
+                stream::grow_the_grove.run_if(not(resource_exists::<stream::Grove>)),
+                prop::setup_props.run_if(not(resource_exists::<prop::PropPool>)),
+            ),
+        )
+        .add_systems(OnExit(crate::states::AppState::Editing), clear_the_world);
+
+        app.add_systems(
                 Update,
                 (
-                    water::move_water,
                     stream::queue_chunks,
                     stream::collect_chunks,
                     stream::unload_chunks,
+                    stream::shade_far_wood,
                     // After the ground, because cover can only be laid on a
                     // chunk that is already loaded.
                     cover::dress_chunks,
