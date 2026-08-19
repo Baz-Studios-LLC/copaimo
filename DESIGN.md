@@ -73,6 +73,39 @@ walks it, checking the three things the screenshots kept disproving — the grou
 never jumps, there is always real rock overhead, and you come out the far side
 rather than on top.
 
+## The terrain tool points at things
+
+**The pointer is a pointer.** The panel is clickable, the brush aims wherever the
+pointer is aimed, and **ALT is the thing you hold to look around** — held, the
+pointer goes away and the mouse turns the view.
+
+It was the other way up: the cursor was captured for mouse-look and ALT let go of
+it so the panels could be reached, which made every row in the panel a thing you
+could only click while holding a modifier. That is not a menu, it is a keyboard
+tool with a picture of a menu beside it — asked for three times before the rule
+changed rather than the rows moving around again.
+
+One rule for what a press means: **point at things to do them, hold ALT to look,
+and the two never overlap.** Nothing acts while the view is being turned (a hand
+swinging the camera is not a hand placing a building, and the aim sweeps across the
+country while it happens), and nothing acts when the pointer is over the shelf.
+
+That last one used to be asked as "is the cursor free", which was a workable proxy
+while free meant *reaching for a panel*. It means ordinary use now, so every guard
+had to start asking what it always meant: `aiming_at_the_world`.
+
+## No key means two things
+
+`B` was the BIOME brush **and** BORE A TUNNEL. Two tables of keys — `TOOL_KEYS` for
+the palette, `Act::key` for the actions — each correct alone, each printed
+faithfully on its own rows, and nothing compared them to each other. One press
+picked up the biome brush and started a tunnel.
+
+The panel exists so the keys can be SEEN, and that only helps if they are true.
+Truth across two tables is exactly what a person cannot check by reading, so
+`no_key_is_bound_to_two_things` checks it — and a second test checks every row
+prints the key that actually does it. The bore is on `T` now.
+
 ## Every action in the tool has a row to press
 
 The palette was clickable but the actions were not — placing a building, picking one

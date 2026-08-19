@@ -152,18 +152,30 @@ impl Brush {
     }
 }
 
-/// Whether the maker is holding the cursor free to reach the panels.
+/// Whether the pointer is free to point at things — which, in this tool, it is
+/// unless somebody is deliberately looking around.
 ///
-/// Sculpting captures the cursor — it has to, the brush aims down the view ray
-/// and mouse-look needs the pointer out of the way. But an 8 km world cannot be
-/// crossed by flying and hoping, and the overview on the right is the only thing
-/// that knows where anything is. So ALT lets go: the pointer comes back, the
-/// view stops turning, and the brush stops painting until it is released.
+/// # A tool you point at things with
 ///
-/// A modifier rather than a mode, because reaching for the map is a moment
-/// inside the work and not a change of what you are doing.
-#[derive(Resource, Default, Deref)]
+/// This was the other way up: the cursor was captured for mouse-look and ALT let
+/// go of it so the panels could be reached. Every row in the panel was therefore
+/// a thing you could only click while holding a modifier, which is not a menu —
+/// it is a keyboard tool with a picture of a menu beside it. Asked for three
+/// times, and each time I moved the rows around instead of the rule.
+///
+/// So the tool points by default: the pointer is visible, the panel is clickable,
+/// and the brush aims wherever it is aimed. **ALT is now the one that looks
+/// around** — held, the pointer goes away and the mouse turns the view, which is
+/// the moment inside the work rather than the resting state of it.
+#[derive(Resource, Deref)]
 pub struct CursorFree(pub bool);
+
+impl Default for CursorFree {
+    fn default() -> Self {
+        // Pointing, not looking.
+        Self(true)
+    }
+}
 
 /// What the maker has picked up and is carrying about, if anything.
 ///
@@ -256,8 +268,8 @@ impl Act {
             Act::Carry => ("G", "PICK UP / PUT DOWN"),
             Act::Turn => ("R", "TURN A QUARTER"),
             Act::Remove => ("Del", "TAKE IT AWAY"),
-            Act::Bore => ("B", "BORE A TUNNEL"),
-            Act::Unbore => ("Sh-B", "FILL A TUNNEL IN"),
+            Act::Bore => ("T", "BORE A TUNNEL"),
+            Act::Unbore => ("Sh-T", "FILL A TUNNEL IN"),
         }
     }
 
@@ -267,7 +279,12 @@ impl Act {
             Act::Carry => KeyCode::KeyG,
             Act::Turn => KeyCode::KeyR,
             Act::Remove => KeyCode::Delete,
-            Act::Bore | Act::Unbore => KeyCode::KeyB,
+            // T for tunnel. It was B, which the BIOME brush already had — so one
+            // press picked up the biome brush AND started a tunnel, which is
+            // exactly the collision a panel full of printed keycaps is supposed to
+            // make impossible to ship. Both tables are read by the panel, and the
+            // panel drew them both, and nothing compared them to each other.
+            Act::Bore | Act::Unbore => KeyCode::KeyT,
         }
     }
 }
@@ -317,36 +334,65 @@ impl Plugin for EditorPlugin {
 }
 
 /// ALT frees the pointer for as long as it is held.
+/// Whether a click belongs to the world rather than to the panel.
+///
+/// # It used to ask the wrong question
+///
+/// Every tool here guarded on "is the pointer free", which was a workable PROXY
+/// while the pointer was captured except when reaching for a panel: free meant
+/// reaching. Now that the tool points by default, free means nothing of the sort —
+/// it means ordinary use — so the guards had to start asking what they always
+/// meant. Which is this: the pointer is somewhere over the world, and not over the
+/// shelf of rows on the left.
+pub fn aiming_at_the_world(
+    free: &CursorFree,
+    windows: &Query<&Window, With<bevy::window::PrimaryWindow>>,
+    panels: &Query<(&ComputedNode, &GlobalTransform), With<crate::tools::widget::Scrolls>>,
+) -> bool {
+    // Nothing acts while ALT has hold of the view. A hand swinging the camera is
+    // not a hand placing a building, and the aim is sweeping across the country
+    // while it happens — so one rule rather than a different answer per tool:
+    // point at things to do them, hold ALT to look, and the two never overlap.
+    if !free.0 {
+        return false;
+    }
+    !crate::tools::widget::pointer_on_a_panel(windows, panels)
+}
+
+/// ALT takes hold of the view for as long as it is held.
+///
+/// The inverse of what this used to do — see [`CursorFree`]. Released, the pointer
+/// is a pointer.
 fn hold_to_reach(
     keys: Res<ButtonInput<KeyCode>>,
     mut free: ResMut<CursorFree>,
     mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
 ) {
-    let wanted = keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
-    if wanted == free.0 {
+    let looking = keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
+    if looking != free.0 {
         return;
     }
-    free.0 = wanted;
+    free.0 = !looking;
 
     let Some(mut window) = windows.iter_mut().next() else {
         return;
     };
-    window.cursor_options.grab_mode = if wanted {
-        bevy::window::CursorGrabMode::None
-    } else {
+    window.cursor_options.grab_mode = if looking {
         bevy::window::CursorGrabMode::Confined
+    } else {
+        bevy::window::CursorGrabMode::None
     };
-    window.cursor_options.visible = wanted;
+    window.cursor_options.visible = !looking;
 }
 
 fn enter_editor(mut camera: ResMut<CameraMode>, mut free: ResMut<CursorFree>) {
     // Sculpting from the follow camera means aiming past your own warden at
     // whatever happens to be in front of them. Free-fly is what the tool wants.
     *camera = CameraMode::Fly;
-    // And nobody arrives holding ALT. Left true from a previous visit, this
-    // would disagree with the freshly captured cursor and `hold_to_reach`'s
-    // early-out would keep the two apart until the next ALT press.
-    free.0 = false;
+    // Pointing, not looking — nobody arrives holding ALT. Left disagreeing with
+    // the window's own cursor state, `hold_to_reach`'s early-out would keep the
+    // two apart until the next ALT press.
+    free.0 = true;
 }
 
 /// Marches the camera's view ray until it goes under the ground, then binary
@@ -380,15 +426,35 @@ fn raycast_terrain(terrain: &Terrain, origin: Vec3, direction: Vec3) -> Option<V
     None
 }
 
+/// Aims the brush: at the pointer when there is one, down the view otherwise.
+///
+/// A tool you point things at has to paint where you are pointing. It used to aim
+/// straight down the middle of the screen always, which is right for a captured
+/// cursor and wrong the moment there is a cursor to aim with — the crosshair and
+/// the pointer would be in two different places, both claiming to be the brush.
 fn aim_brush(
     terrain: Res<TerrainSource>,
-    cameras: Query<&GlobalTransform, With<MainCamera>>,
+    free: Res<CursorFree>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     mut brush: ResMut<Brush>,
 ) {
-    let Some(camera) = cameras.iter().next() else {
+    let Some((camera, eye)) = cameras.iter().next() else {
         return;
     };
-    brush.hit = raycast_terrain(&terrain.0, camera.translation(), camera.forward().as_vec3());
+
+    // Where the pointer is, if it is a pointer. Looking around, there is nothing
+    // to aim with and the middle of the view is the honest answer.
+    let ray = free
+        .0
+        .then(|| windows.iter().next().and_then(Window::cursor_position))
+        .flatten()
+        .and_then(|at| camera.viewport_to_world(eye, at).ok());
+
+    brush.hit = match ray {
+        Some(ray) => raycast_terrain(&terrain.0, ray.origin, *ray.direction),
+        None => raycast_terrain(&terrain.0, eye.translation(), eye.forward().as_vec3()),
+    };
 }
 
 /// Which key selects each tool, in the order [`Brushing::ALL`] lists them.
@@ -445,13 +511,9 @@ fn adjust_brush(
     mut brush: ResMut<Brush>,
 ) {
     let notches = crate::util::wheel_notches(&scroll);
-    // With ALT held and the pointer on the panel, the wheel is the panel's
-    // scroll and must not also resize the brush behind it. Only then: while
-    // sculpting the cursor is hidden but still MOVES with the mouse, so a bare
-    // over-panel test would silently kill brush-resize whenever the invisible
-    // pointer happened to be resting there.
-    let reaching = free.0 && crate::tools::widget::pointer_on_a_panel(&windows, &panels);
-    if notches != 0.0 && !reaching {
+    // The wheel over the shelf is the shelf's scroll and must not also resize the
+    // brush behind it.
+    if notches != 0.0 && aiming_at_the_world(&free, &windows, &panels) {
         brush.radius = (brush.radius * RADIUS_STEP.powf(notches)).clamp(MIN_RADIUS, MAX_RADIUS);
     }
 
@@ -493,10 +555,12 @@ fn paint(
     grove: Option<Res<Grove>>,
     standing: Query<Option<&Children>, With<Chunk>>,
     free: Res<CursorFree>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    panels: Query<(&ComputedNode, &GlobalTransform), With<crate::tools::widget::Scrolls>>,
     mut brush: ResMut<Brush>,
 ) {
-    // The pointer is out reaching for a panel, not aimed at the ground.
-    if free.0 {
+    // A click on the shelf is for the shelf, not for the ground behind it.
+    if !aiming_at_the_world(&free, &windows, &panels) {
         return;
     }
     // Laid between two clicked points, not dragged. `lay_ramp` has it.
@@ -720,10 +784,12 @@ fn lay_ramp(
     chunks: Res<ChunkMap>,
     busy: Query<(), With<PendingChunk>>,
     free: Res<CursorFree>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    panels: Query<(&ComputedNode, &GlobalTransform), With<crate::tools::widget::Scrolls>>,
     mut brush: ResMut<Brush>,
     mut toast: ResMut<ui::Toast>,
 ) {
-    if free.0 || !brush.how.is_two_point() {
+    if !aiming_at_the_world(&free, &windows, &panels) || !brush.how.is_two_point() {
         return;
     }
 
@@ -1273,6 +1339,8 @@ fn place_things(
     catalogue: Res<crate::build::Catalogue>,
     brush: Res<Brush>,
     free: Res<CursorFree>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    panels: Query<(&ComputedNode, &GlobalTransform), With<crate::tools::widget::Scrolls>>,
     mut placed: ResMut<crate::world::placed::Standing>,
     mut carrying: ResMut<Carrying>,
     mut asked: EventReader<Asked>,
@@ -1282,7 +1350,7 @@ fn place_things(
     // A row pressed in the panel and the key it prints mean the same thing, so
     // they arrive by the same door.
     let mut pressed: Vec<Act> = asked.read().map(|ask| ask.0).collect();
-    if !free.0 {
+    {
         for act in [Act::Place, Act::Carry, Act::Turn, Act::Remove] {
             let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
             // Shift+B is the bore's own business, and Shift+R turns the other way
@@ -1298,7 +1366,7 @@ fn place_things(
             pressed.push(Act::Remove);
         }
     }
-    if free.0 {
+    if !aiming_at_the_world(&free, &windows, &panels) {
         return;
     }
     let Some(hit) = brush.hit else {
@@ -1492,19 +1560,34 @@ mod tests {
     }
 
     #[test]
-    fn turning_holds_still_while_the_pointer_is_free() {
-        // ALT lets go of the cursor to reach the panels, and every gesture here is
-        // off while it is held — a key that acted anyway would fire while somebody
-        // was clicking a row.
+    fn turning_holds_still_while_the_view_is_being_turned() {
+        // `CursorFree` used to mean "reaching for a panel", so everything guarded
+        // on it and this test asserted that nothing acted while it was set. It
+        // means the opposite now — pointing, which is the tool's resting state —
+        // so what it guards is the other half: while ALT has hold of the view
+        // there is no pointer aimed at anything, and R must not turn whatever the
+        // brush was last over.
         let mut app = placing_app();
         let id = app
             .world_mut()
             .resource_mut::<Standing>()
             .add("cottage", Vec2::new(10.0, -4.0), 0.0, 1.0);
-        app.world_mut().resource_mut::<CursorFree>().0 = true;
 
+        app.world_mut().resource_mut::<CursorFree>().0 = false;
         press(&mut app, &[KeyCode::KeyR]);
-        assert_eq!(facing(&app, id), 0.0, "it turned while the pointer was free");
+        assert_eq!(
+            facing(&app, id),
+            0.0,
+            "it turned while the view was being turned"
+        );
+
+        // And with the pointer back, it turns.
+        app.world_mut().resource_mut::<CursorFree>().0 = true;
+        press(&mut app, &[KeyCode::KeyR]);
+        assert!(
+            facing(&app, id) != 0.0,
+            "it would not turn with the pointer aimed at it"
+        );
     }
 }
 
@@ -1518,6 +1601,8 @@ pub fn bore_tunnels(
     keys: Res<ButtonInput<KeyCode>>,
     brush: Res<Brush>,
     free: Res<CursorFree>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    panels: Query<(&ComputedNode, &GlobalTransform), With<crate::tools::widget::Scrolls>>,
     terrain: Res<TerrainSource>,
     chunks: Res<ChunkMap>,
     busy: Query<(), With<PendingChunk>>,
@@ -1529,9 +1614,7 @@ pub fn bore_tunnels(
     let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
     // From the key, or from the row in the panel — one path, so the two cannot
     // come to mean different things.
-    let mut wanted = if free.0 {
-        None
-    } else if keys.just_pressed(Act::Bore.key()) {
+    let mut wanted = if keys.just_pressed(Act::Bore.key()) {
         Some(if shift { Act::Unbore } else { Act::Bore })
     } else {
         None
@@ -1544,6 +1627,9 @@ pub fn bore_tunnels(
     let Some(act) = wanted else {
         return;
     };
+    if !aiming_at_the_world(&free, &windows, &panels) {
+        return;
+    }
     let Some(hit) = brush.hit else {
         return;
     };
@@ -1815,14 +1901,23 @@ mod carrying {
         press(&mut app, &[KeyCode::KeyG]);
         assert_eq!(app.world().resource::<Carrying>().0, None);
 
-        // And with the pointer free — ALT held to reach the panels — G holds still.
+        // And while ALT has hold of the view, nothing acts: a hand swinging the
+        // camera is not a hand picking things up.
         aim(&mut app, Vec2::new(10.0, -4.0));
-        app.world_mut().resource_mut::<CursorFree>().0 = true;
+        app.world_mut().resource_mut::<CursorFree>().0 = false;
         press(&mut app, &[KeyCode::KeyG]);
         assert_eq!(
             app.world().resource::<Carrying>().0,
             None,
-            "G fired while reaching for a panel"
+            "G fired while the view was being turned"
+        );
+
+        // Pointer back, and it picks up.
+        app.world_mut().resource_mut::<CursorFree>().0 = true;
+        press(&mut app, &[KeyCode::KeyG]);
+        assert!(
+            app.world().resource::<Carrying>().0.is_some(),
+            "G would not pick up with the pointer aimed at it"
         );
     }
 
@@ -1886,7 +1981,7 @@ mod boring {
             if shift {
                 keys.press(KeyCode::ShiftLeft);
             }
-            keys.press(KeyCode::KeyB);
+            keys.press(Act::Bore.key());
         }
         app.update();
         // Released as well as cleared. `clear` only forgets what was pressed THIS
@@ -1894,7 +1989,7 @@ mod boring {
         // not a new press — so without this the second press never happened and
         // the tool looked broken when it was the test holding the key.
         let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
-        keys.release(KeyCode::KeyB);
+        keys.release(Act::Bore.key());
         keys.release(KeyCode::ShiftLeft);
         keys.clear();
     }
@@ -2009,3 +2104,70 @@ mod boring {
     }
 }
 
+
+#[cfg(test)]
+mod keycaps {
+    use super::*;
+
+    /// No key may mean two things in this tool.
+    ///
+    /// # B was the biome brush AND the bore
+    ///
+    /// Two tables of keys — `TOOL_KEYS` for the palette and `Act::key` for the
+    /// actions — each correct on its own, each printed faithfully on its own rows,
+    /// and nothing anywhere compared one to the other. So one press picked up the
+    /// biome brush and started a tunnel at the same time, and the panel showed a
+    /// `B` on both rows without a hint that anything was wrong.
+    ///
+    /// The panel exists so a maker can SEE the keys. That only helps if the keys
+    /// are true, and truth across two tables is exactly the thing a person cannot
+    /// check by reading.
+    #[test]
+    fn no_key_is_bound_to_two_things() {
+        let mut taken: Vec<(KeyCode, String)> = Vec::new();
+
+        for (key, how) in TOOL_KEYS.iter().zip(Brushing::ALL) {
+            taken.push((*key, format!("the {} brush", how.name())));
+        }
+        for act in Act::ALL {
+            // The bore and the unbore share a key on purpose: shift tells them
+            // apart, the way shift tells the two turns apart.
+            if act == Act::Unbore {
+                continue;
+            }
+            taken.push((act.key(), act.says().1.to_string()));
+        }
+
+        for (index, (key, what)) in taken.iter().enumerate() {
+            if let Some((_, other)) = taken[index + 1..].iter().find(|(k, _)| k == key) {
+                panic!("{key:?} is bound to both {what} and {other}");
+            }
+        }
+    }
+
+    /// And every row prints the key that actually does it.
+    ///
+    /// The other half of the same fault: a panel that prints a keycap nobody
+    /// pressed is worse than no keycap at all, because it is believed.
+    #[test]
+    fn every_row_prints_the_key_that_works() {
+        for act in Act::ALL {
+            let (printed, says) = act.says();
+            let key = act.key();
+            let expected = match key {
+                KeyCode::KeyP => "P",
+                KeyCode::KeyG => "G",
+                KeyCode::KeyR => "R",
+                KeyCode::KeyT => "T",
+                KeyCode::Delete => "Del",
+                other => panic!("{says} is on {other:?}, which this test cannot spell"),
+            };
+            // Shift-prefixed rows say so, and the rest are the key itself.
+            let bare = printed.trim_start_matches("Sh-");
+            assert_eq!(
+                bare, expected,
+                "the {says} row prints {printed:?} and is on {key:?}"
+            );
+        }
+    }
+}
