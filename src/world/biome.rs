@@ -115,7 +115,12 @@ pub fn surface_color(
     // into the band of sand-through-scrub-through-grass that a desert's edge
     // actually is. The trees still stop along a ragged line, and that line is now
     // somewhere inside the band instead of being the band.
-    let into = smoothstep(0.15, 0.85, belonging);
+    //
+    // Over the WHOLE of the belonging, not a clipped middle of it. This ran from
+    // 0.15 to 0.85, which spends the same total change over seventy per cent of
+    // the band — a steeper middle for no visual gain, and the middle was already
+    // the steep part with the cap fading on top of it.
+    let into = smoothstep(0.0, 1.0, belonging);
 
     // Sand, not the khaki at the dry end of a grass ramp. Sand existed in this
     // palette all along and was reachable only from the shoreline band, so the
@@ -135,14 +140,32 @@ pub fn surface_color(
         terrain_core::region::Country::Ordinary => (vegetated, SNOWLINE),
     };
     let ground_colour = vegetated.lerp(elsewhere, into);
-    // The snow line travels with it, or the ground fades from green to white
-    // across a band while the snow on it still starts along a line.
-    let snowline = SNOWLINE + (snowline - SNOWLINE) * into;
 
     // Altitude strips the greenery back to bare stone, then to snow.
     let above_treeline =
         ground_colour.lerp(p.alpine, smoothstep(TREELINE - 25.0, TREELINE + 40.0, height));
-    let capped = above_treeline.lerp(p.snow, smoothstep(snowline - 30.0, snowline + 20.0, height));
+
+    // How much of the white cap this height wears: what the world's own snow
+    // line says, blended toward what this COUNTRY's snow line says.
+    //
+    // # Blend the amount, never sweep the window
+    //
+    // The snow line itself used to travel with the boundary — interpolated from
+    // the world's ~165 m down to snow country's minus-a-thousand as `into` rose.
+    // Arithmetically tidy, and a cliff on the ground: the cap is a smoothstep
+    // window only fifty metres tall, and sliding its POSITION through eleven
+    // hundred metres of height means it crosses any given piece of ground in a
+    // few hundredths of `into` — under a metre of walk at a painted edge. The
+    // ground colour faded gently across the band while the white cap switched on
+    // like a shutter in the middle of it, which is the hard join the maker
+    // photographed.
+    //
+    // Both ends' answers are computed where they stand and the AMOUNT mixes, so
+    // the cap fades in across the whole band exactly as the ground colour does.
+    let cap_outside = smoothstep(SNOWLINE - 30.0, SNOWLINE + 20.0, height);
+    let cap_inside = smoothstep(snowline - 30.0, snowline + 20.0, height);
+    let cap = cap_outside + (cap_inside - cap_outside) * into;
+    let capped = above_treeline.lerp(p.snow, cap);
 
     let mut color = if height >= SEA_LEVEL { capped } else { underwater };
 

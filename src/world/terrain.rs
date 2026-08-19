@@ -669,12 +669,31 @@ impl Terrain {
         let Ok(painted) = self.country.read() else {
             return (natural, natural_share);
         };
-        let Some((mark, share)) = painted.choice(x, z) else {
+        let Some((mark, share, rivals)) = painted.choice(x, z) else {
             return (natural, natural_share);
         };
         let Some(country) = terrain_core::region::Country::of_mark(mark) else {
             return (natural, natural_share);
         };
+
+        // How firmly the winning stroke holds the ground, fading to nothing at
+        // the handover line rather than arriving there still carrying half its
+        // vote — see below for why.
+        let held = ((share - Self::TAKES_HOLD) / (1.0 - Self::TAKES_HOLD)).clamp(0.0, 1.0);
+
+        // How much say the ground UNDERNEATH keeps. Full where the paint is weak
+        // or agrees with it — but at the front line between two strokes, the
+        // natural claim has to give way at the same rate the rival advances.
+        // Without this, a country painted beside another kept its full natural
+        // strength right up against the join, and the join was a cliff: the vote
+        // flips winner at the fifty-fifty line, and one side of that line read
+        // full snow while the other read full grass.
+        let contested = if share + rivals > 0.0 {
+            (2.0 * rivals / (share + rivals)).min(1.0)
+        } else {
+            0.0
+        };
+        let natural_claim = natural_share * (1.0 - contested);
 
         // # Painting a country over itself must not draw a boundary
         //
@@ -688,16 +707,33 @@ impl Terrain {
         // stroke agrees with the ground it is laid on, the two claims are the same
         // claim and the stronger of them stands.
         if country == natural {
-            return (country, share.max(natural_share));
+            return (country, held.max(natural_claim));
         }
 
         // Where it disagrees there IS a boundary, and it fades — but it fades back
         // to the ground underneath, not to grass. A desert painted into snow country
         // gives way to snow at its edge, which is the only thing next to it.
+        //
+        // # Both sides reach nought at the handover
+        //
+        // The category flips at the threshold, and the STRENGTH used to flip with
+        // it: the painted side arrived at the line still carrying half its vote,
+        // and the natural side picked up carrying nearly all of its own. The
+        // ground colour blends by that strength, so the boundary was a cliff —
+        // sixty per cent snow on one side of a line and full grass on the other,
+        // which is the choppy join the maker photographed.
+        //
+        // So the strength is remapped so that whoever holds the ground lets go of
+        // it AT the line: the painted side fades from full, deep in the stroke, to
+        // nothing at the handover, and the natural side fades in from nothing at
+        // the handover to whatever it carried on its own. The category still flips
+        // in one step — a place is one country or the other — but everything that
+        // blends by strength now crosses the line without a seam.
         if share < Self::TAKES_HOLD {
-            return (natural, natural_share);
+            let toward = 1.0 - share / Self::TAKES_HOLD;
+            return (natural, natural_claim.min(toward));
         }
-        (country, share)
+        (country, held)
     }
 
     /// How much of the neighbourhood a stroke must carry before it overrules the
@@ -1623,6 +1659,11 @@ mod tests {
         // that — but only if what it paints actually wins.
         let terrain = Terrain::new();
 
+        // Whatever the MAKER has painted is already loaded — the layer ships in
+        // assets and these tests measure the real world. Everything below is
+        // relative to that baseline rather than assuming a blank canvas.
+        let already = terrain.marked_cells();
+
         // Somewhere the world has an opinion of its own, so this is a genuine
         // override rather than filling in a blank.
         let ranch = Vec2::new(RANCH_AT.0, RANCH_AT.1);
@@ -1674,7 +1715,13 @@ mod tests {
             terrain_core::region::Country::Ordinary,
             "fading did not reach the world's own answer"
         );
-        assert_eq!(terrain.marked_cells(), 0, "fading left cells behind");
+        // No MORE cells than the maker's own paint started with — the clearing
+        // stamp may legitimately have cleared some of theirs near the ranch too.
+        assert!(
+            terrain.marked_cells() <= already,
+            "clearing left {} cells where the maker had painted {already}",
+            terrain.marked_cells()
+        );
     }
 
     #[test]
@@ -1713,6 +1760,50 @@ mod tests {
             "desert appeared between a grassland stroke and a snow one"
         );
         assert!(seen.contains(&terrain_core::region::Country::Snow), "the snow did not take");
+    }
+
+    #[test]
+    fn a_painted_boundary_blends_without_a_seam() {
+        // The choppy join the maker photographed, measured the way the eye sees
+        // it: walk across a painted stroke's edge at half-metre steps, paint each
+        // point with the same height and slope so the only thing changing is the
+        // country, and watch the biggest single colour step. A seam is a big step
+        // in a small distance; a blend is many small ones.
+        //
+        // This is the whole chain — the stamp, the vote, the handover to the
+        // natural ground, and the colour — because the seam lived in the JOINTS
+        // between those, where no test of any one of them could see it: the
+        // category flipped at the threshold with the painted side still carrying
+        // half its strength and the natural side picking up with nearly all of
+        // its own.
+        let terrain = Terrain::new();
+        let ranch = Vec2::new(RANCH_AT.0, RANCH_AT.1);
+        {
+            let mut them = terrain.countries().write().expect("country layer");
+            them.stamp(ranch, 120.0, terrain_core::region::Country::Snow.mark());
+        }
+
+        let mut biggest = 0.0_f32;
+        let mut was: Option<[f32; 4]> = None;
+        let mut snowed = false;
+        for step in 0..=600 {
+            let at = ranch + Vec2::new(step as f32 * 0.5, 0.0);
+            let (country, belonging) = terrain.region(at.x, at.y);
+            snowed |= country == terrain_core::region::Country::Snow && belonging > 0.9;
+            let colour =
+                crate::world::biome::surface_color(30.0, 0.0, 0.5, 0.0, country, belonging);
+            if let Some(last) = was {
+                for channel in 0..3 {
+                    biggest = biggest.max((colour[channel] - last[channel]).abs());
+                }
+            }
+            was = Some(colour);
+        }
+        assert!(snowed, "the walk never stood on firmly painted snow");
+        assert!(
+            biggest < 0.06,
+            "the ground colour steps {biggest:.3} in half a metre across a painted edge"
+        );
     }
 
     #[test]
