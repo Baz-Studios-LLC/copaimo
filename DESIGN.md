@@ -428,6 +428,41 @@ long as that part stays in hand — what resets it is choosing a **different** p
 because that is the moment the maker has said what they are building next. Both ways
 of choosing a part go through `Hand::take`, so the keys and the panel cannot drift.
 
+### Cells, and the joins between them
+
+The module grid has cells. A floor fills one; a **wall stands on the join between
+two**, its centre-line the boundary, half its thickness either side. Rails, beams
+and foundations run along joins with it; floors, roofs, ridge caps, posts, stairs
+and beds sit in cells.
+
+That was always the shape of the kit — `pattern::walls` has placed its walls at
+`-MODULE * 0.5` since the day it was written — and the lattice cursor did not know
+it. Snapping to whole modules, a wall placed by hand could only land on a cell
+CENTRE: three-quarters of a metre in from the floor's edge, clipping through the
+boards. **A maker could not build what the generator built**, which says the cursor
+was wrong and not them. `Part::off_the_grid` is the one place that knows, and it
+follows the piece round — a quarter turn moves the lean from one axis to the other,
+or a turned wall lands mid-cell again.
+
+### A piece rests on what it lands on
+
+The cursor's height is the plane you are building on, and a floor laid on that plane
+fills the first quarter-metre above it — so a wall placed at the same height had its
+foot buried in the floor. `Bench::resting` raises a piece to the top of whatever it
+would have clashed with, settling through a stack rather than stepping once.
+
+**Touching is not clashing**, and everything depends on the difference: the kit is
+built out of pieces that abut, so a floor laid beside a floor, a wall on a plinth
+and a cap set on a ridge all share a face and stay exactly where they were put.
+
+It is the CURSOR's rule and not the kit's — it lives in the bench's placement path,
+not in `Bench::add`, because the generators work out exact positions and must not be
+second-guessed, and neither must a piece being dragged by its arrows.
+
+The cursor's own height is left alone by aiming, too. It was being rounded to the
+module along with x and z, so raising it to clear a floor was undone the moment the
+mouse moved.
+
 ### Reaching a piece is measured to its BOX
 
 Every "nearest piece" verb — select, paint, turn, remove — measured from the lattice
@@ -745,6 +780,10 @@ which took the kit past nine, so the digits ran out and the panel's habit of
 numbering its own rows became a lie. There is one key table now, read by the input
 and by the panel both. That is the second time this codebase has learned that
 lesson; the first was the terrain tool's eleventh tool wearing the first one's key.
+
+**Walls stood in the floor rather than on it**, and could not be put on its edge at
+all — one fault in the cursor's lattice and one in its height. See **Cells, and the
+joins between them** and **A piece rests on what it lands on**.
 
 **Two faults the same afternoon**, both reported from the bench and both the same
 shape as each other: a part took whatever colour was in hand rather than its own

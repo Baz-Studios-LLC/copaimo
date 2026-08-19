@@ -126,6 +126,50 @@ impl Part {
         }
     }
 
+    /// Whether this part's own lattice runs along the EDGES of the module grid
+    /// rather than through the middles of its cells.
+    ///
+    /// # A wall belongs on a floor's edge, and could not be put there
+    ///
+    /// A floor fills a cell: laid at a lattice point, its own edges fall half a
+    /// module either side. A wall goes ON one of those edges — its centre-line is
+    /// the join between two cells, which is what makes a room's wall stand at the
+    /// edge of its floor rather than a foot inside it.
+    ///
+    /// The generators knew this and the cursor did not. `pattern::walls` has always
+    /// placed its walls at `-MODULE * 0.5`, while the lattice cursor snapped to
+    /// whole modules — so a wall placed by hand could only ever land on a cell
+    /// CENTRE, standing three-quarters of a metre in from the floor's edge and
+    /// clipping through the boards. A maker could not build what the generator
+    /// built, which is the clearest sign the cursor was wrong rather than them.
+    ///
+    /// Read off the generators rather than invented, part by part: walls, rails and
+    /// beams run along the joins; floors, roofs, ridge caps, posts, stairs and beds
+    /// sit in cells. A foundation is the one part with no generator to read, and it
+    /// goes under a wall.
+    pub fn on_an_edge(self) -> bool {
+        matches!(self, Part::Wall | Part::Rail | Part::Beam | Part::Foundation)
+    }
+
+    /// How far this part's lattice stands off the module grid, once it is turned.
+    ///
+    /// Only the axis ACROSS the part matters — a wall is a module long whichever
+    /// way it faces, and it is its thickness that wants to sit on the join. So the
+    /// offset follows the piece round: a quarter turn moves it from one axis to the
+    /// other. Which SIGN it takes is nobody's business, since the two edges of a
+    /// cell are one module apart and a module is the step being snapped to.
+    pub fn off_the_grid(self, quarters: u8) -> Vec3 {
+        if !self.on_an_edge() {
+            return Vec3::ZERO;
+        }
+        let across = MODULE * 0.5;
+        if quarters % 2 == 0 {
+            Vec3::new(0.0, 0.0, across)
+        } else {
+            Vec3::new(across, 0.0, 0.0)
+        }
+    }
+
     /// What this part is made of, as an index into [`TINTS`].
     ///
     /// # A part arrives in its own material
@@ -374,6 +418,38 @@ impl Piece {
         self.foot
             + Vec3::Y * self.size().y * 0.5
             + self.turn() * Vec3::new(along, 0.0, aside)
+    }
+
+    /// The box this piece fills, in world space: its low corner and its high one.
+    ///
+    /// Axis-aligned, and it stays that way because quarter turns are the only turns
+    /// there are — a turn swaps a piece's length and its thickness rather than
+    /// tilting anything.
+    pub fn spread(self) -> (Vec3, Vec3) {
+        let size = self.size();
+        let half = 0.5
+            * if self.quarters % 2 == 1 {
+                Vec3::new(size.z, size.y, size.x)
+            } else {
+                size
+            };
+        let middle = self.middle();
+        (middle - half, middle + half)
+    }
+
+    /// Whether this piece and another occupy any of the same space.
+    ///
+    /// **Touching is not clashing**, and the whole kit rests on the difference: it
+    /// is built out of pieces that abut, so a floor laid beside a floor, a wall on a
+    /// plinth and a cap set on a ridge all share a face and must be left exactly
+    /// where they were put.
+    pub fn clashes_with(self, other: Piece) -> bool {
+        let (mine_low, mine_high) = self.spread();
+        let (theirs_low, theirs_high) = other.spread();
+        (0..3).all(|axis| {
+            mine_high[axis] - theirs_low[axis] > TOUCHING
+                && theirs_high[axis] - mine_low[axis] > TOUCHING
+        })
     }
 
     /// How far a point is from this piece's own box, in metres. Nought inside it.
@@ -882,6 +958,12 @@ const TREAD: f32 = 0.12;
 /// frame is painted — see `Piece::bedding`.
 const LINEN: [u8; 3] = [212, 206, 192];
 
+/// How much two pieces may share before they are in each other's way, in metres.
+///
+/// Half a snap: enough that two pieces meant to abut are not read as clashing, and
+/// far less than any part is thick.
+const TOUCHING: f32 = SNAP * 0.5;
+
 /// Nothing, in metres: what counts as landing exactly on an edge.
 const NOTHING: f32 = 1.0e-4;
 
@@ -945,6 +1027,53 @@ impl Bench {
     pub fn snapped_to(at: Vec3, step: f32) -> Vec3 {
         let step = step.max(SNAP);
         (at / step).round() * step
+    }
+
+    /// Where a piece would come to REST if it were put down here.
+    ///
+    /// # A wall stands on the floor; it does not stand in it
+    ///
+    /// Reported from the bench: walls clipping into the flooring. The cursor's
+    /// height is the plane a maker is building on, and a floor laid on that plane
+    /// occupies the first quarter-metre above it — so a wall placed at the same
+    /// height had its foot buried, and the only remedy was to raise the cursor by
+    /// four presses of a key nobody had mentioned.
+    ///
+    /// A piece never lands inside another one. Its foot rises to the top of whatever
+    /// it would have clashed with, which is what a maker means by putting a wall on
+    /// a floor. Touching is not clashing — see [`Piece::clashes_with`] — so nothing
+    /// that abuts is disturbed.
+    ///
+    /// It is the CURSOR's rule and not the kit's, which is why it lives here rather
+    /// than inside [`Self::add`]: the generators work out exact positions and must
+    /// not be second-guessed, and neither must a piece being dragged by its arrows.
+    pub fn resting(&self, part: Part, foot: Vec3, quarters: u8) -> Vec3 {
+        let mut foot = Self::snapped(foot);
+        // Settling rather than stepping once: rising out of one piece can bring a
+        // piece up into another. Bounded, because a maker pointing into a tower of
+        // pieces wants an answer rather than a search.
+        for _ in 0..MOST_SPANS {
+            let mine = Piece {
+                id: 0,
+                part,
+                foot,
+                quarters,
+                tint: 0,
+                spans: 1,
+                across: 1,
+            };
+            let top = self
+                .pieces
+                .iter()
+                .filter(|other| mine.clashes_with(**other))
+                .map(|other| other.spread().1.y)
+                .fold(f32::MIN, f32::max);
+            if top == f32::MIN {
+                break;
+            }
+            foot.y = Self::snapped(Vec3::Y * top).y;
+        }
+        foot
     }
 
     /// Adds a member, snapping it, and hands back its name.
@@ -1983,6 +2112,164 @@ mod tests {
     }
 
     #[test]
+    fn a_wall_stands_on_a_floor_rather_than_in_it() {
+        // Reported from the bench: walls clipping into the flooring. A floor laid on
+        // the plane the cursor is on fills the first quarter-metre above it, so a
+        // wall placed at the same height had its foot buried in the boards.
+        let mut bench = Bench::default();
+        bench.add(Part::Floor, Vec3::ZERO, 0, 0).expect("a floor");
+
+        // Where a wall would come to rest, pointed at the floor's own edge.
+        let edge = Vec3::new(0.0, 0.0, -MODULE * 0.5);
+        let foot = bench.resting(Part::Wall, edge, 0);
+        assert!(
+            (foot.y - Part::Floor.size().y).abs() < 1.0e-4,
+            "a wall rests {:.3} m up, on a floor {:.3} m thick",
+            foot.y,
+            Part::Floor.size().y
+        );
+        assert!(
+            (foot.x - edge.x).abs() < 1.0e-4 && (foot.z - edge.z).abs() < 1.0e-4,
+            "resting a wall moved it sideways, to {foot:?}"
+        );
+
+        // And once it is down, nothing is inside anything.
+        let id = bench.add(Part::Wall, foot, 0, 0).expect("a wall");
+        let wall = *bench.pieces().iter().find(|p| p.id == id).expect("the wall");
+        let floor = *bench.pieces().iter().find(|p| p.id != id).expect("the floor");
+        assert!(
+            !wall.clashes_with(floor),
+            "the wall is still inside the floor: {:?} against {:?}",
+            wall.spread(),
+            floor.spread()
+        );
+        // Standing ON it, not hovering over it.
+        assert!(
+            (wall.spread().0.y - floor.spread().1.y).abs() < 1.0e-4,
+            "the wall's foot is {:.4} m from the floor's top",
+            wall.spread().0.y - floor.spread().1.y
+        );
+    }
+
+    #[test]
+    fn a_piece_laid_beside_another_is_not_lifted_onto_it() {
+        // The other half of resting, and the half that would ruin everything: the
+        // kit is built out of pieces that abut. If touching counted as clashing, a
+        // floor laid beside a floor would climb on top of it and a cap set on a
+        // ridge would float.
+        let mut bench = Bench::default();
+        bench.add(Part::Floor, Vec3::ZERO, 0, 0);
+        for step in 1..4 {
+            let beside = Vec3::new(step as f32 * MODULE, 0.0, 0.0);
+            let foot = bench.resting(Part::Floor, beside, 0);
+            assert!(
+                foot.y.abs() < 1.0e-4,
+                "the {step}th floor climbed to {:.3} m",
+                foot.y
+            );
+            bench.add(Part::Floor, foot, 0, 0);
+        }
+        // Across, too.
+        let foot = bench.resting(Part::Floor, Vec3::new(0.0, 0.0, MODULE), 0);
+        assert!(foot.y.abs() < 1.0e-4, "a floor across from another climbed to {:.3}", foot.y);
+    }
+
+    #[test]
+    fn resting_settles_through_a_stack_rather_than_stepping_once() {
+        // Rising out of one piece can bring a piece up into another.
+        let mut bench = Bench::default();
+        bench.add(Part::Floor, Vec3::ZERO, 0, 0);
+        // A beam sitting on the floor, in the same column a wall is about to go.
+        let beam = bench.resting(Part::Beam, Vec3::new(0.0, 0.0, -MODULE * 0.5), 0);
+        bench.add(Part::Beam, beam, 0, 0);
+
+        let wall = bench.resting(Part::Wall, Vec3::new(0.0, 0.0, -MODULE * 0.5), 0);
+        let wanted = Part::Floor.size().y + Part::Beam.size().y;
+        assert!(
+            (wall.y - wanted).abs() < 1.0e-4,
+            "a wall over a floor and a beam rests at {:.3}, not {wanted:.3}",
+            wall.y
+        );
+    }
+
+    #[test]
+    fn the_parts_that_run_along_a_join_sit_off_the_grid() {
+        // What the generators have always done, said once where the cursor can read
+        // it too — `pattern::walls` places its walls at half a module, and until now
+        // the lattice cursor could only land on whole ones.
+        for part in Part::ALL {
+            let off = part.off_the_grid(0);
+            if part.on_an_edge() {
+                assert!(
+                    (off.z - MODULE * 0.5).abs() < 1.0e-4 && off.x == 0.0,
+                    "{} leans {off:?}, which is not a cell join",
+                    part.name()
+                );
+                // And it follows the piece round: a quarter turn moves the lean from
+                // one axis to the other, or a turned wall lands in the middle of a
+                // cell again.
+                let turned = part.off_the_grid(1);
+                assert!(
+                    (turned.x - MODULE * 0.5).abs() < 1.0e-4 && turned.z == 0.0,
+                    "{} turned a quarter leans {turned:?}",
+                    part.name()
+                );
+            } else {
+                assert_eq!(off, Vec3::ZERO, "{} should sit in a cell", part.name());
+                assert_eq!(part.off_the_grid(1), Vec3::ZERO);
+            }
+        }
+
+        // The parts a wall lines up with lean the same way, or a beam over a wall
+        // would sit half a module off it.
+        for part in [Part::Beam, Part::Rail, Part::Foundation] {
+            assert_eq!(
+                part.off_the_grid(0),
+                Part::Wall.off_the_grid(0),
+                "{} does not line up with a wall",
+                part.name()
+            );
+        }
+    }
+
+    #[test]
+    fn a_wall_on_the_lean_lattice_lands_on_a_floor_s_edge() {
+        // The whole point of the lean, measured: the wall's centre-line and the
+        // floor's edge are the same line.
+        let mut bench = Bench::default();
+        bench.add(Part::Floor, Vec3::ZERO, 0, 0);
+        let floor = bench.pieces()[0];
+        let (low, high) = floor.spread();
+
+        // Where the cursor lands with a wall in hand, pointing near the floor's far
+        // edge: the module grid, leaned by half a module.
+        let lean = Part::Wall.off_the_grid(0);
+        let aimed = Vec3::new(0.1, 0.0, high.z - 0.2);
+        let at = Bench::snapped_to(aimed - lean, MODULE) + lean;
+        assert!(
+            (at.z - high.z).abs() < 1.0e-4,
+            "the cursor landed at {:.3} against a floor edge at {:.3}",
+            at.z,
+            high.z
+        );
+
+        let foot = bench.resting(Part::Wall, at, 0);
+        let id = bench.add(Part::Wall, foot, 0, 0).expect("a wall");
+        let wall = *bench.pieces().iter().find(|p| p.id == id).unwrap();
+        let (wall_low, wall_high) = wall.spread();
+        let centre = (wall_low.z + wall_high.z) * 0.5;
+        assert!(
+            (centre - high.z).abs() < 1.0e-4,
+            "the wall's centre-line is at {centre:.3} and the floor's edge at {:.3}",
+            high.z
+        );
+        // Which puts half its thickness over the boards and half over the drop —
+        // and its length along the floor's own edge rather than across the middle.
+        assert!(wall_low.z < high.z && wall_high.z > high.z, "the wall is not on the edge");
+        let _ = low;
+    }
+
+    #[test]
     fn a_part_arrives_in_its_own_material() {
         // Reported from the bench: a foundation came out the colour of the wood and
         // so did the stairs, because the colour in hand followed the maker from one
@@ -2169,6 +2456,27 @@ mod look {
         let steps = put(&mut bench, Part::Stairs, Vec3::new(1.5, 0.0, 1.5));
         bench.stretch(steps, 1);
         put(&mut bench, Part::Bed, Vec3::new(-2.0, 0.25, -1.0));
+
+        // And a room built the way the CURSOR builds one: the lattice a part sits
+        // on, then wherever that part comes to rest. Written out here rather than
+        // typed as positions, so what this draws is what the bench would do.
+        let laid = |bench: &mut Bench, part: Part, aimed: Vec3, quarters: u8| {
+            let lean = part.off_the_grid(quarters);
+            let at = Bench::snapped_to(aimed - lean, MODULE) + lean;
+            let foot = bench.resting(part, Vec3::new(at.x, 0.0, at.z), quarters);
+            bench.add(part, foot, quarters, part.natural());
+        };
+
+        // Two modules of floor, and walls along three of its edges.
+        for across in 0..2 {
+            laid(&mut bench, Part::Floor, Vec3::new(4.5 + across as f32 * MODULE, 0.0, 0.0), 0);
+        }
+        for across in 0..2 {
+            let along = 4.5 + across as f32 * MODULE;
+            laid(&mut bench, Part::Wall, Vec3::new(along, 0.0, -0.7), 0);
+            laid(&mut bench, Part::Wall, Vec3::new(along, 0.0, 0.7), 0);
+        }
+        laid(&mut bench, Part::Wall, Vec3::new(4.5 - 0.7, 0.0, 0.0), 1);
 
         println!("SCENE {}", as_json(&bench));
     }

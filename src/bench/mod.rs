@@ -556,7 +556,7 @@ fn aim(
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<BenchEye>>,
     mut hand: ResMut<Hand>,
-    mut was: Local<Option<Vec2>>,
+    mut was: Local<Option<(Vec2, Vec3)>>,
 ) {
     let (Some(window), Some((camera, eye))) = (windows.iter().next(), cameras.iter().next()) else {
         return;
@@ -573,12 +573,20 @@ fn aim(
     {
         return;
     }
-    // Only when the pointer has actually moved. Otherwise every key nudge would be
-    // undone on the very next frame by a mouse sitting still.
-    if *was == Some(cursor) {
+    // Which lattice the thing in hand sits on: cells, or the joins between them.
+    // See `Part::off_the_grid`.
+    let lean = hand
+        .part
+        .map_or(Vec3::ZERO, |part| part.off_the_grid(hand.quarters));
+
+    // Only when the pointer has actually moved — otherwise every key nudge would be
+    // undone on the very next frame by a mouse sitting still — or when the lattice
+    // itself has changed under it, which is what taking up a different part or
+    // turning the one in hand does.
+    if *was == Some((cursor, lean)) {
         return;
     }
-    *was = Some(cursor);
+    *was = Some((cursor, lean));
 
     let Ok(ray) = camera.viewport_to_world(eye, cursor) else {
         return;
@@ -605,12 +613,16 @@ fn aim(
     );
     // To the module unless the fine key is held, for the same reason the keys step
     // that way: what a maker is nearly always doing is putting a piece beside
-    // another piece.
+    // another piece. Snapped on the LEANED lattice, so a wall lands on a join.
     let snapped = if fine {
         Bench::snapped(held)
     } else {
-        Bench::snapped_to(held, kit::MODULE)
+        Bench::snapped_to(held - lean, kit::MODULE) + lean
     };
+    // The height is the maker's, not the snap's. Rounding it to the module put the
+    // cursor back on the ground every time the mouse moved, so raising it a
+    // quarter-metre to clear a floor was undone before anything could be placed.
+    let snapped = Vec3::new(snapped.x, hand.at.y, snapped.z);
     if snapped != hand.at {
         hand.at = snapped;
     }
@@ -724,7 +736,10 @@ fn place(
                 // Only with something in hand. An empty cursor is the resting
                 // state and it builds nothing — see `Hand::part`.
                 if let Some(part) = hand.part {
-                    if bench.add(part, hand.at, hand.quarters, hand.tint).is_some() {
+                    // On top of whatever is already there, rather than through it —
+                    // see `Bench::resting`.
+                    let foot = bench.resting(part, hand.at, hand.quarters);
+                    if bench.add(part, foot, hand.quarters, hand.tint).is_some() {
                         // And the hand empties. Placing is one deliberate act, not
                         // a mode you are left in afterwards.
                         emptied = true;
