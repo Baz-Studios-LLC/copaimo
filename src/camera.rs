@@ -294,8 +294,12 @@ fn drive_camera(
             let focus = player.translation + Vec3::Y * LOOK_HEIGHT;
             let mut desired = focus + back * orbit.distance;
 
-            // Never let the camera sink into a hillside behind the player.
-            let ground = terrain.height(desired.x, desired.z) + GROUND_CLEARANCE;
+            // Never let the camera sink into a hillside behind the player — but
+            // inside the mountain pass the hillside overhead is not a floor, so it
+            // asks the same two-level question the warden's feet do, from the
+            // warden's own height.
+            let ground = terrain.walk_floor(desired.x, desired.z, player.translation.y)
+                + GROUND_CLEARANCE;
             desired.y = desired.y.max(ground);
 
             // Frame-rate independent exponential smoothing: the camera covers

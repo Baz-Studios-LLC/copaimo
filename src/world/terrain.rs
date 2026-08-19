@@ -969,6 +969,35 @@ impl Terrain {
         }
     }
 
+    /// The height a walker's feet belong at.
+    ///
+    /// # The one place this world has two grounds
+    ///
+    /// Everywhere else the ground is a height per place and feet snap to it. Under
+    /// the mountain pass there are two: the tunnel's floor, and the mountain's own
+    /// top above it. Which one a walker is on cannot be decided from where they are
+    /// standing alone — both are directly overhead one another — so it is decided
+    /// from where they are standing NOW: somebody already down at floor level
+    /// inside the corridor stays down, and somebody up on the mountain stays up.
+    ///
+    /// That is also what makes the mouths work without a door: walk in along the
+    /// cutting and the drawn ground carries you down to the floor, and by the time
+    /// the rock closes overhead you are already low enough to be claimed.
+    pub fn walk_floor(&self, x: f32, z: f32, standing: f32) -> f32 {
+        let drawn = self.height(x, z);
+        let at = Vec2::new(x, z);
+        let Some(floor) = crate::world::pass::floor(at, self.without_the_pass(x, z)) else {
+            return drawn;
+        };
+        // Below the rock's crown means underground; anything higher is on the
+        // mountain, walking over the tunnel with no idea it is there.
+        if standing < floor + crate::world::pass::HEADROOM {
+            floor
+        } else {
+            drawn
+        }
+    }
+
     /// The tunnels, for the tool and for saving.
     pub fn bores(&self) -> &std::sync::RwLock<crate::world::bores::Bores> {
         &self.bores
@@ -2798,5 +2827,80 @@ mod crown_probe {
                 sculpted,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod through_the_pass {
+    use super::*;
+
+    /// Walk the pass on the real world, at a warden's height, mouth to mouth.
+    ///
+    /// The thing four screenshots in a row disproved and no test was asking: can
+    /// somebody actually get through, under rock, without climbing the mountain
+    /// and without falling through anything.
+    #[test]
+    fn a_warden_can_walk_through_the_mountain() {
+        let terrain = Terrain::new();
+        let (sin, cos) = crate::world::pass::HEADING.sin_cos();
+        let along = Vec2::new(cos, sin);
+
+        // Start well out on the plain, walk the corridor, end well out the far
+        // side — carrying the walker's own height along, because which of the two
+        // grounds claims them depends on where they already are.
+        let reach = 700.0;
+        let start = crate::world::pass::AT - along * reach;
+        let mut standing = terrain.height(start.x, start.y);
+
+        let mut deepest_rock = 0.0_f32;
+        let mut biggest_step = 0.0_f32;
+        let mut step_at = 0.0;
+        let mut highest = standing;
+        for step in 0..=1_400 {
+            let at = start + along * (step as f32 * (reach * 2.0 / 1_400.0));
+            let was = standing;
+            standing = terrain.walk_floor(at.x, at.y, standing);
+            if (standing - was).abs() > biggest_step {
+                biggest_step = (standing - was).abs();
+                step_at = step as f32 * (reach * 2.0 / 1_400.0) - reach;
+            }
+            highest = highest.max(standing);
+            // How much mountain is overhead where they are walking.
+            deepest_rock = deepest_rock.max(terrain.height(at.x, at.y) - standing);
+        }
+
+        assert!(
+            biggest_step < 1.5,
+            "the walk jumps {biggest_step:.2} m at {step_at:.0} m — a wall or a hole in the corridor"
+        );
+        assert!(
+            deepest_rock > 100.0,
+            "the walk only ever had {deepest_rock:.0} m of rock overhead — it went over the top"
+        );
+        // And it came out the other side, not up onto the mountain.
+        let ended = standing;
+        let out = start + along * (reach * 2.0);
+        assert!(
+            (ended - terrain.height(out.x, out.y)).abs() < 2.0,
+            "the walk ended at {ended:.0} m with the ground at {:.0} m",
+            terrain.height(out.x, out.y)
+        );
+    }
+
+    #[test]
+    fn walking_over_the_mountain_stays_over_it() {
+        // The other half of the two-level rule: somebody up on the mountainside,
+        // directly above the tunnel, must stay on the mountain. If the corridor
+        // claimed them they would drop two hundred metres through solid rock.
+        let terrain = Terrain::new();
+        let at = crate::world::pass::AT;
+        let top = terrain.height(at.x, at.y);
+        assert!(top > 150.0, "the mountain is only {top:.0} m over the tunnel");
+
+        let standing = terrain.walk_floor(at.x, at.y, top);
+        assert!(
+            (standing - top).abs() < 0.01,
+            "somebody on the summit was dropped to {standing:.0} m"
+        );
     }
 }

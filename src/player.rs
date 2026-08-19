@@ -272,7 +272,15 @@ pub fn move_player(
 
     // Plant the feet on the ground every frame, including when standing still,
     // so the warden settles correctly the moment the world finishes loading.
-    let ground = terrain.height(transform.translation.x, transform.translation.z);
+    //
+    // `walk_floor` rather than `height`, because the mountain pass has two grounds
+    // stacked over each other and which one the warden is on depends on where they
+    // already are — see its own note.
+    let ground = terrain.walk_floor(
+        transform.translation.x,
+        transform.translation.z,
+        transform.translation.y,
+    );
     transform.translation.y = ground.max(SEA_LEVEL - WADE_DEPTH);
 }
 

@@ -15,72 +15,42 @@ collect).
 
 ## The mountain pass
 
-The road east runs desert → **mountain pass** → grassland → snow. The pass is a
-wall of rock across the whole route with one bore through it, at `pass::AT` on the
-desert's eastern edge: you cannot walk round it in any reasonable distance and you
-cannot walk over it, so getting east means going through the hole.
+The road east runs desert → **mountain pass** → grassland → snow. The mountain is a
+wall across the whole route with one tunnel through it, and getting east means going
+through it.
 
-**A heightfield has one surface and a tunnel needs two**, so the job is split
-between the two things that can each do half:
+**The mountain is terrain; the tunnel is a tube inside it.** The first build carved
+a slot down through the heightfield and lidded it with a mesh. Geometrically sound,
+and wrong from every angle that mattered: the carve killed the trees and painted a
+stone stripe down the whole corridor, the lid was a grey band where mountainside
+should be, and from the air the tunnel read as a road. A mountain with a stripe
+shaved over its shoulder is a mountain with a scar, not one with a tunnel in it.
 
-* the **floor and walls** are the heightfield, carved. Where the passage runs the
-  mountain is simply not applied — so the bore's floor is the ordinary ground the
-  mountain was raised on, at the height it always had. That is why walking in is
-  level and why the mouths need no blending.
-* the **rock above** is a mesh (`pass::rock_over_the_bore`) filling the slot the
-  carving left, between the tunnel's arched ceiling and the mountain's own skin.
+So the ground keeps its skin. The heightfield over the tunnel is the mountain,
+whole — its trees grow, its snow lies, its creases shade — and nothing says a tunnel
+exists except at the two **mouths**, where a short cutting carves down to walking
+level and the dark of the tube shows. The cuttings place themselves: they appear
+wherever the corridor crosses ground the mountain holds only thinly, so reshaping
+the mountain moves its own doorways.
 
-Neither half knows anything the other does not — both are drawn from the same
-`ridge` and `bore` over the same ground — so the mesh cannot drift off the terrain
-it is plugging, and sculpting the hillside moves both.
+Inside, `pass::tube` builds a floor and an arched ceiling from mouth to mouth, wound
+to face **inward** (from outside, the far wall shows through each mouth as darkness
+and the near wall is culled), with the light **baked into the vertex colours** —
+stone at the mouths falling to near-black through the middle, because no sun reaches
+a tunnel and there are no lamps yet.
 
-**Nothing decides where the mouths are.** The plug's thickness is the mountain's
-height above the tunnel's crown; where the mountain is lower than the crown that is
-nought. So the roof thins as the ground falls, opens into a cutting, and the
-cutting opens onto the plain. A railway looks like this for the same reason, and it
-means there is no end cap anywhere to get wrong.
+**This is the one place in the world with two grounds**, so `Terrain::walk_floor`
+replaces the plain height snap for the warden and the follow camera. Which ground
+claims you cannot be decided from where you are — both are directly above one
+another — so it is decided from where you *already* are: below the crown inside the
+corridor keeps you on the floor, anything higher keeps you on the mountain. That is
+also what makes the mouths work with no door: walking in along a cutting carries you
+down before the rock closes over you.
 
-Under the rock nothing grows and the floor paints as stone (`pass::underground`) —
-the bore's floor is ordinary walkable ground, which would otherwise have been a
-fine place for a wood to grow straight up through the ceiling. The cuttings at each
-mouth are open to the sky and keep their grass.
-
-Still to come: branching paths off the bore, and something to make the inside dark
-beyond what the roof's own shadow gives.
-
-## The two mountains
-
-Both mountains were smooth analytic profiles — very tall hills — and both are
-shaped now, each to its own brief.
-
-**The great mountain is a table mountain**, because the endgame tournament is held
-on its summit: a plateau of `MASSIF_CROWN` radius, held DEAD flat (the base land
-under it is levelled to one height as the last word in `raw_height` — levelled
-earlier, the ranges and fine detail quietly stacked their noise back on top, which
-is exactly what had put ten metres of tilt across the tournament ground). Below the
-rim: a scarp collar dropping a third of the mountain in under a hundred metres,
-then long creased flanks — two octaves of `1 - |noise|` gullies, faded to nothing
-before the crown so the ridges between them run up the mountain like spurs. The
-tournament test measures both halves: the crown moves less than 6 m across, and
-the flanks average better than a 25% grade.
-
-**The pass wall is a serrated ridge**: the whole profile scales with a slow noise
-along the wall so the skyline is peaks and saddles, and the flanks carry gullies
-stretched DOWN the fall line — water's work runs downhill, and isotropic folds came
-out as round pockets that read as hammered metal. Creases live mid-flank only: at
-the crest they would notch the skyline below the saddles, at the foot they would
-trench the plain. Nothing is ever added on top — creases only cut down — so the
-bore's roof arithmetic reads the same mountain the ground draws.
-
-The walk-over test changed with the shape: what blocks a walker is the highest
-ground on their PATH, so each candidate crossing is measured by the most it makes
-them climb, and the weakest crossing along the wall still tops half the nominal
-height. Asserting every flank sample was high would fail the gullies — a gully
-partway up a mountainside is not a way over it.
-
-`dump_the_relief` (hillshade, no biome colour) is how all of this was judged:
-colour cannot show shape in snow country, where everything is white at every
-height.
+`a_warden_can_walk_through_the_mountain` walks the whole crossing on the real world
+at a warden's height and checks the three things the screenshots kept disproving:
+the ground never jumps, there is always real rock overhead, and you come out the far
+side rather than on top.
 
 ## Boring tunnels in the terrain tool
 
