@@ -78,6 +78,7 @@ fn linear(r: f32, g: f32, b: f32) -> Vec3 {
 /// numbers, and forty-five metres of world where the ground disagreed with itself
 /// about what it was. There is one number now and both paths read it.
 pub fn surface_color(
+    at: Vec2,
     height: f32,
     slope: f32,
     character: f32,
@@ -215,5 +216,86 @@ pub fn surface_color(
         color = color.lerp(p.lush_grass, (-worn * 0.7).clamp(0.0, 1.0));
     }
 
-    [color.x, color.y, color.z, 1.0]
+    // # Ground is never one colour, and this one was
+    //
+    // Standing on open grass, the whole screen was a single flat green with a
+    // warden on it. Every ingredient above answers a question about the PLACE —
+    // how high, how steep, which country — and a field answers all of them the
+    // same way, so a field came out as paint.
+    //
+    // What breaks it up is not detail nobody can name: it is that grass grows
+    // thicker in the hollows and thinner over the stony patches, in blotches a few
+    // paces across and patches a field across. Two scales of it, laid on the
+    // colour the place has already earned rather than mixed into the decisions
+    // above — this changes what somewhere LOOKS like and must never change what it
+    // IS, or a tree would stop growing because the ground under it went a shade
+    // darker.
+    //
+    // Vertex colours, so it costs nothing to draw: the terrain mesh already
+    // carries a colour a vertex, on a two-metre grid, and the fine scale is drawn
+    // at about that size so the mesh can actually hold it.
+    let mottle = mottle_at(at);
+    // How much each surface takes. Snow is genuinely near-uniform and blotching it
+    // reads as dirt; rock and grass are the opposite, and sand sits between.
+    let takes = match country {
+        terrain_core::region::Country::Snow => MOTTLE_SNOW,
+        terrain_core::region::Country::Desert => MOTTLE_SAND,
+        terrain_core::region::Country::Ordinary => MOTTLE,
+    };
+    // Nothing underwater: the sea is drawn over it, and a mottled sea floor read
+    // through moving water is just noise.
+    let takes = if height >= SEA_LEVEL { takes } else { 0.0 };
+
+    // Brightness, and a lean toward the yellow of dry grass or the blue-green of
+    // thick growth. Tone alone reads as lighting; it is the hue drift that reads
+    // as different GROWTH on the same ground.
+    color *= 1.0 + mottle * takes;
+    let lean = mottle_at(at * DRIFT_SCALE + Vec2::splat(37.0)) * takes * DRIFT;
+    color.x *= 1.0 + lean;
+    color.z *= 1.0 - lean;
+
+    [color.x.max(0.0), color.y.max(0.0), color.z.max(0.0), 1.0]
 }
+
+/// Two scales of blotching over the ground, about -0.5 to 0.5.
+///
+/// The broad one is patches a field across — where the ground is richer or
+/// stonier. The fine one is the few-paces mottling within them, drawn at roughly
+/// the terrain mesh's own vertex spacing, which is the finest thing vertex colours
+/// can hold. Any finer and the mesh would average it away into flat paint again,
+/// which is the very thing being fixed.
+fn mottle_at(at: Vec2) -> f32 {
+    // Each field is 0..1, so each term is a half either way and the pair of them
+    // ADD rather than average: averaging two independent fields is what quietly
+    // halves the spread, and the first attempt at this came out too faint to see
+    // for exactly that reason. Roughly a whole either way at the extremes, a third
+    // either way most of the time.
+    let broad = terrain_core::forest::field(at / MOTTLE_BROAD, 73) - 0.5;
+    let fine = terrain_core::forest::field(at / MOTTLE_FINE, 74) - 0.5;
+    broad + fine
+}
+
+/// How far the ground strays from its own colour, by country, and the two scales
+/// it strays at in metres.
+///
+/// Tuned by eye against a flat field at midday, which is the worst case: a slope
+/// has its own shading to break it up and a field has nothing. `dump_the_ground`
+/// plus `dev/ground.py` draws exactly that patch without launching anything, and
+/// is how these numbers were arrived at rather than guessed.
+///
+/// The fine scale is deliberately several times the terrain's two-metre vertex
+/// spacing. Finer than about four vertices and the mesh cannot hold the blotch: it
+/// averages away into the flat paint this exists to break up.
+const MOTTLE: f32 = 0.24;
+const MOTTLE_SAND: f32 = 0.12;
+const MOTTLE_SNOW: f32 = 0.05;
+const MOTTLE_BROAD: f32 = 46.0;
+const MOTTLE_FINE: f32 = 9.0;
+
+/// How far the colour leans toward dry yellow or thick blue-green, and at what
+/// scale relative to the tone.
+///
+/// Small. This is the difference between two patches of the same grass, not
+/// between grass and something else.
+const DRIFT: f32 = 0.18;
+const DRIFT_SCALE: f32 = 0.55;

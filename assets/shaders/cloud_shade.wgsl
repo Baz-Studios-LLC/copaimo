@@ -39,7 +39,8 @@ struct Discs {
 @group(2) @binding(101) var<uniform> discs: Discs;
 
 /// x: what this material's geometry DOES — 0 stands still, 1 is grass pushed
-///    aside by movers, 2 is the sea carried by the swell.
+///    aside by movers, [`SEA`] is the sea carried by the swell. It also says which
+///    surface this IS, which is what keeps cloud shadows off the water.
 /// y: how far a mover pushes it, in metres (grass only).
 /// z: how many of the movers below are real (grass only).
 @group(2) @binding(102) var<uniform> bending: vec4<f32>;
@@ -58,6 +59,11 @@ struct Movers {
 @group(2) @binding(103) var<uniform> movers: Movers;
 
 const TAU: f32 = 6.28318530718;
+
+/// What `bending.x` holds for the sea. Named, because two different questions are
+/// asked of it — how this surface MOVES and what it IS — and a bare 2.0 in the
+/// fragment stage would look like a mistake.
+const SEA: f32 = 2.0;
 
 /// How high the sea stands at a point, right now.
 ///
@@ -193,7 +199,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     );
     // What kind of thing this is decides how it moves. A uniform branch is
     // free: every vertex of a draw agrees on it.
-    if bending.x > 1.5 {
+    if bending.x > SEA - 0.5 {
         // The sea: the flat plane is lifted to wherever the surface stands.
         out.world_position.y = sea_surface_at(out.world_position.xz);
     }
@@ -289,7 +295,13 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // horizon throws a cloud's shadow kilometres sideways, which is true and
     // useless, and by then the light is too flat for anyone to read a shadow on
     // the ground anyway.
-    if weather.x > 0.0 {
+    //
+    // And never on the SEA. A cloud's shadow on water is a real thing and it does
+    // not read as one here: open water is a broad flat blue, so a soft dark disc
+    // laid on it has nothing to sit on and comes out as a stain. Half the view from
+    // any coast is sea, which made the whole sky's weather look like dirt on the
+    // lens. It is the one surface in the world that goes without.
+    if weather.x > 0.0 && bending.x < SEA - 0.5 {
         let lit = sunlight_on(in.world_position.xz);
         out.color = vec4<f32>(out.color.rgb * lit, out.color.a);
     }

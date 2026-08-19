@@ -418,6 +418,7 @@ fn render(terrain: &Terrain, size: UVec2) -> Vec<u8> {
             // The same classification the terrain itself uses, so the overview
             // reads as the world rather than as a separate diagram.
             let color = surface_color(
+                Vec2::new(x, z),
                 height,
                 slope,
                 terrain.shore_character(x, z),

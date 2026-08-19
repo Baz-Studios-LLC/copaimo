@@ -1531,6 +1531,7 @@ mod tests {
                         continue;
                     }
                     let colour = crate::world::biome::surface_color(
+                        at,
                         terrain.height(at.x, at.y),
                         1.0 - terrain.normal(at.x, at.y, 2.0).y,
                         terrain.shore_character(at.x, at.y),
@@ -1790,8 +1791,11 @@ mod tests {
             let at = ranch + Vec2::new(step as f32 * 0.5, 0.0);
             let (country, belonging) = terrain.region(at.x, at.y);
             snowed |= country == terrain_core::region::Country::Snow && belonging > 0.9;
+            // The real place, so the walk measures the ground the game draws —
+            // mottling and all. A fixed point would take the mottle out of the
+            // measurement and leave the test blind to a seam it could cause.
             let colour =
-                crate::world::biome::surface_color(30.0, 0.0, 0.5, 0.0, country, belonging);
+                crate::world::biome::surface_color(at, 30.0, 0.0, 0.5, 0.0, country, belonging);
             if let Some(last) = was {
                 for channel in 0..3 {
                     biggest = biggest.max((colour[channel] - last[channel]).abs());
@@ -2350,6 +2354,71 @@ mod biomes {
             Biome::Forest.name(),
         ] {
             assert!(tally.contains_key(wanted), "no {wanted} anywhere in the world");
+        }
+    }
+}
+
+#[cfg(test)]
+mod look {
+    use super::*;
+
+    /// Dumps a patch of ground as the mesh would colour it, for looking at.
+    ///
+    /// `cargo test dump_the_ground -- --ignored --nocapture` prints a header and
+    /// then a row of hex per line; `dev/ground.sh` turns that into a PNG. Sampled
+    /// at the terrain mesh's own vertex spacing and drawn flat, which is the worst
+    /// case for a flat-looking field: no slope shading, no light, nothing to hide
+    /// behind.
+    #[test]
+    #[ignore = "a picture, not a check"]
+    fn dump_the_ground() {
+        let terrain = Terrain::new();
+        // Open grass near the ranch, where the maker photographed a flat green
+        // screen with a warden standing on it.
+        let middle = Vec2::new(RANCH_AT.0 + 220.0, RANCH_AT.1 + 60.0);
+        // Two metres a pixel: the mesh's own vertex grid, so what is drawn here is
+        // exactly what the mesh can hold.
+        const STEP: f32 = 2.0;
+        const WIDE: i32 = 220;
+        const HIGH: i32 = 130;
+
+        println!("GROUND {WIDE} {HIGH}");
+        for pz in 0..HIGH {
+            let mut row = String::with_capacity(WIDE as usize * 6);
+            for px in 0..WIDE {
+                let at = middle
+                    + Vec2::new(
+                        (px - WIDE / 2) as f32 * STEP,
+                        (pz - HIGH / 2) as f32 * STEP,
+                    );
+                let height = terrain.height(at.x, at.y);
+                let (country, belonging) = terrain.region(at.x, at.y);
+                let colour = crate::world::biome::surface_color(
+                    at,
+                    height,
+                    1.0 - terrain.normal(at.x, at.y, 2.0).y,
+                    terrain.shore_character(at.x, at.y),
+                    terrain.worn(at.x, at.y),
+                    country,
+                    belonging,
+                );
+                // Linear to sRGB, because that is what a screen shows.
+                let byte = |v: f32| {
+                    let s = if v <= 0.003_130_8 {
+                        v * 12.92
+                    } else {
+                        1.055 * v.powf(1.0 / 2.4) - 0.055
+                    };
+                    (s.clamp(0.0, 1.0) * 255.0).round() as u8
+                };
+                row.push_str(&format!(
+                    "{:02x}{:02x}{:02x}",
+                    byte(colour[0]),
+                    byte(colour[1]),
+                    byte(colour[2])
+                ));
+            }
+            println!("{row}");
         }
     }
 }
