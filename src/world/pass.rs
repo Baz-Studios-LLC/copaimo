@@ -100,6 +100,21 @@ const SHOULDER: f32 = 0.72;
 const BORE_WIDE: f32 = 5.5;
 const BORE_WALL: f32 = 3.0;
 
+/// How far either side of the middle the ground is carved FLAT, in metres.
+///
+/// # The walls have to be rock, not terrain
+///
+/// The floor used to be carved just wide enough for the arch, so the terrain
+/// itself climbed the walls — and a heightfield cannot make a vertical wall. It
+/// samples every two metres, so a hundred and sixty metres of rise over three
+/// metres of ground comes out as a stair with two-metre treads, and from inside
+/// the bore that is a jagged silhouette climbing away on both sides.
+///
+/// So the flat floor now runs well past the arch, and the rock above lies on that
+/// floor rather than on a slope: the tunnel's whole lining is mesh, cut to a smooth
+/// curve, and the terrain's own ramp happens out beyond it where the rock hides it.
+const BORE_SPAN: f32 = 12.0;
+
 /// Height from the floor to the crown, in metres.
 ///
 /// Close to the bore's own half-width, so the section is round rather than a
@@ -132,7 +147,7 @@ pub fn ridge(at: Vec2) -> f32 {
 /// supposed to be getting through.
 pub fn bore(at: Vec2) -> f32 {
     let (_, across) = local(at);
-    crate::util::smoothstep(BORE_WIDE + BORE_WALL, BORE_WIDE, across.abs())
+    crate::util::smoothstep(BORE_SPAN + BORE_WALL, BORE_SPAN, across.abs())
 }
 
 /// What the pass adds to the ground here, in metres.
@@ -154,6 +169,14 @@ pub fn underground(at: Vec2) -> f32 {
     // whatever grows in a cutting.
     let roof = ridge(at) - BORE_HIGH;
     bore(at) * crate::util::smoothstep(0.0, BORE_HIGH, roof)
+}
+
+/// How wide the floor a warden can actually walk on is, in metres either side.
+///
+/// The arch, not the carve: the ground is flat out to [`BORE_SPAN`] but the rock
+/// rests on it beyond the arch's foot, so the space is the tube's own width.
+pub fn walkable() -> f32 {
+    BORE_WIDE
 }
 
 /// Where a point sits in the pass's own frame: along the tunnel, and across it.
@@ -224,7 +247,7 @@ pub fn rock_over_the_bore(natural: impl Fn(Vec2) -> f32) -> Geometry {
     let along_way = Vec2::new(cos, sin);
     let across_way = Vec2::new(-sin, cos);
     let long = WALL_THICK * OVERRUN;
-    let wide = (BORE_WIDE + BORE_WALL) * OVERRUN;
+    let wide = (BORE_SPAN + BORE_WALL) * OVERRUN;
 
     // Both sheets over the same grid, so a vertex on one has its opposite number
     // on the other and the two can be stitched without searching for anything.
@@ -425,7 +448,7 @@ mod tests {
         let mut where_lowest = Vec2::ZERO;
         for side in [-1.0_f32, 1.0] {
             for out in 0..=((WALL_LONG * 0.7) as i32 / 5) {
-                let aside = (BORE_WIDE + BORE_WALL + 5.0) + out as f32 * 5.0;
+                let aside = (BORE_SPAN + BORE_WALL + 5.0) + out as f32 * 5.0;
                 for step in -12..=12 {
                     let at = AT
                         + across * aside * side
@@ -519,7 +542,7 @@ mod tests {
 
         let (sin, cos) = HEADING.sin_cos();
         let across = Vec2::new(-sin, cos);
-        let beside = AT + across * (BORE_WIDE + BORE_WALL + 5.0);
+        let beside = AT + across * (BORE_SPAN + BORE_WALL + 5.0);
         assert!(
             underground(beside) < 0.05,
             "the rock beside the bore reads as passage"
