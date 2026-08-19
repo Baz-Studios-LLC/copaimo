@@ -124,6 +124,7 @@ pub fn open(mut commands: Commands, font: Res<UiFont>) {
             // mentioned is a feature that does not exist as far as a maker is
             // concerned, which is what this whole panel is for.
             widget::branch(panel, &font, "view", "VIEW", |rows| {
+                widget::note(rows, &font, "view", "WASD", "walk the view");
                 widget::note(rows, &font, "view", "MID", "drag to orbit");
                 widget::note(rows, &font, "view", "SH-MID", "drag to pan");
                 widget::note(rows, &font, "view", "WHL", "zoom");
@@ -141,7 +142,8 @@ pub fn open(mut commands: Commands, font: Res<UiFont>) {
                 widget::note(rows, &font, "move", "DRAG", "an arrow to move it");
                 widget::note(rows, &font, "move", "SH", "hold for quarter-metres");
                 widget::note(rows, &font, "move", "R-G-B", "is X-Y-Z");
-                widget::note(rows, &font, "move", "CTRL", "drag red to make it longer");
+                widget::note(rows, &font, "move", "TIP", "of red: drag to stretch");
+                widget::note(rows, &font, "move", "ARROWS", "nudge the cursor a cell");
             });
 
             widget::branch(panel, &font, "colour", "COLOUR", |rows| {

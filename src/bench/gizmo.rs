@@ -45,6 +45,21 @@ pub struct Holding {
     grabbed: f32,
     /// Where the piece was when the drag started.
     from: Vec3,
+    /// Where the axis line WAS when the drag started.
+    ///
+    /// # The jitter
+    ///
+    /// A drag used to measure itself against the arrows where they are NOW. But
+    /// the arrows sit on the piece, and the piece is what the drag is moving — so
+    /// every step moved the very line the next step was measured from. Push the
+    /// piece a module along and the ruler goes with it, the pointer is suddenly
+    /// somewhere else along that ruler, and the piece jumps back. It oscillated
+    /// rather than slid.
+    ///
+    /// So the line is remembered from where it started, and the whole drag is
+    /// measured against that. The ruler holds still while the thing being measured
+    /// moves, which is the only arrangement that ever works.
+    line: Vec3,
     /// How many modules this drag has already stretched by, so the piece grows
     /// with the pointer rather than once per frame.
     stretched: i32,
@@ -148,6 +163,10 @@ const HELD: f32 = 3.2;
 const REACH: f32 = 1.35;
 const SHAFT: f32 = 0.045;
 const HEAD: f32 = 0.17;
+
+/// How far along the length arrow counts as its far END, where taking hold
+/// stretches rather than moves.
+const FAR_END: f32 = 0.6;
 
 /// How near the pointer has to come to an arrow to take hold of it, in metres at
 /// the arrow's own distance.
@@ -321,6 +340,7 @@ pub fn drag(
             holding.dragging = Some(axis);
             holding.grabbed = along;
             holding.from = piece.foot;
+            holding.line = base;
             holding.stretched = 0;
         }
         return;
@@ -335,18 +355,27 @@ pub fn drag(
         return;
     }
     let axis = axes(piece.turn())[axis_at].0;
-    let (_, along) = ray_against_axis(ray.origin, *ray.direction, base, axis);
+    // Against the line as it was when the drag began — see `Holding::line`.
+    let (_, along) = ray_against_axis(ray.origin, *ray.direction, holding.line, axis);
     if along == 0.0 {
         return;
     }
 
-    // CTRL turns the length arrow into a STRETCH handle.
+    // The far END of the length arrow stretches; the rest of it moves.
     //
-    // The same arrow, because it is the same direction: the red one runs along the
-    // piece's own length, and what a maker wants from it is either "further along"
-    // or "longer". A separate handle would mean another thing to hit and another
-    // thing to explain, and the two are never wanted at once.
-    if keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]) && axis_at == 0 {
+    // Where you take hold of a thing is what you meant to do with it — grab a
+    // plank in the middle and you are carrying it, grab the end and you are
+    // pulling it longer. That is a rule a maker can find by trying, which CTRL
+    // was not: a modifier is invisible, and the one person who knew about it was
+    // the one who wrote it down.
+    //
+    // Only the length arrow. Height is a storey and thickness is what a wall is;
+    // neither is a thing to drag out.
+    let stretching = axis_at == 0
+        && piece.part.stretches()
+        && (holding.grabbed > REACH * FAR_END
+            || keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]));
+    if stretching {
         // In whole modules, measured from where the arrow was taken hold of, so a
         // slow drag does not run a wall out to its limit.
         let moved = along - holding.grabbed;
@@ -585,6 +614,42 @@ mod tests {
         app.world_mut().resource_mut::<Holding>().hovering = None;
         app.update();
         assert_eq!(app.world().resource::<Holding>().piece, Some(other));
+    }
+
+    #[test]
+    fn a_drag_is_measured_from_where_it_started_not_from_where_it_has_got_to() {
+        // The jitter. A drag used to measure itself against the arrows where they
+        // are NOW — but the arrows sit on the piece, and the piece is what the
+        // drag is moving. Every step moved the ruler the next step was measured
+        // from, so the piece oscillated instead of sliding.
+        //
+        // Here is the same ray read against a line that has moved with the piece,
+        // and against one that stayed where the drag began.
+        let eye = Vec3::new(7.0, 5.0, 9.0);
+        let start = Vec3::new(0.0, 0.625, 0.0);
+        let toward = (Vec3::new(0.7, 0.625, 0.0) - eye).normalize();
+
+        // What the pointer says, against the line where the drag began.
+        let (_, from_start) = ray_against_axis(eye, toward, start, Vec3::X);
+
+        // The piece has since been dragged a module along, taking its arrows with
+        // it. Read against THAT line, the same pointer says something different —
+        // and the difference is the jump.
+        let moved_line = start + Vec3::X * kit::MODULE;
+        let (_, from_moved) = ray_against_axis(eye, toward, moved_line, Vec3::X);
+
+        assert!(
+            (from_start - from_moved).abs() > 0.5,
+            "a moved ruler read the same, so this test proves nothing: {from_start:.3} against {from_moved:.3}"
+        );
+
+        // Which is why the drag keeps the line it started with. Reading twice from
+        // the same start gives the same answer, whatever the piece has done.
+        let (_, again) = ray_against_axis(eye, toward, start, Vec3::X);
+        assert!(
+            (from_start - again).abs() < 1.0e-6,
+            "the same pointer against the same line gave two answers"
+        );
     }
 
     #[test]

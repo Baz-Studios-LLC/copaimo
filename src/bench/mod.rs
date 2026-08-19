@@ -233,7 +233,7 @@ impl Plugin for BenchPlugin {
                     // `place` asks whether the arrows took the click — but a
                     // frame's lag between pointing at a handle and the handle
                     // knowing is pointless to inflict.
-                    (gizmo::drag, gizmo::choose, place, turn_view),
+                    (gizmo::drag, gizmo::choose, place, turn_view, walk_view),
                     // Then what is drawn from it.
                     (
                         gizmo::show,
@@ -577,16 +577,16 @@ fn move_hand(keys: Res<ButtonInput<KeyCode>>, view: Res<View>, mut hand: ResMut<
     };
 
     let mut step = Vec3::ZERO;
-    if keys.just_pressed(KeyCode::KeyW) || keys.just_pressed(KeyCode::ArrowUp) {
+    if keys.just_pressed(KeyCode::ArrowUp) {
         step += ahead;
     }
-    if keys.just_pressed(KeyCode::KeyS) || keys.just_pressed(KeyCode::ArrowDown) {
+    if keys.just_pressed(KeyCode::ArrowDown) {
         step -= ahead;
     }
-    if keys.just_pressed(KeyCode::KeyD) || keys.just_pressed(KeyCode::ArrowRight) {
+    if keys.just_pressed(KeyCode::ArrowRight) {
         step += aside;
     }
-    if keys.just_pressed(KeyCode::KeyA) || keys.just_pressed(KeyCode::ArrowLeft) {
+    if keys.just_pressed(KeyCode::ArrowLeft) {
         step -= aside;
     }
     if keys.just_pressed(KeyCode::KeyE) || keys.just_pressed(KeyCode::Space) {
@@ -720,6 +720,59 @@ fn place(
 }
 
 /// Turning the view about the work, and stepping in and out.
+/// Walking the view about with WASD.
+///
+/// # The mouse already aims; the keys should carry you
+///
+/// WASD nudged the CURSOR, which the mouse was already doing better — so the
+/// keyboard duplicated the pointer and nothing moved the camera except a
+/// modifier-and-middle-drag nobody would guess. A view you can only turn, from a
+/// spot you cannot leave, is a view of one thing.
+///
+/// So the keys walk the camera and the mouse aims, which is the division every
+/// tool of this kind settles on. The arrow keys still nudge the cursor for the
+/// times a cell has to be hit exactly.
+fn walk_view(
+    keys: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
+    mut view: ResMut<View>,
+    mut cameras: Query<&mut Transform, With<BenchEye>>,
+) {
+    let (sin, cos) = view.around.sin_cos();
+    let right = Vec3::new(cos, 0.0, -sin);
+    let ahead = Vec3::new(sin, 0.0, cos);
+
+    let mut going = Vec3::ZERO;
+    if keys.pressed(KeyCode::KeyW) {
+        going -= ahead;
+    }
+    if keys.pressed(KeyCode::KeyS) {
+        going += ahead;
+    }
+    if keys.pressed(KeyCode::KeyA) {
+        going -= right;
+    }
+    if keys.pressed(KeyCode::KeyD) {
+        going += right;
+    }
+    if going == Vec3::ZERO {
+        return;
+    }
+
+    // Held, not tapped, and by the second rather than the frame — so crossing a
+    // big building takes the same time on any machine.
+    //
+    // Scaled by how far off the camera is, for the same reason the pan drag is: a
+    // step should cross the same share of what you can SEE whether you are close
+    // in on a rail or stood back from a tower.
+    let rate = view.away * WALK_RATE * time.delta_secs();
+    view.pivot += going.normalize() * rate;
+    for mut camera in &mut cameras {
+        camera.translation = view.eye();
+        camera.look_at(view.pivot, Vec3::Y);
+    }
+}
+
 fn turn_view(
     keys: Res<ButtonInput<KeyCode>>,
     buttons: Res<ButtonInput<MouseButton>>,
@@ -824,6 +877,9 @@ fn quarter_from(around: f32, way: f32) -> f32 {
 /// drag moves the same distance across the screen close in and far out.
 const ORBIT_RATE: f32 = 0.006;
 const PAN_RATE: f32 = 0.0016;
+
+/// How fast WASD walks the view, as a share of the distance each second.
+const WALK_RATE: f32 = 0.9;
 const ZOOM_RATE: f32 = 1.18;
 
 /// Draws the work, from scratch, whenever it changes.
