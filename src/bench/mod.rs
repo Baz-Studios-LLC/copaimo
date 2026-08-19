@@ -28,6 +28,7 @@
 //! work and affordable at this size.
 
 use bevy::prelude::*;
+use bevy::gizmos::AppGizmoBuilder;
 use bevy::render::view::RenderLayers;
 use bevy::window::PrimaryWindow;
 
@@ -254,7 +255,18 @@ pub struct BenchPlugin;
 
 impl Plugin for BenchPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Bench>()
+        // The outline's own gizmo group, aimed at the handle layer — see
+        // `gizmo::BenchLines`. Configured here rather than where it is drawn,
+        // because a group's layers are a property of the app and not of a frame.
+        app.init_gizmo_group::<gizmo::BenchLines>()
+            .insert_gizmo_config(
+                gizmo::BenchLines,
+                bevy::gizmos::config::GizmoConfig {
+                    render_layers: RenderLayers::layer(HANDLE_LAYER),
+                    ..default()
+                },
+            )
+            .init_resource::<Bench>()
             .init_resource::<Hand>()
             .init_resource::<View>()
             .init_resource::<Asked>()
@@ -298,6 +310,7 @@ impl Plugin for BenchPlugin {
                         crate::tools::widget::light_rows::<panel::Press>,
                         panel::refresh,
                         panel::colour_unsaved,
+                        gizmo::outline,
                     ),
                 )
                     .chain()
@@ -1122,15 +1135,19 @@ mod tests {
         app.world_mut().resource_mut::<Hand>().take(part);
     }
 
-    /// Presses the left button and runs one frame.
+    /// Presses the left button, runs one frame, and lets go again.
+    ///
+    /// Letting go matters: `clear` empties `just_pressed` but leaves the button
+    /// HELD, and a press only registers on a button that was up — so without the
+    /// release this works once and every click after it is silently nothing.
     fn click(app: &mut App) {
         app.world_mut()
             .resource_mut::<ButtonInput<MouseButton>>()
             .press(MouseButton::Left);
         app.update();
-        app.world_mut()
-            .resource_mut::<ButtonInput<MouseButton>>()
-            .clear();
+        let mut buttons = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+        buttons.release(MouseButton::Left);
+        buttons.clear();
     }
 
     fn pieces(app: &App) -> usize {

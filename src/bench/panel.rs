@@ -139,7 +139,8 @@ pub fn open(mut commands: Commands, font: Res<UiFont>) {
             // not something a maker will try unguessed on a tool where every other
             // gesture places something.
             widget::branch(panel, &font, "move", "MOVE A PIECE", true, |rows| {
-                widget::note(rows, &font, "move", "AIM", "handles show on the nearest");
+                widget::note(rows, &font, "move", "CLICK", "a piece to pick it up");
+                widget::note(rows, &font, "move", "GLOW", "says which one is picked");
                 widget::note(rows, &font, "move", "EMPTY", "cursor: clicks grab, not build");
                 widget::note(rows, &font, "move", "DRAG", "an arrow to move it");
                 widget::note(rows, &font, "move", "SH", "hold for quarter-metres");

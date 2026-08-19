@@ -55,6 +55,9 @@ use bevy::render::view::RenderLayers;
 
 use crate::build::kit::{self, Bench, Piece};
 
+use bevy::gizmos::config::GizmoConfigGroup;
+use bevy::reflect::Reflect;
+
 use super::{BenchEye, Hand, HandleEye, OfBench, HANDLE_LAYER};
 
 /// What taking hold of a handle does.
@@ -404,6 +407,8 @@ fn nearest_handle<'a>(
 /// measures to the piece's box, so a stretched floor is reachable along its whole
 /// length rather than only near its middle.
 pub fn choose(
+    buttons: Res<ButtonInput<MouseButton>>,
+    over_panel: Query<&Interaction>,
     hand: Res<Hand>,
     bench: Res<Bench>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
@@ -428,11 +433,30 @@ pub fn choose(
     // fixing the hit test could have helped: nothing was ever hit-tested. Each
     // system waited on the other.
     //
-    // Not while the pointer is on a handle. Holding on to the selection is what
-    // stops it being dropped when the cursor wanders; this is what stops it being
-    // handed to a DIFFERENT piece that the wandering cursor happened to land on,
-    // which would take the handles out from under the pointer just as surely.
-    if holding.on_a_handle() {
+    // # And it is CHOSEN, rather than fallen over
+    //
+    // Merely pointing used to be enough, and that made a piece under another one
+    // hard to get at: reaching across a wall to click the floor it stands on handed
+    // the handles to the wall on the way past, and the wall's arrows then swallowed
+    // the click. Reported exactly that way.
+    //
+    // So picking one up is a deliberate act — a click, on the work, with an empty
+    // hand — and what is chosen stays chosen until something else is. A click with a
+    // part in hand is a placement and never a selection, which is the same rule the
+    // rest of the bench already follows.
+    let on_panel = over_panel.iter().any(|touch| *touch != Interaction::None);
+    let picking = buttons.just_pressed(MouseButton::Left)
+        && hand.part.is_none()
+        && super::reaches_the_work(on_panel, holding.on_a_handle());
+
+    // Whatever happens, a piece that is no longer on the bench cannot stay chosen.
+    if let Some(held) = holding.piece {
+        if !bench.pieces().iter().any(|piece| piece.id == held) {
+            holding.piece = None;
+            holding.hovering = None;
+        }
+    }
+    if !picking {
         return;
     }
 
@@ -467,20 +491,54 @@ pub fn choose(
             .map(|(_, id)| id)
     });
 
+    // Clicking nothing in particular changes nothing: what is chosen stays chosen
+    // until something else is chosen, which is what the maker asked for and what
+    // stops a stray click on the floor emptying the handles away.
     if let Some(near) = near {
         holding.piece = Some(near);
-        return;
-    }
-
-    // Nothing under the cursor: keep what was chosen, unless it has since been
-    // taken off the bench.
-    if let Some(held) = holding.piece {
-        if !bench.pieces().iter().any(|piece| piece.id == held) {
-            holding.piece = None;
-            holding.hovering = None;
-        }
     }
 }
+
+/// Draws a line round the piece the handles belong to.
+///
+/// # Why the selection needs saying out loud
+///
+/// The handles say WHERE a piece is and not WHICH it is — four arrows and four
+/// blocks standing near a corner belong to something, and on a bench full of pieces
+/// that share corners it is not obvious which. A line round the chosen one answers
+/// it at a glance, and it is the thing that makes "this keeps priority until you
+/// pick another" visible rather than merely true.
+///
+/// Two boxes, a hair apart: the outer one dim and the inner one bright. A gizmo line
+/// cannot glow, and two lines at slightly different sizes and brightnesses is what a
+/// glow looks like from a distance.
+pub fn outline(holding: Res<Holding>, bench: Res<Bench>, mut lines: Gizmos<BenchLines>) {
+    let Some(piece) = holding.piece.and_then(|id| piece_at(&bench, id)) else {
+        return;
+    };
+    let stance = Transform::from_translation(piece.middle()).with_rotation(piece.turn());
+    for (proud, tint) in [(PROUD * 2.5, HALO), (PROUD, CHOSEN)] {
+        lines.cuboid(
+            stance.with_scale(piece.size() + Vec3::splat(proud)),
+            tint,
+        );
+    }
+}
+
+/// The bench's own gizmo group.
+///
+/// A group of its own because a group carries the layers it draws on, and the
+/// terrain tool's brush ring already has the default one pointed at the world. This
+/// one is aimed at the handle layer, so an outline is never hidden by the piece it
+/// is drawn round — the same bargain the handles themselves make.
+#[derive(Default, Reflect, GizmoConfigGroup)]
+pub struct BenchLines;
+
+/// How far outside a piece its outline is drawn, and the two colours that make the
+/// line read as a glow rather than as an edge.
+const PROUD: f32 = 0.03;
+const CHOSEN: Color = Color::srgba(1.0, 0.90, 0.62, 0.95);
+const HALO: Color = Color::srgba(1.0, 0.82, 0.40, 0.30);
 
 /// How far from a piece the lattice cursor may stand and still reach it, in metres.
 ///
@@ -861,14 +919,88 @@ mod tests {
         app.init_resource::<Bench>()
             .init_resource::<Holding>()
             .init_resource::<Hand>()
+            .init_resource::<ButtonInput<MouseButton>>()
             .add_systems(Update, choose);
         app
     }
 
-    /// Points the lattice cursor somewhere and runs a frame.
+    /// Points the lattice cursor somewhere, without clicking.
     fn point_at(app: &mut App, at: Vec3) {
         app.world_mut().resource_mut::<Hand>().at = at;
         app.update();
+    }
+
+    /// Points and clicks, which is what picking a piece up takes.
+    ///
+    /// # The button has to be LET GO of
+    ///
+    /// `clear` empties `just_pressed` and leaves the button HELD, and `press` only
+    /// registers a fresh press on a button that was up — so a helper that pressed
+    /// and cleared worked exactly once per test and every click after it did
+    /// nothing. It cost a round of chasing a selection bug that was not there.
+    fn click_at(app: &mut App, at: Vec3) {
+        app.world_mut().resource_mut::<Hand>().at = at;
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+        let mut buttons = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+        buttons.release(MouseButton::Left);
+        buttons.clear();
+    }
+
+    #[test]
+    fn what_is_chosen_stays_chosen_until_something_else_is() {
+        // Reported from the bench: reaching across a wall to click the floor under it
+        // handed the handles to the wall on the way past, and the wall's arrows then
+        // took the click. Merely pointing is no longer enough to pick a piece up.
+        //
+        // Two pieces a module apart rather than the reported wall on a floor, because
+        // this harness has no camera: without one, `choose` cannot cast a ray and
+        // falls through to the lattice cursor, which at floor level is inside the
+        // floor and below the wall — so the floor would rightly win. Which piece a
+        // RAY prefers is `a_ray_strikes_the_piece_it_is_pointed_at`; what is under
+        // test here is that a piece is chosen by a click and held until another is.
+        let mut app = picking_app();
+        let (near, far) = {
+            let mut bench = app.world_mut().resource_mut::<Bench>();
+            let near = bench.add(Part::Floor, Vec3::ZERO, 0, 0).expect("a floor");
+            let far = bench
+                .add(Part::Floor, Vec3::new(kit::MODULE, 0.0, 0.0), 0, 0)
+                .expect("another floor");
+            (near, far)
+        };
+
+        click_at(&mut app, Vec3::ZERO);
+        assert_eq!(
+            app.world().resource::<Holding>().piece,
+            Some(near),
+            "clicking a floor did not pick it up"
+        );
+
+        // Now point at the other one, and keep pointing. Nothing is chosen by being
+        // looked at.
+        for _ in 0..3 {
+            point_at(&mut app, Vec3::new(kit::MODULE, 0.0, 0.0));
+        }
+        assert_eq!(
+            app.world().resource::<Holding>().piece,
+            Some(near),
+            "pointing at the second floor took the handles off the first"
+        );
+
+        // A click does choose it.
+        click_at(&mut app, Vec3::new(kit::MODULE, 0.0, 0.0));
+        assert_eq!(app.world().resource::<Holding>().piece, Some(far));
+
+        // And a click with a part in hand is a placement, never a selection.
+        app.world_mut().resource_mut::<Hand>().part = Some(Part::Post);
+        click_at(&mut app, Vec3::ZERO);
+        assert_eq!(
+            app.world().resource::<Holding>().piece,
+            Some(far),
+            "a click with a part in hand moved the selection"
+        );
     }
 
     #[test]
@@ -899,7 +1031,7 @@ mod tests {
                         -half.z + piece.size().z * down as f32 / 2.0,
                     );
                 app.world_mut().resource_mut::<Holding>().piece = None;
-                point_at(&mut app, on);
+                click_at(&mut app, on);
                 assert_eq!(
                     app.world().resource::<Holding>().piece,
                     Some(id),
@@ -911,7 +1043,7 @@ mod tests {
         // Well off the end of it, nothing new is picked — a reach that reached
         // everywhere would be no reach at all.
         app.world_mut().resource_mut::<Holding>().piece = None;
-        point_at(&mut app, piece.middle() + Vec3::new(half.x + kit::MODULE * 3.0, -half.y, 0.0));
+        click_at(&mut app, piece.middle() + Vec3::new(half.x + kit::MODULE * 3.0, -half.y, 0.0));
         assert_eq!(
             app.world().resource::<Holding>().piece,
             None,
@@ -932,9 +1064,9 @@ mod tests {
                 .expect("another post");
             (near, far)
         };
-        point_at(&mut app, Vec3::new(kit::MODULE * 0.5, 0.0, 0.0));
+        click_at(&mut app, Vec3::new(kit::MODULE * 0.5, 0.0, 0.0));
         assert_eq!(app.world().resource::<Holding>().piece, Some(near));
-        point_at(&mut app, Vec3::new(kit::MODULE * 1.5, 0.0, 0.0));
+        click_at(&mut app, Vec3::new(kit::MODULE * 1.5, 0.0, 0.0));
         assert_eq!(app.world().resource::<Holding>().piece, Some(far));
     }
 
@@ -1298,45 +1430,44 @@ mod tests {
         // it. The selection was dropped for being out of range, and the hovering
         // test never ran, because there was no longer a piece to test the handles
         // of. Each system waited on the other.
-        let mut bench = Bench::default();
-        let post = bench.add(Part::Post, Vec3::ZERO, 0, 0).expect("a post");
-        let far = bench
-            .add(Part::Post, Vec3::new(30.0, 0.0, 30.0), 0, 0)
-            .expect("another post, well away");
+        //
+        // Picking a piece up is a CLICK now, which settles the same deadlock from
+        // the other end — but the invariants this was written to guard still have to
+        // hold, so it still runs the sequence.
+        let mut app = picking_app();
+        let (post, far) = {
+            let mut bench = app.world_mut().resource_mut::<Bench>();
+            let post = bench.add(Part::Post, Vec3::ZERO, 0, 0).expect("a post");
+            let far = bench
+                .add(Part::Post, Vec3::new(30.0, 0.0, 30.0), 0, 0)
+                .expect("another post, well away");
+            (post, far)
+        };
 
-        let mut app = App::new();
-        app.insert_resource(bench)
-            .insert_resource(Hand::default())
-            .init_resource::<Holding>()
-            .add_systems(Update, choose);
-
-        // Frame one: the cursor is on the post, and it is chosen.
-        app.update();
+        click_at(&mut app, Vec3::ZERO);
         assert_eq!(app.world().resource::<Holding>().piece, Some(post));
 
-        // Frame two: the pointer reaches for a handle, which throws the ground
-        // cursor metres away. NOTHING is hovered yet — that is the whole point,
-        // since hovering cannot be discovered until the handles survive this frame.
-        app.world_mut().resource_mut::<Hand>().at = Vec3::new(9.0, 0.0, 9.0);
-        app.update();
+        // The pointer reaches for a handle, which throws the ground cursor metres
+        // away. NOTHING is hovered yet — that is the whole point, since hovering
+        // cannot be discovered until the handles survive this frame.
+        point_at(&mut app, Vec3::new(9.0, 0.0, 9.0));
         assert_eq!(
             app.world().resource::<Holding>().piece,
             Some(post),
             "the piece was let go of the moment its own handle was reached for"
         );
 
-        // Pointing at a different piece does change the selection — holding on must
-        // not mean getting stuck.
-        app.world_mut().resource_mut::<Hand>().at = Vec3::new(30.0, 0.0, 30.0);
-        app.update();
+        // Clicking a different piece does change the selection — holding on must not
+        // mean getting stuck.
+        click_at(&mut app, Vec3::new(30.0, 0.0, 30.0));
         assert_eq!(app.world().resource::<Holding>().piece, Some(far));
 
-        // And a piece taken off the bench is let go of rather than held for ever.
+        // And a piece taken off the bench is let go of rather than held for ever —
+        // with no click at all, since it is gone whether or not anybody points at it.
         app.world_mut()
             .resource_mut::<Bench>()
             .remove_nearest(Vec3::new(30.0, 0.0, 30.0), kit::MODULE);
-        app.world_mut().resource_mut::<Hand>().at = Vec3::new(60.0, 0.0, 60.0);
-        app.update();
+        point_at(&mut app, Vec3::new(60.0, 0.0, 60.0));
         assert_eq!(
             app.world().resource::<Holding>().piece,
             None,
@@ -1346,20 +1477,18 @@ mod tests {
 
     #[test]
     fn reaching_for_a_handle_does_not_hand_it_to_something_else() {
-        // The other half of the deadlock. Holding on to the selection stops it
-        // being dropped when the cursor wanders; this stops it being handed to a
-        // DIFFERENT piece the wandering cursor landed on, which would take the
-        // handles out from under the pointer just as surely.
-        let mut bench = Bench::default();
-        let id = bench.add(Part::Post, Vec3::ZERO, 0, 0).expect("a post");
+        // The other half of the deadlock. Holding on to the selection stops it being
+        // dropped when the cursor wanders; this stops it being handed to a DIFFERENT
+        // piece the wandering cursor landed on, which would take the handles out from
+        // under the pointer just as surely — and a click ON a handle is the handle's,
+        // never a fresh selection.
+        let mut app = picking_app();
+        let id = {
+            let mut bench = app.world_mut().resource_mut::<Bench>();
+            bench.add(Part::Post, Vec3::ZERO, 0, 0).expect("a post")
+        };
 
-        let mut app = App::new();
-        app.insert_resource(bench)
-            .insert_resource(Hand::default())
-            .init_resource::<Holding>()
-            .add_systems(Update, choose);
-
-        app.update();
+        click_at(&mut app, Vec3::ZERO);
         assert_eq!(app.world().resource::<Holding>().piece, Some(id));
 
         let other = app
@@ -1368,18 +1497,19 @@ mod tests {
             .add(Part::Post, Vec3::new(40.0, 0.0, 40.0), 0, 0)
             .expect("another post");
 
+        // The pointer is on a handle, and the cursor has landed on the other post.
+        // Even a click belongs to the handle here.
         app.world_mut().resource_mut::<Holding>().hover_for_test(1);
-        app.world_mut().resource_mut::<Hand>().at = Vec3::new(40.0, 0.0, 40.0);
-        app.update();
+        click_at(&mut app, Vec3::new(40.0, 0.0, 40.0));
         assert_eq!(
             app.world().resource::<Holding>().piece,
             Some(id),
-            "reaching for a handle handed it to whatever the cursor landed on"
+            "a click meant for a handle chose whatever the cursor was over"
         );
 
-        // With nothing hovered, that same cursor does choose the second piece.
+        // With nothing hovered, that same click does choose the second piece.
         app.world_mut().resource_mut::<Holding>().hovering = None;
-        app.update();
+        click_at(&mut app, Vec3::new(40.0, 0.0, 40.0));
         assert_eq!(app.world().resource::<Holding>().piece, Some(other));
     }
 

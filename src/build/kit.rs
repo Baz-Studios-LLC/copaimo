@@ -452,6 +452,33 @@ impl Piece {
         })
     }
 
+    /// Whether this piece would come to rest ON another, rather than merely brushing
+    /// past its corner.
+    ///
+    /// # A corner is an overlap, and it is not a floor
+    ///
+    /// Two walls meeting at a right angle share half a thickness where they meet —
+    /// that IS a corner, it is inside the wall and nobody sees it. Read as one
+    /// standing on the other, it lifted the second wall a storey into the air the
+    /// moment a room got its second side.
+    ///
+    /// So being underneath is about how much of a piece's FOOTPRINT is covered, not
+    /// about whether the boxes touch at all: a floor under a wall on its edge covers
+    /// half of it, a wall at a corner about a twelfth. See [`UNDERFOOT`], which is
+    /// where those numbers are.
+    pub fn stands_on(self, other: Piece) -> bool {
+        if !self.clashes_with(other) {
+            return false;
+        }
+        let (mine_low, mine_high) = self.spread();
+        let (theirs_low, theirs_high) = other.spread();
+        let shared = |axis: usize| {
+            (mine_high[axis].min(theirs_high[axis]) - mine_low[axis].max(theirs_low[axis])).max(0.0)
+        };
+        let footprint = (mine_high.x - mine_low.x) * (mine_high.z - mine_low.z);
+        footprint > NOTHING && shared(0) * shared(2) > footprint * UNDERFOOT
+    }
+
     /// How far a point is from this piece's own box, in metres. Nought inside it.
     ///
     /// # Why not the distance to its middle
@@ -958,6 +985,20 @@ const TREAD: f32 = 0.12;
 /// frame is painted — see `Piece::bedding`.
 const LINEN: [u8; 3] = [212, 206, 192];
 
+/// How much of a piece's footprint another must cover before it counts as being
+/// UNDER it rather than beside it.
+///
+/// A quarter, and the three numbers it has to sit between are worth writing down —
+/// the first guess at this was a half, which is exactly wrong:
+///
+/// * a wall on a floor's EDGE has half its footprint over the floor and half over
+///   the drop, because its centre-line is the join. Half is the case this must
+///   catch, so half is the one number the threshold cannot be.
+/// * a wall meeting another at a corner shares half a thickness with it, which is
+///   about a twelfth of a wall's footprint. That is the case this must not catch.
+/// * a floor under anything laid in the middle of it covers all of it.
+const UNDERFOOT: f32 = 0.25;
+
 /// How much two pieces may share before they are in each other's way, in metres.
 ///
 /// Half a snap: enough that two pieces meant to abut are not read as clashing, and
@@ -1065,7 +1106,7 @@ impl Bench {
             let top = self
                 .pieces
                 .iter()
-                .filter(|other| mine.clashes_with(**other))
+                .filter(|other| mine.stands_on(**other))
                 .map(|other| other.spread().1.y)
                 .fold(f32::MIN, f32::max);
             if top == f32::MIN {
@@ -2479,5 +2520,35 @@ mod look {
         laid(&mut bench, Part::Wall, Vec3::new(4.5 - 0.7, 0.0, 0.0), 1);
 
         println!("SCENE {}", as_json(&bench));
+    }
+}
+
+#[cfg(test)]
+mod corners {
+    use super::*;
+
+    #[test]
+    fn walls_meeting_at_a_corner_do_not_climb_on_each_other() {
+        // Two walls at right angles overlap by half a thickness where they meet —
+        // which is what a corner IS — and `resting` must not read that as one
+        // standing on the other.
+        let mut bench = Bench::default();
+        bench.add(Part::Floor, Vec3::ZERO, 0, 0).expect("a floor");
+        let top = Part::Floor.size().y;
+
+        let along = bench.resting(Part::Wall, Vec3::new(0.0, 0.0, -MODULE * 0.5), 0);
+        bench.add(Part::Wall, along, 0, 0).expect("a wall");
+        let across = bench.resting(Part::Wall, Vec3::new(-MODULE * 0.5, 0.0, 0.0), 1);
+
+        assert!(
+            (along.y - top).abs() < 1.0e-4,
+            "the first wall rests at {:.3}, not on the floor at {top:.3}",
+            along.y
+        );
+        assert!(
+            (across.y - top).abs() < 1.0e-4,
+            "the second wall of a corner climbed to {:.3} instead of resting at {top:.3}",
+            across.y
+        );
     }
 }

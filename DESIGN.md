@@ -463,6 +463,19 @@ The cursor's own height is left alone by aiming, too. It was being rounded to th
 module along with x and z, so raising it to clear a floor was undone the moment the
 mouse moved.
 
+### A piece is CHOSEN, and it stays chosen
+
+Pointing used to be enough, and that made a piece under another one hard to get at:
+reaching across a wall to click the floor it stands on handed the handles to the wall
+on the way past, and the wall's arrows then swallowed the click.
+
+Picking one up is a deliberate act — a click, on the work, with an empty hand — and
+what is chosen stays chosen until something else is. A click with a part in hand is a
+placement and never a selection, which is the rule the rest of the bench already
+follows. A line is drawn round the chosen piece, on the handle layer so nothing can
+hide it: two boxes a hair apart, the outer dim and the inner bright, because a gizmo
+line cannot glow and that is what a glow looks like from a distance.
+
 ### Reaching a piece is measured to its BOX
 
 Every "nearest piece" verb — select, paint, turn, remove — measured from the lattice
@@ -780,6 +793,14 @@ which took the kit past nine, so the digits ran out and the panel's habit of
 numbering its own rows became a lie. There is one key table now, read by the input
 and by the panel both. That is the second time this codebase has learned that
 lesson; the first was the terrain tool's eleventh tool wearing the first one's key.
+
+**A corner is not a floor.** The resting rule read two walls meeting at a right
+angle — which share half a thickness, because that is what a corner IS — as one
+standing on the other, and lifted the second a storey into the air the moment a room
+got its second side. Being underneath is now about how much of a piece's FOOTPRINT is
+covered: a floor under a wall on its edge covers half, a corner covers a twelfth, and
+the threshold sits at a quarter. The first guess was a half, which is exactly the
+number it cannot be.
 
 **Walls stood in the floor rather than on it**, and could not be put on its edge at
 all — one fault in the cursor's lattice and one in its height. See **Cells, and the
