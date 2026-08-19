@@ -125,9 +125,20 @@ const BORE_HIGH: f32 = 7.0;
 
 /// How much of the mountain this point stands under, 0 to 1.
 ///
-/// Two eased falloffs, one along the wall and one across it, so the mountain has a
-/// body at full height and shoulders that ease into the ground rather than a rim
-/// it stands up behind.
+/// # A wall of rock, not a smooth earthwork
+///
+/// The analytic profile alone — two eased falloffs — is a berm at any size:
+/// perfectly smooth flanks and a crest like a ruler. Three things break it up,
+/// and each is scaled so the tests about the PASS still hold:
+///
+/// * the **crest is serrated**: the whole profile scales with a slow noise along
+///   the wall, so the skyline is peaks and saddles rather than a line. It never
+///   drops far enough to be walked over — the saddles are still most of the wall.
+/// * the **flanks are creased**: two octaves of `1 - |noise|` gullies, cut into
+///   the slope. Strongest mid-flank and faded at the crest and the foot, so the
+///   silhouette stays a wall and the plain stays a plain.
+/// * nothing is added ON TOP — creases only ever cut DOWN — so the bore's roof
+///   arithmetic and every walk-through test read the same mountain this draws.
 pub fn ridge(at: Vec2) -> f32 {
     let (along, across) = local(at);
     let reach = |d: f32, full: f32, flat: f32| {
@@ -136,8 +147,46 @@ pub fn ridge(at: Vec2) -> f32 {
     // Thin along the tunnel and long across it: rock to bore through, and a wall
     // reaching away on both sides of the mouth. Peaked in the first and
     // flat-crested in the second — see `SHOULDER`.
-    RIDGE_HIGH * reach(along, WALL_THICK, 0.0) * reach(across, WALL_LONG, SHOULDER)
+    let body = reach(along, WALL_THICK, 0.0) * reach(across, WALL_LONG, SHOULDER);
+    if body <= 0.0 {
+        return 0.0;
+    }
+
+    // The serration, in the wall's own frame so it survives being turned.
+    let crest = 1.0 - SERRATION
+        + SERRATION * 2.0 * terrain_core::forest::field(Vec2::new(across, along) / TOOTH, 78);
+
+    // The creases, in the wall's own frame and STRETCHED down the fall line —
+    // a gully is water's work and water runs downhill, so the folds are long in
+    // the direction of the slope and narrow across it. Sampled isotropically
+    // they came out as round pockets, and a hillside of round pockets reads as
+    // hammered metal rather than as spurs.
+    let fold = |narrow: f32, salt: u32| {
+        let stretched = Vec2::new(across / narrow, along / (narrow * 3.2));
+        1.0 - (2.0 * terrain_core::forest::field(stretched, salt) - 1.0).abs()
+    };
+    // Plus one broad UNstretched octave, or the combing is too even: every spur
+    // the same width the whole length of a mountainside is a texture, not ground.
+    let broad = 1.0 - (2.0 * terrain_core::forest::field(at / 150.0, 81) - 1.0).abs();
+    let crease = 0.45 * fold(64.0, 79) + 0.3 * fold(27.0, 80) + 0.25 * broad;
+    // Mid-flank only: at the crest a gully would notch the skyline below the
+    // saddles, and at the foot it would trench the plain.
+    let flank = (body * (1.0 - body) * 4.0).clamp(0.0, 1.0);
+    let cut = RELIEF * flank * (1.0 - crease.powf(1.4));
+
+    RIDGE_HIGH * body * crest * (1.0 - cut)
 }
+
+/// How deep the serration and the gullies go, as shares of the local height.
+///
+/// The serration swings the crest a fifth either way; the gullies take up to
+/// two fifths out of the mid-flank. Between them the wall's LOWEST crossing
+/// stays above half its nominal height, which the walk-over test measures.
+const SERRATION: f32 = 0.2;
+const RELIEF: f32 = 0.42;
+
+/// Metres between teeth along the crest.
+const TOOTH: f32 = 110.0;
 
 /// How much of the passage this point is, 1 on the floor and 0 in the rock.
 ///
@@ -438,31 +487,36 @@ mod tests {
             "the bore climbs {highest:.1} m — it is not a way through"
         );
 
-        // And beside it, everywhere a walker might try to get over instead: within
-        // the mountain's own thickness, every step out along the wall is rock.
+        // And beside it, everywhere a walker might try to get over instead. What
+        // blocks a walker is the highest ground on their PATH, so each candidate
+        // crossing — straight over the wall at some point along it — is measured
+        // by the most it makes them climb, and the weakest crossing anywhere
+        // along seventy per cent of the wall still has to be a mountain.
         //
-        // Along the WALL, not along the tunnel. Walking along the tunnel leaves the
-        // mountain behind after its thickness and finds open ground, which is
-        // correct and is what the first version of this managed to fail on.
-        let mut lowest = f32::MAX;
-        let mut where_lowest = Vec2::ZERO;
+        // Not "every sample on the flank is high": the flanks carry gullies now,
+        // and a gully partway up a mountainside is not a way over it. The first
+        // version of this test failed the creases for exactly that misreading.
+        let mut weakest = f32::MAX;
+        let mut where_weakest = Vec2::ZERO;
         for side in [-1.0_f32, 1.0] {
             for out in 0..=((WALL_LONG * 0.7) as i32 / 5) {
                 let aside = (BORE_SPAN + BORE_WALL + 5.0) + out as f32 * 5.0;
-                for step in -12..=12 {
+                let mut barrier = 0.0_f32;
+                for step in -30..=30 {
                     let at = AT
                         + across * aside * side
-                        + along * step as f32 * (WALL_THICK * 0.5 / 12.0);
-                    if lift(at) < lowest {
-                        lowest = lift(at);
-                        where_lowest = at - AT;
-                    }
+                        + along * step as f32 * (WALL_THICK * 1.2 / 30.0);
+                    barrier = barrier.max(lift(at));
+                }
+                if barrier < weakest {
+                    weakest = barrier;
+                    where_weakest = across * aside * side;
                 }
             }
         }
         assert!(
-            lowest > RIDGE_HIGH * 0.4,
-            "the wall is only {lowest:.0} m at {where_lowest:?} — it can be walked over"
+            weakest > RIDGE_HIGH * 0.5,
+            "the crossing at {where_weakest:?} only climbs {weakest:.0} m — the wall can be walked over"
         );
     }
 

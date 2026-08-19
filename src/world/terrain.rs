@@ -22,6 +22,13 @@ use noise::{Fbm, MultiFractal, NoiseFn, Perlin};
 
 use crate::config::*;
 
+/// How much of the great mountain's height its scarp drops.
+///
+/// A third, in the ninety-odd metres just below the plateau's rim: the cliff
+/// collar that makes a table mountain read as one. The rest of the fall belongs
+/// to the long creased flank below it.
+const SCARP_DROP: f32 = 0.34;
+
 /// How the shore rises from the waterline, 0 at the water to 1 at full height.
 ///
 /// **It has to have slope where it meets the water.** This was a plain
@@ -74,6 +81,9 @@ pub struct Terrain {
     shores: Fbm<Perlin>,
     /// Where the one great mountain stands, if this world has one.
     massif: Option<Vec2>,
+    /// The generated ground under the peak, without the mountain — what the
+    /// summit plateau levels the land TO. See `massif_height`.
+    massif_floor: f32,
     /// Which country is rugged and which is level.
     rugged: Fbm<Perlin>,
     /// Ground leveled for towns, and the roads graded between them.
@@ -145,6 +155,7 @@ impl Terrain {
             settlements: Settlements::nowhere(),
             rivers: terrain_core::river::Rivers::none(half),
             massif: None,
+            massif_floor: 0.0,
             detail: Fbm::<Perlin>::new(WORLD_SEED.wrapping_add(1))
                 .set_octaves(4)
                 .set_frequency(1.0),
@@ -169,6 +180,20 @@ impl Terrain {
                 at
             })
         });
+        // Read while the massif's own height is still nought at its peak — this
+        // is the underlying land, and the tournament ground is that land levelled
+        // plus the mountain's full height. Taken once: worked out per query, the
+        // plateau would ride whatever the base noise does underneath it, which is
+        // exactly the ten metres of tilt this exists to take out.
+        terrain.massif_floor = terrain
+            .massif
+            .map(|at| {
+                let holding = terrain.massif.take();
+                let floor = terrain.raw_height(at.x, at.y);
+                terrain.massif = holding;
+                floor
+            })
+            .unwrap_or(0.0);
 
         // The water, before anything is built. Rivers are read from `raw_height`,
         // which knows nothing of them, so this never consults its own output —
@@ -498,7 +523,25 @@ impl Terrain {
         // Fine detail, masked to the land — the sea floor is under water and
         // mostly hidden, and keeping it calm is both cheaper and smoother.
         let d = self.detail.get([wx as f64 * DETAIL_FREQ, wz as f64 * DETAIL_FREQ]) as f32;
-        h + d * DETAIL_ELEVATION * coast * (PLAINS_RELIEF + (1.0 - PLAINS_RELIEF) * rugged)
+        h += d * DETAIL_ELEVATION * coast * (PLAINS_RELIEF + (1.0 - PLAINS_RELIEF) * rugged);
+
+        // The summit plateau is LEVELLED, the way a town levels its ground — and
+        // it is the LAST word here, deliberately. It ran before the ranges and
+        // the fine detail once, and both kept quietly stacking their noise on
+        // top: the tournament ground came out with the same ten metres of tilt
+        // the levelling existed to take out, because the levelling had already
+        // happened by the time they spoke. Everything the generator wants to add
+        // is added first, and then the plateau is held flat over the lot.
+        if let Some(peak) = self.massif {
+            let away = peak.distance(Vec2::new(wx, wz));
+            let level =
+                crate::util::smoothstep(MASSIF_CROWN * 1.7, MASSIF_CROWN * 0.9, away) * coast;
+            if level > 0.0 {
+                let plateau = self.massif_floor + MASSIF_HEIGHT;
+                h += (plateau - h) * level;
+            }
+        }
+        h
     }
 
     /// How rugged the country is here: 0 level plain, 1 full relief.
@@ -513,12 +556,23 @@ impl Terrain {
 
     /// Height contributed by the one great mountain.
     ///
-    /// A broad shoulder easing up to a peak, not a cone: the falloff is raised
-    /// to a power so the foot spreads and the summit is the small part, which is
-    /// how a massif reads from a distance. The ridge field warps it so the
-    /// flanks have spurs and gullies rather than being a smooth dome, and that
-    /// warp is scaled by height, so the foot stays walkable while the top breaks
-    /// up.
+    /// # A table mountain, because the top is a PLACE
+    ///
+    /// The endgame tournament is held on the summit, so the summit is a ground: a
+    /// plateau of [`MASSIF_CROWN`] radius held dead flat, with everything that
+    /// roughens the mountain — the spur gullies, the foothill noise — faded out
+    /// before it arrives. Below the rim the flanks fall steep and broken, which
+    /// is what makes a flat top read as a mountain somebody climbs rather than a
+    /// hill somebody sliced.
+    ///
+    /// # And a mountain, not a very tall smooth hill
+    ///
+    /// The dome profile was eased at both ends, which is exactly a hill's shape
+    /// at any size. The flank now runs steep through its middle — a second
+    /// smoothstep, so the drop from rim to foot happens fast and then eases into
+    /// the plain — and two octaves of `1 - |noise|` creases cut gullies into it,
+    /// deeper than before. The creases are strongest mid-flank and gone at the
+    /// crown, so the ridges between them run UP the mountain the way spurs do.
     fn massif_height(&self, x: f32, z: f32) -> f32 {
         let Some(peak) = self.massif else {
             return 0.0;
@@ -535,30 +589,39 @@ impl Terrain {
             return 0.0;
         }
 
-        // The mass itself: a dome, and on its own that is exactly the fault —
-        // a smooth radial bump with no slope anywhere steep enough to shed its
-        // snow, which is why it read as one white pimple.
-        let body = crate::util::smoothstep(MASSIF_RADIUS, 0.0, away).powf(1.9);
+        // The table's profile, from the top down: the plateau, then a SCARP — a
+        // cliff collar dropping a third of the mountain in under a hundred
+        // metres, which is the one part of a table mountain that is genuinely
+        // cliff — then the long creased flank easing into the foot.
+        let scarp = crate::util::smoothstep(MASSIF_CROWN * 1.02, MASSIF_CROWN * 1.42, away);
+        let flank = crate::util::smoothstep(0.0, 1.0,
+            crate::util::smoothstep(MASSIF_CROWN * 1.42, MASSIF_RADIUS, away));
+        let body = 1.0 - SCARP_DROP * scarp - (1.0 - SCARP_DROP) * flank;
 
-        // What makes it a mountain instead. `1 - |noise|` creases sharply where
-        // the field crosses zero, and those creases run for hundreds of metres —
-        // so the flanks come out as spurs with gullies between them rather than
-        // as a shell. Multiplied, not added, so the gullies cut INTO the mass and
-        // the ridges keep its height.
-        let crease = 1.0
-            - self
+        // How far outside the plateau this is, 0 on it and 1 from the scarp down —
+        // the dial that fades every kind of roughness off the tournament ground.
+        let off_crown = crate::util::smoothstep(MASSIF_CROWN * 0.98, MASSIF_CROWN * 1.3, away);
+
+        // Two octaves of creases: the big one lays out the spurs, the small one
+        // breaks their sides. `1 - |noise|` folds sharply where the field crosses
+        // zero, which is what a gully is.
+        let fold = |frequency: f64| {
+            1.0 - self
                 .ranges
-                .get([x as f64 * RANGE_FREQ * 6.0, z as f64 * RANGE_FREQ * 6.0])
-                .abs() as f32;
-        let spurs = 1.0 - MASSIF_RELIEF * (1.0 - crease.powf(1.5));
+                .get([x as f64 * RANGE_FREQ * frequency, z as f64 * RANGE_FREQ * frequency])
+                .abs() as f32
+        };
+        let crease = 0.58 * fold(6.0) + 0.42 * fold(16.0);
+        let spurs = 1.0 - MASSIF_RELIEF * off_crown * (1.0 - crease.powf(2.0));
 
-        // And the shoulders it sits on, reaching out past the mountain into
-        // broken high ground.
+        // The shoulders it sits on, reaching out past the mountain into broken
+        // high ground — and kept OFF the crown, where their noise put twenty-odd
+        // metres of undulation on what is supposed to be a tournament ground.
         let hills = crate::util::smoothstep(reach, MASSIF_RADIUS * 0.4, away);
         let rough = self
             .rugged
             .get([x as f64 * RANGE_FREQ * 3.0, z as f64 * RANGE_FREQ * 3.0]) as f32;
-        let skirt = hills * hills * MASSIF_FOOTHILLS * (0.7 + 0.5 * rough);
+        let skirt = hills * hills * MASSIF_FOOTHILLS * (0.7 + 0.5 * rough) * off_crown;
 
         MASSIF_HEIGHT * (body * spurs + skirt)
     }
@@ -1104,6 +1167,58 @@ mod tests {
     /// Run with `cargo test -- --nocapture` to see the map. This is the fastest
     /// way to tell whether a new map image or a tuning change did what you
     /// expected, without waiting on a window.
+    #[test]
+    fn the_summit_is_a_tournament_ground_on_a_mountain() {
+        // The endgame tournament is held on top of the great mountain, which asks
+        // two things of the same hill that usually fight: a top flat enough to
+        // hold an event on, and flanks steep and broken enough that the flat top
+        // reads as earned. Both measured, because the first version of this
+        // mountain had twenty-odd metres of foothill noise sitting on the summit
+        // and nobody could have held anything on it.
+        let terrain = Terrain::new();
+        let Some(peak) = terrain.massif else {
+            return;
+        };
+
+        // The crown: across the whole plateau, the ground barely moves.
+        let mut low = f32::MAX;
+        let mut high = f32::MIN;
+        for ring in 0..6 {
+            let out = ring as f32 / 5.0 * MASSIF_CROWN * 0.85;
+            for step in 0..12 {
+                let turn = step as f32 / 12.0 * std::f32::consts::TAU;
+                let at = peak + Vec2::new(turn.cos(), turn.sin()) * out;
+                let h = terrain.height(at.x, at.y);
+                low = low.min(h);
+                high = high.max(h);
+            }
+        }
+        assert!(
+            high - low < 6.0,
+            "the tournament ground tilts {:.1} m across the crown",
+            high - low
+        );
+
+        // The flanks: from the rim down to mid-flank, the drop is a real climb —
+        // measured as average grade, which no hill has.
+        let rim = MASSIF_CROWN * 1.1;
+        let out = MASSIF_RADIUS * 0.72;
+        let mut grades = 0.0;
+        for step in 0..12 {
+            let turn = step as f32 / 12.0 * std::f32::consts::TAU;
+            let way = Vec2::new(turn.cos(), turn.sin());
+            let top = terrain.height(peak.x + way.x * rim, peak.y + way.y * rim);
+            let foot = terrain.height(peak.x + way.x * out, peak.y + way.y * out);
+            grades += (top - foot) / (out - rim);
+        }
+        let grade = grades / 12.0;
+        assert!(
+            grade > 0.25,
+            "the flanks average a {:.0}% grade — a hill, not a mountain",
+            grade * 100.0
+        );
+    }
+
     #[test]
     fn the_mountain_is_a_mountain_and_not_a_dome() {
         // It came out as one smooth white pimple: a radial bump with no slope
@@ -2443,9 +2558,12 @@ mod look {
                 Some(Vec2::new(x.trim().parse().ok()?, z.trim().parse().ok()?))
             })
             .unwrap_or(Vec2::new(RANCH_AT.0 + 220.0, RANCH_AT.1 + 60.0));
-        // Two metres a pixel: the mesh's own vertex grid, so what is drawn here is
-        // exactly what the mesh can hold.
-        const STEP: f32 = 2.0;
+        // Two metres a pixel by default — the mesh's own vertex grid — or whatever
+        // COPAIMO_LOOK_STEP says, for standing far enough back to see a mountain.
+        let step: f32 = std::env::var("COPAIMO_LOOK_STEP")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(2.0);
         const WIDE: i32 = 220;
         const HIGH: i32 = 130;
 
@@ -2455,8 +2573,8 @@ mod look {
             for px in 0..WIDE {
                 let at = middle
                     + Vec2::new(
-                        (px - WIDE / 2) as f32 * STEP,
-                        (pz - HIGH / 2) as f32 * STEP,
+                        (px - WIDE / 2) as f32 * step,
+                        (pz - HIGH / 2) as f32 * step,
                     );
                 let height = terrain.height(at.x, at.y);
                 let (country, belonging) = terrain.region(at.x, at.y);
@@ -2484,6 +2602,55 @@ mod look {
                     byte(colour[1]),
                     byte(colour[2])
                 ));
+            }
+            println!("{row}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod relief {
+    use super::*;
+
+    /// Draws the SHAPE of the ground — hillshade, no biome colour — for judging
+    /// whether a mountain reads as one. Same knobs as `dump_the_ground`:
+    /// `COPAIMO_LOOK_AT=x,z COPAIMO_LOOK_STEP=m`, through `dev/ground.py`.
+    #[test]
+    #[ignore = "a picture, not a check"]
+    fn dump_the_relief() {
+        let terrain = Terrain::new();
+        let middle = std::env::var("COPAIMO_LOOK_AT")
+            .ok()
+            .and_then(|asked| {
+                let (x, z) = asked.split_once(',')?;
+                Some(Vec2::new(x.trim().parse().ok()?, z.trim().parse().ok()?))
+            })
+            .unwrap_or(Vec2::ZERO);
+        let step: f32 = std::env::var("COPAIMO_LOOK_STEP")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(8.0);
+        const WIDE: i32 = 220;
+        const HIGH: i32 = 130;
+
+        // Lit from the north-west, the mapmaker's convention.
+        let sun = Vec3::new(-0.5, 0.7, -0.5).normalize();
+        println!("GROUND {WIDE} {HIGH}");
+        for pz in 0..HIGH {
+            let mut row = String::with_capacity(WIDE as usize * 6);
+            for px in 0..WIDE {
+                let at = middle
+                    + Vec2::new((px - WIDE / 2) as f32 * step, (pz - HIGH / 2) as f32 * step);
+                let lit = terrain.normal(at.x, at.y, step.max(2.0)).dot(sun).max(0.0);
+                let height = terrain.height(at.x, at.y);
+                let tone = (30.0 + lit * 200.0) as u8;
+                // Water flat and dark, so coastlines still read.
+                let (r, g, b) = if height < 0.0 {
+                    (20, 28, 48)
+                } else {
+                    (tone, tone, tone)
+                };
+                row.push_str(&format!("{r:02x}{g:02x}{b:02x}"));
             }
             println!("{row}");
         }
@@ -2601,6 +2768,35 @@ mod probe {
                 .map(|s| format!("{:.0}", terrain.height(200.0 + s as f32 * 40.0, z as f32)))
                 .collect();
             println!("x 200..1520 step 160: {}", heights.join(" "));
+        }
+    }
+}
+
+#[cfg(test)]
+mod crown_probe {
+    use super::*;
+
+    #[test]
+    #[ignore = "a probe"]
+    fn where_the_tilt_comes_from() {
+        let terrain = Terrain::new();
+        let peak = terrain.massif.unwrap();
+        println!("floor {:.2}", terrain.massif_floor);
+        for step in 0..8 {
+            let turn = step as f32 / 8.0 * std::f32::consts::TAU;
+            let at = peak + Vec2::new(turn.cos(), turn.sin()) * MASSIF_CROWN * 0.8;
+            let sculpted = terrain
+                .edits
+                .read()
+                .map(|edits| edits.at(at.x, at.y))
+                .unwrap_or(0.0);
+            println!(
+                "raw {:8.2}  base {:8.2}  height {:8.2}  edits {:6.2}",
+                terrain.raw_height(at.x, at.y),
+                terrain.base_height(at.x, at.y),
+                terrain.height(at.x, at.y),
+                sculpted,
+            );
         }
     }
 }

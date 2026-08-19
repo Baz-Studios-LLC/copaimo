@@ -504,6 +504,15 @@ pub const RANCH_RADIUS: f32 = 130.0;
 pub const MASSIF_HEIGHT: f32 = 340.0;
 pub const MASSIF_RADIUS: f32 = 950.0;
 
+/// The radius of the summit PLATEAU, in metres.
+///
+/// The endgame tournament is held on top of this mountain, so the top is not a
+/// peak: it is a ground. Within this radius the summit is held flat — the spur
+/// gullies and the foothill noise both fade out before they reach it — and the
+/// flanks fall away steep and broken below its rim, which is what makes the flat
+/// top read as EARNED rather than as a hill somebody sliced.
+pub const MASSIF_CROWN: f32 = 230.0;
+
 /// How far the foothills reach, as a multiple of the mountain's own radius.
 ///
 /// A mountain that stops at its own edge stands up out of a plain like a boil,
@@ -516,7 +525,7 @@ pub const MASSIF_SKIRT: f32 = 2.1;
 /// Cutting nearly half of it away along the creases gives spurs with real
 /// valleys between them — and, just as importantly, faces steep enough to count
 /// as rock, so the whole thing is no longer uniformly under snow.
-pub const MASSIF_RELIEF: f32 = 0.45;
+pub const MASSIF_RELIEF: f32 = 0.62;
 
 /// How high the foothills stand, as a fraction of the mountain.
 pub const MASSIF_FOOTHILLS: f32 = 0.16;

@@ -464,12 +464,6 @@ pub fn raise_the_rock(
     }
 }
 
-/// Takes the rock down with the rest of the world.
-pub fn drop_the_rock(mut commands: Commands, standing: Query<Entity, With<Rock>>) {
-    for rock in &standing {
-        commands.entity(rock).despawn();
-    }
-}
 
 #[cfg(test)]
 mod tests {

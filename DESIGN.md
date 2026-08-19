@@ -48,6 +48,40 @@ mouth are open to the sky and keep their grass.
 Still to come: branching paths off the bore, and something to make the inside dark
 beyond what the roof's own shadow gives.
 
+## The two mountains
+
+Both mountains were smooth analytic profiles — very tall hills — and both are
+shaped now, each to its own brief.
+
+**The great mountain is a table mountain**, because the endgame tournament is held
+on its summit: a plateau of `MASSIF_CROWN` radius, held DEAD flat (the base land
+under it is levelled to one height as the last word in `raw_height` — levelled
+earlier, the ranges and fine detail quietly stacked their noise back on top, which
+is exactly what had put ten metres of tilt across the tournament ground). Below the
+rim: a scarp collar dropping a third of the mountain in under a hundred metres,
+then long creased flanks — two octaves of `1 - |noise|` gullies, faded to nothing
+before the crown so the ridges between them run up the mountain like spurs. The
+tournament test measures both halves: the crown moves less than 6 m across, and
+the flanks average better than a 25% grade.
+
+**The pass wall is a serrated ridge**: the whole profile scales with a slow noise
+along the wall so the skyline is peaks and saddles, and the flanks carry gullies
+stretched DOWN the fall line — water's work runs downhill, and isotropic folds came
+out as round pockets that read as hammered metal. Creases live mid-flank only: at
+the crest they would notch the skyline below the saddles, at the foot they would
+trench the plain. Nothing is ever added on top — creases only cut down — so the
+bore's roof arithmetic reads the same mountain the ground draws.
+
+The walk-over test changed with the shape: what blocks a walker is the highest
+ground on their PATH, so each candidate crossing is measured by the most it makes
+them climb, and the weakest crossing along the wall still tops half the nominal
+height. Asserting every flank sample was high would fail the gullies — a gully
+partway up a mountainside is not a way over it.
+
+`dump_the_relief` (hillshade, no biome colour) is how all of this was judged:
+colour cannot show shape in snow country, where everything is white at every
+height.
+
 ## Boring tunnels in the terrain tool
 
 The pass above was written in code, and moving it meant reading a screenshot and
