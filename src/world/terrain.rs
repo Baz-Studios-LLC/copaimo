@@ -64,6 +64,8 @@ pub struct Terrain {
     map_carries_elevation: bool,
     /// Half-extents of the world in meters (X = east/west, Y here = north/south).
     half: Vec2,
+    /// The tunnels somebody has bored through it. See [`crate::world::bores`].
+    bores: std::sync::RwLock<crate::world::bores::Bores>,
     /// Ridge lines. Where this field crosses zero becomes a mountain crest.
     ranges: Fbm<Perlin>,
     /// Much broader field deciding which regions are mountainous at all.
@@ -116,6 +118,9 @@ impl Terrain {
             map,
             map_carries_elevation,
             half,
+            // Read from file like every other layer a maker writes. A world with
+            // no tunnels file is a world with no tunnels, which is a fine world.
+            bores: std::sync::RwLock::new(crate::world::bores::load()),
             // Plain fBm, and only two octaves. Ridged multifractal noise is what
             // produced the spike-forest: it creases sharply at every zero
             // crossing, and squaring the result narrowed those creases into
@@ -396,13 +401,15 @@ impl Terrain {
     /// This is the answer for anything that cares where the ground actually is.
     pub fn height(&self, x: f32, z: f32) -> f32 {
         let generated = self.base_height(x, z);
-        match self.edits.read() {
+        let shaped = match self.edits.read() {
             Ok(edits) => generated + edits.at(x, z),
             // A poisoned lock means a sculpting operation panicked. The
             // generated world is still perfectly valid, so keep drawing it
             // rather than taking the game down with it.
             Err(_) => generated,
-        }
+        };
+        // Tunnels last, because a hole is a hole through whatever is there.
+        self.bored(x, z, shaped)
     }
 
     /// Ground height from the generator alone, with the edit layer excluded.
@@ -871,6 +878,37 @@ impl Terrain {
     /// is the difference between the two. See [`crate::world::pass`].
     pub fn without_the_pass(&self, x: f32, z: f32) -> f32 {
         self.height(x, z) - crate::world::pass::lift(Vec2::new(x, z))
+    }
+
+    /// The ground with every bored tunnel cut out of it.
+    ///
+    /// The last word on height, and it has to be: a tunnel is a hole through
+    /// whatever is there, so it cuts everything above it — the generated land, the
+    /// pass's own mountain, and anything a maker has sculpted on top.
+    fn bored(&self, x: f32, z: f32, ground: f32) -> f32 {
+        match self.bores.read() {
+            Ok(bores) if !bores.is_empty() => ground - bores.cut(Vec2::new(x, z), ground),
+            // A poisoned lock means a tool panicked mid-stroke. The world without
+            // its tunnels is still a world, so it keeps being drawn.
+            _ => ground,
+        }
+    }
+
+    /// The ground as it was BEFORE the tunnels were cut.
+    ///
+    /// What the rock over a bore is built against, since the rock is exactly the
+    /// ground the bore removed.
+    pub fn unbored(&self, x: f32, z: f32) -> f32 {
+        let generated = self.base_height(x, z);
+        match self.edits.read() {
+            Ok(edits) => generated + edits.at(x, z),
+            Err(_) => generated,
+        }
+    }
+
+    /// The tunnels, for the tool and for saving.
+    pub fn bores(&self) -> &std::sync::RwLock<crate::world::bores::Bores> {
+        &self.bores
     }
 
     /// The still water standing in a channel here, if any.

@@ -188,6 +188,90 @@ pub struct CursorFree(pub bool);
 #[derive(Resource, Default)]
 pub struct Carrying(pub Option<u32>);
 
+/// A row in the panel was pressed.
+///
+/// An event rather than a resource because a press is a MOMENT: a resource would
+/// have to be cleared by whoever read it, and two readers would race over who got
+/// there first.
+#[derive(Event, Clone, Copy)]
+pub struct Asked(pub Act);
+
+/// The mouth of a tunnel a maker has started but not finished.
+///
+/// A bore takes two points, so it takes two clicks: the first is remembered here
+/// and the second lays the tunnel. The same shape as the ramp tool, and for the
+/// same reason — a thing defined by where it starts and where it ends cannot be
+/// painted, because painting only ever knows where the brush is now.
+#[derive(Resource, Default)]
+pub struct Boring(pub Option<Vec2>);
+
+/// What a press in the panel's ACTIONS does.
+///
+/// # Not brushes, which is why they are not in the palette
+///
+/// A brush is dragged over ground and does its work wherever it passes. None of
+/// these are: placing a building, picking one up, turning it, and boring a tunnel
+/// all happen at a MOMENT, and two of them need two moments to say what they mean.
+/// Sitting them in the palette would mean a maker selects PLACE and then wonders
+/// why dragging does nothing.
+///
+/// They were keyboard-only, which is worse — a key nobody has been told about is a
+/// tool that does not exist as far as anyone can tell. Every one of them has a row
+/// to press now, with its key printed on it, which is what the whole panel is for.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Act {
+    /// Place the next building from the catalogue where the ring is.
+    Place,
+    /// Pick up what the ring is over, or set down what is in hand.
+    Carry,
+    /// Turn what the ring is over a quarter.
+    Turn,
+    /// Take away what the ring is over.
+    Remove,
+    /// Start a tunnel, or finish the one already started.
+    Bore,
+    /// Take away the nearest tunnel.
+    Unbore,
+}
+
+impl Act {
+    pub const ALL: [Act; 6] = [
+        Act::Place,
+        Act::Carry,
+        Act::Turn,
+        Act::Remove,
+        Act::Bore,
+        Act::Unbore,
+    ];
+
+    /// What the row says, and the key that does the same thing.
+    ///
+    /// One table, read by the panel and by the keyboard both — the same
+    /// arrangement `TOOL_KEYS` keeps, and for the same reason: a panel numbering
+    /// its own rows and an input holding its own keys drift apart, and the panel
+    /// then tells a maker something untrue.
+    pub fn says(self) -> (&'static str, &'static str) {
+        match self {
+            Act::Place => ("P", "PLACE A BUILDING"),
+            Act::Carry => ("G", "PICK UP / PUT DOWN"),
+            Act::Turn => ("R", "TURN A QUARTER"),
+            Act::Remove => ("Del", "TAKE IT AWAY"),
+            Act::Bore => ("B", "BORE A TUNNEL"),
+            Act::Unbore => ("Sh-B", "FILL A TUNNEL IN"),
+        }
+    }
+
+    pub fn key(self) -> KeyCode {
+        match self {
+            Act::Place => KeyCode::KeyP,
+            Act::Carry => KeyCode::KeyG,
+            Act::Turn => KeyCode::KeyR,
+            Act::Remove => KeyCode::Delete,
+            Act::Bore | Act::Unbore => KeyCode::KeyB,
+        }
+    }
+}
+
 /// Seconds of unsaved work, and whether leaving has already been questioned.
 #[derive(Resource, Default)]
 pub struct Keeping {
@@ -200,7 +284,9 @@ pub struct EditorPlugin;
 
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Carrying>()
+        app.add_event::<Asked>()
+            .init_resource::<Carrying>()
+            .init_resource::<Boring>()
             .init_resource::<Brush>()
             .init_resource::<CursorFree>()
             .init_resource::<Keeping>()
@@ -218,6 +304,7 @@ impl Plugin for EditorPlugin {
                     // After the placing, so a thing picked up this frame follows the
                     // crosshair from the frame it is picked up on.
                     carry_things,
+                    bore_tunnels,
                     history,
                     save_edits,
                     keep_the_work,
@@ -1008,15 +1095,30 @@ fn save_edits(
         crate::world::country::save(&mut painted).map(|()| painted.painted_cells())
     };
     let built = crate::world::placed::save(&mut placed).map(|()| placed.len());
+    // The tunnels go with everything else, in the same keystroke. A maker who
+    // has just bored one should not have to learn there is a sixth file.
+    let dug = {
+        let Ok(mut bores) = terrain.bores().write() else {
+            return;
+        };
+        crate::world::bores::save(&mut bores)
+            .map(|()| bores.len())
+            .map_err(|why| why.to_string())
+    };
 
     match (ground, woods, worn, countries, built) {
         (Ok(cells), Ok(planted), Ok(laid), Ok(marked), Ok(stood)) => {
+            let bored = dug.clone().unwrap_or_default();
             info!(
-                "saved {cells} sculpted, {planted} planted, {laid} surfaced, {marked} biome, {stood} placed"
+                "saved {cells} sculpted, {planted} planted, {laid} surfaced,                  {marked} biome, {stood} placed, {bored} bored"
             );
             toast.show(format!(
-                "Saved {cells} sculpted, {planted} planted, {laid} surfaced, {marked} biome, {stood} placed"
+                "Saved {cells} sculpted, {planted} planted, {laid} surfaced,                  {marked} biome, {stood} placed, {bored} bored"
             ));
+            if let Err(why) = &dug {
+                error!("could not save the tunnels: {why}");
+                toast.show("Tunnels not saved - see log");
+            }
         }
         // Said separately, because which one failed decides what was lost.
         (.., Err(why)) => {
@@ -1173,9 +1275,29 @@ fn place_things(
     free: Res<CursorFree>,
     mut placed: ResMut<crate::world::placed::Standing>,
     mut carrying: ResMut<Carrying>,
+    mut asked: EventReader<Asked>,
     mut choosing: Local<usize>,
     mut toast: ResMut<ui::Toast>,
 ) {
+    // A row pressed in the panel and the key it prints mean the same thing, so
+    // they arrive by the same door.
+    let mut pressed: Vec<Act> = asked.read().map(|ask| ask.0).collect();
+    if !free.0 {
+        for act in [Act::Place, Act::Carry, Act::Turn, Act::Remove] {
+            let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+            // Shift+B is the bore's own business, and Shift+R turns the other way
+            // rather than being a different act.
+            if act != Act::Remove && shift && act == Act::Place {
+                continue;
+            }
+            if keys.just_pressed(act.key()) && !pressed.contains(&act) {
+                pressed.push(act);
+            }
+        }
+        if keys.just_pressed(KeyCode::Backspace) && !pressed.contains(&Act::Remove) {
+            pressed.push(Act::Remove);
+        }
+    }
     if free.0 {
         return;
     }
@@ -1184,7 +1306,7 @@ fn place_things(
     };
     let at = Vec2::new(hit.x, hit.z);
 
-    if keys.just_pressed(KeyCode::Delete) || keys.just_pressed(KeyCode::Backspace) {
+    if pressed.contains(&Act::Remove) {
         // What is in hand goes first, wherever the ring happens to be: somebody
         // holding a thing and pressing delete means THIS one.
         if let Some(id) = carrying.0.take() {
@@ -1207,7 +1329,7 @@ fn place_things(
     }
 
     // Picking something up, and putting it down again.
-    if keys.just_pressed(KeyCode::KeyG) {
+    if pressed.contains(&Act::Carry) {
         match carrying.0.take() {
             // Setting it down: the sheet is written once, here, which is what
             // raises everything again in its new place.
@@ -1236,7 +1358,7 @@ fn place_things(
     // is a mistake that reads as one and takes a while to find. The sheet stores
     // radians, so anything that genuinely wants a finer angle — a boulder — can
     // still hold one; nothing here has asked yet.
-    if keys.just_pressed(KeyCode::KeyR) {
+    if pressed.contains(&Act::Turn) {
         let widdershins = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
         let by = std::f32::consts::FRAC_PI_2 * if widdershins { -1.0 } else { 1.0 };
         match placed.nearest(at, brush.radius) {
@@ -1254,7 +1376,7 @@ fn place_things(
         return;
     }
 
-    if !keys.just_pressed(KeyCode::KeyP) {
+    if !pressed.contains(&Act::Place) {
         return;
     }
     if catalogue.0.is_empty() {
@@ -1296,6 +1418,7 @@ mod tests {
             .init_resource::<crate::build::Catalogue>()
             .init_resource::<ui::Toast>()
             .init_resource::<ButtonInput<KeyCode>>()
+            .add_event::<Asked>()
             .add_systems(Update, place_things);
         // Pointed at the ground, as the brush is whenever it is over the world.
         app.world_mut().resource_mut::<Brush>().hit = Some(Vec3::new(10.0, 0.0, -4.0));
@@ -1385,6 +1508,105 @@ mod tests {
     }
 }
 
+/// Bores a tunnel, in two clicks.
+///
+/// The first says where it starts, the second where it comes out, and the tunnel
+/// is cut between them through whatever happens to be in the way. It only ever
+/// cuts DOWN — run one over open ground and nothing happens, because there was no
+/// hill to get through.
+pub fn bore_tunnels(
+    keys: Res<ButtonInput<KeyCode>>,
+    brush: Res<Brush>,
+    free: Res<CursorFree>,
+    terrain: Res<TerrainSource>,
+    chunks: Res<ChunkMap>,
+    busy: Query<(), With<PendingChunk>>,
+    mut boring: ResMut<Boring>,
+    mut asked: EventReader<Asked>,
+    mut commands: Commands,
+    mut toast: ResMut<ui::Toast>,
+) {
+    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+    // From the key, or from the row in the panel — one path, so the two cannot
+    // come to mean different things.
+    let mut wanted = if free.0 {
+        None
+    } else if keys.just_pressed(Act::Bore.key()) {
+        Some(if shift { Act::Unbore } else { Act::Bore })
+    } else {
+        None
+    };
+    for ask in asked.read() {
+        if matches!(ask.0, Act::Bore | Act::Unbore) {
+            wanted = Some(ask.0);
+        }
+    }
+    let Some(act) = wanted else {
+        return;
+    };
+    let Some(hit) = brush.hit else {
+        return;
+    };
+    let at = Vec2::new(hit.x, hit.z);
+
+    if act == Act::Unbore {
+        let Ok(mut bores) = terrain.0.bores().write() else {
+            return;
+        };
+        // A tunnel is long, so what counts as near it is generous.
+        if bores.remove_nearest(at, crate::world::bores::SPAN * 12.0) {
+            drop(bores);
+            toast.show("Tunnel filled in");
+            redraw_around(&mut commands, &terrain, &chunks, &busy, at, at);
+        } else {
+            toast.show("No tunnel near the ring");
+        }
+        return;
+    }
+
+    let Some(from) = boring.0.take() else {
+        boring.0 = Some(at);
+        toast.show("Tunnel started - aim at the far side and press again");
+        return;
+    };
+    if from.distance(at) < crate::world::bores::SPAN {
+        toast.show("Too short to be a tunnel - aim further off");
+        boring.0 = Some(from);
+        return;
+    }
+
+    // The floor is remembered from the ground as it is NOW, before this bore cuts
+    // it — see `bores`, which explains why it cannot be asked for later.
+    let bore = crate::world::bores::Bore {
+        from,
+        to: at,
+        floor_from: terrain.0.unbored(from.x, from.y),
+        floor_to: terrain.0.unbored(at.x, at.y),
+    };
+    let Ok(mut bores) = terrain.0.bores().write() else {
+        return;
+    };
+    bores.add(bore);
+    drop(bores);
+    toast.show(format!("Tunnel bored, {:.0} m", from.distance(at)));
+    redraw_around(&mut commands, &terrain, &chunks, &busy, from, at);
+}
+
+/// Rebuilds the ground a tunnel runs under.
+fn redraw_around(
+    commands: &mut Commands,
+    terrain: &TerrainSource,
+    chunks: &ChunkMap,
+    busy: &Query<(), With<PendingChunk>>,
+    from: Vec2,
+    to: Vec2,
+) {
+    let edge = crate::world::bores::SPAN * 2.0;
+    let low = from.min(to) - Vec2::splat(edge);
+    let high = from.max(to) + Vec2::splat(edge);
+    invalidate_area(commands, terrain, chunks, busy, (low, high));
+}
+
 /// Carries whatever is in hand along under the crosshair.
 ///
 /// Moves the DRAWN thing and not the sheet — see [`Carrying`] for why. On the ground
@@ -1433,6 +1655,7 @@ mod carrying {
             .init_resource::<Keeping>()
             .init_resource::<ui::Toast>()
             .init_resource::<ButtonInput<KeyCode>>()
+            .add_event::<Asked>()
             .init_resource::<Time>()
             .insert_resource(TerrainSource(std::sync::Arc::new(Terrain::new())))
             .add_systems(Update, (place_things, carry_things, keep_the_work).chain());
@@ -1621,5 +1844,150 @@ mod carrying {
             "the barn went too"
         );
         assert_eq!(app.world().resource::<Carrying>().0, None);
+    }
+}
+
+#[cfg(test)]
+mod boring {
+    use super::*;
+    use crate::world::bores::Bores;
+
+    /// The tool, driven the way a maker drives it: two presses on the ground.
+    fn bench() -> App {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .init_state::<AppState>()
+            .init_resource::<Brush>()
+            .init_resource::<Boring>()
+            .init_resource::<CursorFree>()
+            .init_resource::<ui::Toast>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ChunkMap>()
+            .add_event::<Asked>()
+            .insert_resource(TerrainSource(std::sync::Arc::new(Terrain::new())))
+            .add_systems(Update, bore_tunnels);
+        app
+    }
+
+    fn press_at(app: &mut App, at: Vec2, shift: bool) {
+        app.world_mut().resource_mut::<Brush>().hit = Some(Vec3::new(at.x, 0.0, at.y));
+        {
+            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            if shift {
+                keys.press(KeyCode::ShiftLeft);
+            }
+            keys.press(KeyCode::KeyB);
+        }
+        app.update();
+        // Released as well as cleared. `clear` only forgets what was pressed THIS
+        // frame; the key itself stays down, and pressing an already-down key is
+        // not a new press — so without this the second press never happened and
+        // the tool looked broken when it was the test holding the key.
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.release(KeyCode::KeyB);
+        keys.release(KeyCode::ShiftLeft);
+        keys.clear();
+    }
+
+    fn bores(app: &App) -> usize {
+        let terrain = app.world().resource::<TerrainSource>();
+        let count = terrain.0.bores().read().unwrap().len();
+        count
+    }
+
+    #[test]
+    fn two_presses_bore_a_tunnel_and_the_ground_opens() {
+        let mut app = bench();
+        // Somewhere with a hill in it: the pass's own mountain, which is the one
+        // piece of high ground this test can count on being there.
+        let middle = crate::world::pass::AT;
+        let (sin, cos) = crate::world::pass::HEADING.sin_cos();
+        let along = Vec2::new(cos, sin);
+        // Across the mountain rather than along it, so this bores through the
+        // wall somewhere the pass's own tunnel is not.
+        let side = Vec2::new(-sin, cos);
+        let from = middle + side * 300.0 - along * 260.0;
+        let to = middle + side * 300.0 + along * 260.0;
+
+        let was = bores(&app);
+        let before = {
+            let terrain = app.world().resource::<TerrainSource>();
+            let at = (from + to) * 0.5;
+            terrain.0.height(at.x, at.y)
+        };
+
+        press_at(&mut app, from, false);
+        assert_eq!(bores(&app), was, "one press laid a tunnel on its own");
+        assert!(
+            app.world().resource::<Boring>().0.is_some(),
+            "the first press did not remember where it was"
+        );
+
+        press_at(&mut app, to, false);
+        assert_eq!(bores(&app), was + 1, "two presses did not lay a tunnel");
+
+        // And the ground between them has come down.
+        let after = {
+            let terrain = app.world().resource::<TerrainSource>();
+            let at = (from + to) * 0.5;
+            terrain.0.height(at.x, at.y)
+        };
+        assert!(
+            before - after > 20.0,
+            "the hill only came down {:.1} m - that is not a tunnel through it",
+            before - after
+        );
+
+        // Shift takes it out again.
+        press_at(&mut app, (from + to) * 0.5, true);
+        assert_eq!(bores(&app), was, "the tunnel would not fill back in");
+    }
+
+    #[test]
+    fn a_bore_over_open_ground_does_nothing_to_it() {
+        // A tunnel is a hole through something. Run one across a plain and there
+        // should be no trench — which is what stops the tool being a ditch-digger
+        // nobody asked for.
+        //
+        // Not "exactly as it was": the floor runs level between the two mouths, so
+        // a rise between them is genuinely taken off, and rolling ground gives up
+        // the odd half-metre. What must not happen is a cut you could fall into.
+        let mut app = bench();
+        let from = Vec2::new(crate::config::RANCH_AT.0, crate::config::RANCH_AT.1);
+        let to = from + Vec2::new(160.0, 0.0);
+
+        let sample = |app: &App, at: Vec2| {
+            app.world().resource::<TerrainSource>().0.height(at.x, at.y)
+        };
+        let before: Vec<f32> = (0..9)
+            .map(|step| sample(&app, from.lerp(to, step as f32 / 8.0)))
+            .collect();
+
+        press_at(&mut app, from, false);
+        press_at(&mut app, to, false);
+        assert_eq!(bores(&app), 1, "the tunnel was not laid at all");
+
+        for (step, was) in before.iter().enumerate() {
+            let at = from.lerp(to, step as f32 / 8.0);
+            let now = sample(&app, at);
+            assert!(
+                was - now < 2.0,
+                "flat ground dropped {:.1} m at step {step} - the tool dug a trench",
+                was - now
+            );
+        }
+    }
+
+    #[test]
+    fn a_tunnel_needs_two_ends_that_are_not_the_same_place() {
+        let mut app = bench();
+        let at = crate::world::pass::AT;
+        press_at(&mut app, at, false);
+        press_at(&mut app, at + Vec2::new(2.0, 0.0), false);
+        assert_eq!(bores(&app), 0, "a tunnel two metres long was laid");
+        assert!(
+            app.world().resource::<Boring>().0.is_some(),
+            "the start was thrown away rather than kept for a better second press"
+        );
     }
 }

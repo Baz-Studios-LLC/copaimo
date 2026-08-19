@@ -250,7 +250,12 @@ fn dress(terrain: &Terrain, low: Vec2) -> Geometry {
 
             // Nothing grows under a mountain. The cutting at either mouth is
             // open to the sky and keeps its grass — see `pass::underground`.
-            if crate::world::pass::underground(at) > 0.5 {
+            if crate::world::pass::underground(at) > 0.5
+                || terrain
+                    .bores()
+                    .read()
+                    .is_ok_and(|bores| bores.under_rock(at, terrain.unbored(at.x, at.y)) > 0.5)
+            {
                 continue;
             }
             let ground = terrain.ground_at(at.x, at.y);

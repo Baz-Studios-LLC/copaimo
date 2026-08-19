@@ -95,7 +95,9 @@ impl Plugin for EditorUiPlugin {
                     dragged_meter,
                     crate::tools::widget::fold_branches,
                     crate::tools::widget::scroll_panels,
+                    pressed_act,
                     crate::tools::widget::light_rows::<Brushing>,
+                    crate::tools::widget::light_rows::<crate::editor::Act>,
                     refresh_tools,
                     refresh_readouts,
                     refresh_meters,
@@ -257,6 +259,16 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
                     }
                 });
             }
+            // The things that are not brushes, each with a row to press. They
+            // were keyboard-only, and a key nobody has been told about is a tool
+            // that does not exist as far as anyone can tell.
+            widget::branch(body, font, "acts", "DO SOMETHING", true, |rows| {
+                for act in crate::editor::Act::ALL {
+                    let (key, says) = act.says();
+                    widget::row(rows, font, "acts", key, says, act);
+                }
+            });
+
             tool_saying(body, font);
 
             body.spawn(rule());
@@ -284,10 +296,6 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
                 ("RMB", "invert brush"),
                 ("Wheel", "brush radius"),
                 ("[ ]", "brush strength"),
-                ("P", "place from the catalogue"),
-                ("G", "pick it up / put it down"),
-                ("R", "turn it a quarter / Shift R back"),
-                ("Del", "take away what is under the brush"),
                 ("Alt", "free pointer, click map"),
                 ("Q E", "fly down / up"),
                 ("- =", "fly speed"),
@@ -506,6 +514,21 @@ fn despawn_ui(mut commands: Commands, roots: Query<Entity, With<EditorUiRoot>>) 
 /// The same field the keys write, so the panel and the keyboard can never mean
 /// different things. Selecting a tool mid-drag also drops a half-laid ramp, for
 /// the same reason pressing its key does.
+/// Turns a press on an action row into the same event its key raises.
+///
+/// One path from either, so a row and its key cannot come to mean different
+/// things — the fault `TOOL_KEYS` exists to prevent, in its other half.
+pub fn pressed_act(
+    rows: Query<(&Interaction, &Choice<crate::editor::Act>), Changed<Interaction>>,
+    mut asked: EventWriter<crate::editor::Asked>,
+) {
+    for (touch, choice) in &rows {
+        if *touch == Interaction::Pressed {
+            asked.write(crate::editor::Asked(choice.0));
+        }
+    }
+}
+
 pub fn pressed_tool(
     rows: Query<(&Interaction, &Choice<Brushing>), Changed<Interaction>>,
     mut brush: ResMut<Brush>,

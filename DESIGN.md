@@ -48,6 +48,44 @@ mouth are open to the sky and keep their grass.
 Still to come: branching paths off the bore, and something to make the inside dark
 beyond what the roof's own shadow gives.
 
+## Boring tunnels in the terrain tool
+
+The pass above was written in code, and moving it meant reading a screenshot and
+guessing which constant it implied. That went wrong three times in an evening — the
+wall crossed the desert boundary instead of following it, then it was a mesa, then
+it was too thin. Same fault the countries had before they were paintable, same
+answer: **the person who can see where a tunnel belongs should be the one putting
+it there.**
+
+`B` (or the BORE row) marks one mouth, `B` again marks the other, and the tunnel is
+cut between them through whatever is in the way. `Shift+B` fills the nearest one
+back in. They live in `assets/world/bores.json` and save with Ctrl+S alongside
+every other layer.
+
+A bore only ever cuts **down**: run one over open ground and nothing happens,
+because there was no hill to get through. Its floor runs level between its two
+mouths, and that floor height is remembered when the bore is laid rather than asked
+for later — the carve is part of the terrain's height, so a floor derived from the
+carved ground would sink a little further every time the question was asked.
+
+The mountain itself is not part of it. There is already a brush for raising ground;
+a bore's job is to make a hole in whatever is there.
+
+## Every action in the tool has a row to press
+
+The palette was clickable but the actions were not — placing a building, picking one
+up, turning it, taking it away and boring a tunnel were all keyboard-only, and a key
+nobody has been told about is a tool that does not exist as far as anyone can tell.
+They are rows now, in DO SOMETHING, each printing its own key.
+
+They are not in the brush palette, and should not be: a brush is dragged over ground
+and works wherever it passes. None of these are — they happen at a moment, and two
+of them need two moments to say what they mean. A maker who selected PLACE and then
+dragged would rightly wonder why nothing happened.
+
+The key and the row raise the same `Asked` event, so the two cannot come to mean
+different things — the same arrangement `TOOL_KEYS` keeps for the palette.
+
 ## 1. Pillars
 
 1. **Monsters are companions, not enemies.** They're allies you raise and care
