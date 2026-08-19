@@ -234,6 +234,13 @@ pub fn surface_color(
     // Vertex colours, so it costs nothing to draw: the terrain mesh already
     // carries a colour a vertex, on a two-metre grid, and the fine scale is drawn
     // at about that size so the mesh can actually hold it.
+    // Under the mountain the ground is not ground: it is the floor of a bore,
+    // which is bare stone whatever country it happens to run through.
+    let hewn = crate::world::pass::underground(at);
+    if hewn > 0.0 {
+        color = color.lerp(p.rock * 0.62, hewn);
+    }
+
     let mottle = mottle_at(at);
     // How much each surface takes. Snow is genuinely near-uniform and blotching it
     // reads as dirt; rock and grass are the opposite, and sand sits between.

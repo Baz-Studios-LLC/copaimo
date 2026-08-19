@@ -301,6 +301,14 @@ impl Terrain {
                     continue;
                 }
 
+                // No trees under a mountain. The bore's floor is ordinary ground
+                // at its ordinary height, which is exactly what makes it walkable
+                // — and would otherwise make it a fine place for a wood, growing
+                // straight up through the rock overhead.
+                if crate::world::pass::underground(at) > 0.5 {
+                    continue;
+                }
+
                 // One gathering of the ground rather than five separate
                 // questions of it, and the same one the biome is decided from —
                 // so the species planted here belongs to the place the rest of
@@ -849,7 +857,20 @@ impl Terrain {
     /// before anybody levelled a town on it. This is what the towns are sited
     /// against, so they are placed on a map that already has its valleys.
     pub fn dry_height(&self, x: f32, z: f32) -> f32 {
+        // The pass rides on the generated land, under everything a maker does to
+        // it: a town levelled across the mouth of a tunnel should level the mouth,
+        // and a brush stroke should cut into the mountain like any other hill.
         self.raw_height(x, z) - self.rivers.cut_at(x, z)
+            + crate::world::pass::lift(Vec2::new(x, z))
+    }
+
+    /// The ground with the mountain pass taken back off it.
+    ///
+    /// What the world would be if the pass had never been raised — which is what
+    /// the rock above the bore is built against, because the plug's own thickness
+    /// is the difference between the two. See [`crate::world::pass`].
+    pub fn without_the_pass(&self, x: f32, z: f32) -> f32 {
+        self.height(x, z) - crate::world::pass::lift(Vec2::new(x, z))
     }
 
     /// The still water standing in a channel here, if any.
@@ -2373,9 +2394,17 @@ mod look {
     #[ignore = "a picture, not a check"]
     fn dump_the_ground() {
         let terrain = Terrain::new();
-        // Open grass near the ranch, where the maker photographed a flat green
-        // screen with a warden standing on it.
-        let middle = Vec2::new(RANCH_AT.0 + 220.0, RANCH_AT.1 + 60.0);
+        // Open grass near the ranch by default, where the maker photographed a
+        // flat green screen with a warden standing on it — or wherever
+        // `COPAIMO_LOOK_AT=x,z` says, so any corner of the world can be looked at
+        // without editing this.
+        let middle = std::env::var("COPAIMO_LOOK_AT")
+            .ok()
+            .and_then(|asked| {
+                let (x, z) = asked.split_once(',')?;
+                Some(Vec2::new(x.trim().parse().ok()?, z.trim().parse().ok()?))
+            })
+            .unwrap_or(Vec2::new(RANCH_AT.0 + 220.0, RANCH_AT.1 + 60.0));
         // Two metres a pixel: the mesh's own vertex grid, so what is drawn here is
         // exactly what the mesh can hold.
         const STEP: f32 = 2.0;

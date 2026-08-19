@@ -13,6 +13,41 @@ collect).
 
 ---
 
+## The mountain pass
+
+The road east runs desert → **mountain pass** → grassland → snow. The pass is a
+wall of rock across the whole route with one bore through it, at `pass::AT` on the
+desert's eastern edge: you cannot walk round it in any reasonable distance and you
+cannot walk over it, so getting east means going through the hole.
+
+**A heightfield has one surface and a tunnel needs two**, so the job is split
+between the two things that can each do half:
+
+* the **floor and walls** are the heightfield, carved. Where the passage runs the
+  mountain is simply not applied — so the bore's floor is the ordinary ground the
+  mountain was raised on, at the height it always had. That is why walking in is
+  level and why the mouths need no blending.
+* the **rock above** is a mesh (`pass::rock_over_the_bore`) filling the slot the
+  carving left, between the tunnel's arched ceiling and the mountain's own skin.
+
+Neither half knows anything the other does not — both are drawn from the same
+`ridge` and `bore` over the same ground — so the mesh cannot drift off the terrain
+it is plugging, and sculpting the hillside moves both.
+
+**Nothing decides where the mouths are.** The plug's thickness is the mountain's
+height above the tunnel's crown; where the mountain is lower than the crown that is
+nought. So the roof thins as the ground falls, opens into a cutting, and the
+cutting opens onto the plain. A railway looks like this for the same reason, and it
+means there is no end cap anywhere to get wrong.
+
+Under the rock nothing grows and the floor paints as stone (`pass::underground`) —
+the bore's floor is ordinary walkable ground, which would otherwise have been a
+fine place for a wood to grow straight up through the ceiling. The cuttings at each
+mouth are open to the sky and keep their grass.
+
+Still to come: branching paths off the bore, and something to make the inside dark
+beyond what the roof's own shadow gives.
+
 ## 1. Pillars
 
 1. **Monsters are companions, not enemies.** They're allies you raise and care

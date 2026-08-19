@@ -239,6 +239,10 @@ pub fn litter(terrain: &Terrain, pool: &[Prop], low: Vec2) -> Geometry {
                 continue;
             }
 
+            // Nothing stands under a mountain either.
+            if crate::world::pass::underground(at) > 0.5 {
+                continue;
+            }
             let ground = terrain.ground_at(at.x, at.y);
             let biome = Biome::of(ground, &terrain.climate());
 
