@@ -94,9 +94,55 @@ impl Holding {
     }
 }
 
-/// Marks the arrows, so they can be cleared and redrawn together.
+/// Marks an arrow, and which axis it is, so it can be lit when the pointer is on
+/// it.
 #[derive(Component)]
-pub struct Arrow;
+pub struct Arrow(pub usize);
+
+/// Lights the arrow under the pointer, and the one being dragged.
+///
+/// # Working and dead looked exactly the same
+///
+/// This is why the arrows read as broken long after they worked. Nothing changed
+/// when the pointer was on one, nothing changed when it was taken hold of, and a
+/// drag shorter than a module moves the piece nowhere — because it snaps. So the
+/// whole gesture could be performed correctly and produce no visible answer at
+/// all, which is indistinguishable from a dead control.
+///
+/// A handle has to say three things: I can be grabbed, I am grabbed, and here is
+/// what I did. The third was already there. These are the other two.
+pub fn light_arrows(
+    holding: Res<Holding>,
+    arrows: Query<(&Arrow, &MeshMaterial3d<StandardMaterial>)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    if !holding.is_changed() {
+        return;
+    }
+    for (arrow, skin) in &arrows {
+        let Some(material) = materials.get_mut(&skin.0) else {
+            continue;
+        };
+        let plain = axes(Quat::IDENTITY)[arrow.0.min(2)].1.to_linear();
+        // Held is brightest, hovered is brighter, the rest are themselves.
+        let lift = if holding.dragging == Some(arrow.0) {
+            HELD
+        } else if holding.hovering == Some(arrow.0) {
+            HOVERED
+        } else {
+            1.0
+        };
+        material.base_color = Color::linear_rgb(
+            (plain.red * lift).min(1.0),
+            (plain.green * lift).min(1.0),
+            (plain.blue * lift).min(1.0),
+        );
+    }
+}
+
+/// How much brighter an arrow goes when the pointer is on it, and when it is held.
+const HOVERED: f32 = 1.9;
+const HELD: f32 = 3.2;
 
 /// How long an arrow is, how thick its shaft, and how big its head.
 const REACH: f32 = 1.35;
@@ -370,7 +416,7 @@ pub fn show(
         height: HEAD,
     });
 
-    for (axis, colour) in axes(turn_of) {
+    for (at, (axis, colour)) in axes(turn_of).into_iter().enumerate() {
         // Unlit, and deliberately: a handle is a control, not a thing in the
         // room. Lit, it would go dark on the shaded side and read as part of the
         // building.
@@ -384,7 +430,7 @@ pub fn show(
 
         commands.spawn((
             OfBench,
-            Arrow,
+            Arrow(at),
             RenderLayers::layer(BENCH_LAYER),
             Mesh3d(shaft.clone()),
             MeshMaterial3d(skin.clone()),
@@ -393,7 +439,7 @@ pub fn show(
         ));
         commands.spawn((
             OfBench,
-            Arrow,
+            Arrow(at),
             RenderLayers::layer(BENCH_LAYER),
             Mesh3d(head.clone()),
             MeshMaterial3d(skin),
@@ -405,6 +451,33 @@ pub fn show(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scratch_real_camera() {
+        // The bench's own opening view, and a piece at the origin.
+        let (around, pitch, away) = (0.6_f32, 0.55_f32, 13.0_f32);
+        let pivot = Vec3::Y * 1.2;
+        let out = Vec3::new(
+            around.sin() * pitch.cos(),
+            pitch.sin(),
+            around.cos() * pitch.cos(),
+        );
+        let eye = pivot + out * away;
+
+        // A post at the origin: its middle is where the arrows sit.
+        let base = Vec3::new(0.0, kit::Part::Post.size().y * 0.5, 0.0);
+
+        for (name, axis) in [("X", Vec3::X), ("Y", Vec3::Y), ("Z", Vec3::Z)] {
+            // A ray from the eye straight at the middle of that arrow — which is
+            // exactly what a ray through the pixel the arrow is drawn on IS.
+            let target = base + axis * (REACH * 0.5);
+            let toward = (target - eye).normalize();
+            let (away_from, along) = ray_against_axis(eye, toward, base, axis);
+            println!(
+                "SCRATCH {name}: away={away_from:.4} along={along:.4} (GRAB={GRAB})"
+            );
+        }
+    }
 
     #[test]
     fn the_selection_survives_the_cursor_leaving_the_piece() {

@@ -41,8 +41,13 @@ use crate::build::pattern::{self, Pattern};
 use crate::build::plan;
 use crate::states::AppState;
 
-/// How far the camera looks from, and at what height it pivots.
-const EYE: Vec3 = Vec3::new(7.0, 5.0, 9.0);
+/// What height the view pivots about: about the middle of a wall, so a building
+/// turns about itself rather than about its feet.
+///
+/// Where the eye SITS is no longer a constant beside this. It was, and the two
+/// drifted: the camera opened at one place while the view believed it was at
+/// another, so the first orbit jumped the picture. It comes from `View::eye` now,
+/// which is the only sum that answers the question.
 const PIVOT: f32 = 1.2;
 
 /// The layer the bench draws on, and nothing else does.
@@ -161,6 +166,21 @@ struct View {
     pivot: Vec3,
 }
 
+impl View {
+    /// Where the eye sits, from the three numbers that describe the view.
+    ///
+    /// One place, because the camera is placed from this on open and moved from it
+    /// on every orbit — and when those were two sums they disagreed.
+    pub fn eye(&self) -> Vec3 {
+        let out = Vec3::new(
+            self.around.sin() * self.pitch.cos(),
+            self.pitch.sin(),
+            self.around.cos() * self.pitch.cos(),
+        );
+        self.pivot + out * self.away
+    }
+}
+
 impl Default for View {
     fn default() -> Self {
         Self {
@@ -205,40 +225,33 @@ impl Plugin for BenchPlugin {
             .add_systems(
                 Update,
                 (
-                    choose,
-                    generate,
-                    aim,
-                    move_hand,
-                    // The arrows get the click BEFORE anything places with it.
-                    //
-                    // They ran after, so a click on an arrow placed a piece and
-                    // then took hold of the handle — every attempt to move
-                    // something dropped a post on it first. Ordering alone is not
-                    // the guard, though: `place` also asks whether the arrows took
-                    // the click, so the two do not depend on somebody keeping this
-                    // list in the right order for ever.
-                    // Hovering is worked out BEFORE the selection is reconsidered.
-                    // Ordering is not what makes this correct any more — the
-                    // selection holds on by itself — but a frame's lag between
-                    // pointing at an arrow and the arrow knowing it is pointless
-                    // to inflict.
-                    gizmo::drag,
-                    gizmo::choose,
-                    place,
-                    turn_view,
-                    gizmo::show,
-                    rebuild,
-                    draw_ghost,
-                    reference::show,
-                    kiln::ask,
-                    kiln::collect,
+                    // What the maker asked for.
+                    (choose, generate, aim, move_hand),
+                    // Then the handles, which get the click BEFORE anything places
+                    // with it: they ran after, so a click on an arrow placed a
+                    // piece and then took hold. Ordering is not the only guard —
+                    // `place` asks whether the arrows took the click — but a
+                    // frame's lag between pointing at a handle and the handle
+                    // knowing is pointless to inflict.
+                    (gizmo::drag, gizmo::choose, place, turn_view),
+                    // Then what is drawn from it.
+                    (
+                        gizmo::show,
+                        gizmo::light_arrows,
+                        rebuild,
+                        draw_ghost,
+                        reference::show,
+                    ),
+                    (kiln::ask, kiln::collect),
                     // The panel: what was pressed, then what everything says.
-                    panel::pressed,
-                    panel::pressed_swatch,
-                    crate::tools::widget::fold_branches,
-                    crate::tools::widget::light_rows::<panel::Press>,
-                    panel::refresh,
-                    panel::colour_unsaved,
+                    (
+                        panel::pressed,
+                        panel::pressed_swatch,
+                        crate::tools::widget::fold_branches,
+                        crate::tools::widget::light_rows::<panel::Press>,
+                        panel::refresh,
+                        panel::colour_unsaved,
+                    ),
                 )
                     .chain()
                     .run_if(in_state(AppState::Bench)),
@@ -267,7 +280,10 @@ fn open(
         BenchEye,
         Camera3d::default(),
         RenderLayers::layer(BENCH_LAYER),
-        Transform::from_translation(EYE).looking_at(Vec3::Y * PIVOT, Vec3::Y),
+        // Where the VIEW says, not a constant beside it. The two had drifted —
+        // the camera opened at (7, 5, 9) while the view believed it was somewhere
+        // else entirely, so the first orbit or zoom jumped the picture.
+        Transform::from_translation(View::default().eye()).looking_at(View::default().pivot, Vec3::Y),
     ));
 
     // Two lights and no sun. The bench is indoors as far as anything here is
@@ -786,15 +802,9 @@ fn turn_view(
         return;
     }
 
-    let pivot = view.pivot;
-    let out = Vec3::new(
-        view.around.sin() * view.pitch.cos(),
-        view.pitch.sin(),
-        view.around.cos() * view.pitch.cos(),
-    );
     for mut camera in &mut cameras {
-        camera.translation = pivot + out * view.away;
-        camera.look_at(pivot, Vec3::Y);
+        camera.translation = view.eye();
+        camera.look_at(view.pivot, Vec3::Y);
     }
 }
 
