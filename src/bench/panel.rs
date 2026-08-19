@@ -40,6 +40,8 @@ pub enum Readout {
     Pieces,
     Picture,
     Kiln,
+    /// What the work is called, which is the filename it saves under.
+    Name,
 }
 
 /// What a pressable row in this panel can mean.
@@ -52,6 +54,8 @@ pub enum Press {
     /// Turn something already placed, rather than the piece in hand.
     TurnPlaced,
     Save,
+    /// Start typing the work's name.
+    Rename,
     Undo,
     Fire,
     NextPicture,
@@ -172,6 +176,10 @@ pub fn open(mut commands: Commands, font: Res<UiFont>) {
             });
 
             widget::branch(panel, &font, "work", "WORK", true, |rows| {
+                // The name first: it is the filename the work saves under, and the
+                // whole path from this bench to the world runs through it.
+                value_row(rows, &font, "called", Readout::Name);
+                widget::row(rows, &font, "work", "N", "NAME THIS WORK", Press::Rename);
                 value_row(rows, &font, "cursor", Readout::Cursor);
                 value_row(rows, &font, "pieces", Readout::Pieces);
                 widget::row(rows, &font, "work", "Ctrl+Z", "UNDO", Press::Undo);
@@ -234,6 +242,7 @@ pub fn pressed(
     mut asked: ResMut<super::Asked>,
     mut reference: ResMut<super::reference::Reference>,
     mut firing: ResMut<super::kiln::Firing>,
+    mut naming: ResMut<super::Naming>,
     mut next: ResMut<NextState<AppState>>,
 ) {
     for (touch, choice) in &mut rows {
@@ -254,6 +263,10 @@ pub fn pressed(
             }
             Press::Undo => {
                 bench.undo();
+            }
+            Press::Rename => {
+                let was = bench.name.clone();
+                bench.name = naming.begin(&was);
             }
             Press::Save => match crate::build::kit::save(&mut bench) {
                 Ok(path) => info!("saved the work to {}", path.display()),
@@ -286,6 +299,7 @@ pub fn refresh(
     bench: Res<Bench>,
     reference: Res<super::reference::Reference>,
     firing: Res<super::kiln::Firing>,
+    naming: Res<super::Naming>,
     rows: Query<(Entity, &Choice<Press>, Option<&widget::Chosen>, &Children)>,
     mut labels: Query<&mut TextColor, With<RowLabel>>,
     mut backgrounds: Query<&mut BackgroundColor, With<Choice<Press>>>,
@@ -338,6 +352,19 @@ pub fn refresh(
                 bench.len(),
                 if bench.unsaved { "  UNSAVED" } else { "" }
             ),
+            Readout::Name => {
+                if !crate::build::kit::is_named(&bench.name) && !naming.typing {
+                    // Said out loud rather than shown as a blank, because a work
+                    // with no name saves over the last nameless one.
+                    "unnamed - press N".into()
+                } else if naming.typing {
+                    // A caret, so it is plain that the keyboard is being listened to
+                    // by the name and not by the bench.
+                    format!("{}_", bench.name)
+                } else {
+                    bench.name.clone()
+                }
+            }
             Readout::Picture => reference.said(),
             Readout::Kiln => {
                 if firing.said.is_empty() {

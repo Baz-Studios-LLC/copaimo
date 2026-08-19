@@ -179,6 +179,66 @@ impl Default for Hand {
     }
 }
 
+/// Whether the maker is typing the work's name, and what it was before they
+/// started.
+///
+/// # Why a building needs a name before anything else works
+///
+/// The bench saves to `assets/buildings/<name>.json`, and nothing could set the
+/// name — so every hand-built work saved as `untitled.json` and overwrote the last
+/// one. The whole path from the bench to the world runs through that filename: the
+/// game reads the buildings folder into its catalogue, and the terrain tool stands
+/// what it finds there in the world. One file that keeps being overwritten is not a
+/// pipeline, it is a demo.
+///
+/// # Typing has to take the keyboard
+///
+/// Every letter on this bench does something — W walks the view, R turns the piece,
+/// the digits pick parts — so typing "wall" without stopping all of that would
+/// place a wall, turn it, and walk the camera. While this is on, the bench's own
+/// keys are inert and the only keys that mean anything are the ones being typed.
+#[derive(Resource, Default)]
+pub struct Naming {
+    pub typing: bool,
+    /// The name as it was when typing began, so ESC can put it back.
+    was: String,
+    /// Whether typing ENDED this frame.
+    ///
+    /// # The key that finishes a name must not also be acted on
+    ///
+    /// A run condition is asked its question when its system is about to run, which
+    /// is after the typing has already been dealt with — so the ENTER that finished
+    /// a name found the bench listening again in the same frame and placed a piece
+    /// with it, and ESC walked out of the room. Caught by the test rather than by
+    /// reading it, which is the only reason it is not in the game.
+    ///
+    /// So the keyboard stays the name's for the rest of the frame it is handed back
+    /// in. One frame, cleared at the top of the next.
+    finished: bool,
+}
+
+impl Naming {
+    /// Whether the bench's own keys should be listening.
+    fn keys_are_the_makers(naming: Res<Naming>) -> bool {
+        !naming.typing && !naming.finished
+    }
+
+    /// Starts typing, remembering what the name was so ESC can put it back.
+    ///
+    /// Hands back what the name should now READ as: whatever was there if the maker
+    /// chose it, and nothing if it is only the placeholder — typing over
+    /// `untitled` should not give you `untitledsmithy`.
+    pub fn begin(&mut self, was: &str) -> String {
+        self.was = was.to_string();
+        self.typing = true;
+        if crate::build::kit::is_named(was) {
+            was.to_string()
+        } else {
+            String::new()
+        }
+    }
+}
+
 /// What was last asked for, and with which seed.
 ///
 /// Kept so that G asks again with a NEW seed and Shift+G asks for a different KIND
@@ -273,6 +333,7 @@ impl Plugin for BenchPlugin {
             .init_resource::<reference::Reference>()
             .init_resource::<gizmo::Holding>()
             .init_resource::<kiln::Firing>()
+            .init_resource::<Naming>()
             .add_systems(
                 OnEnter(AppState::Bench),
                 (open, reference::open, panel::open),
@@ -282,14 +343,26 @@ impl Plugin for BenchPlugin {
                 Update,
                 (
                     // What the maker asked for.
-                    (choose, generate, aim, move_hand),
+                    //
+                    // Held still while a name is being typed — every letter here
+                    // does something, so typing "wall" would place a wall, turn it
+                    // and walk the camera. See `Naming`.
+                    (choose, generate, move_hand).run_if(Naming::keys_are_the_makers),
+                    // Aiming is the mouse's and goes on: the cursor following the
+                    // pointer while somebody types a name is harmless, and the ghost
+                    // staying where it was would read as a stuck tool.
+                    (aim,),
                     // Then the handles, which get the click BEFORE anything places
                     // with it: they ran after, so a click on an arrow placed a
                     // piece and then took hold. Ordering is not the only guard —
                     // `place` asks whether the arrows took the click — but a
                     // frame's lag between pointing at a handle and the handle
                     // knowing is pointless to inflict.
-                    (gizmo::drag, gizmo::choose, place, turn_view, walk_view),
+                    (gizmo::drag, gizmo::choose),
+                    (place, turn_view, walk_view).run_if(Naming::keys_are_the_makers),
+                    // The name, typed. Outside the run condition below, because it
+                    // is the one thing that still listens while it is on.
+                    (type_a_name,),
                     // Then what is drawn from it. The handle camera moves last,
                     // after anything that could have moved the bench's eye.
                     (
@@ -300,7 +373,7 @@ impl Plugin for BenchPlugin {
                         draw_ghost,
                         reference::show,
                     ),
-                    (kiln::ask, kiln::collect),
+                    (kiln::ask.run_if(Naming::keys_are_the_makers), kiln::collect),
                     // The panel: what was pressed, then what everything says.
                     (
                         panel::pressed,
@@ -483,7 +556,12 @@ fn close(
 }
 
 /// Picking a part, a colour, and which way round.
-fn choose(keys: Res<ButtonInput<KeyCode>>, mut hand: ResMut<Hand>) {
+fn choose(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut bench: ResMut<Bench>,
+    mut hand: ResMut<Hand>,
+    mut naming: ResMut<Naming>,
+) {
     // The kit's own table, which the panel prints from as well — see
     // `kit::PART_KEYS`. Ten parts is one past the digits, so a panel numbering its
     // own rows and an input holding its own keys would already disagree about the
@@ -504,6 +582,10 @@ fn choose(keys: Res<ButtonInput<KeyCode>>, mut hand: ResMut<Hand>) {
         && !keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight])
     {
         hand.quarters = (hand.quarters + 1) % 4;
+    }
+    if keys.just_pressed(KeyCode::KeyN) {
+        let was = bench.name.clone();
+        bench.name = naming.begin(&was);
     }
     if keys.just_pressed(KeyCode::KeyC) {
         hand.tint = (hand.tint + 1) % TINTS.len();
@@ -805,6 +887,76 @@ fn place(
         next.set(AppState::Menu);
     }
 }
+
+/// Types the work's name, while the bench's own keys hold still.
+///
+/// Reads the logical KEY rather than a scancode, so the letters that arrive are the
+/// ones on the maker's own keyboard rather than the ones on mine.
+fn type_a_name(
+    mut typed: EventReader<bevy::input::keyboard::KeyboardInput>,
+    mut naming: ResMut<Naming>,
+    mut bench: ResMut<Bench>,
+) {
+    use bevy::input::keyboard::Key;
+    use bevy::input::ButtonState;
+
+    // Last frame's handover is over: the bench may listen again.
+    naming.finished = false;
+
+    if !naming.typing {
+        // The events are still drained, or a burst of typing arrives all at once
+        // the moment naming is switched on.
+        typed.clear();
+        return;
+    }
+
+    for press in typed.read() {
+        if press.state != ButtonState::Pressed {
+            continue;
+        }
+        match &press.logical_key {
+            Key::Enter | Key::Tab => {
+                naming.typing = false;
+                // And the key that did it belongs to the name — see `finished`.
+                naming.finished = true;
+                // An empty name is no name at all, and `path_for` would turn it back
+                // into "untitled" — so it goes back to whatever it was instead.
+                if bench.name.trim().is_empty() {
+                    bench.name = naming.was.clone();
+                }
+            }
+            Key::Escape => {
+                naming.typing = false;
+                // And the key that did it belongs to the name — see `finished`.
+                naming.finished = true;
+                bench.name = naming.was.clone();
+            }
+            Key::Backspace => {
+                bench.name.pop();
+            }
+            Key::Space => {
+                if bench.name.len() < MOST_NAME {
+                    bench.name.push(' ');
+                }
+            }
+            Key::Character(letters) => {
+                for letter in letters.chars() {
+                    // Whatever a filename can hold; `kit::path_for` makes the rest
+                    // safe, and refusing it here means the row shows what will
+                    // actually be saved.
+                    if bench.name.len() < MOST_NAME && !letter.is_control() {
+                        bench.name.push(letter);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// How long a name may be. Long enough for "the smith's forge at the crossroads",
+/// short enough to fit the panel row it is shown in.
+const MOST_NAME: usize = 40;
 
 /// Turning the view about the work, and stepping in and out.
 /// Walking the view about with WASD.
@@ -1373,5 +1525,182 @@ mod tests {
         // Looking at the work rather than past it: the pivot is between the eye
         // and the far side.
         assert!(at.length() > PIVOT, "the camera opens inside the work");
+    }
+}
+
+#[cfg(test)]
+mod naming {
+    use super::*;
+    use bevy::input::keyboard::{Key, KeyboardInput};
+    use bevy::input::ButtonState;
+
+    fn naming_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .init_state::<AppState>()
+            .init_resource::<Bench>()
+            .init_resource::<Hand>()
+            .init_resource::<Naming>()
+            .init_resource::<gizmo::Holding>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .add_event::<KeyboardInput>()
+            // `place` beside the typing, because the key that finishes a name is the
+            // key that puts a piece down: they have to be run against each other.
+            // The real chain, in the real order: the bench's own keys hold still
+            // while a name is being typed, and the key that finishes a name is the
+            // key that puts a piece down.
+            .add_systems(
+                Update,
+                (
+                    type_a_name,
+                    (choose, place).run_if(Naming::keys_are_the_makers),
+                )
+                    .chain(),
+            );
+        app
+    }
+
+    /// Presses a key the bench's own input reads, and lets go again.
+    fn press(app: &mut App, key: KeyCode) {
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(key);
+        app.update();
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.release(key);
+        keys.clear();
+    }
+
+    /// Types one key, as a keyboard does: the logical key, pressed.
+    fn tap(app: &mut App, key: Key) {
+        app.world_mut().send_event(KeyboardInput {
+            key_code: KeyCode::KeyA,
+            logical_key: key,
+            state: ButtonState::Pressed,
+            text: None,
+            repeat: false,
+            window: Entity::PLACEHOLDER,
+        });
+        app.update();
+    }
+
+    fn typed(app: &mut App, letters: &str) {
+        for letter in letters.chars() {
+            tap(app, Key::Character(letter.to_string().into()));
+        }
+    }
+
+    #[test]
+    fn a_work_can_be_named_and_that_is_the_file_it_saves_to() {
+        // The whole path from this bench to the world runs through the name: the game
+        // reads `assets/buildings` into its catalogue and the terrain tool stands what
+        // it finds there. Nothing could set it, so every hand-built work saved as
+        // `untitled.json` and overwrote the last — one file is not a pipeline.
+        let mut app = naming_app();
+        press(&mut app, KeyCode::KeyN);
+        assert!(app.world().resource::<Naming>().typing, "N did not start a name");
+        typed(&mut app, "smithy");
+        assert_eq!(app.world().resource::<Bench>().name, "smithy");
+        assert_eq!(
+            crate::build::kit::path_for(&app.world().resource::<Bench>().name)
+                .file_name()
+                .unwrap()
+                .to_string_lossy(),
+            "smithy.json"
+        );
+
+        // ENTER finishes, and the bench has its keys back.
+        tap(&mut app, Key::Enter);
+        assert!(!app.world().resource::<Naming>().typing);
+        assert_eq!(app.world().resource::<Bench>().name, "smithy");
+    }
+
+    #[test]
+    fn typing_a_name_does_not_build_anything() {
+        // Every letter on this bench does something — W walks the view, R turns the
+        // piece — so the keys have to hold still. The one that would bite hardest is
+        // ENTER, which both finishes a name and places a piece.
+        let mut app = naming_app();
+        app.world_mut().resource_mut::<Hand>().part = Some(kit::Part::Wall);
+        press(&mut app, KeyCode::KeyN);
+
+        typed(&mut app, "wall");
+        // And a digit while typing does not take up a part, which is the same
+        // gating seen from the other side.
+        press(&mut app, KeyCode::Digit1);
+        assert_eq!(
+            app.world().resource::<Hand>().part,
+            Some(kit::Part::Wall),
+            "a digit typed into a name changed what was in hand"
+        );
+        // ENTER while naming: it ends the typing and places nothing.
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Enter);
+        tap(&mut app, Key::Enter);
+        assert_eq!(
+            app.world().resource::<Bench>().len(),
+            0,
+            "typing a name built something"
+        );
+        assert_eq!(app.world().resource::<Bench>().name, "wall");
+        assert!(!app.world().resource::<Naming>().typing);
+    }
+
+    #[test]
+    fn the_key_that_finishes_a_name_does_not_also_act_on_the_bench() {
+        // ENTER finishes a name AND puts a piece down; ESC cancels a name AND walks
+        // out of the room. A run condition is asked its question after the typing has
+        // been dealt with, so both leaked through in the same frame.
+        let mut app = naming_app();
+        app.world_mut().resource_mut::<Hand>().part = Some(kit::Part::Post);
+        press(&mut app, KeyCode::KeyN);
+        typed(&mut app, "hut");
+
+        // ENTER, held down as a real keyboard would have it while the event arrives.
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::Enter);
+        tap(&mut app, Key::Enter);
+        assert_eq!(app.world().resource::<Bench>().len(), 0, "ENTER also placed a piece");
+        assert!(!app.world().resource::<Naming>().typing);
+
+        // And the gate REOPENS rather than sticking shut: a fresh press, the frame
+        // after, builds as it always did. (Cleared first, because the real app's
+        // input plugin clears `just_pressed` every frame and this harness has none.)
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .reset_all();
+        app.update();
+        app.world_mut().resource_mut::<Hand>().part = Some(kit::Part::Post);
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(
+            app.world().resource::<Bench>().len(),
+            1,
+            "the bench never started listening again"
+        );
+    }
+
+    #[test]
+    fn escape_puts_the_old_name_back_and_backspace_takes_a_letter() {
+        let mut app = naming_app();
+        app.world_mut().resource_mut::<Bench>().name = "forge".into();
+        press(&mut app, KeyCode::KeyN);
+
+        typed(&mut app, "XY");
+        assert_eq!(app.world().resource::<Bench>().name, "forgeXY");
+        tap(&mut app, Key::Backspace);
+        assert_eq!(app.world().resource::<Bench>().name, "forgeX");
+        tap(&mut app, Key::Escape);
+        assert_eq!(app.world().resource::<Bench>().name, "forge");
+        assert!(!app.world().resource::<Naming>().typing);
+
+        // And an empty name is refused rather than saved over the nameless file.
+        press(&mut app, KeyCode::KeyN);
+        for _ in 0..10 {
+            tap(&mut app, Key::Backspace);
+        }
+        assert_eq!(app.world().resource::<Bench>().name, "");
+        tap(&mut app, Key::Enter);
+        assert_eq!(app.world().resource::<Bench>().name, "forge");
     }
 }

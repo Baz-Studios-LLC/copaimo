@@ -1020,7 +1020,7 @@ pub struct Bench {
 impl Default for Bench {
     fn default() -> Self {
         Self {
-            name: "untitled".into(),
+            name: UNNAMED.into(),
             kind: "house".into(),
             pieces: Vec::new(),
             unsaved: false,
@@ -1457,6 +1457,21 @@ fn quoted(text: &str) -> String {
 }
 
 /// Where a work by this name would be saved.
+/// What an unnamed work is called.
+///
+/// One constant, because three places need to agree about it: what a fresh bench
+/// starts as, what a blank name falls back to on the way to a filename, and what
+/// the panel calls a work that has not been named. They did not — the bench started
+/// as this and the panel only knew about a name being EMPTY, so pressing N and
+/// typing appended to the placeholder and gave you `untitledsmithy`.
+pub const UNNAMED: &str = "untitled";
+
+/// Whether a name is one somebody actually chose.
+pub fn is_named(name: &str) -> bool {
+    let name = name.trim();
+    !name.is_empty() && name != UNNAMED
+}
+
 pub fn path_for(name: &str) -> std::path::PathBuf {
     // Anything that is not plainly a filename becomes a dash. A maker naming a
     // building "the smith's / forge" should get a file, not an error about a
@@ -1473,7 +1488,7 @@ pub fn path_for(name: &str) -> std::path::PathBuf {
         }
     }
     let safe = safe.trim_matches('-').to_string();
-    let safe = if safe.is_empty() { "untitled".into() } else { safe };
+    let safe = if safe.is_empty() { UNNAMED.into() } else { safe };
     Path::new(BUILDINGS_DIR).join(format!("{safe}.json"))
 }
 

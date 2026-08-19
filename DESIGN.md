@@ -510,6 +510,33 @@ a pinwheel — four pull-handles offset the same way put the length handle and t
 width handle within a metre of each other at the near corner, which is inside the
 widest grab there is.
 
+### From the bench to the world, in four steps
+
+The path exists end to end and it runs through a **filename**:
+
+1. **Build it** at the workbench and give it a name — `N`, or the NAME row in the
+   panel. `Ctrl+S` bakes it to `assets/buildings/<name>.json` in the same
+   `format: 2` a hand-authored building uses, so the live preview is the game's own
+   renderer with nothing special in it.
+2. The game reads **every** file in that folder into `build::Catalogue` at startup.
+3. In the terrain tool, `P` at the brush places the next thing in the catalogue;
+   `Delete` takes the nearest away. `Ctrl+S` writes `assets/world/placed.json`.
+4. The world reads that sheet and raises each entry on the ground under it, plus its
+   `lift` — so a house sits on its hill however the hill is reshaped afterwards.
+
+**Nothing could set the name** until now, so every hand-built work saved as
+`untitled.json` and overwrote the last one — the pipeline was real and could carry
+exactly one building. Typing a name takes the whole keyboard while it is on (`W`
+walks the view, `R` turns the piece, the digits pick parts), including the key that
+finishes it: a run condition is asked its question after the typing has been dealt
+with, so the ENTER that ended a name found the bench listening again in the same
+frame and placed a piece, and ESC walked out of the room.
+
+What is still missing from the path, in the order it will hurt: no way to choose
+WHICH building `P` places (it cycles), everything faces north when placed, and
+`assets/models/<kind>.glb` is resolved by the same sheet but nothing generates one
+yet — that is the kiln's job and it has never been fired.
+
 ### Seeing a change without booting the game
 
 `dev/look.py` draws a baked building's boxes to a PNG with a depth buffer:

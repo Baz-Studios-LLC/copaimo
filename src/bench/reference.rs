@@ -152,27 +152,34 @@ pub fn show(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     sheets: Query<Entity, With<Sheet>>,
+    naming: Res<super::Naming>,
 ) {
+    // The keys hold still while a name is being typed — I, U and K are letters
+    // first (see `super::Naming`) — but the DRAWING below does not: an early return
+    // here would take the picture off the wall for as long as somebody was typing.
+    let listening = !naming.typing;
+    let pressed = |key: KeyCode| listening && keys.just_pressed(key);
+
     let mut moved = false;
-    if keys.just_pressed(KeyCode::KeyI) {
+    if pressed(KeyCode::KeyI) {
         reference.next();
         moved = true;
     }
-    if keys.just_pressed(KeyCode::KeyU) {
+    if pressed(KeyCode::KeyU) {
         reference.upright = !reference.upright;
         moved = true;
     }
     // In module steps, because "four modules wide" is the thing a maker wants and
     // it puts every wall in the picture on the lattice.
-    if keys.just_pressed(KeyCode::Period) {
+    if pressed(KeyCode::Period) {
         reference.wide += MODULE;
         moved = true;
     }
-    if keys.just_pressed(KeyCode::Comma) {
+    if pressed(KeyCode::Comma) {
         reference.wide = (reference.wide - MODULE).max(MODULE);
         moved = true;
     }
-    if keys.just_pressed(KeyCode::KeyK) {
+    if pressed(KeyCode::KeyK) {
         reference.fade = if reference.fade > 0.3 { 0.2 } else { 0.55 };
         moved = true;
     }
