@@ -64,6 +64,10 @@ pub fn open(mut commands: Commands, font: Res<UiFont>) {
         .spawn((
             BenchPanel,
             super::OfBench,
+            // The marker that makes the overflow below mean something: Bevy
+            // APPLIES a scroll offset but nothing in it ever sets one, so a
+            // panel with scroll_y and no writer is simply clipped.
+            widget::Scrolls,
             Node {
                 position_type: PositionType::Absolute,
                 left: Val::Px(0.0),
@@ -93,12 +97,12 @@ pub fn open(mut commands: Commands, font: Res<UiFont>) {
 
             // What the left button does. First, because everything below it means
             // something different depending on this.
-            widget::branch(panel, &font, "mode", "MODE", |rows| {
+            widget::branch(panel, &font, "mode", "MODE", true, |rows| {
                 widget::row(rows, &font, "mode", "P", "BUILD", Press::Mode(Doing::Building));
                 widget::row(rows, &font, "mode", "P", "PAINT", Press::Mode(Doing::Painting));
             });
 
-            widget::branch(panel, &font, "parts", "PARTS", |rows| {
+            widget::branch(panel, &font, "parts", "PARTS", true, |rows| {
                 for (at, part) in Part::ALL.iter().enumerate() {
                     widget::row(
                         rows,
@@ -123,7 +127,7 @@ pub fn open(mut commands: Commands, font: Res<UiFont>) {
             // The camera, said out loud. Orbiting by dragging a button nobody
             // mentioned is a feature that does not exist as far as a maker is
             // concerned, which is what this whole panel is for.
-            widget::branch(panel, &font, "view", "VIEW", |rows| {
+            widget::branch(panel, &font, "view", "VIEW", true, |rows| {
                 widget::note(rows, &font, "view", "WASD", "walk the view");
                 widget::note(rows, &font, "view", "MID", "drag to orbit");
                 widget::note(rows, &font, "view", "SH-MID", "drag to pan");
@@ -136,30 +140,30 @@ pub fn open(mut commands: Commands, font: Res<UiFont>) {
             // mentioned is one nobody grabs — and moving a piece by dragging it is
             // not something a maker will try unguessed on a tool where every other
             // gesture places something.
-            widget::branch(panel, &font, "move", "MOVE A PIECE", |rows| {
-                widget::note(rows, &font, "move", "AIM", "arrows show on the nearest");
+            widget::branch(panel, &font, "move", "MOVE A PIECE", true, |rows| {
+                widget::note(rows, &font, "move", "AIM", "handles show on the nearest");
                 widget::note(rows, &font, "move", "EMPTY", "cursor: clicks grab, not build");
                 widget::note(rows, &font, "move", "DRAG", "an arrow to move it");
                 widget::note(rows, &font, "move", "SH", "hold for quarter-metres");
                 widget::note(rows, &font, "move", "R-G-B", "is X-Y-Z");
-                widget::note(rows, &font, "move", "TIP", "of red: drag to stretch");
+                widget::note(rows, &font, "move", "AMBER", "end blocks: pull to stretch");
                 widget::note(rows, &font, "move", "ARROWS", "nudge the cursor a cell");
             });
 
-            widget::branch(panel, &font, "colour", "COLOUR", |rows| {
+            widget::branch(panel, &font, "colour", "COLOUR", true, |rows| {
                 widget::swatches(rows, "colour", &TINTS);
             });
 
             // Folded shut to begin with. A maker laying a fence does not need four
             // generators on screen while they do it, and a shelf that keeps growing
             // is the whole reason branches exist.
-            widget::branch(panel, &font, "ask", "ASK FOR ONE", |rows| {
+            widget::branch(panel, &font, "ask", "ASK FOR ONE", false, |rows| {
                 for what in Pattern::ALL {
                     widget::row(rows, &font, "ask", "G", what.name(), Press::Ask(what));
                 }
             });
 
-            widget::branch(panel, &font, "picture", "PICTURE", |rows| {
+            widget::branch(panel, &font, "picture", "PICTURE", false, |rows| {
                 value_row(rows, &font, "showing", Readout::Picture);
                 widget::row(rows, &font, "picture", "I", "NEXT PICTURE", Press::NextPicture);
                 widget::row(rows, &font, "picture", "U", "UPRIGHT / FLAT", Press::FlipPicture);
@@ -167,7 +171,7 @@ pub fn open(mut commands: Commands, font: Res<UiFont>) {
                 value_row(rows, &font, "kiln", Readout::Kiln);
             });
 
-            widget::branch(panel, &font, "work", "WORK", |rows| {
+            widget::branch(panel, &font, "work", "WORK", true, |rows| {
                 value_row(rows, &font, "cursor", Readout::Cursor);
                 value_row(rows, &font, "pieces", Readout::Pieces);
                 widget::row(rows, &font, "work", "Ctrl+Z", "UNDO", Press::Undo);

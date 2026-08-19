@@ -225,10 +225,14 @@ fn hold_to_reach(
     window.cursor_options.visible = wanted;
 }
 
-fn enter_editor(mut camera: ResMut<CameraMode>) {
+fn enter_editor(mut camera: ResMut<CameraMode>, mut free: ResMut<CursorFree>) {
     // Sculpting from the follow camera means aiming past your own warden at
     // whatever happens to be in front of them. Free-fly is what the tool wants.
     *camera = CameraMode::Fly;
+    // And nobody arrives holding ALT. Left true from a previous visit, this
+    // would disagree with the freshly captured cursor and `hold_to_reach`'s
+    // early-out would keep the two apart until the next ALT press.
+    free.0 = false;
 }
 
 /// Marches the camera's view ray until it goes under the ground, then binary
@@ -321,10 +325,19 @@ pub fn key_for(how: Brushing) -> &'static str {
 fn adjust_brush(
     keys: Res<ButtonInput<KeyCode>>,
     scroll: Res<bevy::input::mouse::AccumulatedMouseScroll>,
+    free: Res<CursorFree>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    panels: Query<(&ComputedNode, &GlobalTransform), With<crate::tools::widget::Scrolls>>,
     mut brush: ResMut<Brush>,
 ) {
     let notches = crate::util::wheel_notches(&scroll);
-    if notches != 0.0 {
+    // With ALT held and the pointer on the panel, the wheel is the panel's
+    // scroll and must not also resize the brush behind it. Only then: while
+    // sculpting the cursor is hidden but still MOVES with the mouse, so a bare
+    // over-panel test would silently kill brush-resize whenever the invisible
+    // pointer happened to be resting there.
+    let reaching = free.0 && crate::tools::widget::pointer_on_a_panel(&windows, &panels);
+    if notches != 0.0 && !reaching {
         brush.radius = (brush.radius * RADIUS_STEP.powf(notches)).clamp(MIN_RADIUS, MAX_RADIUS);
     }
 

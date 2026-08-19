@@ -62,14 +62,21 @@ impl Plugin for StatesPlugin {
         app.init_state::<AppState>()
             .add_systems(Startup, open_where_asked)
             .add_systems(OnEnter(AppState::Menu), apply_cursor)
-            .add_systems(OnEnter(AppState::Playing), apply_cursor)
-            .add_systems(OnEnter(AppState::Playing), apply_cursor)
-            // Not in the terrain tool: it guards ESC itself, because leaving
-            // with an afternoon's shaping unwritten should say so first.
-            .add_systems(
-                Update,
-                escape_to_menu.run_if(in_state(AppState::Playing)),
-            );
+            .add_systems(OnEnter(AppState::Playing), apply_cursor);
+        // The terrain tool captures the cursor like the world does — and this
+        // line was MISSING (its slot held a duplicate of the Playing line), so
+        // entering the tool inherited the menu's free, visible pointer. That
+        // white OS arrow wandering the screen while the brush aimed down the
+        // view centre was the "brush circle and cursor are offset": two
+        // pointers, one of which meant nothing.
+        #[cfg(feature = "tools")]
+        app.add_systems(OnEnter(AppState::Editing), apply_cursor);
+        // Not in the terrain tool: it guards ESC itself, because leaving
+        // with an afternoon's shaping unwritten should say so first.
+        app.add_systems(
+            Update,
+            escape_to_menu.run_if(in_state(AppState::Playing)),
+        );
     }
 }
 

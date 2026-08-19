@@ -109,8 +109,27 @@ impl Plugin for SkyPlugin {
                     // frame, so the bench setting its own background at open was
                     // overwritten before the first frame was drawn — which is why
                     // a room with no sky in it had a blue one.
-                    .run_if(not(in_state(crate::states::AppState::Bench))),
+                    .run_if(away_from_the_bench),
             );
+    }
+}
+
+/// Everywhere but the workbench — which only exists in a tools build.
+///
+/// A `cfg` predicate rather than `not(in_state(Bench))`, because naming the
+/// `Bench` variant in an always-compiled file is exactly how the release build
+/// stopped compiling: the variant is tools-only, and no test caught it because
+/// tests build with default features. `cargo check --no-default-features` is the
+/// check that would have.
+fn away_from_the_bench(state: Res<State<crate::states::AppState>>) -> bool {
+    #[cfg(feature = "tools")]
+    {
+        *state.get() != crate::states::AppState::Bench
+    }
+    #[cfg(not(feature = "tools"))]
+    {
+        let _ = state;
+        true
     }
 }
 
@@ -118,22 +137,29 @@ fn spawn_sun(mut commands: Commands) {
     commands.spawn((
         DirectionalLight {
             shadows_enabled: true,
-            // # The bias has to move when the distance does
+            // # What the two biases actually are
             //
-            // These are in the light's own CLIP SPACE, not in metres — so what a
-            // given bias is worth on the ground depends on how deep the shadow
-            // volume is. Cutting `SHADOW_DISTANCE` from nine hundred metres to
-            // four hundred for the frame rate therefore cut the effective bias by
-            // the same factor and left the default in place, and the world came
-            // out streaked with self-shadowing: a surface shading itself because
-            // its own depth and the depth in the map disagreed by less than a
-            // texel.
+            // An earlier comment here said clip space, and it was wrong — checked
+            // against Bevy 0.16's own shadow shader: the DEPTH bias is metres of
+            // world space along the direction to the light, and the NORMAL bias
+            // is scaled by the size of a shadow-map texel, so it grows with
+            // `SHADOW_DISTANCE` and with cascade coarseness. That scaling is why
+            // cutting the distance from nine hundred metres to four hundred
+            // changed what the numbers were worth and the world came out streaked
+            // with self-shadowing.
             //
-            // Raised in step with that change and then a little further, because
-            // acne is worse than the thing too much bias causes. The cost of
-            // overdoing it is peter-panning — a shadow creeping out from under
-            // the thing casting it — so if trees start looking like they are
-            // hovering, this is the number, and it is the depth one first.
+            // Raised from the defaults, because acne is worse than the thing too
+            // much bias causes. The cost of overdoing it is peter-panning — a
+            // shadow creeping out from under the thing casting it — so if trees
+            // start looking like they are hovering, this is the number, and it is
+            // the depth one first.
+            //
+            // The NORMAL bias set here only holds for a HIGH light: what a given
+            // bias must cover grows as the light drops toward the horizon (with
+            // the cotangent of its elevation), so `drive_the_sky` raises it at
+            // grazing angles and parks shadows entirely when neither sun nor moon
+            // stands high enough — see the note there. These streaks were the
+            // "random lines all over the map".
             shadow_depth_bias: 0.055,
             shadow_normal_bias: 2.6,
             ..default()
@@ -218,8 +244,19 @@ fn drive_the_sky(
             DAY_LUX * (0.12 + 0.88 * up.powf(0.6)),
         )
     } else {
-        (MOON_LIGHT, MOON_LUX)
+        // Faded toward the horizon exactly as the sun is, and for one more
+        // reason besides looks: shadows park when the light stands too low —
+        // see below — and a moon that kept its full nine hundred lux to the
+        // horizon would make that parking visible. Dimmed, the shadows are
+        // gone before there is enough light to miss them by.
+        let up = (-height).clamp(0.0, 1.0);
+        (MOON_LIGHT, MOON_LUX * (0.25 + 0.75 * up.powf(0.6)))
     };
+
+    // How high whichever light is on duty stands: the sun's height by day, and
+    // the same figure the other way up for the moon, matching the direction flip
+    // above.
+    let standing = if when.is_day() { height } else { -height };
 
     for (mut place, mut light) in &mut suns {
         let facing = Transform::from_translation(from)
@@ -236,6 +273,24 @@ fn drive_the_sky(
         }
         light.color = colour;
         light.illuminance = strength;
+
+        // # A grazing light cannot be biased into honesty
+        //
+        // What a shadow bias must cover grows with the cotangent of the light's
+        // elevation, so a fixed bias that is generous at noon runs out near the
+        // horizon — and the ground self-shadows in shadow-map texel rows: long
+        // thin parallel streaks along the light's azimuth, all over the map.
+        // Those were the "random lines", and they showed at night because the
+        // moon spends hours at angles the sun crosses in minutes.
+        //
+        // So the normal bias grows as the light drops, and below a floor the
+        // shadows park entirely: no bias covers a light nearly level with the
+        // ground, and by then the light is too dim for their absence to read.
+        // Parking them at night is also most of a night frame's shadow cost
+        // given back.
+        let low = standing.max(SHADOW_FLOOR);
+        light.shadows_enabled = standing > SHADOW_FLOOR;
+        light.shadow_normal_bias = 2.6_f32.max(GRAZING_COVER / low);
     }
 
     clear.0 = sky_colour(height);
@@ -544,11 +599,21 @@ const STAR_SIZE: f32 = 0.75;
 /// A shadow's job is to sit an object on the ground it is standing on, and that
 /// is read within a hundred metres or so. Past that it is texture on a hillside,
 /// which the terrain's own shading already gives.
-/// **Changing this changes what the shadow bias is worth.** The bias is in clip
-/// space, so halving the distance halves the metres it covers — see the light
-/// above, where both numbers are set together and why.
+/// **Changing this changes what the NORMAL bias is worth.** That bias is scaled
+/// by the size of a shadow-map texel, which grows with this distance — see the
+/// light above, where both numbers are set together and why.
 const SHADOW_DISTANCE: f32 = 400.0;
 const SHADOW_CASCADES: usize = 3;
+
+/// Below this sine of elevation, shadows park; above it, the normal bias grows
+/// as `GRAZING_COVER / elevation` until the resting 2.6 covers it.
+///
+/// The floor is low on purpose: by the time a light stands at four hundredths,
+/// the bias has already grown so large that its shadows have all but dissolved
+/// into peter-panning, so switching them off there is a step nobody sees — where
+/// switching at a healthy elevation would visibly pop every shadow in the world.
+const SHADOW_FLOOR: f32 = 0.04;
+const GRAZING_COVER: f32 = 1.1;
 
 /// How far the sun must have moved before it is moved, in radians.
 ///

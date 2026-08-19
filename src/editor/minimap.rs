@@ -252,9 +252,13 @@ fn fly_to_click(
         return;
     };
 
-    // The node's own box, in the same screen pixels the cursor is given in.
-    let size = frame.size();
-    let corner = at.translation().truncate() - size * 0.5;
+    // The node's own box, brought into the LOGICAL pixels the cursor is given
+    // in — its size and place are physical, and compared raw the two agree only
+    // at 100% display scale. On a laptop at 125% every click landed short and
+    // left of where it pointed, by exactly the scale factor.
+    let logical = frame.inverse_scale_factor();
+    let size = frame.size() * logical;
+    let corner = at.translation().truncate() * logical - size * 0.5;
     let within = (pointer - corner) / size;
     if within.x < 0.0 || within.x > 1.0 || within.y < 0.0 || within.y > 1.0 {
         return;

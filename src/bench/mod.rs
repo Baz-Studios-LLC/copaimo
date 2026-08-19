@@ -268,6 +268,7 @@ impl Plugin for BenchPlugin {
                         panel::pressed,
                         panel::pressed_swatch,
                         crate::tools::widget::fold_branches,
+                        crate::tools::widget::scroll_panels,
                         crate::tools::widget::light_rows::<panel::Press>,
                         panel::refresh,
                         panel::colour_unsaved,
@@ -814,6 +815,8 @@ fn turn_view(
     buttons: Res<ButtonInput<MouseButton>>,
     mut moved: EventReader<bevy::input::mouse::MouseMotion>,
     scroll: Res<bevy::input::mouse::AccumulatedMouseScroll>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    panels: Query<(&ComputedNode, &GlobalTransform), With<crate::tools::widget::Scrolls>>,
     mut view: ResMut<View>,
     mut cameras: Query<&mut Transform, With<BenchEye>>,
 ) {
@@ -863,7 +866,11 @@ fn turn_view(
     // A fixed step is wrong at both ends: it crawls when you are far out and jumps
     // straight through the work when you are close. Multiplying keeps the movement
     // the same fraction of what you can see, which is what makes a zoom feel even.
-    if scroll.delta.y != 0.0 {
+    //
+    // Not over the panel, whose wheel is its scroll. One gesture answering two
+    // questions — scroll the shelf AND zoom the room behind it — reads as the
+    // tool fighting itself.
+    if scroll.delta.y != 0.0 && !crate::tools::widget::pointer_on_a_panel(&windows, &panels) {
         view.away = (view.away * ZOOM_RATE.powf(-scroll.delta.y)).clamp(NEAREST, FURTHEST);
         shifted = true;
     }

@@ -94,6 +94,7 @@ impl Plugin for EditorUiPlugin {
                     pressed_tool,
                     dragged_meter,
                     crate::tools::widget::fold_branches,
+                    crate::tools::widget::scroll_panels,
                     crate::tools::widget::light_rows::<Brushing>,
                     refresh_tools,
                     refresh_readouts,
@@ -128,6 +129,14 @@ fn spawn_sidebar(mut commands: Commands, font: Res<UiFont>) {
         BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.9)),
     ));
 
+    // A transparent frame pinned to the window's height, with the panel inside.
+    //
+    // The panel used to be the absolute node itself, with no bottom and no
+    // maximum height — so it grew to its content, walked off the bottom of any
+    // window shorter than the shelf, and `Overflow::clip` made the overrun
+    // unreachable rather than merely untidy. The frame's top-and-bottom pin is
+    // what gives `max_height: 100%` something definite to mean; inside it the
+    // panel still hugs its content when short and scrolls when tall.
     commands
         .spawn((
             EditorUiRoot,
@@ -135,26 +144,39 @@ fn spawn_sidebar(mut commands: Commands, font: Res<UiFont>) {
                 position_type: PositionType::Absolute,
                 left: Val::Px(16.0),
                 top: Val::Px(16.0),
+                bottom: Val::Px(16.0),
                 width: Val::Px(PANEL_WIDTH),
                 flex_direction: FlexDirection::Column,
-                // Nothing leaves the panel, whatever is put in it. Text that
-                // overruns is a layout mistake to fix at the source — but a
-                // shelf whose writing runs out over the world does not look
-                // like a tool, and no future addition should be able to do it
-                // by accident.
-                overflow: Overflow::clip(),
-                // A hairline edge. Without one the panel is a dark rectangle
-                // that fades into whatever is behind it, and where a tool stops
-                // and the world starts is exactly what should never be vague.
-                border: UiRect::all(Val::Px(1.0)),
                 ..default()
             },
-            BackgroundColor(PANEL),
-            BorderColor(RULE),
         ))
-        .with_children(|panel| {
-            header(panel, &font);
-            body(panel, &font);
+        .with_children(|frame| {
+            frame
+                .spawn((
+                    widget::Scrolls,
+                    Node {
+                        width: Val::Percent(100.0),
+                        max_height: Val::Percent(100.0),
+                        flex_direction: FlexDirection::Column,
+                        // Scroll rather than clip: nothing leaves the panel,
+                        // whatever is put in it, and what does not fit can still
+                        // be reached — a clipped shelf hid its own bottom rows
+                        // on short windows with nothing anybody could do.
+                        overflow: Overflow::scroll_y(),
+                        // A hairline edge. Without one the panel is a dark
+                        // rectangle that fades into whatever is behind it, and
+                        // where a tool stops and the world starts is exactly
+                        // what should never be vague.
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..default()
+                    },
+                    BackgroundColor(PANEL),
+                    BorderColor(RULE),
+                ))
+                .with_children(|panel| {
+                    header(panel, &font);
+                    body(panel, &font);
+                });
         });
 }
 
@@ -222,7 +244,7 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
                 ("grow", "GROW AND MARK", &[Brushing::Plant, Brushing::Country][..]),
                 ("back", "TAKE IT BACK", &[Brushing::Revert][..]),
             ] {
-                widget::branch(body, font, group, label, |rows| {
+                widget::branch(body, font, group, label, true, |rows| {
                     for how in tools {
                         widget::row(
                             rows,

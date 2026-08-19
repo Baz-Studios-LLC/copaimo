@@ -25,10 +25,89 @@
 //! discoverable rather than documented.
 
 use bevy::prelude::*;
+use bevy::ui::ScrollPosition;
+use bevy::window::PrimaryWindow;
 
 use super::theme::{
     UiFont, ACCENT, CARD, CARD_EDGE, KEYCAP, ROW_ACTIVE, TEXT, TEXT_DIM, TEXT_MUTED,
 };
+
+/// A panel that scrolls under the wheel.
+///
+/// # Bevy applies a scroll offset; nothing in Bevy ever SETS one
+///
+/// `Overflow::scroll_y()` clips and honours `ScrollPosition`, and that is the
+/// whole of what the engine does — no built-in system reads the wheel. The bench
+/// panel had the overflow set and nothing writing the position, which looks
+/// exactly like a finished feature until the window is short enough to need it:
+/// everything past the bottom edge was clipped and permanently unreachable.
+#[derive(Component)]
+pub struct Scrolls;
+
+/// Whether the pointer is inside this node.
+///
+/// In LOGICAL pixels, which is the one space the two sides can honestly meet in:
+/// the cursor is reported logical, while a node's size and place are physical.
+/// Compared raw they agree only at 100% display scale, which is how a control
+/// works on the machine that built it and misses on a laptop at 125%.
+pub fn pointer_on(cursor: Vec2, node: &ComputedNode, at: &GlobalTransform) -> bool {
+    let logical = node.inverse_scale_factor();
+    let middle = at.translation().truncate() * logical;
+    let half = node.size() * logical * 0.5;
+    (cursor.x - middle.x).abs() <= half.x && (cursor.y - middle.y).abs() <= half.y
+}
+
+/// Whether the pointer is over any scrolling panel.
+///
+/// For the tools' OTHER wheel readers to ask before acting — a wheel that zooms
+/// the room and scrolls the panel at once is answering two questions with one
+/// gesture. Geometric rather than `Interaction`, because `Interaction` only
+/// exists on buttons and a panel is mostly not buttons.
+pub fn pointer_on_a_panel(
+    windows: &Query<&Window, With<PrimaryWindow>>,
+    panels: &Query<(&ComputedNode, &GlobalTransform), With<Scrolls>>,
+) -> bool {
+    let Some(cursor) = windows.iter().next().and_then(Window::cursor_position) else {
+        return false;
+    };
+    panels.iter().any(|(node, at)| pointer_on(cursor, node, at))
+}
+
+/// Scrolls whichever panel the pointer is over.
+pub fn scroll_panels(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    scroll: Res<bevy::input::mouse::AccumulatedMouseScroll>,
+    mut panels: Query<(&ComputedNode, &GlobalTransform, &mut ScrollPosition), With<Scrolls>>,
+) {
+    let notches = crate::util::wheel_notches(&scroll);
+    if notches == 0.0 {
+        return;
+    }
+    let Some(window) = windows.iter().next() else {
+        return;
+    };
+    // Only a pointer somebody can SEE. The terrain tool confines and hides the
+    // cursor while sculpting, and the hidden pointer still moves with the mouse —
+    // so without this, a wheel flick mid-stroke could scroll a panel the maker
+    // cannot even point at.
+    if !window.cursor_options.visible {
+        return;
+    }
+    let Some(cursor) = window.cursor_position() else {
+        return;
+    };
+    for (node, at, mut position) in &mut panels {
+        if pointer_on(cursor, node, at) {
+            // Wheel up reads earlier content. Layout clamps the offset to what
+            // the content actually allows and writes the clamped figure back, so
+            // no bound is kept here to disagree with it.
+            position.offset_y -= notches * SCROLL_STEP;
+        }
+    }
+}
+
+/// Logical pixels per wheel notch. About two rows.
+const SCROLL_STEP: f32 = 48.0;
 
 /// How a row looks when the pointer is over it, and when it is being pressed.
 pub const ROW_HOVER: Color = Color::srgba(0.83, 0.68, 0.34, 0.09);
@@ -80,11 +159,16 @@ pub struct Swatch(pub usize);
 /// The rows go INSIDE it, which is why this takes a closure rather than being a
 /// heading you spawn and then follow with rows. Getting that wrong is not
 /// possible now: there is nowhere else to put them.
+///
+/// `open` is whether it starts unfolded. A comment in the bench claimed its
+/// generators began folded shut for over a session while nothing implemented it —
+/// the parameter did not exist, so the claim could not be true.
 pub fn branch(
     parent: &mut ChildSpawnerCommands,
     font: &UiFont,
     group: &'static str,
     label: &str,
+    open: bool,
     inside: impl FnOnce(&mut ChildSpawnerCommands),
 ) {
     parent
@@ -99,7 +183,7 @@ pub fn branch(
         .with_children(|group_node| {
             group_node
                 .spawn((
-                    Branch { group, open: true },
+                    Branch { group, open },
                     Button,
                     Node {
                         width: Val::Percent(100.0),
@@ -119,9 +203,10 @@ pub fn branch(
                 .with_children(|row| {
                     // A caret rather than a plus or a triangle glyph: the font may
                     // not have either, and a caret is a character every font has.
+                    // The folded glyph matches `fold_branches`, which owns it.
                     row.spawn((
                         BranchMark(group),
-                        Text::new("v".to_string()),
+                        Text::new(if open { "v" } else { ">" }.to_string()),
                         font.at(9.0),
                         TextColor(ACCENT),
                     ));
@@ -141,6 +226,7 @@ pub fn branch(
                         flex_direction: FlexDirection::Column,
                         padding: UiRect::axes(Val::Px(5.0), Val::Px(5.0)),
                         border: UiRect::all(Val::Px(1.0)),
+                        display: if open { Display::Flex } else { Display::None },
                         ..default()
                     },
                     BorderColor(CARD_EDGE),
@@ -386,9 +472,14 @@ pub fn fold_branches(
 /// What makes a meter a SLIDER rather than a picture of one. A bar that only
 /// reports a value is a readout; a bar you can press at the two-thirds mark and
 /// have it become two thirds is a control, and the difference is one function.
+///
+/// The node's geometry is physical pixels and the cursor is logical — see
+/// [`pointer_on`] — so the node is brought into the cursor's space first. Left
+/// raw, a slider read the wrong fraction on any display scale but 100%.
 pub fn fraction_along(cursor: Vec2, node: &ComputedNode, at: &GlobalTransform) -> f32 {
-    let middle = at.translation().truncate();
-    let wide = node.size().x.max(1.0);
+    let logical = node.inverse_scale_factor();
+    let middle = at.translation().truncate() * logical;
+    let wide = (node.size().x * logical).max(1.0);
     ((cursor.x - (middle.x - wide * 0.5)) / wide).clamp(0.0, 1.0)
 }
 
