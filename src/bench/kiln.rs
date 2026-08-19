@@ -40,7 +40,8 @@
 //! GLB always, one to three minutes. See <https://docs.3daistudio.com>.
 
 use bevy::prelude::*;
-use bevy::tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task};
+use std::sync::mpsc::{Receiver, TryRecvError};
+use std::sync::Mutex;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -72,7 +73,11 @@ pub struct Firing {
     /// The job in flight, if there is one. One at a time, deliberately: every
     /// firing costs credits, and a key that started a second one by accident would
     /// be spending somebody's money on a double-press.
-    job: Option<Task<Result<PathBuf, String>>>,
+    /// The far end of the firing thread — see `start` for why it is a THREAD.
+    ///
+    /// In a mutex only because a resource must be `Sync` and a receiver is not;
+    /// nothing ever contends for it.
+    job: Option<Mutex<Receiver<Result<PathBuf, String>>>>,
 }
 
 impl Firing {
@@ -369,16 +374,46 @@ pub fn start(reference: &super::reference::Reference, firing: &mut Firing) {
 
     firing.said = format!("sending {name} - costs credits, minutes");
     let picture = picture.clone();
-    firing.job = Some(AsyncComputeTaskPool::get().spawn(async move { fire(picture, name) }));
+    // A thread of its own, NOT the compute pool. `fire` blocks — sleeps between
+    // polls, blocking HTTP — for up to fifteen minutes, and the compute pool is
+    // where chunk meshes and the minimap are built: a firing parked on one of
+    // its few threads could starve terrain meshing for the whole wait. A
+    // blocking job gets a blocking thread.
+    let (send, receive) = std::sync::mpsc::channel();
+    let spun = std::thread::Builder::new()
+        .name("kiln".into())
+        .spawn(move || {
+            let _ = send.send(fire(picture, name));
+        });
+    match spun {
+        Ok(_) => firing.job = Some(Mutex::new(receive)),
+        Err(why) => firing.said = format!("kiln: could not start a thread: {why}"),
+    }
 }
 
 /// Picks the finished job up.
 pub fn collect(mut firing: ResMut<Firing>) {
-    let Some(job) = firing.job.as_mut() else {
+    // Read to a plain value FIRST, so the borrow of the receiver has ended by
+    // the time anything writes back into the resource.
+    let answer = match firing.job.as_ref() {
+        // The poison error is dropped rather than kept: it carries the guard,
+        // and a guard still in hand is a borrow still alive when the writes
+        // below need the resource.
+        Some(job) => job.lock().map(|line| line.try_recv()).map_err(|_| ()),
+        None => return,
+    };
+    let Ok(answer) = answer else {
+        firing.job = None;
+        firing.said = "kiln: the firing thread poisoned its own line".into();
         return;
     };
-    let Some(done) = block_on(future::poll_once(job)) else {
-        return;
+    let done = match answer {
+        Ok(done) => done,
+        // Still firing.
+        Err(TryRecvError::Empty) => return,
+        // The thread died without answering — a panic in `fire`. An answer the
+        // maker can read beats a job that says "firing" forever.
+        Err(TryRecvError::Disconnected) => Err("the firing thread died without answering".into()),
     };
     firing.job = None;
     match done {

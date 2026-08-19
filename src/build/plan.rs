@@ -65,8 +65,12 @@ impl Form {
             Form::Box => "box".into(),
             Form::Wedge => "wedge".into(),
             Form::Ridge => "ridge".into(),
-            Form::Cut { low, high } => format!("cut:{low},{high}"),
-            Form::Hip { across, along } => format!("hip:{across},{along}"),
+            // `x` between the numbers, as the reader below and FORMATS.md both
+            // spell it. This wrote a COMMA — latent only because the kit's
+            // parts never emit a Cut or a Hip yet, which is exactly the drift
+            // the doc above warns about and the test below now forbids.
+            Form::Cut { low, high } => format!("cut:{low}x{high}"),
+            Form::Hip { across, along } => format!("hip:{across}x{along}"),
         }
     }
 
@@ -359,6 +363,27 @@ impl Mark {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_form_writes_a_word_its_own_reader_takes_back() {
+        // The whole reason `word` sits beside `read`. Cut and Hip wrote a comma
+        // where the reader — and FORMATS.md — spell an `x`, and it hid for a
+        // session because no part the kit builds emits either form yet, so the
+        // building round-trip test never exercised them. This one exercises the
+        // lot, whether or not anything writes them today.
+        for form in [
+            Form::Box,
+            Form::Wedge,
+            Form::Ridge,
+            Form::Cut { low: 0.25, high: -0.25 },
+            Form::Hip { across: 0.4, along: 0.6 },
+        ] {
+            let word = form.word();
+            let back = Form::read(&word)
+                .unwrap_or_else(|why| panic!("{form:?} wrote {word:?}, refused: {why}"));
+            assert_eq!(back, form, "{form:?} came back as {back:?} through {word:?}");
+        }
+    }
 
     /// The example straight out of Opificium's `FORMATS.md`, so this is tested
     /// against the contract rather than against its own writer — which lives in

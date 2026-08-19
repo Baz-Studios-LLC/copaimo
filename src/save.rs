@@ -124,7 +124,7 @@ pub fn read() -> Option<Save> {
     let at = body.get("at").and_then(serde_json::Value::as_array)?;
     let axis = |n: usize| at.get(n).and_then(serde_json::Value::as_f64).unwrap_or(0.0) as f32;
 
-    Some(Save {
+    let save = Save {
         at: Vec3::new(axis(0), axis(1), axis(2)),
         facing: number("facing").unwrap_or(0.0) as f32,
         played: number("played").unwrap_or(0.0),
@@ -133,7 +133,16 @@ pub fn read() -> Option<Save> {
             .and_then(serde_json::Value::as_str)
             .unwrap_or("")
             .to_string(),
-    })
+    };
+    // Numbers, not just number-shaped: an infinity here spawns the warden at
+    // infinity and every arithmetic downstream of them with it. (A NaN cannot
+    // reach this point — it is not JSON — but a hand-edited or corrupted file
+    // can hold anything a parser takes.)
+    if !save.at.is_finite() || !save.facing.is_finite() || !save.played.is_finite() {
+        warn!("the save holds a position that is not a place; starting fresh");
+        return None;
+    }
+    Some(save)
 }
 
 /// Writes the save, whole or not at all.
@@ -251,6 +260,13 @@ fn put_it_down(progress: &Progress, wardens: &Query<&Transform, With<crate::play
         // nobody is standing at would overwrite a real one with the origin.
         return;
     };
+    // A position that is not a place is not saved. `{:.3}` formats a NaN as the
+    // literal word, which is not JSON — so one bad frame upstream would write a
+    // file the reader throws away whole, and the real save with it.
+    if !warden.translation.is_finite() {
+        error!("the warden stands at {:?}; keeping the last good save", warden.translation);
+        return;
+    }
     let save = Save {
         at: warden.translation,
         facing: warden.rotation.to_euler(EulerRot::YXZ).0,

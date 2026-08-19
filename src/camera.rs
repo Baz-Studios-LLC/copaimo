@@ -118,7 +118,6 @@ impl Plugin for CameraPlugin {
             .add_systems(
                 Update,
                 (
-                    toggle_modes,
                     set_fly_speed,
                     orbit_input,
                     // Runs after the warden has moved this frame, so the camera
@@ -135,6 +134,9 @@ impl Plugin for CameraPlugin {
                     // whichever of the two cameras came back first.
                     .run_if(in_world),
             );
+        // The maker's flight toggle, only in a maker's build — see `toggle_modes`.
+        #[cfg(feature = "tools")]
+        app.add_systems(Update, toggle_modes.run_if(in_world));
     }
 }
 
@@ -171,6 +173,14 @@ fn start_on_foot(mut mode: ResMut<CameraMode>) {
     *mode = CameraMode::Follow;
 }
 
+/// F swaps between following the warden and flying free.
+///
+/// A MAKER'S control, compiled out of releases with the rest of the tools: it
+/// exists for reading the map from above, and a player who can fly across the
+/// world at seventy metres a second with the warden left standing is a player
+/// the game's whole geography stops meaning anything to. The terrain tool still
+/// gets Fly by construction — `enter_editor` sets the mode itself.
+#[cfg(feature = "tools")]
 fn toggle_modes(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<CameraMode>) {
     if keys.just_pressed(KeyCode::KeyF) {
         *mode = match *mode {

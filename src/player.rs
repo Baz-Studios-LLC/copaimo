@@ -44,7 +44,14 @@ pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_player)
+        // On ENTERING the game, not at startup. At startup the menu has not run,
+        // so `Progress::from` is always empty — which made Continue a dead
+        // letter: the warden was already standing at the ranch before the save
+        // was read, the saved position was never applied, and the thirty-second
+        // autosave then overwrote the real save with the ranch. New Game
+        // mid-session had the mirror fault: the old warden stayed where they
+        // were, and the "fresh" save inherited the position.
+        app.add_systems(OnEnter(AppState::Playing), spawn_player)
             // The warden only walks in the game. In the terrain tool the same
             // keys fly the camera, and in the menu nothing should move at all.
             .add_systems(
@@ -88,36 +95,45 @@ fn spawn_player(
     terrain: Res<TerrainSource>,
     bounds: Res<WorldBounds>,
     progress: Res<crate::save::Progress>,
+    mut standing: Query<&mut Transform, With<Player>>,
 ) {
     // Continuing: exactly where they left off, facing the way they left off
     // facing. Landing a returning player at the ranch every time would make
     // Continue a slower New Game.
-    if let Some(save) = &progress.from {
+    let (spawn, facing) = if let Some(save) = &progress.from {
         let ground = terrain.height(save.at.x, save.at.z);
         // The ground rather than the stored height. A save carries a Y, but the
         // world under it can be resculpted between sittings — and a warden
         // restored to last week's height stands in the air or inside a hill.
         let at = Vec3::new(save.at.x, ground, save.at.z);
         info!("continuing at {:.0}, {:.0}", at.x, at.z);
-        raise_the_warden(&mut commands, &mut meshes, &mut materials, at, save.facing);
+        (at, save.facing)
+    } else {
+        // On the ranch, which is where the game begins. `find_spawn` is kept as
+        // the fallback for a world whose map does not put land there — a redrawn
+        // map could leave the pinned spot at sea, and dropping the warden into
+        // the water with no explanation is worse than starting them somewhere
+        // arbitrary.
+        let ranch = Vec2::new(RANCH_AT.0, RANCH_AT.1);
+        let on_land = terrain.height(ranch.x, ranch.y) > SEA_LEVEL + 1.0;
+        let spawn = if on_land {
+            Vec3::new(ranch.x, terrain.height(ranch.x, ranch.y), ranch.y)
+        } else {
+            warn!("the ranch at {:.0}, {:.0} is under water on this map", ranch.x, ranch.y);
+            find_spawn(&terrain, &bounds)
+        };
+        info!("warden spawning at {:.0}, {:.0}", spawn.x, spawn.z);
+        (spawn, 0.0)
+    };
+
+    // A warden already standing — the second visit to Playing this session — is
+    // MOVED, not doubled: the body is built once and this is where it goes now.
+    if let Some(mut warden) = standing.iter_mut().next() {
+        warden.translation = spawn;
+        warden.rotation = Quat::from_rotation_y(facing);
         return;
     }
-
-    // On the ranch, which is where the game begins. `find_spawn` is kept as the
-    // fallback for a world whose map does not put land there — a redrawn map
-    // could leave the pinned spot at sea, and dropping the warden into the water
-    // with no explanation is worse than starting them somewhere arbitrary.
-    let ranch = Vec2::new(RANCH_AT.0, RANCH_AT.1);
-    let on_land = terrain.height(ranch.x, ranch.y) > SEA_LEVEL + 1.0;
-    let spawn = if on_land {
-        Vec3::new(ranch.x, terrain.height(ranch.x, ranch.y), ranch.y)
-    } else {
-        warn!("the ranch at {:.0}, {:.0} is under water on this map", ranch.x, ranch.y);
-        find_spawn(&terrain, &bounds)
-    };
-    info!("warden spawning at {:.0}, {:.0}", spawn.x, spawn.z);
-
-    raise_the_warden(&mut commands, &mut meshes, &mut materials, spawn, 0.0);
+    raise_the_warden(&mut commands, &mut meshes, &mut materials, spawn, facing);
 }
 
 /// Stands the warden up, wherever they are starting from.
@@ -258,4 +274,100 @@ pub fn move_player(
     // so the warden settles correctly the moment the world finishes loading.
     let ground = terrain.height(transform.translation.x, transform.translation.z);
     transform.translation.y = ground.max(SEA_LEVEL - WADE_DEPTH);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::save::{Progress, Save};
+    use bevy::state::app::StatesPlugin;
+
+    /// The whole continue-and-new-game flow, run rather than reasoned about.
+    ///
+    /// # The bug this pins was invisible to every other test
+    ///
+    /// `spawn_player` ran at `Startup`, when the menu had not run and
+    /// `Progress::from` was still empty — so Continue never applied the saved
+    /// position, the autosave then overwrote the real save with the ranch, and
+    /// New Game mid-session left the old warden standing where they were. Every
+    /// piece worked alone; the fault was WHEN they ran against each other.
+    #[test]
+    fn continuing_stands_the_warden_where_the_save_says_and_new_game_at_the_ranch() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let half = terrain.half();
+
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::app::TaskPoolPlugin::default(),
+            bevy::asset::AssetPlugin::default(),
+            StatesPlugin,
+        ))
+        .init_state::<AppState>()
+        .init_asset::<Mesh>()
+        .init_asset::<crate::shade::Shaded>()
+        .insert_resource(TerrainSource(std::sync::Arc::new(terrain)))
+        .insert_resource(WorldBounds {
+            half,
+            min_chunk: IVec2::ZERO,
+            max_chunk: IVec2::ZERO,
+        })
+        .init_resource::<Progress>()
+        .add_systems(OnEnter(AppState::Playing), spawn_player);
+
+        // A save from somewhere that is NOT the ranch, with a stale height —
+        // the world may have been resculpted since it was written.
+        let ranch = Vec2::new(RANCH_AT.0, RANCH_AT.1);
+        let elsewhere = ranch + Vec2::new(400.0, 250.0);
+        app.world_mut().resource_mut::<Progress>().from = Some(Save {
+            at: Vec3::new(elsewhere.x, 9_999.0, elsewhere.y),
+            facing: 1.25,
+            played: 60.0,
+            stamped: String::new(),
+        });
+
+        // Continue: into the world.
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::Playing);
+        app.update();
+
+        let standing = |app: &mut App| {
+            let mut wardens = app.world_mut().query_filtered::<&Transform, With<Player>>();
+            let all: Vec<Transform> = wardens.iter(app.world()).copied().collect();
+            assert_eq!(all.len(), 1, "there are {} wardens standing", all.len());
+            all[0]
+        };
+        let warden = standing(&mut app);
+        assert!(
+            (warden.translation.x - elsewhere.x).abs() < 0.01
+                && (warden.translation.z - elsewhere.y).abs() < 0.01,
+            "Continue put the warden at {:?}, not at the save",
+            warden.translation
+        );
+        assert!(
+            warden.translation.y < 5_000.0,
+            "the save's stale height was believed: {:.0}",
+            warden.translation.y
+        );
+
+        // Back to the menu, then NEW GAME: the save is dropped and the SAME
+        // warden — not a second one — stands at the ranch again.
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::Menu);
+        app.update();
+        app.world_mut().resource_mut::<Progress>().from = None;
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::Playing);
+        app.update();
+
+        let warden = standing(&mut app);
+        assert!(
+            (warden.translation.x - ranch.x).abs() < 0.01
+                && (warden.translation.z - ranch.y).abs() < 0.01,
+            "New Game left the warden at {:?} instead of the ranch",
+            warden.translation
+        );
+    }
 }

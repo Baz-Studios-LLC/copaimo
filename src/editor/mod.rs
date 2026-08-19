@@ -682,12 +682,29 @@ fn history(
     } else {
         let ground = terrain.edits().read().is_ok_and(|edits| edits.can_redo());
         let woods = terrain.woods().read().is_ok_and(|woods| woods.can_redo());
-        // Only one can be ambiguous, and only after undoing across both. The
-        // ground wins that tie because it is what most of the work is.
-        match (ground, woods) {
-            (true, _) => Some(Layer::Ground),
-            (false, true) => Some(Layer::Woods),
-            (false, false) => None,
+        let country = terrain.countries().read().is_ok_and(|them| them.can_redo());
+        let wear = terrain.surface().read().is_ok_and(|worn| worn.can_redo());
+        // Every layer that keeps a history, or a stroke on the missing one can
+        // never be redone: the biome brush and the road's worn surface were left
+        // out of this list, so Ctrl+Y answered "Nothing to redo" while their
+        // histories sat there holding exactly that. A road is ground AND wear
+        // together — when both are redoable it is a road stroke, and redoing
+        // only the grading would put back half a road.
+        //
+        // Ties are ambiguous after undoing across layers, and the ground wins
+        // them because it is what most of the work is.
+        if ground && wear {
+            Some(Layer::Road)
+        } else if ground {
+            Some(Layer::Ground)
+        } else if woods {
+            Some(Layer::Woods)
+        } else if country {
+            Some(Layer::Country)
+        } else if wear {
+            Some(Layer::Road)
+        } else {
+            None
         }
     };
 
