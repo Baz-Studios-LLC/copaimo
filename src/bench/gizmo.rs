@@ -69,6 +69,14 @@ enum Grip {
     /// otherwise the far end, which the maker is not touching, slides away from
     /// whatever it was lined up against.
     Stretch { back: bool },
+    /// Make it WIDER, in whole modules — a floor, and only a floor.
+    ///
+    /// The same gesture as `Stretch` across the other axis, and a separate arm of
+    /// the match rather than an axis field on one: what a pull does to the foot is
+    /// worked out along the piece's own length in one case and across it in the
+    /// other, and the parts that have a length are not the parts that have a
+    /// width. See `Part::widens`.
+    Widen { back: bool },
 }
 
 /// One handle: which slot it is, which way it pulls, and what pulling it does.
@@ -274,27 +282,52 @@ fn handles_for(piece: Piece) -> Vec<(Vec3, Handle)> {
         ),
     ];
 
-    // And the pair that make it longer, at its own two ends — but only on the parts
-    // that HAVE a length. A post is a quarter-metre square upright: a stretched one
-    // would be a beam wearing a post's name, so it gets no handle to do it with.
-    if piece.part.stretches() {
-        let half = piece.size().x * 0.5;
-        let aside = turn * Vec3::Z * ASIDE;
-        for (at, way, back) in [(3usize, 1.0_f32, false), (4, -1.0, true)] {
-            let dir = turn * Vec3::X * way;
-            all.push((
-                dir * (half + STAND) + aside,
-                Handle {
-                    at,
-                    dir,
-                    grip: Grip::Stretch { back },
-                    // A block on a stalk: grabbable from the stalk's root out to
-                    // the far side of the block.
-                    span: (-(STUB + 0.06), KNOB * 0.75),
-                    tint: AMBER,
+    // And the pairs that make it bigger, at its own ends — but only where the part
+    // HAS the dimension being pulled. A post is a quarter-metre square upright: a
+    // stretched one would be a beam wearing a post's name, so it gets no handle to
+    // do it with, and only a floor has a width worth growing.
+    //
+    // # A pinwheel, because four handles in two quadrants crowd each other
+    //
+    // Each pair stands off to one side of its own axis (ASIDE) so it can never be
+    // confused with the arrow on that axis. With both pairs offset the SAME way,
+    // the length handle and the width handle at the near corner ended up under a
+    // metre apart — inside the widest grab there is. Offset in rotation instead,
+    // each end to a different side, and the four sit at equal distance with no two
+    // in the same corner.
+    let size = piece.size();
+    let mut grip_pair = |at: usize, length: bool, back: bool, way: f32, lean: f32| {
+        let (out_axis, side_axis) = if length {
+            (turn * Vec3::X, turn * Vec3::Z)
+        } else {
+            (turn * Vec3::Z, turn * Vec3::X)
+        };
+        let half = if length { size.x } else { size.z } * 0.5;
+        let dir = out_axis * way;
+        all.push((
+            dir * (half + STAND) + side_axis * (ASIDE * lean),
+            Handle {
+                at,
+                dir,
+                grip: if length {
+                    Grip::Stretch { back }
+                } else {
+                    Grip::Widen { back }
                 },
-            ));
-        }
+                // A block on a stalk: grabbable from the stalk's root out to the
+                // far side of the block.
+                span: (-(STUB + 0.06), KNOB * 0.75),
+                tint: AMBER,
+            },
+        ));
+    };
+    if piece.part.stretches() {
+        grip_pair(3, true, false, 1.0, 1.0);
+        grip_pair(4, true, true, -1.0, -1.0);
+    }
+    if piece.part.widens() {
+        grip_pair(5, false, false, 1.0, -1.0);
+        grip_pair(6, false, true, -1.0, 1.0);
     }
     all
 }
@@ -466,7 +499,7 @@ pub fn drag(
             // from the handle's own place, which is where the maker's hand is.
             let anchor = match handle.grip {
                 Grip::Slide => piece.middle(),
-                Grip::Stretch { .. } => origin,
+                Grip::Stretch { .. } | Grip::Widen { .. } => origin,
             };
             if let Some(t0) = along_axis(ray, anchor, handle.dir) {
                 holding.dragging = Some(Drag {
@@ -514,15 +547,24 @@ pub fn drag(
                 bench.move_to(id, put);
             }
         }
-        Grip::Stretch { back } => {
+        // Longer, and wider: one gesture measured along whichever axis was
+        // grabbed. Which measurement of the piece grows, and which way the foot
+        // has to walk when the near end is the one held, are the only differences.
+        Grip::Stretch { back } | Grip::Widen { back } => {
+            let lengthwise = matches!(now.grip, Grip::Stretch { .. });
             // In whole modules, measured from where the handle was taken hold of.
             let want = (moved / kit::MODULE).round() as i32;
             if want == now.stepped {
                 return;
             }
-            let before = piece.spans;
-            bench.stretch(id, want - now.stepped);
-            let after = piece_at(&bench, id).map(|p| p.spans).unwrap_or(before);
+            let measure = |p: &kit::Piece| if lengthwise { p.spans } else { p.across };
+            let before = measure(&piece);
+            if lengthwise {
+                bench.stretch(id, want - now.stepped);
+            } else {
+                bench.widen(id, want - now.stepped);
+            }
+            let after = piece_at(&bench, id).map(|p| measure(&p)).unwrap_or(before);
             let applied = after as i32 - before as i32;
             // Clamped at one module or at the limit: the step is NOT paid out, so
             // dragging back the other way lets go again at once rather than having
@@ -533,8 +575,10 @@ pub fn drag(
             if back {
                 // The end the maker is NOT holding stands still. A piece grows
                 // forward from its foot, so growing it from the near end means
-                // walking the foot back by exactly as much as it grew.
-                let along = piece.turn() * Vec3::X * (kit::MODULE * applied as f32);
+                // walking the foot back by exactly as much as it grew — along its
+                // own length, or across it.
+                let axis = if lengthwise { Vec3::X } else { Vec3::Z };
+                let along = piece.turn() * axis * (kit::MODULE * applied as f32);
                 bench.move_to(id, Bench::snapped(piece.foot - along));
             }
             if let Some(held) = holding.dragging.as_mut() {
@@ -557,10 +601,13 @@ pub fn show(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     rigs: Query<Entity, With<Rig>>,
-    mut was: Local<Option<(u32, u8, u32)>>,
+    // Every measurement the handles' own positions are worked out from. The width
+    // had to join it: a floor widened while its handles were up moved its far edge
+    // and the handles stayed where the narrower floor had put them.
+    mut was: Local<Option<(u32, u8, u32, u32)>>,
 ) {
     let piece = holding.piece.and_then(|id| piece_at(&bench, id));
-    let now = piece.map(|p| (p.id, p.quarters, p.spans));
+    let now = piece.map(|p| (p.id, p.quarters, p.spans, p.across));
 
     // The empty query matters: leaving the bench takes every handle with it, and a
     // `Local` that still remembers the last selection would otherwise never build
@@ -622,7 +669,9 @@ pub fn show(
                 (shaft.clone(), handle.dir * (ARM - HEAD) * 0.5, turn),
                 (head.clone(), handle.dir * (ARM - HEAD * 0.5), turn),
             ),
-            Grip::Stretch { .. } => (
+            // Both pulls are the same gesture on different axes, so they are the
+            // same thing to look at: a block on a stalk.
+            Grip::Stretch { .. } | Grip::Widen { .. } => (
                 (stalk.clone(), -handle.dir * STUB * 0.5, turn),
                 (knob.clone(), Vec3::ZERO, Quat::IDENTITY),
             ),
@@ -788,7 +837,14 @@ mod tests {
         // are DRAWN, their real positions are read back out of the world, and the
         // hit test is asked about those. If what is drawn and what is tested ever
         // drift apart again, this fails.
-        for (part, spans) in [(Part::Post, 1), (Part::Wall, 1), (Part::Wall, 3), (Part::Floor, 2)] {
+        for (part, spans) in [
+            (Part::Post, 1),
+            (Part::Wall, 1),
+            (Part::Wall, 3),
+            (Part::Floor, 2),
+            (Part::Bed, 1),
+            (Part::Stairs, 2),
+        ] {
             let mut app = handle_app();
             let piece = standing(&mut app, part, spans);
             let drawn = as_drawn(&mut app);
@@ -809,7 +865,7 @@ mod tests {
                 // the fair target is a little way along what is drawn.
                 let target = match handle.grip {
                     Grip::Slide => *at + handle.dir * (ARM * 0.55),
-                    Grip::Stretch { .. } => *at,
+                    Grip::Stretch { .. } | Grip::Widen { .. } => *at,
                 };
                 let got = nearest_handle(aimed_at(eye, target), drawn.iter().map(|(at, h)| (*at, h)));
                 let got = got.map(|(handle, _)| handle.at);

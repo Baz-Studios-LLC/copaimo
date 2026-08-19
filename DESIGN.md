@@ -382,6 +382,68 @@ Trees are *not* buildings — they are grown in `terrain-core` from a hash of
 position, twenty varieties, no files. Drawing them at the bench would make them
 heavier, fewer and all alike.
 
+### The kit: ten parts, four of them made OF something
+
+The workbench builds from `Part`: post, rail, wall, floor, beam, roof, cap,
+foundation, stairs, bed. Every one is a whole number of modules (1.5 m) on a
+sixteenth-metre snap, and **nothing is ever scaled** — a wall dragged from one
+module to three is a longer wall, not a wall drawn at three times the size. Its
+thickness is the thickness a wall is.
+
+Three of them are more than a box, and they are the reason `Piece::blocks` returns
+a list rather than one:
+
+* a **floor** is boarding: eight planks to a module over a solid subfloor, each
+  plank cut into boards at three-metre intervals whose ends do not line up with
+  the next plank's, and each board laid in three tonal strips along its length.
+  The subfloor is what makes a joint a LINE — without it, the joints went all the
+  way through and a floor was a duckboard you could see daylight between.
+* a **foundation** is two courses of stone in running bond, butted, with the upper
+  course offset half a stone from the lower.
+* **stairs** are steps, each solid to the ground. It is the one part whose height
+  is its length's business: a longer flight is more steps, and more steps reach
+  higher. Two modules of flight reach exactly one storey, which is why the storey
+  is one number both read.
+
+Every position that decides anything about the boarding or the coursing — which
+plank row, where its ends fall, what tone it takes — is measured in WORLD space
+along the piece's own axes. Two floors laid edge to edge therefore carry on one
+another's pattern instead of each restarting at its own corner and drawing a seam
+nobody built.
+
+It costs boxes: about twenty-five to a module of floor. They weld into one mesh,
+so the cost lands on the file rather than on the frame, and
+`a_module_of_floor_stays_within_its_box_budget` is what says how many is too many.
+
+### A floor grows two ways; everything else grows one
+
+`spans` is length along the piece's own X. `across` is width, and only a floor has
+it — see `Part::widens`. Every other part's second horizontal dimension is not an
+extent: a wall's is its thickness, a beam's is its section, a roof's is the depth
+its pitch is measured over. Growing those in whole modules gives a wall a metre
+and a half thick, which is a distortion wearing a part's name.
+
+A floor is a surface, and both its horizontal dimensions are real. Before this it
+could only be lengthened, so laying a room meant placing a slab per module.
+
+Both grow FORWARD from the foot, so the edge the maker placed stays put and the
+far edge moves. The handles that do it stand off to one side of their own axis, in
+a pinwheel — four pull-handles offset the same way put the length handle and the
+width handle within a metre of each other at the near corner, which is inside the
+widest grab there is.
+
+### Seeing a change without booting the game
+
+`dev/look.py` draws a baked building's boxes to a PNG with a depth buffer:
+
+```
+cargo test dump_the_new_parts -- --ignored --nocapture   # prints a scene as JSON
+python dev/look.py scene.json out.png --scale 330 --pitch 26
+```
+
+It exists because the tests can measure the geometry and cannot answer the only
+question that mattered about the floor, which is whether it looks like wood.
+
 ### One mesh per building
 
 A house is fifty-odd boxes and four colours. Given a mesh each that would be
@@ -638,6 +700,29 @@ across a dozen seeds — and caught its own first version, which counted the
 quarter-turned side walls as part of the face it was measuring.
 
 
+**2026-08-19** — **The floor became wood, and the kit grew three parts.**
+
+Reported from the bench: the floor's planks had gaps between them, no texture, and
+stretched only one way. All three were the same shortfall — a floor was five
+30 cm slats laid at the floor's full thickness, which is a boardwalk. It is
+boarding over a subfloor now, at flooring width, cut into boards whose ends
+stagger; the gap between two of them is a centimetre of shadow rather than a slot
+through to the world. See **The kit** above.
+
+**Stretching gained a second axis**, because a floor has two and every other part
+has one. And three parts arrived with it — **foundation**, **stairs**, **bed** —
+which took the kit past nine, so the digits ran out and the panel's habit of
+numbering its own rows became a lie. There is one key table now, read by the input
+and by the panel both. That is the second time this codebase has learned that
+lesson; the first was the terrain tool's eleventh tool wearing the first one's key.
+
+**A renderer for looking at it**: `dev/look.py`. The floor took four goes to get
+right and none of them could be judged from a test, because "does this look like
+wood" is not a number. Two of the four goes were wrong about my own renderer
+rather than about the floor — a camera basis that was not orthogonal made the
+lower surface win the depth test, so the floor rendered as its own subfloor and
+looked like a bug in the kit.
+
 **2026-08-18** — **A workbench, and a kit of parts.**
 
 **Pieces, not shapes.** A building could be authored as arbitrary boxes at
@@ -647,8 +732,9 @@ get built out of stock lengths, and it is why buildings look like buildings. Fre
 boxes give you the freedom to make every wall a slightly different thickness,
 which is a freedom nobody wants and every eye notices.
 
-Seven parts, fixed sizes, all multiples of a 25 cm snap on a 1.5 m module. **A
-fence and a house come out of the same kit** — posts and rails, versus floor, walls
+Seven parts to begin with — ten now — at fixed sizes, all multiples of a
+sixteenth-metre snap on a 1.5 m module. **A fence and a house come out of the same
+kit** — posts and rails, versus floor, walls
 and roof — and there is a test that builds both, because that is the check on
 whether the parts were chosen well or invented one building at a time.
 

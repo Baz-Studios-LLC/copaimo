@@ -103,15 +103,13 @@ pub fn open(mut commands: Commands, font: Res<UiFont>) {
             });
 
             widget::branch(panel, &font, "parts", "PARTS", true, |rows| {
-                for (at, part) in Part::ALL.iter().enumerate() {
-                    widget::row(
-                        rows,
-                        &font,
-                        "parts",
-                        &(at + 1).to_string(),
-                        part.name(),
-                        Press::Part(*part),
-                    );
+                for part in Part::ALL {
+                    // The key from the kit's table rather than from this row's
+                    // place in the list. Counting rows was right while there were
+                    // seven parts and nine digits; the tenth part sits on nought,
+                    // and a panel that counted would print "10" on a key that does
+                    // not exist.
+                    widget::row(rows, &font, "parts", part.cap(), part.name(), Press::Part(part));
                 }
                 widget::row(rows, &font, "parts", "R", "TURN A QUARTER", Press::Turn);
                 widget::row(
@@ -146,7 +144,8 @@ pub fn open(mut commands: Commands, font: Res<UiFont>) {
                 widget::note(rows, &font, "move", "DRAG", "an arrow to move it");
                 widget::note(rows, &font, "move", "SH", "hold for quarter-metres");
                 widget::note(rows, &font, "move", "R-G-B", "is X-Y-Z");
-                widget::note(rows, &font, "move", "AMBER", "end blocks: pull to stretch");
+                widget::note(rows, &font, "move", "AMBER", "end blocks: pull to lengthen");
+                widget::note(rows, &font, "move", "SIDE", "blocks: pull a floor wider");
                 widget::note(rows, &font, "move", "ARROWS", "nudge the cursor a cell");
             });
 

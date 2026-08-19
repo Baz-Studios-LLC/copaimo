@@ -81,6 +81,16 @@ pub enum Part {
     Roof,
     /// A ridge cap, running along the top where two roof panels meet.
     Cap,
+    /// A course of plinth stone, for a building to stand on.
+    ///
+    /// Thicker than a wall and lower, so a wall set on it steps back from its
+    /// face — which is what makes a building look founded rather than dropped.
+    Foundation,
+    /// A flight of steps, rising as it runs.
+    Stairs,
+    /// A bed. The first piece of furniture, and the reason there is a `fittings`
+    /// stage at all.
+    Bed,
 }
 
 impl Part {
@@ -88,7 +98,7 @@ impl Part {
     ///
     /// Fence parts first, because a fence is the simplest thing anybody will build
     /// and the first thing they will try.
-    pub const ALL: [Part; 7] = [
+    pub const ALL: [Part; 10] = [
         Part::Post,
         Part::Rail,
         Part::Wall,
@@ -96,6 +106,9 @@ impl Part {
         Part::Beam,
         Part::Roof,
         Part::Cap,
+        Part::Foundation,
+        Part::Stairs,
+        Part::Bed,
     ];
 
     pub fn name(self) -> &'static str {
@@ -107,7 +120,18 @@ impl Part {
             Part::Beam => "BEAM",
             Part::Roof => "ROOF",
             Part::Cap => "CAP",
+            Part::Foundation => "FOUNDATION",
+            Part::Stairs => "STAIRS",
+            Part::Bed => "BED",
         }
+    }
+
+    /// What to print on this part's keycap.
+    pub fn cap(self) -> &'static str {
+        Self::ALL
+            .iter()
+            .position(|one| *one == self)
+            .map_or("", |at| PART_KEYS[at].1)
     }
 
     /// How big it is, in metres. Every figure a multiple of [`SNAP`].
@@ -116,11 +140,23 @@ impl Part {
             // Slightly over a snap so a post reads as a post rather than a line.
             Part::Post => Vec3::new(0.25, 1.25, 0.25),
             Part::Rail => Vec3::new(MODULE, 0.25, 0.25),
-            Part::Wall => Vec3::new(MODULE, 2.5, 0.25),
+            Part::Wall => Vec3::new(MODULE, WALL_HIGH, 0.25),
             Part::Floor => Vec3::new(MODULE, 0.25, MODULE),
             Part::Beam => Vec3::new(MODULE, 0.25, 0.25),
             Part::Roof => Vec3::new(MODULE, 0.75, MODULE),
             Part::Cap => Vec3::new(MODULE, 0.5, 0.5),
+            // Half a metre thick against a wall's quarter, so a wall set on it
+            // steps back from its face. Low, because a plinth is a course or two
+            // of stone and not a storey.
+            Part::Foundation => Vec3::new(MODULE, 0.5, 0.5),
+            // A module of run, and the rise that module earns: half a wall's
+            // height, so TWO modules of flight reach exactly one storey. The kit's
+            // numbers meeting each other is the whole reason they are one number.
+            Part::Stairs => Vec3::new(MODULE, WALL_HIGH * 0.5, MODULE),
+            // A double bed, at the size a double bed is rather than at a module —
+            // furniture is the one thing in here a person's own size decides. Every
+            // figure is still a whole number of snaps.
+            Part::Bed => Vec3::new(2.0, 0.875, 1.375),
         }
     }
 
@@ -130,7 +166,33 @@ impl Part {
     /// because of what it IS — a post is a quarter-metre square upright — and
     /// stretching one would produce a beam wearing a post's name.
     pub fn stretches(self) -> bool {
-        !matches!(self, Part::Post)
+        !matches!(self, Part::Post | Part::Bed)
+    }
+
+    /// Whether stretching it makes it TALLER as well as longer.
+    ///
+    /// A flight of stairs, and nothing else. Every other part keeps its height
+    /// when it is stretched — that is what stretching means — but a stair's rise
+    /// IS its run: a longer flight is more steps, and more steps reach higher. A
+    /// flight stretched without rising would be a row of treads going nowhere.
+    pub fn climbs(self) -> bool {
+        matches!(self, Part::Stairs)
+    }
+
+    /// Whether it can be made WIDER as well as longer.
+    ///
+    /// A floor, and only a floor. Every other part's second horizontal dimension
+    /// is not an extent at all: a wall's is its thickness, a beam's is its
+    /// section, a roof's is the depth its pitch is measured over. Growing any of
+    /// those by whole modules gives a wall a metre and a half thick — a
+    /// distortion wearing a part's name, which is the thing a kit of fixed sizes
+    /// exists to refuse.
+    ///
+    /// A floor is a SURFACE, and both its horizontal dimensions are real extents.
+    /// A floor two modules across is a floor with twice the planks in it, which is
+    /// what "wider" means for a floor and for nothing else here.
+    pub fn widens(self) -> bool {
+        matches!(self, Part::Floor)
     }
 
     /// What shape it is, in the baked format's terms.
@@ -145,12 +207,47 @@ impl Part {
     /// What it is made of, for the stage a game raising things in order would use.
     pub fn stage(self) -> &'static str {
         match self {
-            Part::Floor => "footings",
+            Part::Floor | Part::Foundation => "footings",
             Part::Roof | Part::Cap => "roof",
+            // Furniture goes in after the building is closed in, which is what a
+            // stage is for saying.
+            Part::Bed => "fittings",
             _ => "walls",
         }
     }
 }
+
+/// Which key picks each part, and what to print on its cap.
+///
+/// **One table, read by the input and by the panel both.** The terrain tool learned
+/// this the hard way: the keys lived with the input and the panel numbered its own
+/// rows, so the eleventh tool was labelled with the first one's key and nothing in
+/// either place could notice. There are ten parts here now — one past the digits —
+/// so a panel counting its own rows would already be lying about the last of them.
+pub const PART_KEYS: [(KeyCode, &str); 10] = [
+    (KeyCode::Digit1, "1"),
+    (KeyCode::Digit2, "2"),
+    (KeyCode::Digit3, "3"),
+    (KeyCode::Digit4, "4"),
+    (KeyCode::Digit5, "5"),
+    (KeyCode::Digit6, "6"),
+    (KeyCode::Digit7, "7"),
+    (KeyCode::Digit8, "8"),
+    (KeyCode::Digit9, "9"),
+    // The tenth on nought, past the nine that come before it — the same place the
+    // terrain tool puts its tenth tool.
+    (KeyCode::Digit0, "0"),
+];
+
+/// Refused at compile time rather than found by a maker pressing a key that does
+/// nothing: a part with no key is a part only the mouse can reach.
+const _: () = assert!(
+    PART_KEYS.len() == Part::ALL.len(),
+    "every part needs a key, and every key a part"
+);
+
+/// A storey, in metres. What a wall is tall, and what two flights of stairs climb.
+pub const WALL_HIGH: f32 = 2.5;
 
 /// The colours a piece can be, in sRGB bytes.
 ///
@@ -197,16 +294,36 @@ pub struct Piece {
     ///
     /// Whole modules only, so a stretched piece still ends where the next begins.
     pub spans: u32,
+    /// How many modules WIDE it is, across its own length.
+    ///
+    /// # Two directions, because a floor has two
+    ///
+    /// `spans` was the only one, and for the parts that are lines — walls, rails,
+    /// beams — one is all there is. A floor is not a line: it is a surface with a
+    /// length and a width, and a maker laying a room had to place nine separate
+    /// slabs to get three modules by three.
+    ///
+    /// Only the parts [`Part::widens`] allows have this, and it means the same
+    /// thing stretching does: more floor, made of more planks, each still the
+    /// width a plank is.
+    pub across: u32,
 }
 
 impl Piece {
     /// How big it actually is, stretch included.
     pub fn size(self) -> Vec3 {
         let base = self.part.size();
+        let high = if self.part.climbs() {
+            // The one part whose height is its length's business — see
+            // `Part::climbs`.
+            base.y * self.spans.max(1) as f32
+        } else {
+            base.y
+        };
         Vec3::new(
             base.x + (self.spans.max(1) - 1) as f32 * MODULE,
-            base.y,
-            base.z,
+            high,
+            base.z + (self.across.max(1) - 1) as f32 * MODULE,
         )
     }
 
@@ -221,59 +338,371 @@ impl Piece {
     /// is the one that moves. Growing from the middle slides both ends and takes
     /// the piece off whatever it was lined up against.
     pub fn middle(self) -> Vec3 {
-        let grown = (self.spans.max(1) - 1) as f32 * MODULE * 0.5;
-        self.foot + Vec3::Y * self.part.size().y * 0.5 + self.turn() * Vec3::X * grown
+        let along = (self.spans.max(1) - 1) as f32 * MODULE * 0.5;
+        let aside = (self.across.max(1) - 1) as f32 * MODULE * 0.5;
+        // Its OWN half-height, not the part's: a flight of stairs is taller the
+        // longer it is, and a middle taken from the unstretched part would sit
+        // below the piece it is meant to be the middle of.
+        self.foot
+            + Vec3::Y * self.size().y * 0.5
+            + self.turn() * Vec3::new(along, 0.0, aside)
     }
 
     /// The box or boxes this piece is drawn as.
     ///
-    /// Most parts are one box. A floor is boards.
+    /// Most parts are one box. A floor is boarding — see [`Self::boarding`].
     pub fn blocks(self) -> Vec<Block> {
         let [r, g, b] = TINTS[self.tint.min(TINTS.len() - 1)].1;
         let colour = Color::srgb_u8(r, g, b);
         let size = self.size();
 
-        if self.part != Part::Floor {
-            return vec![Block {
+        // The parts that are made OF something get it laid; the rest are one box.
+        match self.part {
+            Part::Floor => self.boarding(colour, size),
+            Part::Foundation => self.coursing(colour, size),
+            Part::Stairs => self.flight(colour, size),
+            Part::Bed => self.bedding(colour, size),
+            _ => vec![Block {
                 at: self.middle(),
                 size,
                 turn: self.turn(),
                 form: self.part.form(),
                 colour,
                 stage: self.part.stage().into(),
-            }];
+            }],
         }
+    }
 
-        // A floor, laid as boards.
-        //
-        // Deterministic from where the piece STANDS rather than from its id, so
-        // two floors laid side by side carry on the same grain — an id is an
-        // accident of the order things were placed, and a floor whose pattern
-        // jumped at a seam because of that would look like two floors.
-        // Boards stay the width a board is however long the floor gets, so a
-        // stretched floor gains boards rather than wider ones.
-        let wide = self.part.size().z / PLANKS as f32;
-        let lay = self.foot.x.round() as i32;
-        let across = self.foot.z.round() as i32;
-        (0..PLANKS)
-            .map(|board| {
-                let along = board as f32 + 0.5;
-                let shade = terrain_core::forest::chance(lay, across * PLANKS as i32 + board as i32, 64);
-                Block {
-                    at: self.middle()
-                        + self.turn()
-                            * Vec3::new(0.0, 0.0, -size.z * 0.5 + wide * along),
-                    // A hair short across, so the joint between boards reads as a
-                    // line rather than the boards fusing into a slab again.
-                    size: Vec3::new(size.x, size.y, wide - JOINT),
-                    turn: self.turn(),
+    /// A floor, laid as boards over a subfloor.
+    ///
+    /// # Why there is something underneath
+    ///
+    /// The boards used to be the floor's whole thickness with a gap between them,
+    /// and the gap went all the way through — so a floor was a set of slats with
+    /// daylight between them, which is a duckboard. The boarding is [`DECK`] thick
+    /// over a solid slab now, so a joint is a fine dark line with wood at the
+    /// bottom of it. That is what a joint in a floor is.
+    ///
+    /// # What makes it read as wood
+    ///
+    /// Three things, and none of them is a texture — there are no textures here,
+    /// only boxes with a colour each:
+    ///
+    /// * boards END, at [`BOARD`] intervals, and the ends of one plank do not line
+    ///   up with the ends of the next. Boards butted end to end in a straight line
+    ///   across a whole floor is the one pattern a joiner avoids, and it is exactly
+    ///   what a grid draws if nobody stops it.
+    /// * each board takes its own tone, so a floor is not one brown.
+    /// * each board is laid in [`FIBRES`] strips along its length, each a little off
+    ///   its neighbour — grain, at a finer scale than the boards vary, so a board
+    ///   reads as one board with figure in it rather than as three narrow planks.
+    ///
+    /// # The pattern is anchored to the WORLD, not to the piece
+    ///
+    /// Every position that decides anything — which plank row this is, where its
+    /// joints fall, what tone it takes — is measured along the piece's own axes in
+    /// world space. Two floors laid edge to edge therefore carry on one another's
+    /// boarding instead of each restarting its pattern at its own corner and
+    /// drawing a seam nobody built.
+    ///
+    /// # It costs boxes, and knowingly
+    ///
+    /// Two dozen or so a module: planks times boards times strips. The format has
+    /// always taken as many boxes as a building needs and they weld into one mesh,
+    /// so the cost lands on the file rather than on the frame — but a floor is the
+    /// one part where the boxes ARE the thing, and
+    /// `a_module_of_floor_stays_within_its_box_budget` is what says how many is too
+    /// many.
+    fn boarding(self, colour: Color, size: Vec3) -> Vec<Block> {
+        let turn = self.turn();
+        let middle = self.middle();
+        let half = size * 0.5;
+        let stage = self.part.stage();
+        let put = |local: Vec3| middle + turn * local;
+
+        // Where the piece's own axes stand in the world, so everything below can be
+        // laid out in world space and still run along the boards.
+        let run0 = middle.dot(turn * Vec3::X);
+        let side0 = middle.dot(turn * Vec3::Z);
+
+        // The subfloor: one slab, the full footprint, everything but the top skin.
+        let mut out = vec![Block {
+            at: put(Vec3::new(0.0, -half.y + (size.y - DECK) * 0.5, 0.0)),
+            size: Vec3::new(size.x, size.y - DECK, size.z),
+            turn,
+            form: Form::Box,
+            colour: shaded_by(colour, UNDER),
+            stage: stage.into(),
+        }];
+
+        let planks = PLANKS * self.across.max(1) as usize;
+        let wide = MODULE / PLANKS as f32;
+        let deck_y = half.y - DECK * 0.5;
+
+        for plank in 0..planks {
+            // The plank's slot, inset half a joint on each side that has a
+            // neighbour. The outermost boards run flush to the floor's own edge: a
+            // joint there would be a groove around the outside of the room.
+            let slot = -half.z + plank as f32 * wide;
+            let near = if plank == 0 { slot } else { slot + JOINT * 0.5 };
+            let far = if plank + 1 == planks {
+                slot + wide
+            } else {
+                slot + wide - JOINT * 0.5
+            };
+
+            // Which world plank row this is, which is what its joints and its tone
+            // are drawn from.
+            let row = ((side0 + (near + far) * 0.5) / wide).round() as i32;
+            let phase = stagger_of(row);
+
+            for (from, to) in board_ends(run0, half.x, phase, BOARD) {
+                // Half a joint at each end that meets another board, and none at
+                // the floor's own edge.
+                let head = if from <= -half.x + NOTHING { from } else { from + JOINT * 0.5 };
+                let tail = if to >= half.x - NOTHING { to } else { to - JOINT * 0.5 };
+                if tail <= head {
+                    continue;
+                }
+
+                // The board's own tone, from the world cell it lies in rather than
+                // from its place in this piece's own list.
+                let cell = ((run0 + (from + to) * 0.5) / BOARD).round() as i32;
+                let shade = terrain_core::forest::chance(row, cell, 64);
+                let board = 1.0 - GRAIN * 0.5 + shade * GRAIN;
+
+                // And laid in strips along its length: the grain.
+                let strip = (far - near) / FIBRES as f32;
+                for fibre in 0..FIBRES {
+                    let figure =
+                        terrain_core::forest::chance(row * FIBRES as i32 + fibre as i32, cell, 66);
+                    out.push(Block {
+                        at: put(Vec3::new(
+                            (head + tail) * 0.5,
+                            deck_y,
+                            near + strip * (fibre as f32 + 0.5),
+                        )),
+                        size: Vec3::new(tail - head, DECK, strip),
+                        turn,
+                        form: Form::Box,
+                        colour: shaded_by(colour, board * (1.0 - FIGURE * 0.5 + figure * FIGURE)),
+                        stage: stage.into(),
+                    });
+                }
+            }
+        }
+        out
+    }
+
+    /// A foundation, laid as coursed stone.
+    ///
+    /// Two courses in running bond: the upper one offset half a stone from the
+    /// lower, which is how a wall is built and how it reads. Butted, with no joint
+    /// and nothing behind them — a plinth is solid, and a gap in one would show
+    /// daylight under a wall.
+    ///
+    /// What makes it read as masonry rather than as a beige kerb is that the stones
+    /// are not one colour and the two courses do not break in the same places.
+    /// Both are drawn from the world, as the boarding is, so a foundation carried
+    /// across two pieces keeps its bond.
+    fn coursing(self, colour: Color, size: Vec3) -> Vec<Block> {
+        let turn = self.turn();
+        let middle = self.middle();
+        let half = size * 0.5;
+        let put = |local: Vec3| middle + turn * local;
+        let run0 = middle.dot(turn * Vec3::X);
+
+        let mut out = Vec::new();
+        let deep = size.y / COURSES as f32;
+        for course in 0..COURSES {
+            // Every other course shifted half a stone: the bond.
+            let phase = if course % 2 == 0 { 0.0 } else { STONE * 0.5 };
+            let y = -half.y + deep * (course as f32 + 0.5);
+            for (from, to) in board_ends(run0, half.x, phase, STONE) {
+                let cell = ((run0 + (from + to) * 0.5) / STONE).round() as i32;
+                let shade = terrain_core::forest::chance(course as i32, cell, 67);
+                out.push(Block {
+                    at: put(Vec3::new((from + to) * 0.5, y, 0.0)),
+                    size: Vec3::new(to - from, deep, size.z),
+                    turn,
                     form: Form::Box,
-                    colour: shaded_by(colour, 1.0 - GRAIN * 0.5 + shade * GRAIN),
+                    colour: shaded_by(colour, 1.0 - RUBBLE * 0.5 + shade * RUBBLE),
+                    stage: self.part.stage().into(),
+                });
+            }
+        }
+        out
+    }
+
+    /// A flight of stairs, laid as steps.
+    ///
+    /// Each step is solid to the ground rather than a tread hanging in the air:
+    /// stacked boxes read as a staircase from every side, where floating treads
+    /// read as a staircase only from directly in front of one.
+    ///
+    /// The steps overlap each other — every one of them reaches the floor — and
+    /// that is deliberate. The buried faces cost geometry nobody sees; the
+    /// alternative is working out which face of which step is exposed, to save
+    /// triangles on a part a building has two of.
+    fn flight(self, colour: Color, size: Vec3) -> Vec<Block> {
+        let turn = self.turn();
+        let middle = self.middle();
+        let half = size * 0.5;
+        let put = |local: Vec3| middle + turn * local;
+
+        let steps = STEPS * self.spans.max(1) as usize;
+        let going = size.x / steps as f32;
+        let rise = size.y / steps as f32;
+
+        (0..steps)
+            .map(|step| {
+                // How high this step's tread stands above the foot of the flight.
+                let top = rise * (step + 1) as f32;
+                let shade = terrain_core::forest::chance(step as i32, 0, 68);
+                Block {
+                    at: put(Vec3::new(
+                        -half.x + going * (step as f32 + 0.5),
+                        -half.y + top * 0.5,
+                        0.0,
+                    )),
+                    size: Vec3::new(going, top, size.z),
+                    turn,
+                    form: Form::Box,
+                    colour: shaded_by(colour, 1.0 - TREAD * 0.5 + shade * TREAD),
                     stage: self.part.stage().into(),
                 }
             })
             .collect()
     }
+
+    /// A bed: a frame, a mattress on it, a pillow at the head, and a headboard.
+    ///
+    /// The frame takes the piece's own colour and the bedding does not. That is the
+    /// one place in the kit where a piece overrules the palette, and it earns it:
+    /// linen is linen, and a bed made entirely of one brown is a bench.
+    ///
+    /// The head is the piece's near end, so a bed turned a quarter puts its head
+    /// where the maker expects — against whichever wall they turned it toward.
+    fn bedding(self, colour: Color, size: Vec3) -> Vec<Block> {
+        let turn = self.turn();
+        let middle = self.middle();
+        let half = size * 0.5;
+        let put = |local: Vec3| middle + turn * local;
+        let stage = self.part.stage();
+        let linen = Color::srgb_u8(LINEN[0], LINEN[1], LINEN[2]);
+
+        let lay = |at: Vec3, size: Vec3, colour: Color| Block {
+            at: put(at),
+            size,
+            turn,
+            form: Form::Box,
+            colour,
+            stage: stage.into(),
+        };
+
+        // The frame: the whole footprint, up to where the mattress starts.
+        let frame_high = SNAP * 4.0;
+        let mattress_high = SNAP * 4.0;
+        // Two snaps, not one. At one it was a bright line along the head of the
+        // mattress rather than a pillow — a thing you can only see the top of is
+        // not a thing.
+        let pillow_high = SNAP * 2.0;
+        let board_thick = SNAP * 2.0;
+
+        vec![
+            lay(
+                Vec3::new(0.0, -half.y + frame_high * 0.5, 0.0),
+                Vec3::new(size.x, frame_high, size.z),
+                colour,
+            ),
+            // The mattress, inset all round so the frame shows as a rail.
+            lay(
+                Vec3::new(0.0, -half.y + frame_high + mattress_high * 0.5, 0.0),
+                Vec3::new(size.x - SNAP * 2.0, mattress_high, size.z - SNAP * 2.0),
+                linen,
+            ),
+            // The pillow, at the head end and a shade brighter than the sheets.
+            lay(
+                Vec3::new(
+                    -half.x + board_thick + SNAP * 4.0,
+                    -half.y + frame_high + mattress_high + pillow_high * 0.5,
+                    0.0,
+                ),
+                Vec3::new(SNAP * 7.0, pillow_high, size.z - SNAP * 6.0),
+                shaded_by(linen, 1.08),
+            ),
+            // And the headboard, which is the piece's full height and the reason it
+            // has any: everything else here is knee-high.
+            lay(
+                Vec3::new(-half.x + board_thick * 0.5, 0.0, 0.0),
+                Vec3::new(board_thick, size.y, size.z),
+                colour,
+            ),
+        ]
+    }
+}
+
+/// Where one plank's boards begin and end, along the piece's own length.
+///
+/// The joints fall on a world grid of [`BOARD`] offset by `phase`, so a plank
+/// carried across two abutting floors is cut in the same places in both. A board
+/// shorter than [`RUNT`] is joined to its neighbour rather than laid as an offcut,
+/// which is what happens to it on a real floor.
+fn board_ends(run0: f32, half: f32, phase: f32, length: f32) -> Vec<(f32, f32)> {
+    // The first joint at or past the near end, in the piece's own length.
+    let mut cuts = Vec::new();
+    let mut step = ((run0 - half - phase) / length).ceil();
+    loop {
+        let at = step * length + phase - run0;
+        if at >= half - NOTHING {
+            break;
+        }
+        if at > -half + NOTHING {
+            cuts.push(at);
+        }
+        step += 1.0;
+        // A length of nothing would cut for ever. It cannot happen from the two
+        // constants that reach here, and that is exactly the kind of cannot that
+        // stops being true when somebody adds a third caller.
+        if length <= NOTHING {
+            break;
+        }
+    }
+
+    let mut ends = Vec::with_capacity(cuts.len() + 1);
+    let mut from = -half;
+    for cut in cuts {
+        ends.push((from, cut));
+        from = cut;
+    }
+    ends.push((from, half));
+
+    // Offcuts joined to the board before them.
+    let runt = length * RUNT;
+    let mut laid: Vec<(f32, f32)> = Vec::with_capacity(ends.len());
+    for (from, to) in ends {
+        match laid.last_mut() {
+            Some(last) if to - from < runt => last.1 = to,
+            _ => laid.push((from, to)),
+        }
+    }
+    // And a FIRST board that is itself an offcut takes the next one with it, there
+    // being nothing before it to join to.
+    if laid.len() > 1 && laid[0].1 - laid[0].0 < runt {
+        let joined = laid.remove(0);
+        laid[0].0 = joined.0;
+    }
+    laid
+}
+
+/// How far along a plank row its board joints are shifted.
+///
+/// In thirds of a board, drawn from the row's own place in the world — so a row is
+/// staggered the same way in every floor it crosses, and a straight line of butt
+/// joints across a whole floor cannot happen.
+fn stagger_of(row: i32) -> f32 {
+    let pick = (terrain_core::forest::chance(row, 0, 65) * STAGGERS as f32) as i32;
+    pick.clamp(0, STAGGERS - 1) as f32 / STAGGERS as f32 * BOARD
 }
 
 /// The same colour, lighter or darker.
@@ -288,13 +717,80 @@ fn shaded_by(colour: Color, by: f32) -> Color {
 /// wants before it should be two walls with a post between them.
 pub const MOST_SPANS: u32 = 8;
 
-/// How many boards a floor is laid in, the line between them, and how far one
-/// board strays from the next.
+/// How many planks lie across one module of floor.
 ///
-/// Wood is not one colour, and a floor where it is reads as printed.
-const PLANKS: usize = 5;
-const JOINT: f32 = 0.02;
+/// Eight, which is 18.75 cm a board — flooring. Five was 30 cm, which is decking,
+/// and it is a good part of why a floor read as a boardwalk. Each plank is exactly
+/// three [`SNAP`]s wide, so the boarding lands on the same grid as everything else.
+const PLANKS: usize = 8;
+
+/// How thick the boarding is over the subfloor.
+///
+/// Half a snap — about three centimetres, which is what a floorboard is.
+///
+/// It was a whole snap, and a six-centimetre board is a DECK board: the joint
+/// between two of them is a slot deep enough to see the side of the next board
+/// through, which is the gap the maker was looking at. Thin the boards and the
+/// same joint becomes a line.
+const DECK: f32 = SNAP * 0.5;
+
+/// The line between two boards.
+///
+/// A centimetre: the width of a saw, near enough, and the narrowest line that still
+/// READS as a line from standing height. Not a snap multiple, deliberately — every dimension a maker places
+/// or lines up is on the grid, and this is neither. It is the line between two
+/// boards, and it wants to be as fine as it can be while still being there.
+const JOINT: f32 = 0.010;
+
+/// How long a board runs before the next begins, and how short a piece may be —
+/// as a SHARE of that length — before it is joined to its neighbour rather than
+/// laid as an offcut.
+///
+/// A share rather than a distance because two things are cut this way now, and a
+/// quarter of a board and a quarter of a stone are not the same number of metres.
+const BOARD: f32 = MODULE * 2.0;
+const RUNT: f32 = 0.25;
+
+/// How many places along a plank its end joints may fall.
+const STAGGERS: i32 = 3;
+
+/// How many strips a board is laid in, across its width. The grain.
+///
+/// Three: enough to read as figure in the wood, few enough that a board still
+/// reads as one board.
+const FIBRES: usize = 3;
+
+/// How far a board strays from the next in tone, how far one strip strays from the
+/// next WITHIN a board, and how much darker the subfloor under the joints is.
+///
+/// The figure is much the smaller of the two deliberately: strips as different from
+/// each other as the boards are would read as three narrow planks rather than as
+/// one board with grain in it.
 const GRAIN: f32 = 0.30;
+const FIGURE: f32 = 0.13;
+const UNDER: f32 = 0.55;
+
+/// How long one plinth stone is, how many courses a foundation is laid in, and how
+/// far one stone strays from the next in tone.
+const STONE: f32 = MODULE * 0.5;
+const COURSES: usize = 2;
+const RUBBLE: f32 = 0.30;
+
+/// How many steps there are to a module of stairs, and how far one tread strays
+/// from the next in tone.
+///
+/// Four: a going of 37.5 cm, which is a generous tread, against a rise of 31.25 cm
+/// from `Part::size`. Steep for a house and right for a game, where a stair is
+/// something you run up.
+const STEPS: usize = 4;
+const TREAD: f32 = 0.12;
+
+/// Bed linen. Not from [`TINTS`], because a bed's sheets are not the colour its
+/// frame is painted — see `Piece::bedding`.
+const LINEN: [u8; 3] = [212, 206, 192];
+
+/// Nothing, in metres: what counts as landing exactly on an edge.
+const NOTHING: f32 = 1.0e-4;
 
 /// A work in progress.
 #[derive(Resource, Debug)]
@@ -381,6 +877,7 @@ impl Bench {
             quarters,
             tint: tint % TINTS.len(),
             spans: 1,
+            across: 1,
         });
         self.unsaved = true;
         Some(id)
@@ -428,6 +925,29 @@ impl Bench {
             return false;
         }
         piece.spans = want;
+        self.unsaved = true;
+        true
+    }
+
+    /// Makes one member wider or narrower, in whole modules.
+    ///
+    /// Only a floor — see [`Part::widens`] for why nothing else has a width worth
+    /// growing. The same shape as `stretch` and deliberately not folded into it
+    /// with an axis argument: they are two different questions about a piece, and
+    /// the parts that answer yes to one are not the parts that answer yes to the
+    /// other.
+    pub fn widen(&mut self, id: u32, by: i32) -> bool {
+        let Some(piece) = self.pieces.iter_mut().find(|p| p.id == id) else {
+            return false;
+        };
+        if !piece.part.widens() {
+            return false;
+        }
+        let want = (piece.across as i32 + by).clamp(1, MOST_SPANS as i32) as u32;
+        if want == piece.across {
+            return false;
+        }
+        piece.across = want;
         self.unsaved = true;
         true
     }
@@ -833,71 +1353,449 @@ mod tests {
         assert!(long(&three) > long(&one) * 2.5, "the boards did not get longer");
     }
 
+    /// The floor's boarding, told apart by thickness: the subfloor is everything
+    /// but the top skin, a board is the skin.
+    fn boards(boxes: &[crate::build::plan::Block]) -> Vec<crate::build::plan::Block> {
+        boxes.iter().filter(|b| b.size.y < DECK * 1.5).cloned().collect()
+    }
+
+    fn subfloor(boxes: &[crate::build::plan::Block]) -> crate::build::plan::Block {
+        let mut under: Vec<_> = boxes.iter().filter(|b| b.size.y > DECK * 1.5).collect();
+        assert_eq!(under.len(), 1, "a floor should have exactly one subfloor");
+        under.pop().unwrap().clone()
+    }
+
     #[test]
     fn a_floor_is_laid_as_boards() {
         // A floor slab of one flat colour is a slab. What makes a floor read as a
         // floor is that you can see it is made of something.
         let mut bench = Bench::default();
         bench.add(Part::Floor, Vec3::ZERO, 0, 0);
-        let boards = bench.to_plan().boxes;
-        assert!(boards.len() > 3, "a floor came out as {} boxes", boards.len());
+        let boxes = bench.to_plan().boxes;
+        let laid = boards(&boxes);
+        assert!(laid.len() > 8, "a floor came out as {} boards", laid.len());
 
-        // Boards, not slabs: each one long and narrow.
-        for board in &boards {
+        // Boards, not tiles: each one long and narrow.
+        for board in &laid {
             assert!(
                 board.size.x > board.size.z * 2.0,
-                "a board {:.2} by {:.2} is a tile",
+                "a board {:.3} by {:.3} is a tile",
                 board.size.x,
                 board.size.z
             );
         }
 
-        // They cover the module without overlapping, and they are not one colour.
-        let widest = boards.iter().map(|b| b.size.z).fold(0.0_f32, f32::max);
+        // They cover the floor: the top faces add up to the footprint, less what
+        // the joints take out of it. By area rather than by counting a row, because
+        // a row is not a fixed number of boards — where a plank's ends fall is the
+        // whole point of the stagger.
+        let floor = Part::Floor.size();
+        let covered: f32 = laid.iter().map(|b| b.size.x * b.size.z).sum();
+        let footprint = floor.x * floor.z;
         assert!(
-            (widest * boards.len() as f32 - MODULE).abs() < 0.2,
-            "{} boards of {widest:.3} do not make a {MODULE} m floor",
-            boards.len()
+            covered <= footprint + NOTHING && covered > footprint * 0.9,
+            "the boards cover {covered:.3} of a {footprint:.3} m² floor"
         );
-        let shades: std::collections::HashSet<u32> = boards
+
+        // And they reach its edges, so the boarding is not a rug laid on a slab.
+        let edge = |pick: fn(&crate::build::plan::Block) -> f32| {
+            laid.iter().map(pick).fold(f32::MIN, f32::max)
+        };
+        assert!(
+            (edge(|b| b.at.z + b.size.z * 0.5) - floor.z * 0.5).abs() < NOTHING,
+            "the boarding stops short of the floor's own edge"
+        );
+
+        // And they are not one colour — see `GRAIN` and `FIGURE`.
+        let shades: std::collections::HashSet<u32> = laid
             .iter()
             .map(|b| (b.colour.to_linear().red * 10_000.0) as u32)
             .collect();
-        assert!(shades.len() > 1, "every board is the same colour");
+        assert!(shades.len() > 4, "a floor came out in {} shades", shades.len());
 
-        // And the whole thing still sits exactly on the ground it was placed on.
+        // The whole thing still sits exactly on the ground it was placed on, and is
+        // exactly as thick as a floor.
         let (low, high) = bench.to_plan().reach();
-        assert!(low.y.abs() < 1.0e-4, "the floor sits {:.4} m off", low.y);
+        assert!(low.y.abs() < NOTHING, "the floor sits {:.4} m off", low.y);
         assert!(
-            (high.y - Part::Floor.size().y).abs() < 1.0e-4,
+            (high.y - Part::Floor.size().y).abs() < NOTHING,
             "boarding changed how thick a floor is"
         );
     }
 
     #[test]
+    fn a_floor_has_no_gap_to_see_through() {
+        // Reported from the bench: the gaps between the planks. They went all the
+        // way through, because the boards WERE the floor — so a floor was a set of
+        // slats with daylight between them, which is a duckboard.
+        let mut bench = Bench::default();
+        let id = bench.add(Part::Floor, Vec3::ZERO, 0, 0).expect("a floor");
+        bench.widen(id, 1);
+        let boxes = bench.to_plan().boxes;
+        let under = subfloor(&boxes);
+        let laid = boards(&boxes);
+        let size = bench.pieces()[0].size();
+
+        // The subfloor is the whole footprint, so there is nowhere a joint could
+        // look through.
+        assert!(
+            (under.size.x - size.x).abs() < NOTHING && (under.size.z - size.z).abs() < NOTHING,
+            "the subfloor is {:.3} by {:.3} under a {:.3} by {:.3} floor",
+            under.size.x,
+            under.size.z,
+            size.x,
+            size.z
+        );
+
+        // And it reaches the boards rather than stopping short of them: the top of
+        // the one is the bottom of the others.
+        let under_top = under.at.y + under.size.y * 0.5;
+        for board in &laid {
+            let bottom = board.at.y - board.size.y * 0.5;
+            assert!(
+                (bottom - under_top).abs() < NOTHING,
+                "a board's underside is {:.4} m from the subfloor's top",
+                bottom - under_top
+            );
+        }
+
+        // The joints themselves are a saw's width, not a finger's.
+        assert!(JOINT < 0.02, "a {JOINT} m joint is a gap");
+    }
+
+    #[test]
+    fn the_boards_of_a_floor_do_not_all_end_in_the_same_place() {
+        // The pattern a joiner avoids and a grid draws by default: every board
+        // butting its neighbour in one straight line across the whole floor.
+        let mut bench = Bench::default();
+        let id = bench.add(Part::Floor, Vec3::ZERO, 0, 0).expect("a floor");
+        bench.stretch(id, 3);
+        bench.widen(id, 1);
+
+        // Where each plank row's boards end, gathered by row.
+        let mut rows: std::collections::HashMap<i32, Vec<i32>> = Default::default();
+        for board in boards(&bench.to_plan().boxes) {
+            let row = (board.at.z * 1_000.0) as i32;
+            rows.entry(row)
+                .or_default()
+                .push(((board.at.x + board.size.x * 0.5) * 100.0) as i32);
+        }
+        assert!(rows.len() > 8, "only {} plank rows", rows.len());
+
+        let patterns: std::collections::HashSet<Vec<i32>> = rows
+            .values()
+            .map(|ends| {
+                let mut ends = ends.clone();
+                ends.sort_unstable();
+                ends
+            })
+            .collect();
+        assert!(
+            patterns.len() > 1,
+            "every plank in the floor is cut in the same places"
+        );
+    }
+
+    #[test]
+    fn widening_a_floor_adds_planks_of_the_same_width() {
+        // The other half of "stretching, not scaling", and the half that did not
+        // exist: a floor could only ever be made longer, so laying a room meant
+        // placing a slab per module.
+        let mut bench = Bench::default();
+        let id = bench.add(Part::Floor, Vec3::ZERO, 0, 0).expect("a floor");
+        let one = bench.to_plan().boxes;
+        assert!(bench.widen(id, 2), "a floor would not widen");
+        let three = bench.to_plan().boxes;
+
+        let widest = |boxes: &[crate::build::plan::Block]| {
+            boards(boxes).iter().map(|b| b.size.z).fold(0.0_f32, f32::max)
+        };
+        assert!(
+            (widest(&one) - widest(&three)).abs() < NOTHING,
+            "planks went from {:.4} to {:.4} wide",
+            widest(&one),
+            widest(&three)
+        );
+        // Three times the PLANK ROWS, exactly. Not three times the boards: how many
+        // boards a plank is cut into depends on where its ends fall, which is the
+        // stagger doing its job.
+        let rows = |boxes: &[crate::build::plan::Block]| {
+            boards(boxes)
+                .iter()
+                .map(|b| (b.at.z * 1_000.0) as i32)
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+        };
+        assert_eq!(
+            rows(&three),
+            rows(&one) * 3,
+            "three modules across came out as {} plank rows against {}",
+            rows(&three),
+            rows(&one)
+        );
+
+        // Wider, and no thicker or longer for it.
+        let size = bench.pieces()[0].size();
+        assert!((size.z - MODULE * 3.0).abs() < NOTHING, "it is {:.3} m across", size.z);
+        assert_eq!(size.y, Part::Floor.size().y, "widening changed how thick it is");
+        assert_eq!(size.x, Part::Floor.size().x, "widening changed how long it is");
+    }
+
+    #[test]
+    fn a_widened_floor_keeps_the_edge_it_was_placed_by() {
+        // The same promise stretching makes, across the other axis: the edge the
+        // maker laid stays put and the far one moves. Growing from the middle would
+        // slide both off whatever they were lined up against.
+        let mut bench = Bench::default();
+        let id = bench.add(Part::Floor, Vec3::ZERO, 0, 0).expect("a floor");
+        let near_edge = |b: &Bench| {
+            let piece = b.pieces()[0];
+            piece.middle().z - piece.size().z * 0.5
+        };
+        let before = near_edge(&bench);
+        bench.widen(id, 3);
+        assert!(
+            (near_edge(&bench) - before).abs() < NOTHING,
+            "the placed edge moved from {before:.4} to {:.4}",
+            near_edge(&bench)
+        );
+    }
+
+    #[test]
+    fn a_floor_is_the_only_thing_that_widens() {
+        // Every other part's second horizontal dimension is not an extent: a wall's
+        // is its thickness. A widened wall would be a metre and a half thick — a
+        // distortion wearing a part's name, which is what fixed sizes are for.
+        let mut bench = Bench::default();
+        for part in Part::ALL {
+            bench.clear();
+            let id = bench.add(part, Vec3::ZERO, 0, 0).expect("a piece");
+            let before = bench.pieces()[0].size();
+            let took = bench.widen(id, 1);
+            assert_eq!(
+                took,
+                part.widens(),
+                "{} answered {took} to being widened",
+                part.name()
+            );
+            if !took {
+                assert_eq!(bench.pieces()[0].size(), before, "{} changed size", part.name());
+            }
+        }
+        // And no part goes past the limit or below one module either way.
+        bench.clear();
+        let id = bench.add(Part::Floor, Vec3::ZERO, 0, 0).unwrap();
+        bench.widen(id, 99);
+        assert_eq!(bench.pieces()[0].across, MOST_SPANS);
+        bench.widen(id, -99);
+        assert_eq!(bench.pieces()[0].across, 1);
+    }
+
+    #[test]
+    fn a_module_of_floor_stays_within_its_box_budget() {
+        // Boarding costs boxes — planks times boards times strips — and the cost
+        // lands on every building file that has a floor in it. Named in
+        // `Piece::boarding`, which is where the reasoning is; this is the number.
+        let mut bench = Bench::default();
+        let id = bench.add(Part::Floor, Vec3::ZERO, 0, 0).expect("a floor");
+        bench.stretch(id, 3);
+        bench.widen(id, 3);
+        let modules = 4.0 * 4.0;
+        let each = bench.to_plan().boxes.len() as f32 / modules;
+        assert!(
+            each < 40.0,
+            "a module of floor costs {each:.0} boxes, which is a floor drawn as a mosaic"
+        );
+    }
+
+    #[test]
+    fn a_flight_of_stairs_climbs_as_it_lengthens() {
+        // The one part whose height is its length's business. A flight stretched
+        // without rising would be a row of treads going nowhere.
+        let mut bench = Bench::default();
+        let id = bench.add(Part::Stairs, Vec3::ZERO, 0, 0).expect("stairs");
+        let one = bench.pieces()[0].size();
+        bench.stretch(id, 1);
+        let two = bench.pieces()[0].size();
+
+        assert!(
+            (two.y - one.y * 2.0).abs() < NOTHING,
+            "two modules of flight rise {:.3} m against one module's {:.3}",
+            two.y,
+            one.y
+        );
+        // And two modules of it reach exactly one storey, which is what makes a
+        // stair worth having: it arrives at the floor above.
+        assert!(
+            (two.y - WALL_HIGH).abs() < NOTHING,
+            "two modules of stairs reach {:.3} m against a storey of {WALL_HIGH}",
+            two.y
+        );
+
+        // The steps ascend, evenly, and every one of them stands on the ground.
+        let mut steps = bench.to_plan().boxes;
+        steps.sort_by(|a, b| a.at.x.total_cmp(&b.at.x));
+        assert_eq!(steps.len(), STEPS * 2, "a two-module flight has {} steps", steps.len());
+        let mut was = 0.0;
+        for step in &steps {
+            let top = step.at.y + step.size.y * 0.5;
+            assert!(top > was + NOTHING, "a step at {top:.3} m does not rise above {was:.3}");
+            assert!(
+                (step.at.y - step.size.y * 0.5).abs() < NOTHING,
+                "a step floats {:.4} m off the floor",
+                step.at.y - step.size.y * 0.5
+            );
+            was = top;
+        }
+        assert!(
+            (was - two.y).abs() < NOTHING,
+            "the top step reaches {was:.3} of the flight's own {:.3}",
+            two.y
+        );
+    }
+
+    #[test]
+    fn a_foundation_is_laid_in_courses_that_break_in_different_places() {
+        // A running bond: the upper course offset half a stone from the lower. Two
+        // courses breaking in the same places is a stack, not a wall.
+        let mut bench = Bench::default();
+        let id = bench.add(Part::Foundation, Vec3::ZERO, 0, 0).expect("a plinth");
+        bench.stretch(id, 3);
+        let boxes = bench.to_plan().boxes;
+
+        let mut courses: std::collections::HashMap<i32, Vec<i32>> = Default::default();
+        for stone in &boxes {
+            courses
+                .entry((stone.at.y * 1_000.0) as i32)
+                .or_default()
+                .push(((stone.at.x + stone.size.x * 0.5) * 100.0) as i32);
+        }
+        assert_eq!(courses.len(), COURSES, "a foundation came out in {} courses", courses.len());
+        let breaks: std::collections::HashSet<Vec<i32>> = courses
+            .values()
+            .map(|ends| {
+                let mut ends = ends.clone();
+                ends.sort_unstable();
+                ends
+            })
+            .collect();
+        assert_eq!(breaks.len(), COURSES, "both courses break in the same places");
+
+        // Butted, not jointed: a gap in a plinth would show daylight under a wall.
+        // Every course covers its whole length.
+        for ends in courses.values() {
+            assert!(!ends.is_empty());
+        }
+        let covered: f32 = boxes
+            .iter()
+            .filter(|b| (b.at.y - boxes[0].at.y).abs() < NOTHING)
+            .map(|b| b.size.x)
+            .sum();
+        let size = bench.pieces()[0].size();
+        assert!(
+            (covered - size.x).abs() < NOTHING,
+            "a course covers {covered:.3} m of a {:.3} m plinth",
+            size.x
+        );
+    }
+
+    #[test]
+    fn a_bed_is_made_of_a_frame_and_bedding_that_are_not_the_same_colour() {
+        // The one place a piece overrules the palette. Linen is linen, and a bed in
+        // one brown is a bench.
+        let mut bench = Bench::default();
+        // Painted the darkest wood there is, so a frame that leaked into the linen
+        // could not hide behind a pale tint.
+        let dark = TINTS.iter().position(|(name, _)| *name == "dark wood").unwrap();
+        bench.add(Part::Bed, Vec3::ZERO, 0, dark).expect("a bed");
+        let boxes = bench.to_plan().boxes;
+        assert!(boxes.len() >= 4, "a bed came out as {} boxes", boxes.len());
+
+        let brightest = boxes
+            .iter()
+            .map(|b| b.colour.to_linear().red)
+            .fold(0.0_f32, f32::max);
+        let darkest = boxes
+            .iter()
+            .map(|b| b.colour.to_linear().red)
+            .fold(1.0_f32, f32::min);
+        assert!(
+            brightest > darkest * 3.0,
+            "the bedding at {brightest:.3} is barely brighter than the frame at {darkest:.3}"
+        );
+
+        // It does not stretch: a bed is the size a person is.
+        let id = bench.pieces()[0].id;
+        assert!(!bench.stretch(id, 2), "a bed stretched");
+        assert!(!bench.widen(id, 2), "a bed widened");
+
+        // The headboard is at the piece's near end, and it is the tallest thing.
+        let size = bench.pieces()[0].size();
+        let tallest = boxes
+            .iter()
+            .max_by(|a, b| a.size.y.total_cmp(&b.size.y))
+            .expect("a box");
+        assert!(
+            (tallest.size.y - size.y).abs() < NOTHING,
+            "the tallest part of a bed is {:.3} of {:.3}",
+            tallest.size.y,
+            size.y
+        );
+        assert!(
+            tallest.at.x < 0.0,
+            "the headboard stands at {:.3}, which is not the head end",
+            tallest.at.x
+        );
+    }
+
+    #[test]
     fn two_floors_side_by_side_carry_on_the_same_grain() {
-        // Deterministic from where a piece STANDS, not from the order it was
-        // placed in. An id is an accident of that order, and a floor whose pattern
-        // jumped at a seam because of it would read as two floors.
+        // Deterministic from where a piece STANDS, not from the order it was placed
+        // in. An id is an accident of that order, and a floor whose pattern jumped
+        // at a seam because of it would read as two floors.
         let grain = |first: Vec3, second: Vec3| {
             let mut bench = Bench::default();
             bench.add(Part::Floor, first, 0, 0);
             bench.add(Part::Floor, second, 0, 0);
-            bench
+            // By WHERE each board is rather than by its place in the list: the
+            // order the boxes come out in follows the order the slabs were laid,
+            // and what must not depend on that is the wood at a given spot.
+            let mut wood: Vec<(i32, i32, u32)> = bench
                 .to_plan()
                 .boxes
                 .iter()
-                .map(|b| (b.colour.to_linear().red * 10_000.0) as u32)
-                .collect::<Vec<_>>()
+                .map(|b| {
+                    (
+                        (b.at.x * 1_000.0) as i32,
+                        (b.at.z * 1_000.0) as i32,
+                        (b.colour.to_linear().red * 10_000.0) as u32,
+                    )
+                })
+                .collect();
+            wood.sort_unstable();
+            wood
         };
-        // The same two slabs, laid in the opposite order.
         let one_way = grain(Vec3::ZERO, Vec3::new(MODULE, 0.0, 0.0));
-        let mut other_way = grain(Vec3::new(MODULE, 0.0, 0.0), Vec3::ZERO);
-        other_way.rotate_left(PLANKS);
+        let other_way = grain(Vec3::new(MODULE, 0.0, 0.0), Vec3::ZERO);
+        assert!(!one_way.is_empty(), "no boards at all");
         assert_eq!(
             one_way, other_way,
             "the grain depends on which slab was laid first"
         );
+    }
+
+    #[test]
+    fn every_part_has_a_key_and_a_cap_to_print_on_it() {
+        // Two tables that were one apart: the input held the keys and the panel
+        // numbered its own rows. With ten parts and nine digits, a panel that
+        // counted would print "10" on a key nobody has.
+        let mut seen = std::collections::HashSet::new();
+        for part in Part::ALL {
+            let cap = part.cap();
+            assert!(!cap.is_empty(), "{} has no key", part.name());
+            assert!(seen.insert(cap), "{cap} picks two parts");
+        }
+        assert_eq!(seen.len(), Part::ALL.len());
     }
 
     #[test]
@@ -1000,5 +1898,37 @@ mod tests {
         assert!(path_for("Cottage").ends_with("cottage.json"));
         assert!(path_for("").ends_with("untitled.json"));
         assert!(path_for("///").ends_with("untitled.json"));
+    }
+}
+
+#[cfg(test)]
+mod look {
+    use super::*;
+
+    /// Prints a scene of the new parts as a baked building, for looking at.
+    ///
+    /// `cargo test dump_the_new_parts -- --ignored --nocapture`. Not a test of
+    /// anything: the tests above measure the geometry, and this is for the one
+    /// question they cannot answer, which is whether it looks like wood.
+    #[test]
+    #[ignore]
+    fn dump_the_new_parts() {
+        let mut bench = Bench::default();
+        bench.name = "a-look".into();
+
+        // A floor three modules by two, which is the thing that could not be built
+        // at all before.
+        let floor = bench.add(Part::Floor, Vec3::new(-3.0, 0.0, -1.5), 0, 0).unwrap();
+        bench.stretch(floor, 2);
+        bench.widen(floor, 1);
+
+        // A plinth along its edge, a flight climbing off it, and a bed on it.
+        let plinth = bench.add(Part::Foundation, Vec3::new(-3.0, 0.0, 1.5), 0, 4).unwrap();
+        bench.stretch(plinth, 2);
+        let steps = bench.add(Part::Stairs, Vec3::new(1.5, 0.0, 1.5), 0, 1).unwrap();
+        bench.stretch(steps, 1);
+        bench.add(Part::Bed, Vec3::new(-2.0, 0.25, -1.0), 0, 1).unwrap();
+
+        println!("SCENE {}", as_json(&bench));
     }
 }

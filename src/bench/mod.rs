@@ -445,16 +445,11 @@ fn close(
 
 /// Picking a part, a colour, and which way round.
 fn choose(keys: Res<ButtonInput<KeyCode>>, mut hand: ResMut<Hand>) {
-    const KEYS: [KeyCode; 7] = [
-        KeyCode::Digit1,
-        KeyCode::Digit2,
-        KeyCode::Digit3,
-        KeyCode::Digit4,
-        KeyCode::Digit5,
-        KeyCode::Digit6,
-        KeyCode::Digit7,
-    ];
-    for (key, part) in KEYS.iter().zip(Part::ALL) {
+    // The kit's own table, which the panel prints from as well — see
+    // `kit::PART_KEYS`. Ten parts is one past the digits, so a panel numbering its
+    // own rows and an input holding its own keys would already disagree about the
+    // last of them.
+    for ((key, _), part) in kit::PART_KEYS.iter().zip(Part::ALL) {
         if keys.just_pressed(*key) {
             hand.part = Some(part);
         }

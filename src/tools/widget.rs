@@ -129,7 +129,7 @@ pub struct Chosen;
 /// A heading that folds the rows under it away.
 ///
 /// Sub-branches, and the reason for them is a shelf that keeps growing: eleven
-/// terrain tools and seven parts and six colours is more than anybody wants to
+/// terrain tools and ten parts and six colours is more than anybody wants to
 /// read at once, and a maker laying a fence does not need the roof parts on
 /// screen while they do it.
 #[derive(Component)]
