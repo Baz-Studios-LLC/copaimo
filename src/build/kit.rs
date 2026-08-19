@@ -766,8 +766,13 @@ const FIBRES: usize = 3;
 /// The figure is much the smaller of the two deliberately: strips as different from
 /// each other as the boards are would read as three narrow planks rather than as
 /// one board with grain in it.
-const GRAIN: f32 = 0.30;
-const FIGURE: f32 = 0.13;
+///
+/// Both were raised by about half after looking at the floor in the bench, where
+/// the light is bright and flat and compresses tone differences that read fine in a
+/// drawing. A fifth either way is a floor of boards that came off different trees;
+/// past about a third it stops being one floor and becomes a patchwork.
+const GRAIN: f32 = 0.42;
+const FIGURE: f32 = 0.18;
 const UNDER: f32 = 0.55;
 
 /// How long one plinth stone is, how many courses a foundation is laid in, and how
