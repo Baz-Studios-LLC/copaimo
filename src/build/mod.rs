@@ -320,12 +320,13 @@ fn raise_the_placed(
 /// The link back. Without it a building on screen and the entry that put it there
 /// are two unrelated things, and selecting one to move could never find the other.
 ///
-/// Nothing reads it yet — the piece that will is picking a building by clicking on
-/// its wall, which needs a ray against a mesh rather than a distance to a point.
-/// It is written now because the entity is only spawned here, and a link recorded
-/// at the moment of spawning cannot be wrong; one reconstructed later has to guess.
+/// Written because the entity is only spawned here, and a link recorded at the
+/// moment of spawning cannot be wrong where one reconstructed later has to guess.
+///
+/// Read by the terrain tool while something is being CARRIED: the sheet is left
+/// alone and the drawn thing's own transform follows the crosshair, which needs a
+/// way to find the drawn thing from a sheet entry. See `editor::Carrying`.
 #[derive(Component)]
-#[allow(dead_code)]
 pub struct FromSheet(pub u32);
 
 /// Stands one building, with its marks as children.

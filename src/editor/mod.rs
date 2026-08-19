@@ -165,6 +165,29 @@ impl Brush {
 #[derive(Resource, Default, Deref)]
 pub struct CursorFree(pub bool);
 
+/// What the maker has picked up and is carrying about, if anything.
+///
+/// # Carried, not dragged
+///
+/// This tool has no pointer to drag with — it aims down the view ray and the
+/// crosshair IS the cursor — so moving something is picking it up and putting it
+/// down again: `G` takes hold of what the ring is over, the thing follows the
+/// crosshair, and `G` sets it down. It is also the gesture that needs no second
+/// hand, which matters when the other one is on the fly keys.
+///
+/// # Only the DRAWN thing moves until it is set down
+///
+/// While something is carried, the sheet is left alone and the raised entity's own
+/// transform is moved instead. Writing the sheet every frame would be correct and
+/// unusable: every placed thing in the world is despawned and raised again whenever
+/// the sheet changes, so carrying one house would rebuild a whole street sixty times
+/// a second.
+///
+/// Setting it down writes once, which raises everything once. Cancelling writes
+/// nothing and touches the sheet, so the truth on file puts the drawn thing back.
+#[derive(Resource, Default)]
+pub struct Carrying(pub Option<u32>);
+
 /// Seconds of unsaved work, and whether leaving has already been questioned.
 #[derive(Resource, Default)]
 pub struct Keeping {
@@ -177,7 +200,8 @@ pub struct EditorPlugin;
 
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Brush>()
+        app.init_resource::<Carrying>()
+            .init_resource::<Brush>()
             .init_resource::<CursorFree>()
             .init_resource::<Keeping>()
             .add_plugins((ui::EditorUiPlugin, minimap::MinimapPlugin))
@@ -191,6 +215,9 @@ impl Plugin for EditorPlugin {
                     paint,
                     lay_ramp,
                     place_things,
+                    // After the placing, so a thing picked up this frame follows the
+                    // crosshair from the frame it is picked up on.
+                    carry_things,
                     history,
                     save_edits,
                     keep_the_work,
@@ -1071,6 +1098,7 @@ fn keep_the_work(
     keys: Res<ButtonInput<KeyCode>>,
     terrain: Res<TerrainSource>,
     mut placed: ResMut<crate::world::placed::Standing>,
+    mut carrying: ResMut<Carrying>,
     mut keeping: ResMut<Keeping>,
     mut next: ResMut<NextState<AppState>>,
     mut toast: ResMut<ui::Toast>,
@@ -1087,6 +1115,18 @@ fn keep_the_work(
     // it is the maker's world and their decision, and a dialog that cannot be
     // dismissed is worse than a lost afternoon.
     if keys.just_pressed(KeyCode::Escape) {
+        // Something in hand is put back before anything else is considered. Leaving
+        // the tool with a house held over the wrong hill would write it there on the
+        // next save, and ESC is the key everybody presses to mean "no".
+        if let Some(id) = carrying.0.take() {
+            let what = placed.get(id).map(|t| t.kind.clone()).unwrap_or_default();
+            // Nothing was written while it was carried, so touching the sheet is
+            // enough: everything is raised again from what is actually on file, and
+            // the thing goes back where it was.
+            let _ = placed.as_mut();
+            toast.show(format!("Put the {what} back"));
+            return;
+        }
         if outstanding && !keeping.asked {
             keeping.asked = true;
             toast.show("Unsaved - Ctrl+S to keep it, Esc again to leave");
@@ -1132,6 +1172,7 @@ fn place_things(
     brush: Res<Brush>,
     free: Res<CursorFree>,
     mut placed: ResMut<crate::world::placed::Standing>,
+    mut carrying: ResMut<Carrying>,
     mut choosing: Local<usize>,
     mut toast: ResMut<ui::Toast>,
 ) {
@@ -1144,8 +1185,16 @@ fn place_things(
     let at = Vec2::new(hit.x, hit.z);
 
     if keys.just_pressed(KeyCode::Delete) || keys.just_pressed(KeyCode::Backspace) {
-        // Within the brush, so what gets taken away is what the ring is over —
-        // the same rule every other tool here follows.
+        // What is in hand goes first, wherever the ring happens to be: somebody
+        // holding a thing and pressing delete means THIS one.
+        if let Some(id) = carrying.0.take() {
+            let what = placed.get(id).map(|t| t.kind.clone()).unwrap_or_default();
+            placed.remove(id);
+            toast.show(format!("Took away the {what}"));
+            return;
+        }
+        // Otherwise within the brush, so what gets taken away is what the ring is
+        // over — the same rule every other tool here follows.
         match placed.nearest(at, brush.radius) {
             Some(id) => {
                 let what = placed.get(id).map(|t| t.kind.clone()).unwrap_or_default();
@@ -1153,6 +1202,30 @@ fn place_things(
                 toast.show(format!("Took away the {what}"));
             }
             None => toast.show("Nothing of yours under the brush"),
+        }
+        return;
+    }
+
+    // Picking something up, and putting it down again.
+    if keys.just_pressed(KeyCode::KeyG) {
+        match carrying.0.take() {
+            // Setting it down: the sheet is written once, here, which is what
+            // raises everything again in its new place.
+            Some(id) => {
+                let what = placed.get(id).map(|t| t.kind.clone()).unwrap_or_default();
+                if let Some(thing) = placed.get_mut(id) {
+                    thing.at = at;
+                }
+                toast.show(format!("Set the {what} down"));
+            }
+            None => match placed.nearest(at, brush.radius) {
+                Some(id) => {
+                    let what = placed.get(id).map(|t| t.kind.clone()).unwrap_or_default();
+                    carrying.0 = Some(id);
+                    toast.show(format!("Carrying the {what} - G to set it down"));
+                }
+                None => toast.show("Nothing of yours under the brush"),
+            },
         }
         return;
     }
@@ -1217,6 +1290,7 @@ mod tests {
     fn placing_app() -> App {
         let mut app = App::new();
         app.init_resource::<Brush>()
+            .init_resource::<Carrying>()
             .init_resource::<CursorFree>()
             .init_resource::<Standing>()
             .init_resource::<crate::build::Catalogue>()
@@ -1308,5 +1382,244 @@ mod tests {
 
         press(&mut app, &[KeyCode::KeyR]);
         assert_eq!(facing(&app, id), 0.0, "it turned while the pointer was free");
+    }
+}
+
+/// Carries whatever is in hand along under the crosshair.
+///
+/// Moves the DRAWN thing and not the sheet — see [`Carrying`] for why. On the ground
+/// under the cursor plus its own lift, so a thing carried over a hill rides up it
+/// rather than sinking into it.
+fn carry_things(
+    carrying: Res<Carrying>,
+    brush: Res<Brush>,
+    terrain: Res<TerrainSource>,
+    placed: Res<crate::world::placed::Standing>,
+    mut raised: Query<(&crate::build::FromSheet, &mut Transform)>,
+) {
+    let (Some(id), Some(hit)) = (carrying.0, brush.hit) else {
+        return;
+    };
+    let Some(thing) = placed.get(id) else {
+        return;
+    };
+    // The DRAWN height, so it rides the ground as the maker has sculpted it rather
+    // than the ground the noise would have given.
+    let ground = terrain.0.drawn_height(hit.x, hit.z);
+    for (from, mut stance) in &mut raised {
+        if from.0 == id {
+            stance.translation = Vec3::new(hit.x, ground + thing.lift, hit.z);
+        }
+    }
+}
+
+#[cfg(test)]
+mod carrying {
+    use super::*;
+    use crate::build::FromSheet;
+    use crate::world::placed::Standing;
+
+    /// The placing tool AND the carrying, because picking a thing up and having it
+    /// follow the crosshair are two systems and a bug would live between them.
+    fn carrying_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .init_state::<AppState>()
+            .init_resource::<Brush>()
+            .init_resource::<Carrying>()
+            .init_resource::<CursorFree>()
+            .init_resource::<Standing>()
+            .init_resource::<crate::build::Catalogue>()
+            .init_resource::<Keeping>()
+            .init_resource::<ui::Toast>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<Time>()
+            .insert_resource(TerrainSource(std::sync::Arc::new(Terrain::new())))
+            .add_systems(Update, (place_things, carry_things, keep_the_work).chain());
+        app
+    }
+
+    fn press(app: &mut App, keys: &[KeyCode]) {
+        {
+            let mut input = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            for key in keys {
+                input.press(*key);
+            }
+        }
+        app.update();
+        let mut input = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        for key in keys {
+            input.release(*key);
+        }
+        input.clear();
+    }
+
+    /// Points the brush at a spot on the ground.
+    fn aim(app: &mut App, at: Vec2) {
+        app.world_mut().resource_mut::<Brush>().hit = Some(Vec3::new(at.x, 0.0, at.y));
+    }
+
+    fn sheet_at(app: &App, id: u32) -> Vec2 {
+        app.world()
+            .resource::<Standing>()
+            .get(id)
+            .expect("still there")
+            .at
+    }
+
+    #[test]
+    fn a_thing_is_picked_up_carried_and_set_down_somewhere_else() {
+        let mut app = carrying_app();
+        let was = Vec2::new(10.0, -4.0);
+        let id = app
+            .world_mut()
+            .resource_mut::<Standing>()
+            .add("cottage", was, 0.0, 1.0);
+        // The drawn thing, as `raise_the_placed` spawns it.
+        let drawn = app
+            .world_mut()
+            .spawn((FromSheet(id), Transform::from_xyz(was.x, 0.0, was.y)))
+            .id();
+
+        aim(&mut app, was);
+        press(&mut app, &[KeyCode::KeyG]);
+        assert_eq!(
+            app.world().resource::<Carrying>().0,
+            Some(id),
+            "G did not pick it up"
+        );
+
+        // Carried: the DRAWN thing follows and the sheet is left alone, or every
+        // placed thing in the world would be rebuilt sixty times a second.
+        let there = Vec2::new(90.0, 30.0);
+        aim(&mut app, there);
+        app.update();
+        let stance = *app.world().get::<Transform>(drawn).expect("still drawn");
+        assert!(
+            (stance.translation.x - there.x).abs() < 0.01
+                && (stance.translation.z - there.y).abs() < 0.01,
+            "the carried thing did not follow the crosshair: {:?}",
+            stance.translation
+        );
+        assert_eq!(
+            sheet_at(&app, id),
+            was,
+            "the sheet was written while carrying"
+        );
+
+        // Set down: the sheet is written once, here.
+        press(&mut app, &[KeyCode::KeyG]);
+        assert_eq!(app.world().resource::<Carrying>().0, None);
+        assert_eq!(sheet_at(&app, id), there, "setting it down did not move it");
+        assert!(app.world().resource::<Standing>().unsaved);
+    }
+
+    #[test]
+    fn escape_puts_a_carried_thing_back_rather_than_leaving_the_tool() {
+        // ESC is the key everybody presses to mean "no", and leaving the tool with a
+        // house held over the wrong hill would write it there at the next save.
+        let mut app = carrying_app();
+        let was = Vec2::new(10.0, -4.0);
+        let id = app
+            .world_mut()
+            .resource_mut::<Standing>()
+            .add("cottage", was, 0.0, 1.0);
+
+        aim(&mut app, was);
+        press(&mut app, &[KeyCode::KeyG]);
+        aim(&mut app, Vec2::new(200.0, 200.0));
+        app.update();
+
+        press(&mut app, &[KeyCode::Escape]);
+        assert_eq!(
+            app.world().resource::<Carrying>().0,
+            None,
+            "ESC did not put it down"
+        );
+        assert_eq!(sheet_at(&app, id), was, "ESC moved it anyway");
+        // Nothing ASKED to leave, which is the honest question here: state
+        // transitions are applied before Update, so a request made in this frame is
+        // still pending — and the harness starts in the default state anyway, so
+        // reading the current one would prove nothing either way.
+        assert!(
+            matches!(
+                *app.world().resource::<NextState<AppState>>(),
+                NextState::Unchanged
+            ),
+            "ESC asked to leave the tool while something was in hand"
+        );
+
+        // And once it is put down, ESC goes back to meaning what it meant: the
+        // first press asks about the unsaved sheet, the second leaves. Three
+        // presses, three different answers, in the order a maker would want them.
+        press(&mut app, &[KeyCode::Escape]);
+        assert!(
+            matches!(
+                *app.world().resource::<NextState<AppState>>(),
+                NextState::Unchanged
+            ),
+            "ESC left with the sheet unsaved and unasked about"
+        );
+        press(&mut app, &[KeyCode::Escape]);
+        assert!(
+            !matches!(
+                *app.world().resource::<NextState<AppState>>(),
+                NextState::Unchanged
+            ),
+            "ESC never leaves the tool at all now"
+        );
+    }
+
+    #[test]
+    fn nothing_under_the_brush_picks_nothing_up() {
+        let mut app = carrying_app();
+        app.world_mut()
+            .resource_mut::<Standing>()
+            .add("cottage", Vec2::new(10.0, -4.0), 0.0, 1.0);
+
+        // Well outside the brush.
+        aim(&mut app, Vec2::new(900.0, 900.0));
+        press(&mut app, &[KeyCode::KeyG]);
+        assert_eq!(app.world().resource::<Carrying>().0, None);
+
+        // And with the pointer free — ALT held to reach the panels — G holds still.
+        aim(&mut app, Vec2::new(10.0, -4.0));
+        app.world_mut().resource_mut::<CursorFree>().0 = true;
+        press(&mut app, &[KeyCode::KeyG]);
+        assert_eq!(
+            app.world().resource::<Carrying>().0,
+            None,
+            "G fired while reaching for a panel"
+        );
+    }
+
+    #[test]
+    fn delete_takes_away_what_is_in_hand() {
+        // Somebody holding a thing and pressing delete means THIS one, wherever the
+        // ring happens to be pointing.
+        let mut app = carrying_app();
+        let (held, other) = {
+            let mut standing = app.world_mut().resource_mut::<Standing>();
+            let held = standing.add("cottage", Vec2::new(10.0, -4.0), 0.0, 1.0);
+            let other = standing.add("barn", Vec2::new(12.0, -4.0), 0.0, 1.0);
+            (held, other)
+        };
+
+        aim(&mut app, Vec2::new(10.0, -4.0));
+        press(&mut app, &[KeyCode::KeyG]);
+        assert_eq!(app.world().resource::<Carrying>().0, Some(held));
+
+        // Pointing at the OTHER one, but holding the first.
+        aim(&mut app, Vec2::new(12.0, -4.0));
+        press(&mut app, &[KeyCode::Delete]);
+        assert!(
+            app.world().resource::<Standing>().get(held).is_none(),
+            "the wrong one went"
+        );
+        assert!(
+            app.world().resource::<Standing>().get(other).is_some(),
+            "the barn went too"
+        );
+        assert_eq!(app.world().resource::<Carrying>().0, None);
     }
 }

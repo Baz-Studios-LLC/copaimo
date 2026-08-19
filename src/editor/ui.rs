@@ -285,6 +285,7 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
                 ("Wheel", "brush radius"),
                 ("[ ]", "brush strength"),
                 ("P", "place from the catalogue"),
+                ("G", "pick it up / put it down"),
                 ("R", "turn it a quarter / Shift R back"),
                 ("Del", "take away what is under the brush"),
                 ("Alt", "free pointer, click map"),

@@ -532,6 +532,18 @@ finishes it: a run condition is asked its question after the typing has been dea
 with, so the ENTER that ended a name found the bench listening again in the same
 frame and placed a piece, and ESC walked out of the room.
 
+Placed things can be **moved** afterwards: `G` picks up whatever the brush ring is
+over, the thing follows the crosshair, `G` sets it down, `ESC` puts it back. Carried
+rather than dragged, because this tool has no pointer to drag with — it aims down the
+view ray and the crosshair IS the cursor.
+
+**Only the drawn thing moves until it is set down.** Every placed thing in the world
+is despawned and raised again whenever the sheet changes, so writing the sheet each
+frame would rebuild a whole street sixty times a second. Carrying moves the raised
+entity's own transform (found through `FromSheet`, which was written for exactly this
+and unread until now); setting down writes once, which raises everything once;
+cancelling writes nothing and touches the sheet, so the truth on file puts it back.
+
 Placed things can be **turned** afterwards: `R` a quarter, `Shift+R` back, on
 whatever the brush ring is over — the same rule the tool's other gestures follow.
 Quarters, like the kit's own turns, because a building three degrees off its street
@@ -544,8 +556,8 @@ and a known heading they can turn in one keypress is not the same as being stuck
 with it.
 
 What is still missing from the path, in the order it will hurt: no way to choose
-WHICH building `P` places (it cycles), no way to move or resize something already
-placed, and `assets/models/<kind>.glb` is resolved by the same sheet but nothing
+WHICH building `P` places (it cycles), no way to resize one or to lift it off the
+ground, and `assets/models/<kind>.glb` is resolved by the same sheet but nothing
 generates one yet — that is the kiln's job and it has never been fired.
 
 ### Seeing a change without booting the game
