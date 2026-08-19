@@ -2752,33 +2752,18 @@ mod through_the_pass {
     use super::*;
     use crate::world::bores::Bore;
 
-    /// Where a maker would put the two mouths: out from the crest each way to the
-    /// first dry ground the mountain has finished with.
-    ///
-    /// Found rather than written down, because the pass's eastern foot runs into
-    /// the sea — a mouth measured out symmetrically lands in the water, and the
-    /// tool refuses it, correctly.
-    fn mouths(terrain: &Terrain) -> (Vec2, Vec2) {
+    /// A generous aim straight through the pass, the way somebody would point at
+    /// it: well clear of the mountain on both sides. The bore trims itself to the
+    /// standable ground, which on this mountain matters — its eastern foot runs
+    /// into the sea.
+    fn aimed_through_the_pass(terrain: &Terrain) -> Bore {
         let (sin, cos) = crate::world::pass::HEADING.sin_cos();
         let along = Vec2::new(cos, sin);
         let middle = crate::world::pass::AT;
-        let end = |way: f32| {
-            let mut out = 120.0;
-            let mut last = middle;
-            while out < 900.0 {
-                let at = middle + along * way * out;
-                if crate::world::pass::ridge(at) < 6.0 && terrain.unbored(at.x, at.y) > 3.0 {
-                    last = at;
-                    break;
-                }
-                if terrain.unbored(at.x, at.y) > 3.0 {
-                    last = at;
-                }
-                out += 20.0;
-            }
-            last
-        };
-        (end(-1.0), end(1.0))
+        Bore::aimed(middle - along * 700.0, middle + along * 700.0, |at| {
+            terrain.unbored(at.x, at.y)
+        })
+        .expect("a generous aim through the pass should make a tunnel")
     }
 
     /// Bore the pass on the real world and walk through it, at a warden's height.
@@ -2791,14 +2776,8 @@ mod through_the_pass {
     #[test]
     fn a_warden_can_walk_through_a_bored_mountain() {
         let terrain = Terrain::new();
-        let (from, to) = mouths(&terrain);
-        let middle = crate::world::pass::AT;
-        let bore = Bore {
-            from,
-            to,
-            floor_from: terrain.unbored(from.x, from.y),
-            floor_to: terrain.unbored(to.x, to.y),
-        };
+        let bore = aimed_through_the_pass(&terrain);
+        let (from, to) = (bore.from, bore.to);
         assert_eq!(
             bore.makes_sense(|at| terrain.unbored(at.x, at.y)),
             Ok(()),
@@ -2870,13 +2849,11 @@ mod through_the_pass {
         let (sin, cos) = crate::world::pass::HEADING.sin_cos();
         let along = Vec2::new(cos, sin);
         let middle = crate::world::pass::AT;
-        let (from, to) = mouths(&terrain);
-        terrain.bores().write().expect("bores").add(Bore {
-            from,
-            to,
-            floor_from: terrain.unbored(from.x, from.y),
-            floor_to: terrain.unbored(to.x, to.y),
-        });
+        terrain
+            .bores()
+            .write()
+            .expect("bores")
+            .add(aimed_through_the_pass(&terrain));
 
         let top = terrain.height(middle.x, middle.y);
         assert!(top > 150.0, "the mountain is only {top:.0} m over the tunnel");

@@ -1575,19 +1575,20 @@ pub fn bore_tunnels(
         return;
     }
 
-    // The floor is remembered from the ground as it is NOW, before this bore cuts
-    // it — see `bores`, which explains why it cannot be asked for later.
-    let bore = crate::world::bores::Bore {
-        from,
-        to: at,
-        floor_from: terrain.0.unbored(from.x, from.y),
-        floor_to: terrain.0.unbored(at.x, at.y),
+    // Two points AIMED at a hill, not two mouths surveyed. The ends are walked in
+    // to the first standable ground, so overshooting into water — the normal way
+    // anybody aims — gives a tunnel that comes out at the shore rather than an
+    // error. The floors are read from the ground as it is NOW, before this bore
+    // cuts it; see `bores` for why they cannot be asked for later.
+    let ground = |at: Vec2| terrain.0.unbored(at.x, at.y);
+    let Some(bore) = crate::world::bores::Bore::aimed(from, at, ground) else {
+        toast.show("No dry ground along that aim");
+        boring.0 = Some(from);
+        return;
     };
-    // Refused rather than laid wrong: a mouth in the water or an aim across open
-    // country is a mesh hanging in the air, and the first two the tool ever made
-    // were both of those. The start is KEPT, so a better second press is one
-    // press away.
-    if let Err(why) = bore.makes_sense(|at| terrain.0.unbored(at.x, at.y)) {
+    // The one thing trimming cannot fix. The start is KEPT, so a better second
+    // press is one press away.
+    if let Err(why) = bore.makes_sense(ground) {
         toast.show(why);
         boring.0 = Some(from);
         return;
@@ -1913,11 +1914,12 @@ mod boring {
         let middle = crate::world::pass::AT;
         let (sin, cos) = crate::world::pass::HEADING.sin_cos();
         let along = Vec2::new(cos, sin);
-        // The eastern foot of the pass runs into the sea, so the mouths are not
-        // symmetric — a bore aimed the same distance both ways lands in the water
-        // and is refused, correctly.
-        let from = middle - along * 620.0;
-        let to = middle + along * 470.0;
+        // Aimed symmetrically and generously, clean past the mountain on both
+        // sides — which on this one overshoots into the sea to the east. That is
+        // the normal way to aim, so the far mouth walks itself back to the shore
+        // rather than the bore being refused.
+        let from = middle - along * 700.0;
+        let to = middle + along * 700.0;
 
         let was = bores(&app);
         press_at(&mut app, from, false);

@@ -28,9 +28,8 @@ gullies stretched down the fall line, creases mid-flank only — and every one o
 only ever cuts DOWN, so anything bored through it reads the same rock the ground
 draws.
 
-**Its eastern foot runs into the sea.** A bore aimed symmetrically lands in the
-water and is refused, correctly; the eastern mouth wants to be about 470 m out
-where the ground is still dry.
+Its eastern foot runs into the sea, which is a thing the bore tool has to cope with
+rather than a thing the maker has to remember — see below.
 
 ## Tunnels
 
@@ -52,10 +51,15 @@ where the ground is still dry.
 ends and the lining trims itself to the stretch that genuinely has rock over it, so
 a rough aim is forgiven rather than hanging a mesh in the air.
 
-**A bore has to make sense.** Both mouths must stand on dry land — a mouth under
-water means the floor line dives beneath the country between them, which is a mine
-shaft, not a tunnel — and there must be real rock over it somewhere. The tool says
-which rule failed and keeps your first point, so a better aim is one press away.
+**You aim at the hill; you do not survey the mouths.** Both ends are walked in to
+the first ground somebody could stand on, so overshooting into water — the normal
+way anybody aims — gives a tunnel that comes out at the shore. Aim clean past a hill
+on both sides and it comes out at the foot on both sides. A tunnel can go anywhere
+through a mountain, including where the far side is a coast.
+
+The one thing trimming cannot fix is an aim with no hill in it: over a plain there
+is no rock over the floor anywhere, so there is nothing to bore. The tool says so
+and keeps your first point, so a better aim is one press away.
 
 **This is the one place in the world with two grounds.** `Terrain::walk_floor`
 replaces the plain height snap for the warden and the follow camera. Which ground

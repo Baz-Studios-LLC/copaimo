@@ -88,6 +88,12 @@ const MOUTH_TALL: f32 = HIGH * 2.4;
 /// [`Bores::walk_floor`].
 pub const HEADROOM: f32 = HIGH * 1.6;
 
+/// How far above the waterline ground has to be to put a mouth on it.
+///
+/// A mouth is somewhere a person stands, so it wants dry land rather than the
+/// waterline itself — a doorway with the tide in it is a well.
+const STANDABLE: f32 = 1.5;
+
 /// How far the tube's floor stands above the ground it copies, so the two are
 /// never the same surface twice where a cutting has carved down to it.
 const FLOOR_LIFT: f32 = 0.12;
@@ -177,32 +183,68 @@ impl Bore {
             .then(|| self.floor_at(t) + FLOOR_LIFT)
     }
 
-    /// Whether this is a tunnel through something, rather than a hole into the
-    /// ground or a mesh hung in the air.
+    /// A tunnel between two aimed points, trimmed to ground somebody can walk on.
     ///
-    /// Two things have to hold, and the first is easy to miss:
+    /// # Aim at the hill, not at the tunnel
     ///
-    /// * **both mouths stand on walkable ground.** A mouth below the waterline
-    ///   means the floor line dives under the country between them, and a floor
-    ///   that dives is a mine shaft — which is what put a black sliver out over a
-    ///   lake the first time the tool met a shoreline.
-    /// * **there is real rock over it somewhere**, or there is nothing to make a
-    ///   tunnel in. Over a plain there is none.
-    pub fn makes_sense(&self, ground: impl Fn(Vec2) -> f32) -> Result<(), &'static str> {
-        if self.floor_from < crate::config::SEA_LEVEL + 1.0
-            || self.floor_to < crate::config::SEA_LEVEL + 1.0
-        {
-            return Err("a tunnel's mouths have to be on dry land");
+    /// The maker says "through here to there" by pointing at two places. What they
+    /// are NOT doing is surveying: an aim that overshoots a hill into open water is
+    /// the normal way to use this, and the tool's job is to make the tunnel that
+    /// aim describes rather than to refuse the aim.
+    ///
+    /// So both ends are walked in to the first ground a person could stand on, and
+    /// the mouths are put there. Aim across a shoreline and the tunnel comes out at
+    /// the shore. Aim clean past a hill on both sides and it comes out at the foot
+    /// on both sides. The one thing this cannot fix is an aim with no hill in it at
+    /// all, which [`Self::makes_sense`] answers separately.
+    ///
+    /// `None` when there is no standable ground along the aim anywhere — pointing
+    /// out to sea and further out to sea.
+    pub fn aimed(from: Vec2, to: Vec2, ground: impl Fn(Vec2) -> f32) -> Option<Self> {
+        let reach = from.distance(to);
+        if reach < SPAN {
+            return None;
         }
+        let steps = (reach / 4.0).ceil() as i32;
+        let dry = |t: f32| {
+            let at = from.lerp(to, t);
+            ground(at) > crate::config::SEA_LEVEL + STANDABLE
+        };
+        let head = (0..=steps).map(|i| i as f32 / steps as f32).find(|t| dry(*t))?;
+        let tail = (0..=steps)
+            .rev()
+            .map(|i| i as f32 / steps as f32)
+            .find(|t| dry(*t))?;
+        if (tail - head) * reach < SPAN {
+            return None;
+        }
+
+        let mouth = from.lerp(to, head);
+        let far = from.lerp(to, tail);
+        Some(Self {
+            from: mouth,
+            to: far,
+            floor_from: ground(mouth),
+            floor_to: ground(far),
+        })
+    }
+
+    /// Whether there is anything here to bore THROUGH.
+    ///
+    /// The one thing trimming the ends cannot fix: an aim with no hill in it. Over
+    /// a plain there is no rock over the floor anywhere, so there is no tunnel to
+    /// make and a mesh laid there would hang in the open.
+    pub fn makes_sense(&self, ground: impl Fn(Vec2) -> f32) -> Result<(), &'static str> {
         let steps = 40;
         let rocked = (0..=steps).any(|step| {
             let at = self.from.lerp(self.to, step as f32 / steps as f32);
             self.overhead(at, ground(at)) > HIGH * 1.5
         });
-        if !rocked {
-            return Err("nothing to bore through - aim at a hill");
+        if rocked {
+            Ok(())
+        } else {
+            Err("nothing to bore through - aim at a hill")
         }
-        Ok(())
     }
 
     /// The tunnel itself: a floor and an arched ceiling from mouth to mouth.
@@ -648,24 +690,35 @@ mod tests {
             "a bore across a plain was accepted"
         );
 
-        // The other screenshot: a bore from a hillside out into a lake. Its far
-        // mouth is under water, so its floor line dives beneath the country in
-        // between — a mine shaft, not a tunnel — and it is refused on that alone,
-        // before any question of rock.
-        let into_the_sea = Bore {
-            from: Vec2::new(-60.0, 0.0),
-            to: Vec2::new(240.0, 0.0),
-            floor_from: 40.0,
-            floor_to: -6.0,
-        };
-        assert_eq!(
-            into_the_sea.makes_sense(hill),
-            Err("a tunnel's mouths have to be on dry land"),
-            "a bore running out into the water was accepted"
+        // The other screenshot: aimed from one side of the hill clean across it and
+        // out into water. That aim is fine — it is how anybody aims — so the far
+        // mouth is walked back in to the shore rather than the whole thing being
+        // refused. What must never happen is a mouth left standing in the sea.
+        let coast = |at: Vec2| if at.x > 140.0 { -8.0 } else { hill(at) };
+        let aimed = Bore::aimed(Vec2::new(-200.0, 0.0), Vec2::new(400.0, 0.0), coast)
+            .expect("an aim across a hill to the sea should still make a tunnel");
+        assert!(
+            aimed.floor_to > 0.0 && aimed.floor_from > 0.0,
+            "a mouth was left under water: floors {:.1} and {:.1}",
+            aimed.floor_from,
+            aimed.floor_to
+        );
+        assert!(
+            aimed.to.x < 145.0,
+            "the far mouth stands at {:.0} m, out past the shoreline",
+            aimed.to.x
+        );
+        assert_eq!(aimed.makes_sense(coast), Ok(()), "the trimmed bore was refused");
+
+        // And an aim with no dry land under it at all is nothing anybody can walk.
+        assert!(
+            Bore::aimed(Vec2::new(300.0, 0.0), Vec2::new(600.0, 0.0), coast).is_none(),
+            "an aim entirely out to sea made a tunnel"
         );
 
-        // Aimed generously PAST the hill on both sides, the lining stops where the
-        // hill does rather than running the full length.
+        // Aimed generously PAST the hill on both sides — the normal way to use the
+        // tool — the lining stops where the hill does rather than running the full
+        // length.
         let generous = Bore {
             from: Vec2::new(-260.0, 0.0),
             to: Vec2::new(260.0, 0.0),
