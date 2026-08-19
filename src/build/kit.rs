@@ -1117,6 +1117,84 @@ impl Bench {
         foot
     }
 
+    /// Slides a piece that runs along a join onto the ground that supports it.
+    ///
+    /// # A wall on the join is right, and it still looks wrong
+    ///
+    /// A wall's centre-line is the boundary between two cells. That is exactly right
+    /// for a wall BETWEEN two rooms, and at the outside of a building it leaves half
+    /// the wall hanging over the drop — measured from a maker's own saved work: a
+    /// wall at z 0.625..0.875 on a floor that ends at 0.75. Reported as "still not
+    /// aligned with the edge", and it is not: it is aligned with the LINE the edge
+    /// is on, which is not the same thing to look at.
+    ///
+    /// So which side it tucks to is read from what is actually beneath it:
+    ///
+    /// * ground on one side only — the outside of a building — and it slides that
+    ///   way, its face flush with the floor's own face and all of it supported.
+    /// * ground on both sides — an interior wall between two rooms — and it stays on
+    ///   the join, which is where a wall between two rooms belongs.
+    /// * ground on neither — a fence in the open — and it stays on the join too,
+    ///   there being nothing to line up with.
+    ///
+    /// Read from the geometry rather than fixed, because a fixed offset is flush on
+    /// one edge of a floor and hanging in the air on the opposite one.
+    pub fn hugging(&self, part: Part, foot: Vec3, quarters: u8) -> Vec3 {
+        if !part.on_an_edge() {
+            return foot;
+        }
+        let mine = Piece {
+            id: 0,
+            part,
+            foot,
+            quarters,
+            tint: 0,
+            spans: 1,
+            across: 1,
+        };
+        let (low, high) = mine.spread();
+        // The axis the piece's thickness runs along, once it is turned.
+        let axis = if quarters % 2 == 0 { 2 } else { 0 };
+        let thick = high[axis] - low[axis];
+        let mut step = Vec3::ZERO;
+        step[axis] = 1.0;
+
+        // A point in the middle of each half of its footprint, on the plane it is
+        // standing on.
+        let middle = (low + high) * 0.5;
+        let held = |side: f32| {
+            let probe = middle + step * side * thick * 0.25;
+            self.pieces.iter().any(|other| {
+                let (its_low, its_high) = other.spread();
+                its_low.x - TOUCHING <= probe.x
+                    && probe.x <= its_high.x + TOUCHING
+                    && its_low.z - TOUCHING <= probe.z
+                    && probe.z <= its_high.z + TOUCHING
+                    // Reaching the plane this piece stands on: ground under it, not
+                    // a wall beside it or a floor two storeys down.
+                    && its_high.y >= foot.y - TOUCHING
+                    && its_low.y <= foot.y + TOUCHING
+            })
+        };
+
+        match (held(1.0), held(-1.0)) {
+            (true, false) => Self::snapped(foot + step * thick * 0.5),
+            (false, true) => Self::snapped(foot - step * thick * 0.5),
+            // Both sides or neither: the join is where it belongs.
+            _ => foot,
+        }
+    }
+
+    /// Where a piece would come to rest if it were put down here: tucked onto
+    /// whatever holds it up, and standing on top of whatever is under it.
+    ///
+    /// The one answer to "where does this go", so the ghost in hand and the piece
+    /// that lands cannot disagree — which they did, the ghost showing a wall buried
+    /// in a floor and the wall then standing on it.
+    pub fn settling(&self, part: Part, foot: Vec3, quarters: u8) -> Vec3 {
+        self.resting(part, self.hugging(part, foot, quarters), quarters)
+    }
+
     /// Adds a member, snapping it, and hands back its name.
     ///
     /// Refuses to stack two of the same part in the same place. Placing a wall on
@@ -2311,6 +2389,90 @@ mod tests {
     }
 
     #[test]
+    fn a_wall_tucks_onto_the_floor_at_the_outside_of_a_building() {
+        // Measured from the maker's own saved work: a wall at z 0.625..0.875 standing
+        // on a floor that ends at 0.75. Its centre-line was exactly on the floor's
+        // edge, which is right for a wall between two rooms and leaves half of it
+        // hanging over the drop at the outside of a building.
+        let mut bench = Bench::default();
+        bench.add(Part::Floor, Vec3::ZERO, 0, 0).expect("a floor");
+        let floor = bench.pieces()[0];
+        let edge = floor.spread().1.z;
+        let thick = Part::Wall.size().z;
+
+        // Aimed at the join the floor's edge lies on.
+        let foot = bench.settling(Part::Wall, Vec3::new(0.0, 0.0, edge), 0);
+        let wall = Piece { id: 0, part: Part::Wall, foot, quarters: 0, tint: 0, spans: 1, across: 1 };
+        let (low, high) = wall.spread();
+
+        assert!(
+            (high.z - edge).abs() < 1.0e-4,
+            "the wall's outer face is at {:.4} and the floor's edge at {edge:.4}",
+            high.z
+        );
+        assert!(
+            low.z > edge - thick - 1.0e-4 && low.z < edge,
+            "the wall is not sitting inside the floor: {:.4}..{:.4}",
+            low.z,
+            high.z
+        );
+        // All of it held up, and standing on the boards rather than in them.
+        assert!(
+            (low.y - floor.spread().1.y).abs() < 1.0e-4,
+            "the wall's foot is {:.4} and the floor's top {:.4}",
+            low.y,
+            floor.spread().1.y
+        );
+        assert!(low.z >= floor.spread().0.z && high.z <= floor.spread().1.z + 1.0e-4);
+    }
+
+    #[test]
+    fn a_wall_between_two_rooms_stays_on_the_join() {
+        // The other side of the same rule. A wall with floor on both sides is an
+        // INTERIOR wall, and an interior wall belongs on the boundary — tucking it
+        // one way would put it inside one room and leave a lip in the other.
+        let mut bench = Bench::default();
+        bench.add(Part::Floor, Vec3::ZERO, 0, 0);
+        bench.add(Part::Floor, Vec3::new(0.0, 0.0, MODULE), 0, 0);
+        let join = MODULE * 0.5;
+
+        let foot = bench.settling(Part::Wall, Vec3::new(0.0, 0.0, join), 0);
+        let wall = Piece { id: 0, part: Part::Wall, foot, quarters: 0, tint: 0, spans: 1, across: 1 };
+        let (low, high) = wall.spread();
+        assert!(
+            ((low.z + high.z) * 0.5 - join).abs() < 1.0e-4,
+            "an interior wall slid off the join to {:.4}",
+            (low.z + high.z) * 0.5
+        );
+
+        // And in the open, with nothing under it either side, it stays on the join
+        // as well — a fence has nothing to line up with.
+        let bare = Bench::default();
+        let foot = bare.settling(Part::Rail, Vec3::new(0.0, 0.0, join), 0);
+        assert!((foot.z - join).abs() < 1.0e-4, "a rail in the open slid to {:.4}", foot.z);
+    }
+
+    #[test]
+    fn tucking_follows_the_piece_round() {
+        // A wall turned a quarter has its thickness on the other axis, so the side it
+        // tucks to has to move with it.
+        let mut bench = Bench::default();
+        bench.add(Part::Floor, Vec3::ZERO, 0, 0);
+        let floor = bench.pieces()[0];
+        let edge = floor.spread().1.x;
+
+        let foot = bench.settling(Part::Wall, Vec3::new(edge, 0.0, 0.0), 1);
+        let wall = Piece { id: 0, part: Part::Wall, foot, quarters: 1, tint: 0, spans: 1, across: 1 };
+        let (low, high) = wall.spread();
+        assert!(
+            (high.x - edge).abs() < 1.0e-4,
+            "the turned wall's outer face is at {:.4} and the floor's edge at {edge:.4}",
+            high.x
+        );
+        assert!(low.x < edge, "the turned wall is outside the floor");
+    }
+
+    #[test]
     fn a_part_arrives_in_its_own_material() {
         // Reported from the bench: a foundation came out the colour of the wood and
         // so did the stairs, because the colour in hand followed the maker from one
@@ -2504,7 +2666,7 @@ mod look {
         let laid = |bench: &mut Bench, part: Part, aimed: Vec3, quarters: u8| {
             let lean = part.off_the_grid(quarters);
             let at = Bench::snapped_to(aimed - lean, MODULE) + lean;
-            let foot = bench.resting(part, Vec3::new(at.x, 0.0, at.z), quarters);
+            let foot = bench.settling(part, Vec3::new(at.x, 0.0, at.z), quarters);
             bench.add(part, foot, quarters, part.natural());
         };
 

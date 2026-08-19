@@ -749,9 +749,10 @@ fn place(
                 // Only with something in hand. An empty cursor is the resting
                 // state and it builds nothing — see `Hand::part`.
                 if let Some(part) = hand.part {
-                    // On top of whatever is already there, rather than through it —
-                    // see `Bench::resting`.
-                    let foot = bench.resting(part, hand.at, hand.quarters);
+                    // Where the piece actually goes: tucked onto what holds it up
+                    // and standing on what is under it — see `Bench::settling`, which
+                    // the ghost in hand reads too.
+                    let foot = bench.settling(part, hand.at, hand.quarters);
                     if bench.add(part, foot, hand.quarters, hand.tint).is_some() {
                         // And the hand empties. Placing is one deliberate act, not
                         // a mode you are left in afterwards.
@@ -1038,11 +1039,15 @@ struct Ghost;
 fn draw_ghost(
     mut commands: Commands,
     hand: Res<Hand>,
+    bench: Res<Bench>,
     ghosts: Query<Entity, With<Ghost>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    if !hand.is_changed() && !ghosts.is_empty() {
+    // Redrawn when the WORK changes as well as when the hand does: where a piece
+    // would come to rest depends on what is already standing there, so putting a
+    // floor down moves the ghost of the wall about to go on it.
+    if !hand.is_changed() && !bench.is_changed() && !ghosts.is_empty() {
         return;
     }
     for entity in &ghosts {
@@ -1057,6 +1062,10 @@ fn draw_ghost(
     // The part itself, shown as it will be rather than as a box around it — a
     // wedge that previews as a cuboid puts the roof on the wrong way round about
     // half the time.
+    // WHERE IT WILL LAND, not where the cursor is. The ghost showed a wall buried
+    // in the floor and the wall then stood on top of it — a preview that lies about
+    // the one thing it is for.
+    let foot = bench.settling(part, hand.at, hand.quarters);
     let one = plan::Plan {
         name: String::new(),
         kind: String::new(),
@@ -1064,7 +1073,7 @@ fn draw_ghost(
         half_d: 0.0,
         high: 0.0,
         boxes: vec![plan::Block {
-            at: hand.at + Vec3::Y * part.size().y * 0.5,
+            at: foot + Vec3::Y * part.size().y * 0.5,
             size: part.size(),
             turn: Quat::from_rotation_y(hand.quarters as f32 * std::f32::consts::FRAC_PI_2),
             form: part.form(),
