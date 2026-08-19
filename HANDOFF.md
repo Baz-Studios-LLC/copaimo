@@ -167,6 +167,27 @@ Do not port the file. Port the approach: spawn the arrows with their sizes,
 ray-vs-box each one in its own local space, and let the entity you hit BE the
 answer. Then there is nothing for a hit test to disagree with.
 
+**If that rewrite does not land, stop improvising.** The maker has said so
+directly: read *all* of Opificium's builder and take what is useful, wholesale —
+`src/gizmo.rs`, `src/builder/hand.rs`, and whatever they depend on — adapting it
+to this kit rather than inventing a sixth version. That is pre-authorised. Do not
+spend another five rounds on original attempts; the cost of those has already
+been paid once and it came out of an evening the maker wanted to spend on
+buildings.
+
+Reading Opificium is allowed and encouraged. **Editing it is not**, and a stray
+`cd` has already caused one accidental write to its `Cargo.toml` — check `pwd`
+before anything that writes.
+
+## The bench builds buildings WITHOUT the arrows
+
+Worth knowing before assuming the tool is blocked. Everything needed to make a
+building works: pick a part, click to place, right-click to take away, `R` to
+turn what is in hand, `SHIFT+R` to turn what is down, `G` to generate one to edit,
+`Ctrl+S` to save it into `assets/buildings`. The arrows only MOVE a piece that is
+already placed — a convenience, not the path. A building can be made today by
+placing and deleting.
+
 ## Still open in the tool
 
 * **Nothing about a tree's look** can be adjusted; the knobs ride in `world.json`
