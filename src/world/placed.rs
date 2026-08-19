@@ -141,7 +141,7 @@ impl Standing {
         self.things.iter().find(|t| t.id == id)
     }
 
-    /// For moving, turning or resizing something already placed.
+    /// For moving or resizing something already placed.
     ///
     /// Unused until there is a gizmo to drag. Here because it is the whole point
     /// of things having names, and a test exercises it.
@@ -149,6 +149,26 @@ impl Standing {
     pub fn get_mut(&mut self, id: u32) -> Option<&mut Placed> {
         self.unsaved = true;
         self.things.iter_mut().find(|t| t.id == id)
+    }
+
+    /// Turns something already placed, and hands back the way it now faces.
+    ///
+    /// # Why placing something is not the end of it
+    ///
+    /// Everything went down facing north, because a tool that guessed — at the
+    /// camera, say — would be a decision somebody had to undo rather than one they
+    /// asked for. That reasoning was sound and the conclusion was wrong: with no way
+    /// to turn a thing afterwards, north was not a starting point, it was the only
+    /// answer, and a street of houses all facing the same way is not a street.
+    ///
+    /// Wrapped, so turning the same way round and round is the same as turning back
+    /// and a facing never grows without bound in the sheet.
+    #[cfg(feature = "tools")]
+    pub fn turn(&mut self, id: u32, by: f32) -> Option<f32> {
+        let thing = self.things.iter_mut().find(|t| t.id == id)?;
+        thing.turn = (thing.turn + by).rem_euclid(std::f32::consts::TAU);
+        self.unsaved = true;
+        Some(thing.turn)
     }
 
     /// Takes something out. `false` if there was nothing by that name.
@@ -286,6 +306,45 @@ mod tests {
         assert!((one.turn - 0.7).abs() < 1.0e-6);
         assert!((back.get(barn).unwrap().scale - 1.4).abs() < 1.0e-6);
         assert!(!back.unsaved, "freshly read work is not unsaved work");
+    }
+
+    #[test]
+    fn something_placed_can_be_turned_and_the_sheet_keeps_it() {
+        // Everything went down facing north, and there was no way to turn it — so
+        // north was not a starting point, it was the only answer, and a street of
+        // houses all facing the same way is not a street.
+        let mut standing = Standing::default();
+        let id = standing.add("cottage", Vec2::new(10.0, -4.0), 0.0, 1.0);
+        standing.mark_saved();
+
+        let quarter = std::f32::consts::FRAC_PI_2;
+        assert_eq!(standing.turn(id, quarter), Some(quarter));
+        assert!(standing.unsaved, "turning something did not need saving");
+
+        // Round and round is the same as back: a facing never grows without bound.
+        for _ in 0..3 {
+            standing.turn(id, quarter);
+        }
+        let facing = standing.get(id).expect("still there").turn;
+        assert!(
+            facing < std::f32::consts::TAU && facing.min(std::f32::consts::TAU - facing) < 1.0e-4,
+            "four quarters left it facing {facing}"
+        );
+        // And the other way round, from north, wraps rather than going negative.
+        assert!(standing.turn(id, -quarter).expect("turned") > 0.0);
+
+        // The sheet carries it, which is the whole point — the drawn thing takes its
+        // rotation from this field.
+        standing.turn(id, quarter);
+        let want = standing.get(id).expect("there").turn;
+        let back = read(&write(&standing)).expect("readable");
+        assert!(
+            (back.get(id).expect("kept").turn - want).abs() < 1.0e-4,
+            "the facing was lost on the way through the file"
+        );
+
+        // Nothing by that name turns nothing, rather than turning something else.
+        assert_eq!(standing.turn(9_999, quarter), None);
     }
 
     #[test]

@@ -532,10 +532,21 @@ finishes it: a run condition is asked its question after the typing has been dea
 with, so the ENTER that ended a name found the bench listening again in the same
 frame and placed a piece, and ESC walked out of the room.
 
+Placed things can be **turned** afterwards: `R` a quarter, `Shift+R` back, on
+whatever the brush ring is over — the same rule the tool's other gestures follow.
+Quarters, like the kit's own turns, because a building three degrees off its street
+is a mistake that reads as one and takes a while to find; the sheet stores radians,
+so a boulder that wants a finer angle can still hold one.
+
+Things still go down facing north. That is a starting point rather than an answer
+now: guessing at placement — at the camera, say — is a decision somebody has to undo,
+and a known heading they can turn in one keypress is not the same as being stuck
+with it.
+
 What is still missing from the path, in the order it will hurt: no way to choose
-WHICH building `P` places (it cycles), everything faces north when placed, and
-`assets/models/<kind>.glb` is resolved by the same sheet but nothing generates one
-yet — that is the kiln's job and it has never been fired.
+WHICH building `P` places (it cycles), no way to move or resize something already
+placed, and `assets/models/<kind>.glb` is resolved by the same sheet but nothing
+generates one yet — that is the kiln's job and it has never been fired.
 
 ### Seeing a change without booting the game
 

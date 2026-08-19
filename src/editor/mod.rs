@@ -1157,6 +1157,30 @@ fn place_things(
         return;
     }
 
+    // Turning what is already down. R goes one way, SHIFT+R the other.
+    //
+    // Quarters, like the kit's own turns: a building three degrees off its street
+    // is a mistake that reads as one and takes a while to find. The sheet stores
+    // radians, so anything that genuinely wants a finer angle — a boulder — can
+    // still hold one; nothing here has asked yet.
+    if keys.just_pressed(KeyCode::KeyR) {
+        let widdershins = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+        let by = std::f32::consts::FRAC_PI_2 * if widdershins { -1.0 } else { 1.0 };
+        match placed.nearest(at, brush.radius) {
+            Some(id) => {
+                let what = placed.get(id).map(|t| t.kind.clone()).unwrap_or_default();
+                let facing = placed.turn(id, by).unwrap_or(0.0);
+                // Said in quarters rather than in radians, which is how it was
+                // asked for and not how it is stored.
+                let quarter = (facing / std::f32::consts::FRAC_PI_2).round() as i32 % 4;
+                let way = ["north", "east", "south", "west"][quarter.rem_euclid(4) as usize];
+                toast.show(format!("The {what} faces {way}"));
+            }
+            None => toast.show("Nothing of yours under the brush"),
+        }
+        return;
+    }
+
     if !keys.just_pressed(KeyCode::KeyP) {
         return;
     }
@@ -1172,9 +1196,117 @@ fn place_things(
     // down something different rather than the same house twice.
     let plan = &catalogue.0[*choosing % catalogue.0.len()];
     *choosing += 1;
-    // Facing north until there is something better to ask. Turning things is the
-    // workbench's job and guessing here — at the camera, say — would be a
-    // behaviour somebody has to undo rather than one they asked for.
+    // Facing north to begin with, and R turns it from there. Guessing at placement
+    // — at the camera, say — would be a decision somebody has to undo rather than
+    // one they asked for; a known starting point they can turn in one keypress is
+    // not the same thing as being stuck with it.
     placed.add(plan.name.clone(), at, 0.0, 1.0);
     toast.show(format!("Placed a {}", plan.name));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::world::placed::Standing;
+
+    /// The placing tool, with everything it reads.
+    ///
+    /// A real app running the real system, because what went wrong in this codebase
+    /// has twice been the wiring rather than the arithmetic — a key that nothing
+    /// listened for, a guard that fired at the wrong moment.
+    fn placing_app() -> App {
+        let mut app = App::new();
+        app.init_resource::<Brush>()
+            .init_resource::<CursorFree>()
+            .init_resource::<Standing>()
+            .init_resource::<crate::build::Catalogue>()
+            .init_resource::<ui::Toast>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .add_systems(Update, place_things);
+        // Pointed at the ground, as the brush is whenever it is over the world.
+        app.world_mut().resource_mut::<Brush>().hit = Some(Vec3::new(10.0, 0.0, -4.0));
+        app
+    }
+
+    fn press(app: &mut App, keys: &[KeyCode]) {
+        {
+            let mut input = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            for key in keys {
+                input.press(*key);
+            }
+        }
+        app.update();
+        let mut input = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        for key in keys {
+            input.release(*key);
+        }
+        input.clear();
+    }
+
+    fn facing(app: &App, id: u32) -> f32 {
+        app.world().resource::<Standing>().get(id).expect("still there").turn
+    }
+
+    #[test]
+    fn r_turns_what_is_under_the_brush_and_shift_r_turns_it_back() {
+        let mut app = placing_app();
+        let id = app
+            .world_mut()
+            .resource_mut::<Standing>()
+            .add("cottage", Vec2::new(10.0, -4.0), 0.0, 1.0);
+
+        let quarter = std::f32::consts::FRAC_PI_2;
+        press(&mut app, &[KeyCode::KeyR]);
+        assert!(
+            (facing(&app, id) - quarter).abs() < 1.0e-4,
+            "R left it facing {}",
+            facing(&app, id)
+        );
+
+        press(&mut app, &[KeyCode::ShiftLeft, KeyCode::KeyR]);
+        assert!(
+            facing(&app, id).abs() < 1.0e-4 || (facing(&app, id) - std::f32::consts::TAU).abs() < 1.0e-4,
+            "Shift+R left it facing {} instead of back where it started",
+            facing(&app, id)
+        );
+    }
+
+    #[test]
+    fn turning_reaches_what_the_ring_is_over_and_nothing_else() {
+        // The same rule every other tool here follows: what the brush is over.
+        let mut app = placing_app();
+        let (near, far) = {
+            let mut standing = app.world_mut().resource_mut::<Standing>();
+            let near = standing.add("cottage", Vec2::new(10.0, -4.0), 0.0, 1.0);
+            // Well outside the default brush radius.
+            let far = standing.add("barn", Vec2::new(600.0, 600.0), 0.0, 1.0);
+            (near, far)
+        };
+
+        press(&mut app, &[KeyCode::KeyR]);
+        assert!(facing(&app, near) > 0.0, "the near cottage did not turn");
+        assert_eq!(facing(&app, far), 0.0, "a thing across the map turned too");
+
+        // And with the brush off the ground entirely, nothing turns.
+        app.world_mut().resource_mut::<Brush>().hit = None;
+        let was = facing(&app, near);
+        press(&mut app, &[KeyCode::KeyR]);
+        assert_eq!(facing(&app, near), was, "it turned with the brush pointing at nothing");
+    }
+
+    #[test]
+    fn turning_holds_still_while_the_pointer_is_free() {
+        // ALT lets go of the cursor to reach the panels, and every gesture here is
+        // off while it is held — a key that acted anyway would fire while somebody
+        // was clicking a row.
+        let mut app = placing_app();
+        let id = app
+            .world_mut()
+            .resource_mut::<Standing>()
+            .add("cottage", Vec2::new(10.0, -4.0), 0.0, 1.0);
+        app.world_mut().resource_mut::<CursorFree>().0 = true;
+
+        press(&mut app, &[KeyCode::KeyR]);
+        assert_eq!(facing(&app, id), 0.0, "it turned while the pointer was free");
+    }
 }
