@@ -126,6 +126,34 @@ impl Part {
         }
     }
 
+    /// What this part is made of, as an index into [`TINTS`].
+    ///
+    /// # A part arrives in its own material
+    ///
+    /// The colour in hand used to follow the maker from one part to the next, so a
+    /// foundation came out oak and a flight of stairs came out oak, because the
+    /// last thing placed was. That is the wrong default in a kit whose whole point
+    /// is that a part IS something: a plinth is masonry, a roof is thatch, and
+    /// nobody choosing FOUNDATION means "in wood, please".
+    ///
+    /// It is a default and not a rule — the swatches still overrule it, and go on
+    /// overruling it for as long as that part stays in hand. What resets it is
+    /// choosing a DIFFERENT part, because that is the moment the maker has said
+    /// what they are building next.
+    pub fn natural(self) -> usize {
+        match self {
+            // Masonry.
+            Part::Foundation => 4,
+            // Thatch, on the two parts that make a roof.
+            Part::Roof | Part::Cap => 2,
+            // The darker wood, which is what stairs and furniture are made of and
+            // what stops a staircase disappearing into the floor it stands on.
+            Part::Stairs | Part::Bed => 1,
+            // Everything else is the timber the kit is mostly built from.
+            _ => 0,
+        }
+    }
+
     /// What to print on this part's keycap.
     pub fn cap(self) -> &'static str {
         Self::ALL
@@ -346,6 +374,66 @@ impl Piece {
         self.foot
             + Vec3::Y * self.size().y * 0.5
             + self.turn() * Vec3::new(along, 0.0, aside)
+    }
+
+    /// How far a point is from this piece's own box, in metres. Nought inside it.
+    ///
+    /// # Why not the distance to its middle
+    ///
+    /// That is what every "nearest piece" on this bench used, with a fixed radius —
+    /// and it works only while a piece is about the size of that radius. Stretching
+    /// broke it: a three-module floor has its middle two and a quarter metres from
+    /// either end, so pointing at the end of one measured further away than the
+    /// radius allowed and the floor could not be selected, painted, turned or taken
+    /// off the bench. Reported as "once an object is placed I cannot select it
+    /// again", which is exactly what it looks like from the outside.
+    ///
+    /// A distance to the BOX has no such limit: a piece of any length is reachable
+    /// anywhere along it, and the number still means metres, so the callers' own
+    /// reach values keep their meaning.
+    pub fn away_from(self, point: Vec3) -> f32 {
+        // Into the piece's own frame, where its box is axis-aligned.
+        let local = self.turn().inverse() * (point - self.middle());
+        let outside = local.abs() - self.size() * 0.5;
+        outside.max(Vec3::ZERO).length()
+    }
+
+    /// How far along a ray this piece is struck, if it is struck at all.
+    ///
+    /// The slab test, in the piece's own frame. What it buys over [`Self::away_from`]
+    /// is the thing a maker expects of a pointer: clicking a wall two metres up
+    /// selects that wall, where the lattice cursor beneath the pointer is on the
+    /// floor several metres behind it — the taller the piece, the further behind.
+    pub fn struck_by(self, from: Vec3, along: Vec3) -> Option<f32> {
+        let turn = self.turn().inverse();
+        let origin = turn * (from - self.middle());
+        let direction = turn * along;
+        let half = self.size() * 0.5;
+
+        let mut near = f32::NEG_INFINITY;
+        let mut far = f32::INFINITY;
+        for axis in 0..3 {
+            let (o, d, h) = (origin[axis], direction[axis], half[axis]);
+            if d.abs() < 1.0e-6 {
+                // Parallel to this pair of faces: either between them for the whole
+                // ray, or never.
+                if o.abs() > h {
+                    return None;
+                }
+                continue;
+            }
+            let (mut lo, mut hi) = ((-h - o) / d, (h - o) / d);
+            if lo > hi {
+                std::mem::swap(&mut lo, &mut hi);
+            }
+            near = near.max(lo);
+            far = far.min(hi);
+            if near > far {
+                return None;
+            }
+        }
+        // Behind the eye is not in front of it.
+        (far >= 0.0).then(|| near.max(0.0))
     }
 
     /// The box or boxes this piece is drawn as.
@@ -890,14 +978,14 @@ impl Bench {
 
     /// Paints the nearest member, and says which it was.
     ///
-    /// By its MIDDLE rather than its foot, because that is where a maker is
-    /// looking when they point at a piece: a wall's foot is on the floor and its
-    /// body is the thing on screen.
+    /// By its BOX rather than by its middle or its foot: what a maker points at is
+    /// the body of the thing, and a stretched piece's middle can be metres from the
+    /// end they are aiming at. See [`Piece::away_from`].
     pub fn paint_nearest(&mut self, to: Vec3, within: f32, tint: usize) -> Option<Part> {
         let (_, id, part) = self
             .pieces
             .iter()
-            .map(|p| (p.middle().distance(to), p.id, p.part))
+            .map(|p| (p.away_from(to), p.id, p.part))
             .filter(|(away, ..)| *away <= within)
             .min_by(|a, b| a.0.total_cmp(&b.0))?;
         let piece = self.pieces.iter_mut().find(|p| p.id == id)?;
@@ -984,7 +1072,7 @@ impl Bench {
         let (_, id, part) = self
             .pieces
             .iter()
-            .map(|p| (p.middle().distance(to), p.id, p.part))
+            .map(|p| (p.away_from(to), p.id, p.part))
             .filter(|(away, ..)| *away <= within)
             .min_by(|a, b| a.0.total_cmp(&b.0))?;
         let piece = self.pieces.iter_mut().find(|p| p.id == id)?;
@@ -998,7 +1086,7 @@ impl Bench {
         let (_, id, part) = self
             .pieces
             .iter()
-            .map(|p| (p.middle().distance(to), p.id, p.part))
+            .map(|p| (p.away_from(to), p.id, p.part))
             .filter(|(away, ..)| *away <= within)
             .min_by(|a, b| a.0.total_cmp(&b.0))?;
         self.pieces.retain(|p| p.id != id);
@@ -1790,6 +1878,147 @@ mod tests {
     }
 
     #[test]
+    fn a_stretched_piece_can_be_reached_along_its_whole_length() {
+        // Reported as "once an object is placed I cannot select it again", and it
+        // was every "nearest piece" on the bench: they measured to a piece's MIDDLE
+        // against a fixed radius, which a three-module floor is longer than. So the
+        // far end of anything stretched was out of reach — unselectable, unpaintable
+        // and unremovable, while the same piece at one module answered fine.
+        let mut bench = Bench::default();
+        let id = bench.add(Part::Floor, Vec3::ZERO, 0, 0).expect("a floor");
+        bench.stretch(id, 3);
+        let piece = bench.pieces()[0];
+        let half = piece.size() * 0.5;
+
+        // Standing on it, anywhere along it.
+        for step in 0..=12 {
+            let along = -half.x + piece.size().x * step as f32 / 12.0;
+            let on = piece.middle() + Vec3::new(along, -half.y, 0.0);
+            assert!(
+                piece.away_from(on) < 1.0e-4,
+                "a point on the floor at {along:.2} m along reads {:.3} m away",
+                piece.away_from(on)
+            );
+        }
+
+        // And the old measure is what it was: the far end really was out of the
+        // radius that used to be used, so this test would have failed before.
+        let end = piece.middle() + Vec3::new(half.x, -half.y, 0.0);
+        assert!(
+            end.distance(piece.middle()) > MODULE * 1.5,
+            "the end of a four-module floor is only {:.2} m from its middle, so this \
+             test no longer proves anything",
+            end.distance(piece.middle())
+        );
+
+        // Beside it reads as a real distance, in metres, from the box.
+        let beside = piece.middle() + Vec3::new(half.x + 0.75, -half.y, 0.0);
+        assert!(
+            (piece.away_from(beside) - 0.75).abs() < 1.0e-3,
+            "three-quarters of a metre off the end reads {:.3}",
+            piece.away_from(beside)
+        );
+    }
+
+    #[test]
+    fn a_turned_piece_is_reached_in_its_own_frame() {
+        // The measure has to follow the piece round, or a wall placed across the
+        // room is reachable from where it used to be.
+        let mut bench = Bench::default();
+        let id = bench.add(Part::Wall, Vec3::ZERO, 1, 0).expect("a wall");
+        bench.stretch(id, 2);
+        let piece = bench.pieces()[0];
+
+        // A quarter turn puts its length along Z, so its far end is along Z too.
+        let along = piece.middle() + Vec3::new(0.0, 0.0, piece.size().x * 0.5 - 0.1);
+        assert!(
+            piece.away_from(along) < 1.0e-4,
+            "a point inside the turned wall reads {:.3} m away",
+            piece.away_from(along)
+        );
+        let across = piece.middle() + Vec3::new(piece.size().x * 0.5, 0.0, 0.0);
+        assert!(
+            piece.away_from(across) > 0.9,
+            "a point out to the side of a turned wall reads only {:.3} m away",
+            piece.away_from(across)
+        );
+        let _ = id;
+    }
+
+    #[test]
+    fn a_ray_strikes_the_piece_it_is_pointed_at() {
+        // What the pointer is ON, which is not what the lattice cursor is near: aim
+        // at the top of a wall and the cursor is on the floor metres behind it.
+        let mut bench = Bench::default();
+        bench.add(Part::Wall, Vec3::ZERO, 0, 0).expect("a wall");
+        let piece = bench.pieces()[0];
+        let high = piece.middle() + Vec3::Y * (piece.size().y * 0.25);
+
+        // Straight down onto its top.
+        let hit = piece.struck_by(high + Vec3::Y * 10.0, -Vec3::Y);
+        assert!(hit.is_some_and(|along| along > 9.0), "a ray onto the top missed: {hit:?}");
+
+        // From in front, level with where a maker would be looking.
+        let from = high + Vec3::new(0.0, 0.0, 8.0);
+        assert!(
+            piece.struck_by(from, -Vec3::Z).is_some(),
+            "a ray at the face of a wall missed it"
+        );
+        // Beside it, and behind it.
+        assert!(
+            piece.struck_by(from + Vec3::X * 4.0, -Vec3::Z).is_none(),
+            "a ray four metres to the side struck the wall"
+        );
+        assert!(
+            piece.struck_by(from, Vec3::Z).is_none(),
+            "a ray pointed away from the wall struck it"
+        );
+
+        // The nearest of two along the same ray is the one in front.
+        bench.add(Part::Wall, Vec3::new(0.0, 0.0, -MODULE * 2.0), 0, 0);
+        let (first, second) = (bench.pieces()[0], bench.pieces()[1]);
+        let near = first.struck_by(from, -Vec3::Z).expect("the near wall");
+        let far = second.struck_by(from, -Vec3::Z).expect("the far wall");
+        assert!(near < far, "the far wall is struck first: {near:.2} against {far:.2}");
+    }
+
+    #[test]
+    fn a_part_arrives_in_its_own_material() {
+        // Reported from the bench: a foundation came out the colour of the wood and
+        // so did the stairs, because the colour in hand followed the maker from one
+        // part to the next. A plinth is masonry; nobody choosing FOUNDATION means
+        // "in wood, please".
+        let stone = TINTS.iter().position(|(name, _)| *name == "stone").unwrap();
+        let dark = TINTS.iter().position(|(name, _)| *name == "dark wood").unwrap();
+        let thatch = TINTS.iter().position(|(name, _)| *name == "thatch").unwrap();
+
+        assert_eq!(Part::Foundation.natural(), stone, "a plinth is not stone");
+        assert_eq!(Part::Stairs.natural(), dark, "stairs are not the darker wood");
+        assert_eq!(Part::Bed.natural(), dark);
+        assert_eq!(Part::Roof.natural(), thatch, "a roof is not thatch");
+        assert_eq!(Part::Cap.natural(), Part::Roof.natural(), "a cap should match its roof");
+
+        for part in Part::ALL {
+            assert!(
+                part.natural() < TINTS.len(),
+                "{} is made of a colour that is not on the shelf",
+                part.name()
+            );
+        }
+
+        // And the material is what a piece is actually built with.
+        let mut bench = Bench::default();
+        bench.add(Part::Foundation, Vec3::ZERO, 0, Part::Foundation.natural());
+        let grey = bench.to_plan().boxes[0].colour.to_srgba();
+        let [r, g, b] = TINTS[stone].1;
+        let wanted = Color::srgb_u8(r, g, b).to_srgba();
+        assert!(
+            (grey.red - wanted.red).abs() < 0.25 && (grey.blue - wanted.blue).abs() < 0.25,
+            "a plinth came out {grey:?} against stone's {wanted:?}"
+        );
+    }
+
+    #[test]
     fn every_part_has_a_key_and_a_cap_to_print_on_it() {
         // Two tables that were one apart: the input held the keys and the panel
         // numbered its own rows. With ten parts and nine digits, a panel that
@@ -1921,18 +2150,25 @@ mod look {
         let mut bench = Bench::default();
         bench.name = "a-look".into();
 
+        // Each in its own material, as choosing it at the bench now gives it — see
+        // `Part::natural`. Passing colours in by hand here is how this dump came to
+        // show a stone plinth while the bench was placing an oak one.
+        fn put(bench: &mut Bench, part: Part, at: Vec3) -> u32 {
+            bench.add(part, at, 0, part.natural()).expect("a piece")
+        }
+
         // A floor three modules by two, which is the thing that could not be built
         // at all before.
-        let floor = bench.add(Part::Floor, Vec3::new(-3.0, 0.0, -1.5), 0, 0).unwrap();
+        let floor = put(&mut bench, Part::Floor, Vec3::new(-3.0, 0.0, -1.5));
         bench.stretch(floor, 2);
         bench.widen(floor, 1);
 
         // A plinth along its edge, a flight climbing off it, and a bed on it.
-        let plinth = bench.add(Part::Foundation, Vec3::new(-3.0, 0.0, 1.5), 0, 4).unwrap();
+        let plinth = put(&mut bench, Part::Foundation, Vec3::new(-3.0, 0.0, 1.5));
         bench.stretch(plinth, 2);
-        let steps = bench.add(Part::Stairs, Vec3::new(1.5, 0.0, 1.5), 0, 1).unwrap();
+        let steps = put(&mut bench, Part::Stairs, Vec3::new(1.5, 0.0, 1.5));
         bench.stretch(steps, 1);
-        bench.add(Part::Bed, Vec3::new(-2.0, 0.25, -1.0), 0, 1).unwrap();
+        put(&mut bench, Part::Bed, Vec3::new(-2.0, 0.25, -1.0));
 
         println!("SCENE {}", as_json(&bench));
     }

@@ -390,9 +390,26 @@ fn nearest_handle<'a>(
 
 /// Picks the piece the handles sit on.
 ///
-/// Whatever is nearest the cursor, which is the same rule everything else on this
-/// bench follows for reaching an existing piece.
-pub fn choose(hand: Res<Hand>, bench: Res<Bench>, mut holding: ResMut<Holding>) {
+/// # What the pointer is ON, then what the cursor is NEAR
+///
+/// Two rules, in that order, because the bench has two notions of "where you are".
+/// The lattice cursor is where the view ray meets the plane you are building on,
+/// and it is the right answer for placing a piece. It is the wrong answer for
+/// picking one up: point at the top of a wall and the cursor is on the floor
+/// several metres behind it, because that is where the ray goes on past.
+///
+/// So a piece the ray actually strikes wins, nearest first. Only when the ray
+/// strikes nothing does the cursor's own neighbourhood decide, which keeps the
+/// old behaviour for pointing at the floor beside a piece — and that rule now
+/// measures to the piece's box, so a stretched floor is reachable along its whole
+/// length rather than only near its middle.
+pub fn choose(
+    hand: Res<Hand>,
+    bench: Res<Bench>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    cameras: Query<(&Camera, &GlobalTransform), With<BenchEye>>,
+    mut holding: ResMut<Holding>,
+) {
     // A piece stays chosen until another one is.
     //
     // # The deadlock this replaces
@@ -419,14 +436,36 @@ pub fn choose(hand: Res<Hand>, bench: Res<Bench>, mut holding: ResMut<Holding>) 
         return;
     }
 
-    // Whatever is under the cursor now, if anything is.
-    let near = bench
-        .pieces()
+    // What the pointer is actually on, if the pointer is on anything.
+    let struck = windows
         .iter()
-        .map(|piece| (piece.middle().distance(hand.at), piece.id))
-        .filter(|(away, _)| *away <= kit::MODULE * 1.5)
-        .min_by(|a, b| a.0.total_cmp(&b.0))
-        .map(|(_, id)| id);
+        .next()
+        .and_then(Window::cursor_position)
+        .zip(cameras.iter().next())
+        .and_then(|(cursor, (camera, eye))| camera.viewport_to_world(eye, cursor).ok())
+        .and_then(|ray| {
+            bench
+                .pieces()
+                .iter()
+                .filter_map(|piece| {
+                    piece
+                        .struck_by(ray.origin, *ray.direction)
+                        .map(|along| (along, piece.id))
+                })
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .map(|(_, id)| id)
+        });
+
+    // Failing that, whatever the lattice cursor is standing in or beside.
+    let near = struck.or_else(|| {
+        bench
+            .pieces()
+            .iter()
+            .map(|piece| (piece.away_from(hand.at), piece.id))
+            .filter(|(away, _)| *away <= REACH)
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, id)| id)
+    });
 
     if let Some(near) = near {
         holding.piece = Some(near);
@@ -442,6 +481,13 @@ pub fn choose(hand: Res<Hand>, bench: Res<Bench>, mut holding: ResMut<Holding>) 
         }
     }
 }
+
+/// How far from a piece the lattice cursor may stand and still reach it, in metres.
+///
+/// A module. It is measured to the piece's BOX, not to its middle, so this is
+/// "beside it" rather than "somewhere within a piece and a half of its centre" —
+/// which is what the old number meant and why a long piece slipped out of it.
+const REACH: f32 = kit::MODULE;
 
 /// Where a piece is, by id.
 fn piece_at(bench: &Bench, id: u32) -> Option<Piece> {
@@ -802,6 +848,94 @@ mod tests {
         .init_resource::<Holding>()
         .add_systems(Update, show);
         app
+    }
+
+    /// A bench with the SELECTION system running, and the lattice cursor as the
+    /// only way to point.
+    ///
+    /// No window and no camera, deliberately: `choose` then cannot cast a ray and
+    /// falls through to the cursor's own rule, which is the half that was broken.
+    /// Testing the branch that was wrong beats testing the one that was added.
+    fn picking_app() -> App {
+        let mut app = App::new();
+        app.init_resource::<Bench>()
+            .init_resource::<Holding>()
+            .init_resource::<Hand>()
+            .add_systems(Update, choose);
+        app
+    }
+
+    /// Points the lattice cursor somewhere and runs a frame.
+    fn point_at(app: &mut App, at: Vec3) {
+        app.world_mut().resource_mut::<Hand>().at = at;
+        app.update();
+    }
+
+    #[test]
+    fn a_stretched_floor_is_selectable_along_its_whole_length() {
+        // Reported from the bench: "once an object is placed it seems like I cannot
+        // select it again". The selection measured from the lattice cursor to the
+        // piece's MIDDLE against a radius of a piece and a half — which a stretched
+        // piece is longer than, so its ends fell outside and the handles never
+        // appeared for them.
+        let mut app = picking_app();
+        let id = {
+            let mut bench = app.world_mut().resource_mut::<Bench>();
+            let id = bench.add(Part::Floor, Vec3::ZERO, 0, 0).expect("a floor");
+            bench.stretch(id, 3);
+            bench.widen(id, 1);
+            id
+        };
+        let piece = piece_at(&app.world().resource::<Bench>(), id).expect("the floor");
+        let half = piece.size() * 0.5;
+
+        // Every module along it, and across it: the cursor stands on the floor.
+        for down in 0..=2 {
+            for across in 0..=4 {
+                let on = piece.middle()
+                    + Vec3::new(
+                        -half.x + piece.size().x * across as f32 / 4.0,
+                        -half.y,
+                        -half.z + piece.size().z * down as f32 / 2.0,
+                    );
+                app.world_mut().resource_mut::<Holding>().piece = None;
+                point_at(&mut app, on);
+                assert_eq!(
+                    app.world().resource::<Holding>().piece,
+                    Some(id),
+                    "pointing at {on:?} on a four-by-two floor selected nothing"
+                );
+            }
+        }
+
+        // Well off the end of it, nothing new is picked — a reach that reached
+        // everywhere would be no reach at all.
+        app.world_mut().resource_mut::<Holding>().piece = None;
+        point_at(&mut app, piece.middle() + Vec3::new(half.x + kit::MODULE * 3.0, -half.y, 0.0));
+        assert_eq!(
+            app.world().resource::<Holding>().piece,
+            None,
+            "a floor was selected from three modules off its end"
+        );
+    }
+
+    #[test]
+    fn pointing_between_two_pieces_takes_the_nearer_one() {
+        // The reach is generous now, so which piece wins has to be the near one
+        // rather than whichever the list happens to hold first.
+        let mut app = picking_app();
+        let (near, far) = {
+            let mut bench = app.world_mut().resource_mut::<Bench>();
+            let near = bench.add(Part::Post, Vec3::ZERO, 0, 0).expect("a post");
+            let far = bench
+                .add(Part::Post, Vec3::new(kit::MODULE * 2.0, 0.0, 0.0), 0, 0)
+                .expect("another post");
+            (near, far)
+        };
+        point_at(&mut app, Vec3::new(kit::MODULE * 0.5, 0.0, 0.0));
+        assert_eq!(app.world().resource::<Holding>().piece, Some(near));
+        point_at(&mut app, Vec3::new(kit::MODULE * 1.5, 0.0, 0.0));
+        assert_eq!(app.world().resource::<Holding>().piece, Some(far));
     }
 
     /// Puts a piece on the bench, selects it, and runs until its handles stand.

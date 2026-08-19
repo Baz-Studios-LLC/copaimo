@@ -134,16 +134,42 @@ pub struct Hand {
     /// act — choose a part, place it, choose again — which is also how it reads
     /// when somebody watches you do it.
     pub part: Option<Part>,
+    /// The last part CHOSEN, which is not the same as the one in hand.
+    ///
+    /// Placing empties the hand, so the hand alone cannot tell "the maker picked a
+    /// wall again" from "the maker has switched to a wall" — and the difference is
+    /// whether their chosen colour survives. See [`Self::take`].
+    chose: Option<Part>,
     pub at: Vec3,
     pub quarters: u8,
     pub tint: usize,
     pub doing: Doing,
 }
 
+impl Hand {
+    /// Takes up a part, in the material that part is made of.
+    ///
+    /// The one way a part gets into the hand — the keys and the panel both come
+    /// through here, because "picking a part" has a second half now and two copies
+    /// of it would drift the moment one of them gained a third.
+    ///
+    /// Switching parts takes the new part's own material; picking the SAME part
+    /// again leaves the colour alone, so a maker laying a row of dark-wood walls
+    /// keeps their choice across every placement.
+    pub fn take(&mut self, part: Part) {
+        if self.chose != Some(part) {
+            self.tint = part.natural();
+            self.chose = Some(part);
+        }
+        self.part = Some(part);
+    }
+}
+
 impl Default for Hand {
     fn default() -> Self {
         Self {
             part: None,
+            chose: None,
             at: Vec3::ZERO,
             quarters: 0,
             tint: 0,
@@ -451,7 +477,7 @@ fn choose(keys: Res<ButtonInput<KeyCode>>, mut hand: ResMut<Hand>) {
     // last of them.
     for ((key, _), part) in kit::PART_KEYS.iter().zip(Part::ALL) {
         if keys.just_pressed(*key) {
-            hand.part = Some(part);
+            hand.take(part);
         }
     }
     // R turns the piece in HAND, quarter by quarter. There is no free rotation on
@@ -1078,7 +1104,7 @@ mod tests {
 
     /// Puts a part in hand, as choosing one from the panel does.
     fn take_up(app: &mut App, part: kit::Part) {
-        app.world_mut().resource_mut::<Hand>().part = Some(part);
+        app.world_mut().resource_mut::<Hand>().take(part);
     }
 
     /// Presses the left button and runs one frame.
@@ -1129,6 +1155,39 @@ mod tests {
         assert_eq!(app.world().resource::<Hand>().part, None, "the bench opened holding something");
         click(&mut app);
         assert_eq!(pieces(&app), 0, "an empty cursor placed a piece");
+    }
+
+    #[test]
+    fn switching_parts_takes_the_new_part_s_material_and_keeps_a_chosen_one() {
+        // The rule that fixes "the foundation is the colour of the wood" without
+        // fighting a maker who has picked a colour on purpose.
+        let mut app = bench_app();
+
+        take_up(&mut app, kit::Part::Wall);
+        assert_eq!(
+            app.world().resource::<Hand>().tint,
+            kit::Part::Wall.natural(),
+            "a wall did not arrive in timber"
+        );
+
+        // A deliberate colour, and then the SAME part again — as happens after every
+        // placement, because placing empties the hand.
+        let dark = kit::TINTS.iter().position(|(name, _)| *name == "dark wood").unwrap();
+        app.world_mut().resource_mut::<Hand>().tint = dark;
+        take_up(&mut app, kit::Part::Wall);
+        assert_eq!(
+            app.world().resource::<Hand>().tint,
+            dark,
+            "picking the same part again threw away the colour the maker chose"
+        );
+
+        // A different part brings its own material with it.
+        take_up(&mut app, kit::Part::Foundation);
+        assert_eq!(
+            app.world().resource::<Hand>().tint,
+            kit::Part::Foundation.natural(),
+            "a foundation did not arrive in stone"
+        );
     }
 
     #[test]

@@ -415,6 +415,36 @@ It costs boxes: about twenty-five to a module of floor. They weld into one mesh,
 so the cost lands on the file rather than on the frame, and
 `a_module_of_floor_stays_within_its_box_budget` is what says how many is too many.
 
+### A part arrives in its own material
+
+The colour in hand used to follow the maker from part to part, so a foundation came
+out oak and so did a flight of stairs — because the last thing placed was. Each part
+now names its own material (`Part::natural`): masonry for a plinth, thatch for a
+roof and its cap, the darker wood for stairs and furniture, timber for everything
+else.
+
+It is a default, not a rule. The swatches overrule it and go on overruling it for as
+long as that part stays in hand — what resets it is choosing a **different** part,
+because that is the moment the maker has said what they are building next. Both ways
+of choosing a part go through `Hand::take`, so the keys and the panel cannot drift.
+
+### Reaching a piece is measured to its BOX
+
+Every "nearest piece" verb — select, paint, turn, remove — measured from the lattice
+cursor to the piece's **middle** against a fixed radius. That works only while a
+piece is about the size of the radius, and stretching broke it: a four-module floor
+has its middle metres from either end, so its ends fell outside the reach and the
+piece could not be selected, painted, turned or removed from there. It read as
+"once an object is placed I cannot select it again".
+
+`Piece::away_from` measures to the box instead, so a piece of any length is reachable
+anywhere along it and the number still means metres.
+
+Selection also tries a **ray** first, and only falls back to the cursor: point at the
+top of a wall and the lattice cursor is on the floor several metres behind it, because
+that is where the view ray carries on to. What the pointer is on beats what the cursor
+is near.
+
 ### A floor grows two ways; everything else grows one
 
 `spans` is length along the piece's own X. `across` is width, and only a floor has
@@ -715,6 +745,11 @@ which took the kit past nine, so the digits ran out and the panel's habit of
 numbering its own rows became a lie. There is one key table now, read by the input
 and by the panel both. That is the second time this codebase has learned that
 lesson; the first was the terrain tool's eleventh tool wearing the first one's key.
+
+**Two faults the same afternoon**, both reported from the bench and both the same
+shape as each other: a part took whatever colour was in hand rather than its own
+material, and reaching a piece was measured to its middle rather than to its body.
+See **A part arrives in its own material** and **Reaching a piece** above.
 
 **A renderer for looking at it**: `dev/look.py`. The floor took four goes to get
 right and none of them could be judged from a test, because "does this look like

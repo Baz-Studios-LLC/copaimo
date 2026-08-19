@@ -240,7 +240,7 @@ pub fn pressed(
             continue;
         }
         match choice.0 {
-            Press::Part(part) => hand.part = Some(part),
+            Press::Part(part) => hand.take(part),
             Press::Mode(doing) => hand.doing = doing,
             Press::Turn => hand.quarters = (hand.quarters + 1) % 4,
             Press::TurnPlaced => {
