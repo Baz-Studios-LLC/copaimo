@@ -15,65 +15,59 @@ collect).
 
 ## The mountain pass
 
-The road east runs desert → **mountain pass** → grassland → snow. The mountain is a
-wall across the whole route with one tunnel through it, and getting east means going
-through it.
+A mountain across the road east — desert on its western foot, the green world on
+its eastern, snow beyond that. There is no way over it and no short way round, so
+getting east means going through, and **the way through is a tunnel the maker
+bores**. The pass shipped with one hard-coded, and every number in it was a guess
+from a screenshot: it went wrong four times in an evening. A mountain is landscape,
+which the generator is good at; a doorway through it is a decision, which wants
+eyes on the place.
 
-**The mountain is terrain; the tunnel is a tube inside it.** The first build carved
-a slot down through the heightfield and lidded it with a mesh. Geometrically sound,
-and wrong from every angle that mattered: the carve killed the trees and painted a
-stone stripe down the whole corridor, the lid was a grey band where mountainside
-should be, and from the air the tunnel read as a road. A mountain with a stripe
-shaved over its shoulder is a mountain with a scar, not one with a tunnel in it.
+`pass.rs` is now only the mountain. It is broken up three ways — a serrated crest,
+gullies stretched down the fall line, creases mid-flank only — and every one of them
+only ever cuts DOWN, so anything bored through it reads the same rock the ground
+draws.
 
-So the ground keeps its skin. The heightfield over the tunnel is the mountain,
-whole — its trees grow, its snow lies, its creases shade — and nothing says a tunnel
-exists except at the two **mouths**, where a short cutting carves down to walking
-level and the dark of the tube shows. The cuttings place themselves: they appear
-wherever the corridor crosses ground the mountain holds only thinly, so reshaping
-the mountain moves its own doorways.
+**Its eastern foot runs into the sea.** A bore aimed symmetrically lands in the
+water and is refused, correctly; the eastern mouth wants to be about 470 m out
+where the ground is still dry.
 
-Inside, `pass::tube` builds a floor and an arched ceiling from mouth to mouth, wound
-to face **inward** (from outside, the far wall shows through each mouth as darkness
-and the near wall is culled), with the light **baked into the vertex colours** —
-stone at the mouths falling to near-black through the middle, because no sun reaches
-a tunnel and there are no lamps yet.
+## Tunnels
 
-**This is the one place in the world with two grounds**, so `Terrain::walk_floor`
+`bores.rs` owns every tunnel in the world. A bore is two points, and what it does is
+**not** carve a corridor:
+
+* the hill **keeps its skin** — trees, snow, shading — because nothing touches the
+  ground over a tunnel's length. The first build carved the corridor and left the
+  rock above it as a mesh, and a bore through a small rise came out as a black tent
+  pitched on open ground.
+* it carves a short **cutting at each mouth**, where the hill holds only a few
+  metres over the crown. The mouths place themselves: move the hill and its doorways
+  move with it.
+* it builds a **tube** — floor and arched ceiling, wound to face inward, with the
+  light baked into the vertex colours because no sun reaches a tunnel and there are
+  no lamps yet.
+
+**The tube is only as long as the rock is.** Aim generously past a hill at both
+ends and the lining trims itself to the stretch that genuinely has rock over it, so
+a rough aim is forgiven rather than hanging a mesh in the air.
+
+**A bore has to make sense.** Both mouths must stand on dry land — a mouth under
+water means the floor line dives beneath the country between them, which is a mine
+shaft, not a tunnel — and there must be real rock over it somewhere. The tool says
+which rule failed and keeps your first point, so a better aim is one press away.
+
+**This is the one place in the world with two grounds.** `Terrain::walk_floor`
 replaces the plain height snap for the warden and the follow camera. Which ground
-claims you cannot be decided from where you are — both are directly above one
-another — so it is decided from where you *already* are: below the crown inside the
-corridor keeps you on the floor, anything higher keeps you on the mountain. That is
-also what makes the mouths work with no door: walking in along a cutting carries you
-down before the rock closes over you.
+claims you cannot be told from where you are — both are directly overhead one
+another — so it is told from where you *already* are, which is also what makes a
+mouth need no door. A single-point query cannot answer it: a walker's height comes
+down with the floor as they go, so the walk is the query.
 
-`a_warden_can_walk_through_the_mountain` walks the whole crossing on the real world
-at a warden's height and checks the three things the screenshots kept disproving:
-the ground never jumps, there is always real rock overhead, and you come out the far
-side rather than on top.
-
-## Boring tunnels in the terrain tool
-
-The pass above was written in code, and moving it meant reading a screenshot and
-guessing which constant it implied. That went wrong three times in an evening — the
-wall crossed the desert boundary instead of following it, then it was a mesa, then
-it was too thin. Same fault the countries had before they were paintable, same
-answer: **the person who can see where a tunnel belongs should be the one putting
-it there.**
-
-`B` (or the BORE row) marks one mouth, `B` again marks the other, and the tunnel is
-cut between them through whatever is in the way. `Shift+B` fills the nearest one
-back in. They live in `assets/world/bores.json` and save with Ctrl+S alongside
-every other layer.
-
-A bore only ever cuts **down**: run one over open ground and nothing happens,
-because there was no hill to get through. Its floor runs level between its two
-mouths, and that floor height is remembered when the bore is laid rather than asked
-for later — the carve is part of the terrain's height, so a floor derived from the
-carved ground would sink a little further every time the question was asked.
-
-The mountain itself is not part of it. There is already a brush for raising ground;
-a bore's job is to make a hole in whatever is there.
+`a_warden_can_walk_through_a_bored_mountain` bores the pass on the real world and
+walks it, checking the three things the screenshots kept disproving — the ground
+never jumps, there is always real rock overhead, and you come out the far side
+rather than on top.
 
 ## Every action in the tool has a row to press
 

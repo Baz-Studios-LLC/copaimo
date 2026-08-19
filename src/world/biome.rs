@@ -85,6 +85,7 @@ pub fn surface_color(
     worn: f32,
     country: terrain_core::region::Country,
     belonging: f32,
+    hewn: f32,
 ) -> [f32; 4] {
     let p = &*PALETTE;
 
@@ -234,9 +235,9 @@ pub fn surface_color(
     // Vertex colours, so it costs nothing to draw: the terrain mesh already
     // carries a colour a vertex, on a two-metre grid, and the fine scale is drawn
     // at about that size so the mesh can actually hold it.
-    // Under the mountain the ground is not ground: it is the floor of a bore,
-    // which is bare stone whatever country it happens to run through.
-    let hewn = crate::world::pass::underground(at);
+    // A tunnel's CUTTING is not ground: it is hewn rock, whatever country it
+    // happens to be cut through. Handed in rather than asked for, because the
+    // answer needs the bore list and this is a pure function of a place.
     if hewn > 0.0 {
         color = color.lerp(p.rock * 0.62, hewn);
     }

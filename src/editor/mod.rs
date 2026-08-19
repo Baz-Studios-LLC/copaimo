@@ -1583,6 +1583,15 @@ pub fn bore_tunnels(
         floor_from: terrain.0.unbored(from.x, from.y),
         floor_to: terrain.0.unbored(at.x, at.y),
     };
+    // Refused rather than laid wrong: a mouth in the water or an aim across open
+    // country is a mesh hanging in the air, and the first two the tool ever made
+    // were both of those. The start is KEPT, so a better second press is one
+    // press away.
+    if let Err(why) = bore.makes_sense(|at| terrain.0.unbored(at.x, at.y)) {
+        toast.show(why);
+        boring.0 = Some(from);
+        return;
+    }
     let Ok(mut bores) = terrain.0.bores().write() else {
         return;
     };
@@ -1896,26 +1905,21 @@ mod boring {
     }
 
     #[test]
-    fn two_presses_bore_a_tunnel_and_the_ground_opens() {
+    fn two_presses_bore_a_tunnel_through_a_mountain() {
         let mut app = bench();
-        // Somewhere with a hill in it: the pass's own mountain, which is the one
-        // piece of high ground this test can count on being there.
+        // Through the pass's mountain, which is the one piece of high ground this
+        // test can count on being there. Aimed generously past it at both ends —
+        // the lining trims itself to the rock.
         let middle = crate::world::pass::AT;
         let (sin, cos) = crate::world::pass::HEADING.sin_cos();
         let along = Vec2::new(cos, sin);
-        // Across the mountain rather than along it, so this bores through the
-        // wall somewhere the pass's own tunnel is not.
-        let side = Vec2::new(-sin, cos);
-        let from = middle + side * 300.0 - along * 260.0;
-        let to = middle + side * 300.0 + along * 260.0;
+        // The eastern foot of the pass runs into the sea, so the mouths are not
+        // symmetric — a bore aimed the same distance both ways lands in the water
+        // and is refused, correctly.
+        let from = middle - along * 620.0;
+        let to = middle + along * 470.0;
 
         let was = bores(&app);
-        let before = {
-            let terrain = app.world().resource::<TerrainSource>();
-            let at = (from + to) * 0.5;
-            terrain.0.height(at.x, at.y)
-        };
-
         press_at(&mut app, from, false);
         assert_eq!(bores(&app), was, "one press laid a tunnel on its own");
         assert!(
@@ -1926,35 +1930,42 @@ mod boring {
         press_at(&mut app, to, false);
         assert_eq!(bores(&app), was + 1, "two presses did not lay a tunnel");
 
-        // And the ground between them has come down.
-        let after = {
-            let terrain = app.world().resource::<TerrainSource>();
-            let at = (from + to) * 0.5;
-            terrain.0.height(at.x, at.y)
-        };
+        // The hill KEEPS ITS SKIN: the ground over the tunnel is untouched, which
+        // is the whole point of the rework. What opens is the two mouths.
+        let terrain = app.world().resource::<TerrainSource>();
+        let over = terrain.0.height(middle.x, middle.y);
         assert!(
-            before - after > 20.0,
-            "the hill only came down {:.1} m - that is not a tunnel through it",
-            before - after
+            over > 150.0,
+            "the mountain over the tunnel came down to {over:.0} m"
+        );
+        // And it can be WALKED. A single-point question cannot answer this: which
+        // ground claims a walker depends on where they already are, and their
+        // height comes down with the floor as they go — so the walk is the query.
+        let mut standing = terrain.0.height(from.x, from.y);
+        let mut rock_overhead = 0.0_f32;
+        for step in 0..=800 {
+            let at = from.lerp(to, step as f32 / 800.0);
+            standing = terrain.0.walk_floor(at.x, at.y, standing);
+            rock_overhead = rock_overhead.max(terrain.0.height(at.x, at.y) - standing);
+        }
+        assert!(
+            rock_overhead > 100.0,
+            "the walk only ever had {rock_overhead:.0} m of rock overhead"
         );
 
         // Shift takes it out again.
-        press_at(&mut app, (from + to) * 0.5, true);
+        press_at(&mut app, middle, true);
         assert_eq!(bores(&app), was, "the tunnel would not fill back in");
     }
 
     #[test]
-    fn a_bore_over_open_ground_does_nothing_to_it() {
-        // A tunnel is a hole through something. Run one across a plain and there
-        // should be no trench — which is what stops the tool being a ditch-digger
-        // nobody asked for.
-        //
-        // Not "exactly as it was": the floor runs level between the two mouths, so
-        // a rise between them is genuinely taken off, and rolling ground gives up
-        // the odd half-metre. What must not happen is a cut you could fall into.
+    fn a_bore_over_open_ground_is_refused() {
+        // A tunnel is a hole through something. Across a plain there is nothing to
+        // make one in, and the first build of this tool laid a mesh in the open
+        // twice before anybody said so — it says so itself now.
         let mut app = bench();
         let from = Vec2::new(crate::config::RANCH_AT.0, crate::config::RANCH_AT.1);
-        let to = from + Vec2::new(160.0, 0.0);
+        let to = from + Vec2::new(220.0, 0.0);
 
         let sample = |app: &App, at: Vec2| {
             app.world().resource::<TerrainSource>().0.height(at.x, at.y)
@@ -1965,14 +1976,18 @@ mod boring {
 
         press_at(&mut app, from, false);
         press_at(&mut app, to, false);
-        assert_eq!(bores(&app), 1, "the tunnel was not laid at all");
+        assert_eq!(bores(&app), 0, "a tunnel across a plain was laid anyway");
+        assert!(
+            app.world().resource::<Boring>().0.is_some(),
+            "the refused start was thrown away rather than kept for a better aim"
+        );
 
         for (step, was) in before.iter().enumerate() {
             let at = from.lerp(to, step as f32 / 8.0);
             let now = sample(&app, at);
             assert!(
-                was - now < 2.0,
-                "flat ground dropped {:.1} m at step {step} - the tool dug a trench",
+                (was - now).abs() < 0.01,
+                "the ground moved {:.2} m at step {step} for a tunnel that was refused",
                 was - now
             );
         }
@@ -1991,3 +2006,4 @@ mod boring {
         );
     }
 }
+

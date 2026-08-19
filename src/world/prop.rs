@@ -240,12 +240,10 @@ pub fn litter(terrain: &Terrain, pool: &[Prop], low: Vec2) -> Geometry {
             }
 
             // Nothing stands under a mountain either.
-            if crate::world::pass::underground(at) > 0.5
-                || terrain
-                    .bores()
-                    .read()
-                    .is_ok_and(|bores| bores.under_rock(at, terrain.unbored(at.x, at.y)) > 0.5)
-            {
+            // Nothing stands in a tunnel's cutting: that ground is hewn rock.
+            // The corridor under a hill is ordinary hillside and keeps everything
+            // it had, because a bore never touched it.
+            if terrain.in_a_cutting(at.x, at.y) > 0.5 {
                 continue;
             }
             let ground = terrain.ground_at(at.x, at.y);

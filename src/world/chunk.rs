@@ -196,7 +196,14 @@ pub fn build_mesh(terrain: &Terrain, coord: IVec2) -> Mesh {
             normals.push([normal.x, normal.y, normal.z]);
             let (country, belonging) = terrain.region(world.x, world.y);
             colors.push(surface_color(
-                world, height, slope, character, worn, country, belonging,
+                world,
+                height,
+                slope,
+                character,
+                worn,
+                country,
+                belonging,
+                terrain.in_a_cutting(world.x, world.y),
             ));
             uvs.push([ix as f32 / quads as f32, iz as f32 / quads as f32]);
         }

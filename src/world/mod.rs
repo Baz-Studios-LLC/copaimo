@@ -99,10 +99,6 @@ fn no_sea_yet(seas: Query<(), With<water::Water>>) -> bool {
     seas.is_empty()
 }
 
-/// Whether the rock over the mountain pass still needs building.
-fn no_roof_yet(roofs: Query<(), With<pass::Roof>>) -> bool {
-    roofs.is_empty()
-}
 
 /// Takes it down again on the way out.
 ///
@@ -112,14 +108,10 @@ fn no_roof_yet(roofs: Query<(), With<pass::Roof>>) -> bool {
 fn clear_the_world(
     mut commands: Commands,
     seas: Query<Entity, With<water::Water>>,
-    roofs: Query<Entity, With<pass::Roof>>,
     rocks: Query<Entity, With<bores::Rock>>,
 ) {
     for sea in &seas {
         commands.entity(sea).despawn();
-    }
-    for roof in &roofs {
-        commands.entity(roof).despawn();
     }
     for rock in &rocks {
         commands.entity(rock).despawn();
@@ -168,7 +160,6 @@ impl Plugin for WorldPlugin {
                     water::spawn_water.run_if(no_sea_yet),
                     stream::grow_the_grove.run_if(not(resource_exists::<stream::Grove>)),
                     prop::setup_props.run_if(not(resource_exists::<prop::PropPool>)),
-                    pass::raise_the_roof.run_if(no_roof_yet),
                     bores::raise_the_rock,
                 ),
             )
@@ -187,7 +178,6 @@ impl Plugin for WorldPlugin {
                 water::spawn_water.run_if(no_sea_yet),
                 stream::grow_the_grove.run_if(not(resource_exists::<stream::Grove>)),
                 prop::setup_props.run_if(not(resource_exists::<prop::PropPool>)),
-                pass::raise_the_roof.run_if(no_roof_yet),
                 bores::raise_the_rock,
             ),
         )

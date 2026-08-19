@@ -331,11 +331,10 @@ impl Terrain {
                     continue;
                 }
 
-                // No trees under a mountain. The bore's floor is ordinary ground
-                // at its ordinary height, which is exactly what makes it walkable
-                // — and would otherwise make it a fine place for a wood, growing
-                // straight up through the rock overhead.
-                if crate::world::pass::underground(at) > 0.5 {
+                // No trees in a tunnel's cutting — hewn rock grows nothing. The
+                // hillside over a tunnel's own length is untouched and keeps its
+                // wood, because a bore never carved it.
+                if self.in_a_cutting(at.x, at.y) > 0.5 {
                     continue;
                 }
 
@@ -971,30 +970,31 @@ impl Terrain {
 
     /// The height a walker's feet belong at.
     ///
-    /// # The one place this world has two grounds
-    ///
-    /// Everywhere else the ground is a height per place and feet snap to it. Under
-    /// the mountain pass there are two: the tunnel's floor, and the mountain's own
-    /// top above it. Which one a walker is on cannot be decided from where they are
-    /// standing alone — both are directly overhead one another — so it is decided
-    /// from where they are standing NOW: somebody already down at floor level
-    /// inside the corridor stays down, and somebody up on the mountain stays up.
-    ///
-    /// That is also what makes the mouths work without a door: walk in along the
-    /// cutting and the drawn ground carries you down to the floor, and by the time
-    /// the rock closes overhead you are already low enough to be claimed.
+    /// The ordinary ground everywhere, except inside a bored tunnel, where there are
+    /// two grounds stacked over each other — see [`crate::world::bores::Bores::walk_floor`]
+    /// for how which one claims a walker is decided.
     pub fn walk_floor(&self, x: f32, z: f32, standing: f32) -> f32 {
         let drawn = self.height(x, z);
-        let at = Vec2::new(x, z);
-        let Some(floor) = crate::world::pass::floor(at, self.without_the_pass(x, z)) else {
-            return drawn;
-        };
-        // Below the rock's crown means underground; anything higher is on the
-        // mountain, walking over the tunnel with no idea it is there.
-        if standing < floor + crate::world::pass::HEADROOM {
-            floor
-        } else {
-            drawn
+        match self.bores.read() {
+            Ok(bores) if !bores.is_empty() => bores
+                .walk_floor(Vec2::new(x, z), self.unbored(x, z), standing)
+                .unwrap_or(drawn),
+            _ => drawn,
+        }
+    }
+
+    /// Whether this ground is a bore's CUTTING — carved open at a mouth, painted
+    /// stone, nothing growing on it.
+    ///
+    /// The one place the question is asked, so the colour, the grass, the litter and
+    /// the trees all get the same answer. Under a tunnel's own length this is nought:
+    /// that ground is ordinary hillside and nothing touched it.
+    pub fn in_a_cutting(&self, x: f32, z: f32) -> f32 {
+        match self.bores.read() {
+            Ok(bores) if !bores.is_empty() => {
+                bores.under_rock(Vec2::new(x, z), self.unbored(x, z))
+            }
+            _ => 0.0,
         }
     }
 
@@ -1741,6 +1741,7 @@ mod tests {
                         terrain.worn(at.x, at.y),
                         terrain.region(at.x, at.y).0,
                         terrain.region(at.x, at.y).1,
+                        terrain.in_a_cutting(at.x, at.y),
                     );
                     for channel in 0..3 {
                         sum[channel] += colour[channel];
@@ -1998,7 +1999,7 @@ mod tests {
             // mottling and all. A fixed point would take the mottle out of the
             // measurement and leave the test blind to a seam it could cause.
             let colour =
-                crate::world::biome::surface_color(at, 30.0, 0.0, 0.5, 0.0, country, belonging);
+                crate::world::biome::surface_color(at, 30.0, 0.0, 0.5, 0.0, country, belonging, 0.0);
             if let Some(last) = was {
                 for channel in 0..3 {
                     biggest = biggest.max((colour[channel] - last[channel]).abs());
@@ -2615,6 +2616,7 @@ mod look {
                     terrain.worn(at.x, at.y),
                     country,
                     belonging,
+                    terrain.in_a_cutting(at.x, at.y),
                 );
                 // Linear to sRGB, because that is what a screen shows.
                 let byte = |v: f32| {
@@ -2721,6 +2723,7 @@ mod atlas {
                     terrain.worn(at.x, at.y),
                     country,
                     belonging,
+                    terrain.in_a_cutting(at.x, at.y),
                 );
                 let byte = |v: f32| {
                     let s = if v <= 0.003_130_8 {
@@ -2742,165 +2745,147 @@ mod atlas {
     }
 }
 
-#[cfg(test)]
-mod probe {
-    use super::*;
 
-    #[test]
-    #[ignore = "a probe"]
-    fn the_land_around_the_desert_edge() {
-        let terrain = Terrain::new();
-        // Land and country over the ground the pass would sit on.
-        for row in 0..30 {
-            let z = -1300.0 + row as f32 * 60.0;
-            let line: String = (0..46)
-                .map(|col| {
-                    let x = -200.0 + col as f32 * 40.0;
-                    let h = terrain.height(x, z);
-                    if h < 0.0 {
-                        return '.';
-                    }
-                    match terrain.region(x, z).0 {
-                        terrain_core::region::Country::Desert => 'D',
-                        terrain_core::region::Country::Snow => 'S',
-                        terrain_core::region::Country::Ordinary => {
-                            if h > 60.0 { '^' } else { 'g' }
-                        }
-                    }
-                })
-                .collect();
-            println!("z{z:6.0} {line}");
-        }
-    }
-
-    #[test]
-    #[ignore = "a probe"]
-    fn walk_east_across_the_desert_edge() {
-        let terrain = Terrain::new();
-        for z in [-700, -500, -340, -150, 40, 250] {
-            println!("--- z = {z}");
-            let mut line = String::new();
-            for step in 0..34 {
-                let x = 200.0 + step as f32 * 40.0;
-                let h = terrain.height(x, z as f32);
-                let c = match terrain.region(x, z as f32).0 {
-                    terrain_core::region::Country::Desert => 'D',
-                    terrain_core::region::Country::Snow => 'S',
-                    terrain_core::region::Country::Ordinary => 'g',
-                };
-                let c = if h < 0.0 { '.' } else { c };
-                line.push(c);
-            }
-            println!("{line}");
-            let heights: Vec<String> = (0..34)
-                .step_by(4)
-                .map(|s| format!("{:.0}", terrain.height(200.0 + s as f32 * 40.0, z as f32)))
-                .collect();
-            println!("x 200..1520 step 160: {}", heights.join(" "));
-        }
-    }
-}
-
-#[cfg(test)]
-mod crown_probe {
-    use super::*;
-
-    #[test]
-    #[ignore = "a probe"]
-    fn where_the_tilt_comes_from() {
-        let terrain = Terrain::new();
-        let peak = terrain.massif.unwrap();
-        println!("floor {:.2}", terrain.massif_floor);
-        for step in 0..8 {
-            let turn = step as f32 / 8.0 * std::f32::consts::TAU;
-            let at = peak + Vec2::new(turn.cos(), turn.sin()) * MASSIF_CROWN * 0.8;
-            let sculpted = terrain
-                .edits
-                .read()
-                .map(|edits| edits.at(at.x, at.y))
-                .unwrap_or(0.0);
-            println!(
-                "raw {:8.2}  base {:8.2}  height {:8.2}  edits {:6.2}",
-                terrain.raw_height(at.x, at.y),
-                terrain.base_height(at.x, at.y),
-                terrain.height(at.x, at.y),
-                sculpted,
-            );
-        }
-    }
-}
 
 #[cfg(test)]
 mod through_the_pass {
     use super::*;
+    use crate::world::bores::Bore;
 
-    /// Walk the pass on the real world, at a warden's height, mouth to mouth.
+    /// Where a maker would put the two mouths: out from the crest each way to the
+    /// first dry ground the mountain has finished with.
     ///
-    /// The thing four screenshots in a row disproved and no test was asking: can
-    /// somebody actually get through, under rock, without climbing the mountain
-    /// and without falling through anything.
-    #[test]
-    fn a_warden_can_walk_through_the_mountain() {
-        let terrain = Terrain::new();
+    /// Found rather than written down, because the pass's eastern foot runs into
+    /// the sea — a mouth measured out symmetrically lands in the water, and the
+    /// tool refuses it, correctly.
+    fn mouths(terrain: &Terrain) -> (Vec2, Vec2) {
         let (sin, cos) = crate::world::pass::HEADING.sin_cos();
         let along = Vec2::new(cos, sin);
+        let middle = crate::world::pass::AT;
+        let end = |way: f32| {
+            let mut out = 120.0;
+            let mut last = middle;
+            while out < 900.0 {
+                let at = middle + along * way * out;
+                if crate::world::pass::ridge(at) < 6.0 && terrain.unbored(at.x, at.y) > 3.0 {
+                    last = at;
+                    break;
+                }
+                if terrain.unbored(at.x, at.y) > 3.0 {
+                    last = at;
+                }
+                out += 20.0;
+            }
+            last
+        };
+        (end(-1.0), end(1.0))
+    }
 
-        // Start well out on the plain, walk the corridor, end well out the far
-        // side — carrying the walker's own height along, because which of the two
-        // grounds claims them depends on where they already are.
-        let reach = 700.0;
-        let start = crate::world::pass::AT - along * reach;
-        let mut standing = terrain.height(start.x, start.y);
+    /// Bore the pass on the real world and walk through it, at a warden's height.
+    ///
+    /// The thing four screenshots in a row disproved and no test was asking: that
+    /// somebody can actually get through, under real rock, without climbing the
+    /// mountain and without falling through anything. The tunnel is not shipped any
+    /// more — the maker bores it — so the test bores one, which also means it
+    /// exercises the tool's own arithmetic rather than a fixture.
+    #[test]
+    fn a_warden_can_walk_through_a_bored_mountain() {
+        let terrain = Terrain::new();
+        let (from, to) = mouths(&terrain);
+        let middle = crate::world::pass::AT;
+        let bore = Bore {
+            from,
+            to,
+            floor_from: terrain.unbored(from.x, from.y),
+            floor_to: terrain.unbored(to.x, to.y),
+        };
+        assert_eq!(
+            bore.makes_sense(|at| terrain.unbored(at.x, at.y)),
+            Ok(()),
+            "a bore straight through the pass was refused"
+        );
+        terrain.bores().write().expect("bores").add(bore);
 
+        let mut standing = terrain.height(from.x, from.y);
         let mut deepest_rock = 0.0_f32;
         let mut biggest_step = 0.0_f32;
         let mut step_at = 0.0;
-        let mut highest = standing;
-        for step in 0..=1_400 {
-            let at = start + along * (step as f32 * (reach * 2.0 / 1_400.0));
+        for step in 0..=1_600 {
+            let t = step as f32 / 1_600.0;
+            let at = from.lerp(to, t);
             let was = standing;
             standing = terrain.walk_floor(at.x, at.y, standing);
             if (standing - was).abs() > biggest_step {
                 biggest_step = (standing - was).abs();
-                step_at = step as f32 * (reach * 2.0 / 1_400.0) - reach;
+                step_at = t * from.distance(to);
             }
-            highest = highest.max(standing);
-            // How much mountain is overhead where they are walking.
             deepest_rock = deepest_rock.max(terrain.height(at.x, at.y) - standing);
         }
 
         assert!(
             biggest_step < 1.5,
-            "the walk jumps {biggest_step:.2} m at {step_at:.0} m — a wall or a hole in the corridor"
+            "the walk jumps {biggest_step:.2} m at {step_at:.0} m along — a wall or a hole"
         );
         assert!(
             deepest_rock > 100.0,
             "the walk only ever had {deepest_rock:.0} m of rock overhead — it went over the top"
         );
-        // And it came out the other side, not up onto the mountain.
-        let ended = standing;
-        let out = start + along * (reach * 2.0);
         assert!(
-            (ended - terrain.height(out.x, out.y)).abs() < 2.0,
-            "the walk ended at {ended:.0} m with the ground at {:.0} m",
-            terrain.height(out.x, out.y)
+            (standing - terrain.height(to.x, to.y)).abs() < 2.0,
+            "the walk ended at {standing:.0} m with the ground at {:.0} m",
+            terrain.height(to.x, to.y)
         );
     }
 
     #[test]
-    fn walking_over_the_mountain_stays_over_it() {
-        // The other half of the two-level rule: somebody up on the mountainside,
-        // directly above the tunnel, must stay on the mountain. If the corridor
-        // claimed them they would drop two hundred metres through solid rock.
+    fn an_unbored_mountain_cannot_be_walked_through() {
+        // The other half: with no tunnel in it, the pass is a wall. Anyone crossing
+        // it climbs it.
         let terrain = Terrain::new();
-        let at = crate::world::pass::AT;
-        let top = terrain.height(at.x, at.y);
-        assert!(top > 150.0, "the mountain is only {top:.0} m over the tunnel");
+        let (sin, cos) = crate::world::pass::HEADING.sin_cos();
+        let along = Vec2::new(cos, sin);
+        let middle = crate::world::pass::AT;
 
-        let standing = terrain.walk_floor(at.x, at.y, top);
+        let mut highest = f32::MIN;
+        let mut standing = terrain.height(
+            (middle - along * 640.0).x,
+            (middle - along * 640.0).y,
+        );
+        for step in 0..=800 {
+            let at = middle + along * (-640.0 + step as f32 * 1.6);
+            standing = terrain.walk_floor(at.x, at.y, standing);
+            highest = highest.max(standing);
+        }
+        assert!(
+            highest > 200.0,
+            "crossing the unbored pass only reached {highest:.0} m — something is letting walkers through"
+        );
+    }
+
+    #[test]
+    fn walking_over_a_tunnel_stays_over_it() {
+        // Somebody up on the mountainside, directly above a tunnel, must stay on
+        // the mountain. If the corridor claimed them they would drop through rock.
+        let terrain = Terrain::new();
+        let (sin, cos) = crate::world::pass::HEADING.sin_cos();
+        let along = Vec2::new(cos, sin);
+        let middle = crate::world::pass::AT;
+        let (from, to) = mouths(&terrain);
+        terrain.bores().write().expect("bores").add(Bore {
+            from,
+            to,
+            floor_from: terrain.unbored(from.x, from.y),
+            floor_to: terrain.unbored(to.x, to.y),
+        });
+
+        let top = terrain.height(middle.x, middle.y);
+        assert!(top > 150.0, "the mountain is only {top:.0} m over the tunnel");
+        let standing = terrain.walk_floor(middle.x, middle.y, top);
         assert!(
             (standing - top).abs() < 0.01,
             "somebody on the summit was dropped to {standing:.0} m"
         );
     }
 }
+
+
