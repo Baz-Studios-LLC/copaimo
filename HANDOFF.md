@@ -710,8 +710,46 @@ the frame needs it is `VIEW_CHUNKS`, and the cost goes as its square.
 
 ## Still open
 
-* the kiln's first real firing
+* the kiln's first real firing (now on its own thread rather than the compute
+  pool, still never fired against the live API)
 * the terrain and bench panels have never been SEEN by me — they run and measure
   right, but carets, swatches, folding and scrolling want eyes
-* 4 pre-existing `B0004` visibility warnings from world spawning
 * rivers remain switched off; the reason is width, written up in `config.rs`
+* the leaf shadow-proxy (a cheaper mesh shown only to the light) is designed but
+  NOT built — measure first: the two-chunk shadow ring may already be enough
+* `Msaa::Sample2` A/B on the main pass is untried; do it only after measuring
+  the shadow-ring win, so the numbers are clean
+
+## The quality pass, 2026-08-18 (after the gizmo rewrite)
+
+One session swept five reported faults and two audits. What was found is worth
+more than what was fixed:
+
+* **Release builds did not compile** — `sky.rs` named the tools-only `Bench`
+  state unguarded. Nothing catches this but `cargo check --no-default-features`,
+  which is now the check to run before any tag.
+* **Continue never worked.** `spawn_player` ran at Startup, before the menu
+  could read the save; the autosave then overwrote the real save with the
+  ranch. Moved to `OnEnter(Playing)`, pinned by a flow test.
+* The "random lines all over the map" were **shadow acne at grazing light** —
+  the moon spends hours at angles the sun crosses in minutes, and the fixed
+  normal bias runs out below sine-elevation ~0.4. Bias now grows as the light
+  drops; shadows park below `SHADOW_FLOOR`. (The old comments said the biases
+  are clip-space; they are world-space metres and texel-scaled — corrected.)
+* The brush/cursor "offset" was **two pointers**: entering the editor never
+  captured the cursor (a duplicated registration line held its slot), so the
+  menu's OS arrow wandered over the tool.
+* The choppy biome edges were three stacked faults: per-cell speckle (fixed in
+  terrain-core: interpolated), the painted handover cliff at `TAKES_HOLD`, and
+  the travelling snowline sweeping a 50 m window through 1100 m of height.
+  All three measured by transect tests that walk the boundary and bound the
+  biggest per-step colour change.
+* **Perf:** trees now stop casting shadows beyond a two-chunk ring (the 16.7 ms
+  cascade bill was every tree in the ~254-chunk disc, three times over); the
+  sea's swell moved to the vertex shader (the mesh was CPU-rewritten and fully
+  re-uploaded every frame); barren chunks no longer re-dress forever; the
+  hidden F3 HUD early-outs; sky materials only write on change; chunks spawn
+  with `Visibility` (all four B0004s gone); release profile has thin LTO.
+* Panels scroll (Bevy applies `ScrollPosition`, nothing in it ever SETS one);
+  wheel consumers yield over panels; UI cursor math converts physical→logical
+  so sliders and the minimap work at 125% display scale.
