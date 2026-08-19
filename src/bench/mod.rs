@@ -65,6 +65,16 @@ const PIVOT: f32 = 1.2;
 /// in it — there is no order of events that gets a tree into this room.
 const BENCH_LAYER: usize = 1;
 
+/// The layer the HANDLES draw on, over everything.
+///
+/// A handle is a control, not a thing in the room, and it must never be behind
+/// anything in it. Drawn on the bench's own layer, a piece could swallow its own
+/// arrows — stretch a wall to two modules and its body is 3 m long while the red
+/// arrow reaches 0.95 m from the middle, so the arrow sat entirely inside the
+/// wall. This layer is drawn by its own camera, after the room, onto a cleared
+/// depth buffer, so no piece can ever be in front of a handle.
+const HANDLE_LAYER: usize = 2;
+
 /// How far the floor reaches, in modules either way.
 const FLOOR_REACH: i32 = 8;
 
@@ -79,6 +89,14 @@ pub struct OfBench;
 /// is how it ended up three kilometres from the bench.
 #[derive(Component)]
 pub struct BenchEye;
+
+/// The camera that draws the handles over the room.
+///
+/// It rides the bench eye — same place, same way up — and must never be mistaken
+/// for it: aiming a cursor ray through it would work today, because the two are
+/// identical, and quietly break the day they are not.
+#[derive(Component)]
+pub struct HandleEye;
 
 /// The work itself, as drawn. Cleared and rebuilt whenever a piece changes.
 #[derive(Component)]
@@ -234,10 +252,12 @@ impl Plugin for BenchPlugin {
                     // frame's lag between pointing at a handle and the handle
                     // knowing is pointless to inflict.
                     (gizmo::drag, gizmo::choose, place, turn_view, walk_view),
-                    // Then what is drawn from it.
+                    // Then what is drawn from it. The handle camera moves last,
+                    // after anything that could have moved the bench's eye.
                     (
                         gizmo::show,
-                        gizmo::light_arrows,
+                        gizmo::light_handles,
+                        gizmo::ride_along,
                         rebuild,
                         draw_ghost,
                         reference::show,
@@ -283,6 +303,22 @@ fn open(
         // Where the VIEW says, not a constant beside it. The two had drifted —
         // the camera opened at (7, 5, 9) while the view believed it was somewhere
         // else entirely, so the first orbit or zoom jumped the picture.
+        Transform::from_translation(View::default().eye()).looking_at(View::default().pivot, Vec3::Y),
+    ));
+    // And the handle camera: the same eye, drawing only the handle layer, after
+    // everything, onto a cleared depth buffer — so no piece can stand in front of
+    // its own arrows. The UI rides it too, being the highest-order camera, so the
+    // panel stays above the handles in turn.
+    commands.spawn((
+        OfBench,
+        HandleEye,
+        Camera3d::default(),
+        Camera {
+            order: 1,
+            clear_color: bevy::render::camera::ClearColorConfig::None,
+            ..default()
+        },
+        RenderLayers::layer(HANDLE_LAYER),
         Transform::from_translation(View::default().eye()).looking_at(View::default().pivot, Vec3::Y),
     ));
 

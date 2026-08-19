@@ -136,10 +136,39 @@ glam's — and every Bevy release carries its own glam. Bevy 0.16 has 0.29, Bevy
 compiler spends two dozen errors insisting `Vec2` is not `Vec2`. **Widen the
 upper bound when either program moves to a newer Bevy.**
 
-### The bench gizmo — read this before touching it
+### The bench gizmo — RESOLVED 2026-08-18, but read this before touching it
 
-Five rounds went into the move arrows and they are still not right. The failures
-are worth listing because four of them were the same mistake:
+The sixth attempt landed, and it was Opificium's structure (`src/gizmo.rs` in
+that repo — read as reference, taken as an approach, no code moved). Two changes:
+
+1. **The drawn handle IS the hit-tested handle.** `Handle` is a component on the
+   spawned entities; the hit test reads their `GlobalTransform`. There is no
+   second description of where a handle is for the first to disagree with.
+2. **Handles draw on their own layer through their own camera** (`HandleEye`,
+   order 1, `ClearColorConfig::None`, cleared depth), which rides the bench eye —
+   Opificium's `GizmoCamera`/`ride_along`. This answered the one unexplained
+   symptom: "the red arrow worked once then disappeared" was the arrow WORKING —
+   it stretched the wall to 3 m, and the wall's own body then swallowed the
+   0.95 m arrow. The hit test was never that fault, which is why five hit-test
+   fixes never touched it. `a_stretched_wall_swallows_its_own_move_arrow` pins
+   both the geometry and the fix.
+
+Also from Opificium: stretching moved off the red arrow onto **separate amber
+end-blocks stood off to one side** (their roof handles once overlapped on a
+shared line and stole each other's clicks — `the_two_kinds_of_handle_never_share_a_line`
+measures ours don't), and the grab tolerance is an **angle**, not metres, so it
+holds at every zoom. Pulling the near end walks the foot back so the far end —
+the one the maker is not holding — stays put.
+
+The test that could have caught all six rounds now exists:
+`pointing_at_a_handle_takes_hold_of_that_handle` stands up the real `show`
+system, lets real transform propagation place real entities, and hit-tests the
+positions they actually ended up at, from the bench's real opening eye. **Any
+change to the handles must keep that test honest** — it is the only kind that
+can see the drawn thing and the tested thing drift apart.
+
+Five rounds went into the arrows before this. The failures are worth keeping
+because four of them were the same mistake:
 
 1. clicking an arrow also placed a piece (`place` ran first)
 2. reaching for an arrow deselected the piece — a **deadlock**: the ground cursor
@@ -151,52 +180,24 @@ are worth listing because four of them were the same mistake:
    and the arrows sit on the piece the drag is moving
 5. still reported: the red arrow "worked once then disappeared"
 
-**The root cause of the class is two sources of truth for where an arrow is.**
-`gizmo::show` draws meshes at one place; `ray_against_axis` hit-tests an abstract
-line it believes matches. They can disagree, and every symptom above is a version
-of them disagreeing.
+**The root cause of the class was two sources of truth for where an arrow is.**
+`gizmo::show` drew meshes at one place; `ray_against_axis` hit-tested an abstract
+line it believed matched. They could disagree, and every symptom above was a
+version of them disagreeing. The rewrite deleted the second source rather than
+reconciling them, which is the same fix the water needed — see the lessons above.
 
-**The fix is to hit-test the entities that are actually drawn**, which is what
-Opificium's `ray_scan` in `src/builder/hand.rs` does: for each candidate it
-inverts the object's rotation, brings the ray into local space, and does a slab
-test against the box. Its `Hovered { grab: Option<Entity>, build: Option<Hit> }`
-is the shape to copy — the IDEA, not the code, which is wired into `Placed`,
-`PartKind` and `Slab` and would be a data-model rewrite to lift.
+Reading Opificium is allowed and encouraged — **the same organisation owns
+both**, so any argument against taking its code that rests on ownership is void.
+**Editing it is not allowed**, and a stray `cd` has already caused one accidental
+write to its `Cargo.toml` — check `pwd` before anything that writes.
 
-Do not port the file. Port the approach: spawn the arrows with their sizes,
-ray-vs-box each one in its own local space, and let the entity you hit BE the
-answer. Then there is nothing for a hit test to disagree with.
+## The handles are how a piece is RESIZED, and that is not optional
 
-**If that rewrite does not land, stop improvising.** The maker has said so
-directly: read *all* of Opificium's builder and take what is useful, wholesale —
-`src/gizmo.rs`, `src/builder/hand.rs`, and whatever they depend on — adapting it
-to this kit rather than inventing a sixth version. That is pre-authorised. Do not
-spend another five rounds on original attempts; the cost of those has already
-been paid once and it came out of an evening the maker wanted to spend on
-buildings.
-
-Reading Opificium is allowed and encouraged. **Editing it is not**, and a stray
-`cd` has already caused one accidental write to its `Cargo.toml` — check `pwd`
-before anything that writes.
-
-## The arrows are how a piece is RESIZED, and that is not optional
-
-I wrote in an earlier version of this file that they were a convenience for moving
-things. That is wrong, and the maker corrected it: **stretching is done by
-dragging the length arrow**, so a broken gizmo means the kit can only make
-buildings out of one-module pieces. It is on the critical path, not beside it.
-
-The rest of the bench does work — place, take away, turn, generate, save — so a
-building of unstretched parts can be made today. That is a smaller tool than the
-one that was designed.
-
-## Ownership is not a reason to avoid taking Opificium's code
-
-Also corrected by the maker: **the same organisation owns both.** Any argument for
-writing our own that rests on it being somebody else's code is void. The only
-honest arguments left are technical — how much of Opificium's data model comes
-with the part being taken — and after five failed attempts here, that argument has
-already lost once.
+**Stretching is done by pulling the amber end-blocks**, so broken handles mean
+the kit can only make buildings out of one-module pieces. They are on the
+critical path, not beside it. What still wants eyes: whether the amber blocks
+READ as "pull me longer", whether the hover/held brightening is visible at a
+glance, and whether drags feel smooth — behaviour is tested, feel is not.
 
 ## Still open in the tool
 
