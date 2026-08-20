@@ -88,26 +88,23 @@ walks it, checking the three things the screenshots kept disproving — the grou
 never jumps, there is always real rock overhead, and you come out the far side
 rather than on top.
 
-## The terrain tool points at things
+## The terrain tool looks with the mouse and reaches with ALT
 
-**The pointer is a pointer.** The panel is clickable, the brush aims wherever the
-pointer is aimed, and **ALT is the thing you hold to look around** — held, the
-pointer goes away and the mouse turns the view.
+**The mouse turns the view**, with no button and no modifier held — looking around
+is the thing a hand does most in a tool for shaping a landscape, and it costs
+nothing. **ALT frees the pointer** to click a row, and while it is held the brush
+holds still.
 
-It was the other way up: the cursor was captured for mouse-look and ALT let go of
-it so the panels could be reached, which made every row in the panel a thing you
-could only click while holding a modifier. That is not a menu, it is a keyboard
-tool with a picture of a menu beside it — asked for three times before the rule
-changed rather than the rows moving around again.
+This was tried the other way up for one build: pointer free by default, middle
+button held to look. It made the panel click without a modifier, which is what had
+been asked for — and it turned the most common action in the tool into a
+button-hold. That is a worse trade, and it was said plainly: *"using alt to move
+the camera is extremely annoying."* So the rule is back, and the lesson is that the
+complaint about clickable menus was never really about the menus.
 
-One rule for what a press means: **point at things to do them, hold ALT to look,
-and the two never overlap.** Nothing acts while the view is being turned (a hand
-swinging the camera is not a hand placing a building, and the aim sweeps across the
-country while it happens), and nothing acts when the pointer is over the shelf.
-
-That last one used to be asked as "is the cursor free", which was a workable proxy
-while free meant *reaching for a panel*. It means ordinary use now, so every guard
-had to start asking what it always meant: `aiming_at_the_world`.
+One name for the question every tool asks before acting — `aiming_at_the_world` —
+so they cannot drift into asking it differently: the crosshair is on the landscape
+and the maker is not reaching for a row.
 
 ## No key means two things
 

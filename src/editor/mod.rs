@@ -152,40 +152,26 @@ impl Brush {
     }
 }
 
-/// Whether the pointer is free to point at things — which, in this tool, it is
-/// unless somebody is deliberately looking around.
+/// Whether the maker is holding the cursor free to reach the panels.
 ///
-/// # A tool you point at things with
+/// Sculpting captures the cursor — it has to, because looking around is the thing a
+/// hand on the mouse does most in a tool for shaping a landscape, and it should cost
+/// nothing. So the mouse turns the view, and **ALT lets go**: the pointer comes
+/// back, the view stops turning, the panel can be clicked, and the brush stops
+/// painting until it is released.
 ///
-/// This was the other way up: the cursor was captured for mouse-look and ALT let
-/// go of it so the panels could be reached. Every row in the panel was therefore
-/// a thing you could only click while holding a modifier, which is not a menu —
-/// it is a keyboard tool with a picture of a menu beside it. Asked for three
-/// times, and each time I moved the rows around instead of the rule.
+/// # This was tried the other way up, and the other way up was worse
 ///
-/// So the tool points by default: the pointer is visible, the panel is clickable,
-/// and the brush aims wherever it is aimed.
+/// For one build the pointer was free by default and looking around wanted the
+/// middle button held. That made the panel click without a modifier, which is what
+/// had been asked for — and it made the single most common thing in the tool, just
+/// looking at the landscape, into a button-hold. A worse trade, said plainly:
+/// "using alt to move the camera is extremely annoying."
 ///
-/// # Looking around is the MIDDLE BUTTON, not a keyboard modifier
-///
-/// The pointer cannot both aim at a row and turn the view with the same bare
-/// motion, so one of the two has to be held down — and it should not be a key. The
-/// first attempt put looking on ALT, which meant reaching for the keyboard to do
-/// the most ordinary thing in the tool.
-///
-/// It is a mouse button, and the same one the workbench already orbits with:
-/// **hold the middle button and the mouse turns the view.** Nothing in this tool
-/// needs a modifier held to work now. ALT still does it too, for whoever has a
-/// two-button mouse, but nothing requires it.
-#[derive(Resource, Deref)]
+/// A modifier rather than a mode, because reaching for the map is a moment inside
+/// the work and not a change of what you are doing.
+#[derive(Resource, Default, Deref)]
 pub struct CursorFree(pub bool);
-
-impl Default for CursorFree {
-    fn default() -> Self {
-        // Pointing, not looking.
-        Self(true)
-    }
-}
 
 /// What the maker has picked up and is carrying about, if anything.
 ///
@@ -227,8 +213,16 @@ pub struct Asked(pub Act);
 /// So digging is not one of them. Pressing DIG takes the shovel up, dragging digs,
 /// and pressing it again puts the shovel down: the same rule the palette follows,
 /// one thing in hand at a time.
-#[derive(Resource, Default, Deref)]
-pub struct Digging(pub bool);
+#[derive(Resource, Default)]
+pub struct Digging {
+    /// Whether the shovel is up.
+    pub in_hand: bool,
+    /// The level THIS stroke is digging at, taken where the stroke began.
+    ///
+    /// See the note in `dig_out`: a floor re-read from the aim every frame is what
+    /// made a tunnel run along a mountainside instead of into it.
+    pub floor: Option<f32>,
+}
 
 /// What a press in the panel's ACTIONS does.
 ///
@@ -302,6 +296,7 @@ impl Act {
     }
 }
 
+
 /// Seconds of unsaved work, and whether leaving has already been questioned.
 #[derive(Resource, Default)]
 pub struct Keeping {
@@ -347,68 +342,46 @@ impl Plugin for EditorPlugin {
 }
 
 /// ALT frees the pointer for as long as it is held.
-/// Whether a click belongs to the world rather than to the panel.
+/// Whether the tool's aim belongs to the world rather than to the panel.
 ///
-/// # It used to ask the wrong question
-///
-/// Every tool here guarded on "is the pointer free", which was a workable PROXY
-/// while the pointer was captured except when reaching for a panel: free meant
-/// reaching. Now that the tool points by default, free means nothing of the sort —
-/// it means ordinary use — so the guards had to start asking what they always
-/// meant. Which is this: the pointer is somewhere over the world, and not over the
-/// shelf of rows on the left.
-pub fn aiming_at_the_world(
-    free: &CursorFree,
-    windows: &Query<&Window, With<bevy::window::PrimaryWindow>>,
-    panels: &Query<(&ComputedNode, &GlobalTransform), With<crate::tools::widget::Scrolls>>,
-) -> bool {
-    // Nothing acts while the view is being turned. A hand swinging the camera is
-    // not a hand placing a building, and the aim is sweeping across the country
-    // while it happens — so one rule rather than a different answer per tool:
-    // point at things to do them, hold the middle button to look, and the two
-    // never overlap.
-    if !free.0 {
-        return false;
-    }
-    !crate::tools::widget::pointer_on_a_panel(windows, panels)
+/// One name for the question every tool here has to ask, so they cannot drift into
+/// asking it differently: the crosshair is aimed at the landscape, and the maker is
+/// not reaching for a row.
+pub fn aiming_at_the_world(free: &CursorFree) -> bool {
+    !free.0
 }
 
-/// Takes hold of the view while the middle button — or ALT — is held.
-///
-/// Released, the pointer is a pointer. See [`CursorFree`] for why the resting
-/// state is pointing and why the hold is a mouse button rather than a key.
+/// ALT frees the pointer for as long as it is held.
 fn hold_to_reach(
     keys: Res<ButtonInput<KeyCode>>,
-    buttons: Res<ButtonInput<MouseButton>>,
     mut free: ResMut<CursorFree>,
     mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
 ) {
-    let looking = buttons.pressed(MouseButton::Middle)
-        || keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
-    if looking != free.0 {
+    let wanted = keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
+    if wanted == free.0 {
         return;
     }
-    free.0 = !looking;
+    free.0 = wanted;
 
     let Some(mut window) = windows.iter_mut().next() else {
         return;
     };
-    window.cursor_options.grab_mode = if looking {
-        bevy::window::CursorGrabMode::Confined
-    } else {
+    window.cursor_options.grab_mode = if wanted {
         bevy::window::CursorGrabMode::None
+    } else {
+        bevy::window::CursorGrabMode::Confined
     };
-    window.cursor_options.visible = !looking;
+    window.cursor_options.visible = wanted;
 }
 
 fn enter_editor(mut camera: ResMut<CameraMode>, mut free: ResMut<CursorFree>) {
     // Sculpting from the follow camera means aiming past your own warden at
     // whatever happens to be in front of them. Free-fly is what the tool wants.
     *camera = CameraMode::Fly;
-    // Pointing, not looking — nobody arrives holding the middle button. Left
-    // disagreeing with the window's own cursor state, `hold_to_reach`'s early-out
-    // would keep the two apart until the next press.
-    free.0 = true;
+    // And nobody arrives holding ALT. Left true from a previous visit, this would
+    // disagree with the freshly captured cursor and `hold_to_reach`'s early-out
+    // would keep the two apart until the next ALT press.
+    free.0 = false;
 }
 
 /// Marches the camera's view ray until it goes under the ground, then binary
@@ -488,44 +461,29 @@ fn raycast_terrain(terrain: &Terrain, origin: Vec3, direction: Vec3) -> Option<V
     None
 }
 
-/// Aims the brush: at the pointer when there is one, down the view otherwise.
+/// Aims the brush down the middle of the view.
 ///
-/// A tool you point things at has to paint where you are pointing. It used to aim
-/// straight down the middle of the screen always, which is right for a captured
-/// cursor and wrong the moment there is a cursor to aim with — the crosshair and
-/// the pointer would be in two different places, both claiming to be the brush.
+/// The crosshair IS the cursor here: the pointer is captured for looking around, so
+/// there is nothing else to aim with — and the crosshair the panel draws dead
+/// centre is telling the truth about where the brush will land.
 fn aim_brush(
     terrain: Res<TerrainSource>,
-    free: Res<CursorFree>,
     digging: Res<Digging>,
-    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
+    cameras: Query<&GlobalTransform, With<MainCamera>>,
     mut brush: ResMut<Brush>,
 ) {
-    let Some((camera, eye)) = cameras.iter().next() else {
+    let Some(eye) = cameras.iter().next() else {
         return;
     };
-
-    // Where the pointer is, if it is a pointer. Looking around, there is nothing
-    // to aim with and the middle of the view is the honest answer.
-    let ray = free
-        .0
-        .then(|| windows.iter().next().and_then(Window::cursor_position))
-        .flatten()
-        .and_then(|at| camera.viewport_to_world(eye, at).ok());
-
-    // The shovel aims through what it has already dug; everything else aims at
-    // the surface. One brush.hit either way, so the ring on the ground and the
-    // stroke that follows can never land in two different places.
-    let march: fn(&Terrain, Vec3, Vec3) -> Option<Vec3> = if digging.0 {
+    // The shovel aims through what it has already dug; everything else aims at the
+    // surface. One `brush.hit` either way, so the ring on the ground and the stroke
+    // that follows can never land in two different places.
+    let march: fn(&Terrain, Vec3, Vec3) -> Option<Vec3> = if digging.in_hand {
         raycast_dig
     } else {
         raycast_terrain
     };
-    brush.hit = match ray {
-        Some(ray) => march(&terrain.0, ray.origin, *ray.direction),
-        None => march(&terrain.0, eye.translation(), eye.forward().as_vec3()),
-    };
+    brush.hit = march(&terrain.0, eye.translation(), eye.forward().as_vec3());
 }
 
 /// Which key selects each tool, in the order [`Brushing::ALL`] lists them.
@@ -584,7 +542,13 @@ fn adjust_brush(
     let notches = crate::util::wheel_notches(&scroll);
     // The wheel over the shelf is the shelf's scroll and must not also resize the
     // brush behind it.
-    if notches != 0.0 && aiming_at_the_world(&free, &windows, &panels) {
+    // With ALT held and the pointer on the panel, the wheel is the panel's scroll
+    // and must not also resize the brush behind it. Only then: while sculpting the
+    // cursor is hidden but still MOVES with the mouse, so a bare over-panel test
+    // would silently kill brush-resize whenever the invisible pointer happened to
+    // be resting there.
+    let reaching = free.0 && crate::tools::widget::pointer_on_a_panel(&windows, &panels);
+    if notches != 0.0 && !reaching {
         brush.radius = (brush.radius * RADIUS_STEP.powf(notches)).clamp(MIN_RADIUS, MAX_RADIUS);
     }
 
@@ -632,12 +596,12 @@ fn paint(
     mut brush: ResMut<Brush>,
 ) {
     // A click on the shelf is for the shelf, not for the ground behind it.
-    if !aiming_at_the_world(&free, &windows, &panels) {
+    if !aiming_at_the_world(&free) {
         return;
     }
     // And a drag with the shovel in hand is digging, not sculpting: one thing in
     // hand at a time.
-    if digging.0 {
+    if digging.in_hand {
         return;
     }
     // Laid between two clicked points, not dragged. `lay_ramp` has it.
@@ -866,7 +830,7 @@ fn lay_ramp(
     mut brush: ResMut<Brush>,
     mut toast: ResMut<ui::Toast>,
 ) {
-    if !aiming_at_the_world(&free, &windows, &panels) || !brush.how.is_two_point() {
+    if !aiming_at_the_world(&free) || !brush.how.is_two_point() {
         return;
     }
 
@@ -1443,7 +1407,7 @@ fn place_things(
             pressed.push(Act::Remove);
         }
     }
-    if !aiming_at_the_world(&free, &windows, &panels) {
+    if !aiming_at_the_world(&free) {
         return;
     }
     let Some(hit) = brush.hit else {
@@ -1637,7 +1601,7 @@ mod tests {
     }
 
     #[test]
-    fn turning_holds_still_while_the_view_is_being_turned() {
+    fn turning_holds_still_while_the_pointer_is_free() {
         // `CursorFree` used to mean "reaching for a panel", so everything guarded
         // on it and this test asserted that nothing acted while it was set. It
         // means the opposite now — pointing, which is the tool's resting state —
@@ -1650,20 +1614,17 @@ mod tests {
             .resource_mut::<Standing>()
             .add("cottage", Vec2::new(10.0, -4.0), 0.0, 1.0);
 
-        app.world_mut().resource_mut::<CursorFree>().0 = false;
-        press(&mut app, &[KeyCode::KeyR]);
-        assert_eq!(
-            facing(&app, id),
-            0.0,
-            "it turned while the view was being turned"
-        );
-
-        // And with the pointer back, it turns.
+        // ALT held: the pointer is out reaching for a row, not aimed at the world.
         app.world_mut().resource_mut::<CursorFree>().0 = true;
+        press(&mut app, &[KeyCode::KeyR]);
+        assert_eq!(facing(&app, id), 0.0, "it turned while reaching for a row");
+
+        // Released, the crosshair is the aim again and it turns.
+        app.world_mut().resource_mut::<CursorFree>().0 = false;
         press(&mut app, &[KeyCode::KeyR]);
         assert!(
             facing(&app, id) != 0.0,
-            "it would not turn with the pointer aimed at it"
+            "it would not turn with the crosshair on it"
         );
     }
 }
@@ -1872,19 +1833,18 @@ mod carrying {
         press(&mut app, &[KeyCode::KeyG]);
         assert_eq!(app.world().resource::<Carrying>().0, None);
 
-        // And while ALT has hold of the view, nothing acts: a hand swinging the
-        // camera is not a hand picking things up.
+        // And with ALT held — the pointer out reaching for a row — G holds still.
         aim(&mut app, Vec2::new(10.0, -4.0));
-        app.world_mut().resource_mut::<CursorFree>().0 = false;
+        app.world_mut().resource_mut::<CursorFree>().0 = true;
         press(&mut app, &[KeyCode::KeyG]);
         assert_eq!(
             app.world().resource::<Carrying>().0,
             None,
-            "G fired while the view was being turned"
+            "G fired while reaching for a row"
         );
 
-        // Pointer back, and it picks up.
-        app.world_mut().resource_mut::<CursorFree>().0 = true;
+        // Released, and it picks up.
+        app.world_mut().resource_mut::<CursorFree>().0 = false;
         press(&mut app, &[KeyCode::KeyG]);
         assert!(
             app.world().resource::<Carrying>().0.is_some(),
@@ -2027,17 +1987,22 @@ pub fn dig_tunnels(
         .any(|ask| matches!(ask.0, Act::Bore | Act::Unbore))
         || keys.just_pressed(Act::Bore.key());
     if by_press {
-        digging.0 = !digging.0;
-        toast.show(if digging.0 {
+        digging.in_hand = !digging.in_hand;
+        toast.show(if digging.in_hand {
             "Shovel in hand - drag to dig, Shift to fill in"
         } else {
             "Shovel down"
         });
     }
-    if !digging.0 || !buttons.pressed(MouseButton::Left) {
+    // The stroke's own level is forgotten the moment the button comes up, so the
+    // next stroke may be dug at a different height.
+    if !buttons.pressed(MouseButton::Left) {
+        digging.floor = None;
+    }
+    if !digging.in_hand || !buttons.pressed(MouseButton::Left) {
         return;
     }
-    if !aiming_at_the_world(&free, &windows, &panels) {
+    if !aiming_at_the_world(&free) {
         return;
     }
     let Some(hit) = brush.hit else {
@@ -2046,12 +2011,33 @@ pub fn dig_tunnels(
     let at = Vec2::new(hit.x, hit.z);
     let filling = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
 
-    // The world's own floor, said rather than clamped silently: somebody digging
-    // downward deserves to be told where the bottom is.
-    if !filling && hit.y < crate::world::dug::DEEPEST {
-        toast.show("That is as deep as the world goes");
-        return;
-    }
+    // # The floor is set ONCE, where the stroke began
+    //
+    // It used to be read from the aim every frame, and that is exactly why a
+    // tunnel could only run ALONG a mountainside instead of into it. Driving in
+    // from outside, the aim is a ray against the SURFACE — so dragging the
+    // crosshair up a mountain face fed a floor that climbed with the slope. Every
+    // cell ahead of the stroke was fresh ground taking that risen floor, and the
+    // deeper-wins rule could not help because it only guards cells already dug.
+    // The passage followed the hill up and never got under it.
+    //
+    // A tunneller sets the invert level at the portal and drives forward from it.
+    // So does this: press at the height you want the floor, then drag into the
+    // face, and what grows is the rock over your head.
+    let level = match digging.floor {
+        Some(level) => level,
+        None => {
+            if !filling && hit.y < crate::world::dug::DEEPEST {
+                toast.show("That is as deep as the world goes");
+                return;
+            }
+            if !filling {
+                digging.floor = Some(hit.y);
+                toast.show(format!("Digging level at {:.0} m", hit.y));
+            }
+            hit.y
+        }
+    };
 
     let moved = {
         let Ok(mut dug) = terrain.0.dug().write() else {
@@ -2061,7 +2047,7 @@ pub fn dig_tunnels(
         if filling {
             dug.fill(at, radius)
         } else {
-            dug.dig(at, radius, hit.y)
+            dug.dig(at, radius, level)
         }
     };
     // The SURFACE changes too, wherever the stroke opened a doorway — so the
@@ -2126,6 +2112,26 @@ mod digging {
         board.clear();
     }
 
+    /// One frame of a stroke that stays down, so a drag can be several frames with
+    /// the aim moving between them — which is the whole thing the stroke's held
+    /// level exists for.
+    fn hold(app: &mut App) {
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+    }
+
+    fn release(app: &mut App) {
+        {
+            let mut mouse = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+            mouse.release(MouseButton::Left);
+            mouse.clear();
+        }
+        // One frame with the button up, so the stroke's level is forgotten.
+        app.update();
+    }
+
     fn floor(app: &App, at: Vec2) -> Option<f32> {
         app.world()
             .resource::<TerrainSource>()
@@ -2149,35 +2155,53 @@ mod digging {
         assert_eq!(floor(&app, at), None, "a drag dug with the shovel down");
 
         press_row(&mut app);
-        assert!(app.world().resource::<Digging>().0, "the row did not take the shovel up");
+        assert!(app.world().resource::<Digging>().in_hand, "the row did not take the shovel up");
         drag(&mut app, &[]);
         assert!(floor(&app, at).is_some(), "a drag with the shovel up dug nothing");
 
         press_row(&mut app);
-        assert!(!app.world().resource::<Digging>().0, "the row would not put it down");
+        assert!(!app.world().resource::<Digging>().in_hand, "the row would not put it down");
     }
 
     #[test]
-    fn a_drag_lays_the_floor_where_the_pointer_was_aimed() {
-        // Choice (a): the floor follows the aim, so aiming lower as you go slopes
-        // the passage — which is also what lets a maker branch one passage off
-        // another at a different level.
+    fn each_stroke_lays_its_own_level_and_holds_it() {
+        // Choice (a), as it turned out to have to work. The floor is the aim where
+        // the STROKE began, and it holds for that stroke — because the aim is a ray
+        // against the surface, and dragging into a mountain face feeds a height
+        // that climbs with the slope. Held, the passage drives level into the hill;
+        // re-read every frame it ran along the hillside instead, which is exactly
+        // what was reported.
+        //
+        // Separate strokes still choose separate levels, which is what lets a maker
+        // branch one passage off another at a different height.
         let mut app = digging_app();
         press_row(&mut app);
 
-        let high = Vec2::new(200.0, 0.0);
-        let low = Vec2::new(240.0, 0.0);
-        aim(&mut app, high, 50.0);
-        drag(&mut app, &[]);
-        aim(&mut app, low, 44.0);
-        drag(&mut app, &[]);
+        let mouth = Vec2::new(200.0, 0.0);
+        let inward = Vec2::new(240.0, 0.0);
 
-        let (a, b) = (floor(&app, high).expect("dug"), floor(&app, low).expect("dug"));
+        // One stroke: press at 50, drag on while the aim climbs to 62 the way a
+        // mountain face would carry it.
+        aim(&mut app, mouth, 50.0);
+        hold(&mut app);
+        aim(&mut app, inward, 62.0);
+        hold(&mut app);
+        release(&mut app);
+
+        let (a, b) = (floor(&app, mouth).expect("dug"), floor(&app, inward).expect("dug"));
         assert!(
-            (a - 50.0).abs() < 0.6 && (b - 44.0).abs() < 0.6,
-            "the floors came out at {a:.1} and {b:.1}, not where the aim was"
+            (a - 50.0).abs() < 0.6 && (b - 50.0).abs() < 0.6,
+            "the stroke's floor drifted from {a:.1} to {b:.1} — it followed the aim"
         );
-        assert!(a > b + 4.0, "the passage did not slope with the aim");
+
+        // A second stroke, aimed lower, digs lower.
+        let below = Vec2::new(280.0, 0.0);
+        aim(&mut app, below, 44.0);
+        hold(&mut app);
+        release(&mut app);
+        let c = floor(&app, below).expect("dug");
+        assert!((c - 44.0).abs() < 0.6, "the second stroke came out at {c:.1}");
+        assert!(a > c + 4.0, "two strokes could not choose two levels");
     }
 
     #[test]
@@ -2215,10 +2239,11 @@ mod digging {
         // showing behind it.
         let mut app = digging_app();
         press_row(&mut app);
-        app.world_mut().resource_mut::<CursorFree>().0 = false;
+        // ALT held: the pointer is off the world and reaching for a row.
+        app.world_mut().resource_mut::<CursorFree>().0 = true;
         let at = Vec2::new(300.0, 300.0);
         aim(&mut app, at, 40.0);
         drag(&mut app, &[]);
-        assert_eq!(floor(&app, at), None, "digging happened while the view was being turned");
+        assert_eq!(floor(&app, at), None, "digging happened while reaching for a row");
     }
 }
