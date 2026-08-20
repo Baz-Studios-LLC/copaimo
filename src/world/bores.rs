@@ -22,17 +22,27 @@
 //! tent pitched on the ground; bore out over water and it is a sliver hanging in
 //! the air. Both were photographed within a minute of the tool existing.
 //!
-//! So a bore leaves the ground alone. What it does is:
+//! So a bore leaves the ground alone — **all** of it. What it does is build the
+//! **tube**: a floor and an arched ceiling, mouth to mouth, seen from inside, under
+//! ground that keeps its trees, its snow and its shading because nothing carved it.
 //!
-//! * carve a short **cutting at each mouth**, where the hill it goes through holds
-//!   only a few metres over the tunnel's crown, so a walker has somewhere to walk
-//!   in from and the dark of the tube shows.
-//! * build the **tube** — floor and arched ceiling, mouth to mouth, seen from
-//!   inside — under ground that keeps its trees, its snow and its shading, because
-//!   nothing carved it.
+//! # Nothing is carved, and the mouths still come out flush
 //!
-//! The mouths place themselves: they are wherever the rock overhead runs thin. Move
-//! the hill and a bore's doorways move with it.
+//! The build before this carved a short cutting at each mouth so there was
+//! somewhere to walk in from. The extent of that carve was decided by how thinly
+//! the hill held the tunnel — which on a gentle slope is hundreds of metres, so
+//! boring through a low rise gouged a valley across the whole hillside. It was
+//! photographed within a minute, again.
+//!
+//! It was never needed. A bore's mouths are put at the ground's own height (see
+//! [`Bore::aimed`]) and its floor is the straight line between them, so **at both
+//! ends the floor already meets the surface** — the tube opens onto the hillside
+//! flush, with nothing to cut away. Everywhere between, the floor is under the hill
+//! and the hill is untouched.
+//!
+//! If a maker wants a mouth widened into a proper portal, the ground brushes are
+//! right there and always were. A tool that gouges a valley nobody asked for to
+//! save a maker two strokes of LOWER is not a saving.
 //!
 //! # A bore needs something to bore through
 //!
@@ -70,19 +80,12 @@ pub struct Bore {
 pub const WIDE: f32 = 5.5;
 pub const HIGH: f32 = 7.0;
 
-/// How wide the CUTTINGS at the mouths are carved, and how far past that the
-/// ground climbs back to what it was.
+/// The shortest tunnel worth making, in metres.
 ///
-/// Wider than the tube, so the walls of a cutting stand outside the tunnel's own
-/// walls and a walker steps between them rather than into them.
+/// Two presses in nearly the same place is a slip, not a tunnel — and it is also
+/// the reach used to decide which bore a FILL IN press means, since a tunnel is
+/// picked by pointing near it.
 pub const SPAN: f32 = 10.0;
-const SHOULDER: f32 = 4.0;
-
-/// The most rock a cutting will slice through before the tube takes over.
-///
-/// Above this the ground is left completely alone: that is what keeps a hill's
-/// skin on it, and what stops a bore reading as a trench.
-const MOUTH_TALL: f32 = HIGH * 2.4;
 
 /// How far above a floor still counts as being IN the tunnel — see
 /// [`Bores::walk_floor`].
@@ -114,6 +117,15 @@ impl Bore {
         (away.dot(along) / length, away.dot(Vec2::new(-along.y, along.x)))
     }
 
+    /// How far this bore moves the ground at a point: never, and by nothing.
+    ///
+    /// A method rather than a comment because it is a CLAIM — that boring a tunnel
+    /// leaves the surface exactly as it found it — and a claim is a thing a test can
+    /// hold onto. Two builds in a row carved something here and both were wrong.
+    pub fn cut_nothing(&self, _at: Vec2) -> f32 {
+        0.0
+    }
+
     /// How long this bore is, in metres.
     pub fn length(&self) -> f32 {
         self.from.distance(self.to)
@@ -122,17 +134,6 @@ impl Bore {
     /// The floor's height at a point along the bore.
     fn floor_at(&self, t: f32) -> f32 {
         self.floor_from + (self.floor_to - self.floor_from) * t.clamp(0.0, 1.0)
-    }
-
-    /// How much of the corridor a point is: 1 in it, 0 outside. Nothing beyond the
-    /// mouths — a bore is a hole through something, not a trench running off across
-    /// the country at either end.
-    fn share(&self, at: Vec2) -> f32 {
-        let (t, across) = self.local(at);
-        if !(0.0..=1.0).contains(&t) {
-            return 0.0;
-        }
-        crate::util::smoothstep(SPAN + SHOULDER, SPAN, across.abs())
     }
 
     /// How much rock stands over the tunnel at a point, in metres.
@@ -145,41 +146,20 @@ impl Bore {
         ground - self.floor_at(t)
     }
 
-    /// How much of a CUTTING a point is: 1 where the mouth is carved open, 0 under
-    /// the hill and 0 outside the corridor.
-    fn cutting(&self, at: Vec2, ground: f32) -> f32 {
-        let over = self.overhead(at, ground);
-        self.share(at) * crate::util::smoothstep(MOUTH_TALL, HIGH * 0.5, over)
-    }
-
-    /// How far this bore cuts the ground down at a point, in metres.
-    ///
-    /// Only in the cuttings, and only ever DOWN. Under the hill the ground is left
-    /// exactly as it was, which is what keeps its trees and its snow on it.
-    pub fn cut(&self, at: Vec2, ground: f32) -> f32 {
-        let carve = self.cutting(at, ground);
-        if carve <= 0.0 {
-            return 0.0;
-        }
-        self.overhead(at, ground).max(0.0) * carve
-    }
-
-    /// Whether a point is in a cutting — carved ground, painted stone, nothing
-    /// growing on it.
-    ///
-    /// NOT the corridor under the hill: that is ordinary hillside and grows what a
-    /// hillside grows, because nothing touched it.
-    pub fn under_rock(&self, at: Vec2, ground: f32) -> f32 {
-        self.cutting(at, ground)
-    }
 
     /// The tunnel floor under a point, if that point is inside the tube with real
     /// rock overhead.
     pub fn floor(&self, at: Vec2, ground: f32) -> Option<f32> {
         let (t, across) = self.local(at);
+        // From the mouth INWARD, not from wherever the rock happens to be a full
+        // arch deep. This wanted `HIGH` of rock overhead before the floor would
+        // claim a walker, so entering meant climbing the hillside until the rock
+        // was deep enough and then dropping in — a 6.8 m fall, which the walk test
+        // caught by measuring the step. A tunnel takes your feet the moment you
+        // are in it.
         ((0.0..=1.0).contains(&t)
             && across.abs() < WIDE
-            && self.overhead(at, ground) > HIGH)
+            && self.overhead(at, ground) > FLOOR_LIFT * 2.0)
             .then(|| self.floor_at(t) + FLOOR_LIFT)
     }
 
@@ -403,26 +383,6 @@ impl Bores {
         self.list.is_empty()
     }
 
-    /// How far every bore together cuts the ground down here.
-    ///
-    /// The DEEPEST of them rather than the sum: two mouths meeting make one
-    /// opening, not a hole twice as deep.
-    pub fn cut(&self, at: Vec2, ground: f32) -> f32 {
-        self.list
-            .iter()
-            .map(|bore| bore.cut(at, ground))
-            .fold(0.0_f32, f32::max)
-    }
-
-    /// Whether this point is in any bore's cutting — carved ground, painted stone,
-    /// nothing growing on it.
-    pub fn under_rock(&self, at: Vec2, ground: f32) -> f32 {
-        self.list
-            .iter()
-            .map(|bore| bore.under_rock(at, ground))
-            .fold(0.0_f32, f32::max)
-    }
-
     /// The height a walker's feet belong at, or `None` if no tunnel claims them.
     ///
     /// # The one place this world has two grounds
@@ -636,40 +596,44 @@ mod tests {
     }
 
     #[test]
-    fn the_hill_keeps_its_skin_and_only_the_mouths_are_carved() {
-        // The fault this replaced: the whole corridor was carved and the rock over
-        // it left standing as a mesh, so a bore through a small rise came out as a
-        // black tent pitched on open ground. The hill is untouched now except at
-        // the two mouths.
+    fn boring_a_tunnel_does_not_move_one_grain_of_earth() {
+        // Two faults in a row, and this is the second one's test.
+        //
+        // The first build carved the whole corridor and left the rock above it as a
+        // mesh, so a bore through a small rise was a black tent on open ground. The
+        // fix carved only short cuttings at the mouths — and the extent of THAT was
+        // decided by how thinly the hill held the tunnel, which on a gentle slope
+        // is hundreds of metres, so it gouged a valley across the hillside.
+        //
+        // Nothing is carved at all now, and the mouths still come out flush, because
+        // they sit at the ground's own height and the floor is the line between
+        // them. Measured across the whole bore and well past both ends: the surface
+        // a bore leaves behind is the surface it found.
         let bore = through_the_hill();
-
-        // Deep under the hill: not one metre carved, and nothing told to stop
-        // growing — that ground is ordinary hillside.
-        let middle = Vec2::ZERO;
-        assert_eq!(
-            bore.cut(middle, hill(middle)),
-            0.0,
-            "the ground over the tunnel was carved"
-        );
-        assert!(
-            bore.under_rock(middle, hill(middle)) < 0.01,
-            "the hillside over the tunnel reads as a cutting"
-        );
-
-        // Somewhere out where the hill thins, there IS a cutting, and it carves
-        // down toward the floor.
-        let mut cut_somewhere = false;
-        for step in 0..=100 {
-            let at = Vec2::new(-140.0 + step as f32 * 1.4, 0.0);
-            if bore.cut(at, hill(at)) > 1.0 {
-                cut_somewhere = true;
+        let reach = bore.length();
+        for step in -60..=160 {
+            let t = step as f32 / 100.0;
+            for side in [-1.0_f32, 0.0, 1.0] {
+                let at = bore.from.lerp(bore.to, t) + Vec2::new(0.0, side * WIDE * 1.5);
+                assert_eq!(
+                    bore.cut_nothing(at),
+                    0.0,
+                    "the ground moved {:.1} m along and {:.1} m aside",
+                    t * reach,
+                    side * WIDE * 1.5
+                );
             }
         }
-        assert!(cut_somewhere, "neither mouth was carved open");
 
-        // And beside the corridor, nothing at all.
-        let beside = Vec2::new(0.0, SPAN + SHOULDER + 5.0);
-        assert_eq!(bore.cut(beside, hill(beside)), 0.0, "the hill was cut beside the bore");
+        // And the mouths ARE flush: at each end the tunnel's floor is the ground,
+        // so there is nothing to cut away to walk in.
+        for (mouth, floor) in [(bore.from, bore.floor_from), (bore.to, bore.floor_to)] {
+            assert!(
+                (hill(mouth) - floor).abs() < 0.01,
+                "a mouth sits {:.2} m off the ground it opens onto",
+                hill(mouth) - floor
+            );
+        }
     }
 
     #[test]

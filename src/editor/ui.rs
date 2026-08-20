@@ -296,7 +296,7 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
                 ("RMB", "invert brush"),
                 ("Wheel", "brush radius"),
                 ("[ ]", "brush strength"),
-                ("Alt", "hold to look around"),
+                ("Mid", "hold to look around"),
                 ("Q E", "fly down / up"),
                 ("- =", "fly speed"),
                 ("Ctrl Z", "undo / Ctrl Y redo"),

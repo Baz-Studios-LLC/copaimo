@@ -164,9 +164,19 @@ impl Brush {
 /// times, and each time I moved the rows around instead of the rule.
 ///
 /// So the tool points by default: the pointer is visible, the panel is clickable,
-/// and the brush aims wherever it is aimed. **ALT is now the one that looks
-/// around** — held, the pointer goes away and the mouse turns the view, which is
-/// the moment inside the work rather than the resting state of it.
+/// and the brush aims wherever it is aimed.
+///
+/// # Looking around is the MIDDLE BUTTON, not a keyboard modifier
+///
+/// The pointer cannot both aim at a row and turn the view with the same bare
+/// motion, so one of the two has to be held down — and it should not be a key. The
+/// first attempt put looking on ALT, which meant reaching for the keyboard to do
+/// the most ordinary thing in the tool.
+///
+/// It is a mouse button, and the same one the workbench already orbits with:
+/// **hold the middle button and the mouse turns the view.** Nothing in this tool
+/// needs a modifier held to work now. ALT still does it too, for whoever has a
+/// two-button mouse, but nothing requires it.
 #[derive(Resource, Deref)]
 pub struct CursorFree(pub bool);
 
@@ -349,26 +359,29 @@ pub fn aiming_at_the_world(
     windows: &Query<&Window, With<bevy::window::PrimaryWindow>>,
     panels: &Query<(&ComputedNode, &GlobalTransform), With<crate::tools::widget::Scrolls>>,
 ) -> bool {
-    // Nothing acts while ALT has hold of the view. A hand swinging the camera is
+    // Nothing acts while the view is being turned. A hand swinging the camera is
     // not a hand placing a building, and the aim is sweeping across the country
     // while it happens — so one rule rather than a different answer per tool:
-    // point at things to do them, hold ALT to look, and the two never overlap.
+    // point at things to do them, hold the middle button to look, and the two
+    // never overlap.
     if !free.0 {
         return false;
     }
     !crate::tools::widget::pointer_on_a_panel(windows, panels)
 }
 
-/// ALT takes hold of the view for as long as it is held.
+/// Takes hold of the view while the middle button — or ALT — is held.
 ///
-/// The inverse of what this used to do — see [`CursorFree`]. Released, the pointer
-/// is a pointer.
+/// Released, the pointer is a pointer. See [`CursorFree`] for why the resting
+/// state is pointing and why the hold is a mouse button rather than a key.
 fn hold_to_reach(
     keys: Res<ButtonInput<KeyCode>>,
+    buttons: Res<ButtonInput<MouseButton>>,
     mut free: ResMut<CursorFree>,
     mut windows: Query<&mut Window, With<bevy::window::PrimaryWindow>>,
 ) {
-    let looking = keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
+    let looking = buttons.pressed(MouseButton::Middle)
+        || keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
     if looking != free.0 {
         return;
     }
@@ -389,9 +402,9 @@ fn enter_editor(mut camera: ResMut<CameraMode>, mut free: ResMut<CursorFree>) {
     // Sculpting from the follow camera means aiming past your own warden at
     // whatever happens to be in front of them. Free-fly is what the tool wants.
     *camera = CameraMode::Fly;
-    // Pointing, not looking — nobody arrives holding ALT. Left disagreeing with
-    // the window's own cursor state, `hold_to_reach`'s early-out would keep the
-    // two apart until the next ALT press.
+    // Pointing, not looking — nobody arrives holding the middle button. Left
+    // disagreeing with the window's own cursor state, `hold_to_reach`'s early-out
+    // would keep the two apart until the next press.
     free.0 = true;
 }
 

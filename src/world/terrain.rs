@@ -432,8 +432,7 @@ impl Terrain {
             // rather than taking the game down with it.
             Err(_) => generated,
         };
-        // Tunnels last, because a hole is a hole through whatever is there.
-        self.bored(x, z, shaped)
+        shaped
     }
 
     /// Ground height from the generator alone, with the edit layer excluded.
@@ -933,39 +932,20 @@ impl Terrain {
             + crate::world::pass::lift(Vec2::new(x, z))
     }
 
-    /// The ground with the mountain pass taken back off it.
+    /// The ground a bore is measured against — which is simply the ground.
     ///
-    /// What the world would be if the pass had never been raised — which is what
-    /// the rock above the bore is built against, because the plug's own thickness
-    /// is the difference between the two. See [`crate::world::pass`].
-    pub fn without_the_pass(&self, x: f32, z: f32) -> f32 {
-        self.height(x, z) - crate::world::pass::lift(Vec2::new(x, z))
-    }
-
-    /// The ground with every bored tunnel cut out of it.
+    /// **Boring a tunnel does not change the surface at all.** It used to carve a
+    /// cutting at each mouth, and the size of that carve was decided by how thinly
+    /// the hill held the tunnel, so a bore through a gentle rise gouged a valley
+    /// across the hillside. Nothing is carved now: a bore's mouths sit at the
+    /// ground's own height, so the tube comes out flush without help, and widening
+    /// one into a portal is what the ground brushes are for.
     ///
-    /// The last word on height, and it has to be: a tunnel is a hole through
-    /// whatever is there, so it cuts everything above it — the generated land, the
-    /// pass's own mountain, and anything a maker has sculpted on top.
-    fn bored(&self, x: f32, z: f32, ground: f32) -> f32 {
-        match self.bores.read() {
-            Ok(bores) if !bores.is_empty() => ground - bores.cut(Vec2::new(x, z), ground),
-            // A poisoned lock means a tool panicked mid-stroke. The world without
-            // its tunnels is still a world, so it keeps being drawn.
-            _ => ground,
-        }
-    }
-
-    /// The ground as it was BEFORE the tunnels were cut.
-    ///
-    /// What the rock over a bore is built against, since the rock is exactly the
-    /// ground the bore removed.
+    /// Kept as its own name because what it MEANS is "the hill the tunnel goes
+    /// through", and the day something wants a bore to move earth again this is the
+    /// question it will ask.
     pub fn unbored(&self, x: f32, z: f32) -> f32 {
-        let generated = self.base_height(x, z);
-        match self.edits.read() {
-            Ok(edits) => generated + edits.at(x, z),
-            Err(_) => generated,
-        }
+        self.height(x, z)
     }
 
     /// The height a walker's feet belong at.
@@ -983,19 +963,14 @@ impl Terrain {
         }
     }
 
-    /// Whether this ground is a bore's CUTTING — carved open at a mouth, painted
-    /// stone, nothing growing on it.
+    /// Whether this ground is a bore's cutting.
     ///
-    /// The one place the question is asked, so the colour, the grass, the litter and
-    /// the trees all get the same answer. Under a tunnel's own length this is nought:
-    /// that ground is ordinary hillside and nothing touched it.
-    pub fn in_a_cutting(&self, x: f32, z: f32) -> f32 {
-        match self.bores.read() {
-            Ok(bores) if !bores.is_empty() => {
-                bores.under_rock(Vec2::new(x, z), self.unbored(x, z))
-            }
-            _ => 0.0,
-        }
+    /// Never, now — a bore carves nothing, so no ground anywhere is a cutting. Kept
+    /// as the one place the question is asked, because the colour, the grass, the
+    /// litter and the trees all read it and they must not start disagreeing if
+    /// tunnels ever move earth again.
+    pub fn in_a_cutting(&self, _x: f32, _z: f32) -> f32 {
+        0.0
     }
 
     /// The tunnels, for the tool and for saving.
