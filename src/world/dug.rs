@@ -2066,5 +2066,31 @@ mod entrances {
             );
         }
         assert!(!clusters.is_empty(), "no doorway was built anywhere");
+
+        // The question that matters: does the stone stand in OPEN AIR, or is it
+        // buried in the hill? `height` is the surface as rendered, carve and all —
+        // stone above it is stone a maker can see. Four reports of "no entrance"
+        // were all this: something real, and under the ground.
+        let mut in_air = 0;
+        let mut buried = 0;
+        let mut tallest = 0.0_f32;
+        for place in &mesh.places[hewn..] {
+            let surface = terrain.height(place[0], place[2]);
+            if place[1] > surface + 0.05 {
+                in_air += 1;
+                tallest = tallest.max(place[1] - surface);
+            } else {
+                buried += 1;
+            }
+        }
+        println!(
+            "dressed stone: {in_air} vertices in open air, {buried} buried; \
+             the highest stands {tallest:.1} m clear of the ground"
+        );
+        assert!(
+            tallest > 3.0,
+            "the tallest stone stands {tallest:.1} m out of the ground — \
+             that is not something anybody will spot from the air"
+        );
     }
 }
