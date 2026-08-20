@@ -81,7 +81,7 @@ const LID: f32 = 0.3;
 /// all, since at a mouth both surfaces are at the same height.
 pub const HEADROOM: f32 = HIGH * 1.4;
 
-/// How far below the surface a dug floor opens a DOORWAY in it.
+/// How much rock over a dug floor is too little to keep, in metres.
 ///
 /// # The one place digging touches the surface, and why it must
 ///
@@ -90,13 +90,21 @@ pub const HEADROOM: f32 = HIGH * 1.4;
 /// mouth, so a maker dug a void nobody could see into and the walk rule carried
 /// them through the drawn ground like a ghost. A hole has to BE a hole somewhere.
 ///
-/// So exactly where the void breaks the hill's face — a dug floor within a
-/// doorway's height of the surface — the surface opens down to the floor. Deeper
-/// in, where the rock over the floor is taller than a doorway, the hill is sealed
-/// and untouched exactly as before. On open flat ground the floor IS the surface,
-/// so nothing changes at all — the trench of the last build stays dead, because
-/// this keys off cells somebody actually dug, not off a corridor's geometry.
-pub const DOORWAY: f32 = HIGH;
+/// So where less than this much ground is left over a dug floor, the surface
+/// opens down to the floor — the mouth of a passage, and the honest answer for a
+/// scrape dug under shallow soil, which is a cutting open to the sky. Where MORE
+/// than this stands over the floor, the hill is sealed and untouched.
+///
+/// # Small, and the size is the lesson
+///
+/// This began as the full arch height with a soft band above it — "open the
+/// surface wherever the roof would be thinner than a doorway" — which is eight
+/// metres of cover gone. On a mountainside that is a mouth; on rolling grass it
+/// is everywhere, and one test drag strip-mined a field into grey terraces. A
+/// roof worth keeping starts at about head height: below this there is no tunnel
+/// to be in, above it there is, and the vault mesh handles every roof from here
+/// up because it clamps itself under the surface.
+pub const DOORWAY: f32 = 2.8;
 
 /// Nothing has been dug here.
 ///
@@ -284,7 +292,7 @@ impl Dug {
         if over <= 0.0 {
             return 0.0;
         }
-        (surface - floor) * crate::util::smoothstep(DOORWAY * 1.25, DOORWAY * 0.85, over)
+        (surface - floor) * crate::util::smoothstep(DOORWAY * 1.2, DOORWAY * 0.8, over)
     }
 
     /// The floor of the void under a point, or `None` where nothing is dug.
@@ -460,6 +468,13 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
         .map(&ground)
         .fold(f32::MAX, f32::min);
         let roof = (floor + vault(inward[slot])).min(lowest - LID);
+        // Open to the sky: the surface here has been carved to the floor — a
+        // doorway, or a scrape under shallow soil — so there is no roof and no
+        // walls to draw, and drawing them anyway put the ceiling BELOW the floor:
+        // inverted quads flickering in every cutting. The terrain's own carved
+        // edge is the wall.
+        let sole = floor + FLOOR_LIFT;
+        let open_to_sky = roof <= sole + 0.05;
 
         // How deep in the dark this is: a cell with sky close by is lit, and one
         // well inside the hill is not. No lamps exist yet, so the vertex colours
@@ -486,7 +501,6 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
         };
 
         // The floor, seen from above.
-        let sole = floor + FLOOR_LIFT;
         quad(
             &mut mesh,
             [
@@ -498,6 +512,9 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
             true,
             dark * 1.15,
         );
+        if open_to_sky {
+            continue;
+        }
         // The vault, seen from below.
         quad(
             &mut mesh,

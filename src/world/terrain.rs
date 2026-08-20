@@ -2759,7 +2759,7 @@ mod shovelling {
             let at = start + along * (step as f32 * 2.0);
             let sealed = terrain.sealed_height(at.x, at.y);
             let over = sealed - floor;
-            if mouth.is_none() && over > 1.0 && over < crate::world::dug::DOORWAY * 0.7 {
+            if mouth.is_none() && over > 0.5 && over < crate::world::dug::DOORWAY * 0.7 {
                 mouth = Some(at);
             }
             if deep.is_none() && over > crate::world::dug::DOORWAY * 3.0 {

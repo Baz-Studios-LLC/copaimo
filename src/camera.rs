@@ -359,8 +359,17 @@ fn drive_camera(
             // is the surface actually on screen. The tide moves, so the sea is
             // taken at its own level: skimming the water is fine, being inside it
             // looking up is not.
+            // `walk_floor`, not the drawn surface: inside a dug passage the
+            // drawn surface is the sealed hilltop, and a fly camera clamped to it
+            // could never descend into a tunnel — which in the terrain tool,
+            // where flying is the only way anybody moves, made every passage
+            // "impossible to go through" the moment it was dug.
             let floor = terrain
-                .drawn_height(camera.translation.x, camera.translation.z)
+                .walk_floor(
+                    camera.translation.x,
+                    camera.translation.z,
+                    camera.translation.y,
+                )
                 .max(SEA_LEVEL)
                 + FLY_CLEARANCE;
             camera.translation.y = camera.translation.y.max(floor);
