@@ -74,10 +74,13 @@ const WALL_RUN: f32 = 55.0;
 
 /// Half the width of the canyon floor, in metres.
 ///
-/// Thirty metres wall to wall: room for the follow camera behind the warden and
-/// for two parties to pass with air between them, still tight enough to read as a
-/// slot in the rock. (It was twenty, and twenty read as a crack.)
-const GAP_HALF: f32 = 15.0;
+/// **Fifty-two metres wall to wall.** This is a THOROUGHFARE, not a crack: the
+/// warden, a companion at their heel, and oncoming traffic all pass each other
+/// with air to spare, and the follow camera swings behind the warden without
+/// clipping rock. Twenty was a crack and thirty was still a corridor — both were
+/// sized by how a slot canyon looks in a photograph rather than by what has to
+/// walk down it.
+const GAP_HALF: f32 = 26.0;
 
 /// How far the canyon's walls take to reach full height, in metres.
 ///
@@ -98,8 +101,8 @@ const JAG_FINE: f32 = 7.0;
 /// still reads as the main way.
 const FORK_FROM: f32 = -150.0;
 const FORK_TO: f32 = 120.0;
-const FORK_SWING: f32 = 150.0;
-const FORK_HALF: f32 = 11.0;
+const FORK_SWING: f32 = 165.0;
+const FORK_HALF: f32 = 20.0;
 
 /// The spurs: box canyons that open off the way and pinch shut.
 ///
@@ -108,7 +111,7 @@ const FORK_HALF: f32 = 11.0;
 /// (where it leaves, its heading in the massif's frame, how far it runs); the
 /// last stretch narrows to nothing, a headwall rather than a door.
 const SPURS: [(f32, f32, f32); 2] = [(-40.0, 2.35, 130.0), (150.0, 1.3, 100.0)];
-const SPUR_HALF: f32 = 9.0;
+const SPUR_HALF: f32 = 15.0;
 
 /// The (across, along) noise frame turned back into (along, across), which is the
 /// order every centreline here thinks in.
@@ -158,17 +161,18 @@ pub fn way_through(along: f32) -> Vec2 {
     AT + Vec2::new(cos, sin) * along + Vec2::new(-sin, cos) * wander(along)
 }
 
-/// How the massif stands over this point: the rock it ADDS above the ground, and
-/// how deep inside the footprint the point is, 0 at the rims to 1 well within.
+/// How the massif stands over this point: the rock it ADDS above the ground, how
+/// deep inside the footprint the point is (0 at the rims to 1 well within), and how
+/// far from any way through it is (0 on a canyon floor to 1 in solid rock).
 ///
-/// One computation feeding both [`lift`] and [`shape`], so the rock and the
-/// causeway under it can never disagree about where the massif is.
-fn stands(at: Vec2) -> (f32, f32) {
+/// One computation feeding [`lift`], [`shape`] and [`solid`], so the rock, the
+/// causeway under it and the tests' idea of where the rock is can never disagree.
+fn stands(at: Vec2) -> (f32, f32, f32) {
     let (along, across) = local(at);
 
     // Out past the footprint entirely: most of the world, answered cheaply.
     if along.abs() > WALL_THICK * 0.5 || across.abs() > WALL_LONG * 0.5 {
-        return (0.0, 0.0);
+        return (0.0, 0.0, 0.0);
     }
 
     // The rim warp, in the massif's own frame so it turns with it. One broad
@@ -181,7 +185,7 @@ fn stands(at: Vec2) -> (f32, f32) {
     let rim = |d: f32, half: f32| crate::util::smoothstep(half, half - WALL_RUN, d + jag);
     let mesa = rim(across.abs(), WALL_LONG * 0.5).min(rim(along.abs(), WALL_THICK * 0.5));
     if mesa <= 0.0 {
-        return (0.0, 0.0);
+        return (0.0, 0.0, 0.0);
     }
 
     // The ways through and into the rock: the main slot, the fork, the spurs.
@@ -205,13 +209,13 @@ fn stands(at: Vec2) -> (f32, f32) {
         slot = slot.min(open(near, width));
     }
     if slot <= 0.0 {
-        return (0.0, mesa);
+        return (0.0, mesa, 0.0);
     }
 
     // The top, flat with a metre or three of drift so it is stone, not glass.
     let crown = 0.97 + 0.05 * terrain_core::forest::field(frame / 130.0, 86);
 
-    (TOP * mesa * slot * crown, mesa)
+    (TOP * mesa * slot * crown, mesa, slot)
 }
 
 /// What the massif adds to the ground here, in metres. Only ever ADDS.
@@ -221,6 +225,19 @@ fn stands(at: Vec2) -> (f32, f32) {
 #[cfg(test)]
 fn lift(at: Vec2) -> f32 {
     stands(at).0
+}
+
+/// Whether this point is FULL rock: inside the mesa proper and clear of every way
+/// through it.
+///
+/// The tests' instrument for sampling the TOP. Derived from the same numbers the
+/// ground itself uses, because the alternative — a test naming coordinates it
+/// believes are rock — goes stale the moment the canyon is widened, and then it
+/// either fails for the wrong reason or passes while sampling a canyon floor.
+#[cfg(test)]
+fn solid(at: Vec2) -> bool {
+    let (_, mesa, slot) = stands(at);
+    mesa >= 0.999 && slot >= 0.999
 }
 
 /// How firmly the canyon country claims this ground for the DESERT, nought to one.
@@ -247,7 +264,7 @@ pub fn claim(at: Vec2) -> f32 {
 /// desert side to the green side, blended in over the mouths so each end meets the
 /// plain it walks out onto. Ground already above the grade keeps its own shape.
 pub fn shape(at: Vec2, ground: f32) -> f32 {
-    let (rock, inside) = stands(at);
+    let (rock, inside, _) = stands(at);
     if inside <= 0.0 {
         return ground + rock;
     }
@@ -269,26 +286,33 @@ mod tests {
 
     /// The top is a MESA: flat, tall, and nothing pokes through or drops out.
     ///
-    /// Sampled over two strips of the top that no way through reaches — the main
-    /// slot swings to −160 and everything that diverges from it diverges toward
-    /// positive across, so far-negative and far-positive strips are pure rock.
+    /// Sampled wherever the massif is FULL rock — `solid` asks the ground's own
+    /// numbers — rather than at coordinates this test believes are rock. Named
+    /// coordinates go stale the moment the canyon is widened, and a stale sample
+    /// set either fails for the wrong reason or passes while measuring a floor.
     #[test]
     fn the_top_is_flat_and_tall() {
         let (along, across) = axes();
         let mut low = f32::MAX;
         let mut high = f32::MIN;
-        for a in -7..=7 {
-            for c in [-340.0_f32, -310.0, -280.0, -250.0, 305.0, 330.0, 355.0] {
-                let at = AT + along * (a as f32 * 25.0) + across * c;
+        let mut looked = 0;
+        for a in -9..=9 {
+            for c in -18..=18 {
+                let at = AT + along * (a as f32 * 22.0) + across * (c as f32 * 22.0);
+                if !solid(at) {
+                    continue;
+                }
+                looked += 1;
                 let stands = lift(at);
                 low = low.min(stands);
                 high = high.max(stands);
             }
         }
+        assert!(looked > 120, "only {looked} places on the top are solid rock");
         assert!(high > TOP * 0.95, "the top only reaches {high:.0} m");
         assert!(
             high - low < TOP * 0.12,
-            "the top varies by {:.0} m — that is a ridge, not a mesa",
+            "the top varies by {:.0} m over {looked} places — a ridge, not a mesa",
             high - low
         );
     }
@@ -389,6 +413,44 @@ mod tests {
         assert!(
             furthest - nearest > 8.0,
             "the wall stands {nearest:.0}–{furthest:.0} m out — a drawn line, not crags"
+        );
+    }
+
+    /// The floor is wide enough for a party AND oncoming traffic.
+    ///
+    /// The width is the whole reason this shape replaced a tunnel — a passage the
+    /// warden can only edge through cannot hold the NPCs that are meant to use it,
+    /// and the follow camera needs room behind them. Measured as the real walkable
+    /// floor at stations along the way, both sides of the centreline.
+    #[test]
+    fn the_floor_is_wide_enough_for_traffic() {
+        let (along, across) = axes();
+        let mut narrowest = f32::MAX;
+        let mut wherever = 0.0;
+        for step in -60..=60 {
+            let l = step as f32 * 4.0;
+            let centre = wander(l);
+            let reach = |dir: f32| {
+                let mut out = 0.0;
+                for probe in 1..200 {
+                    let at = AT + along * l + across * (centre + dir * probe as f32);
+                    if lift(at) > 2.0 {
+                        break;
+                    }
+                    out = probe as f32;
+                }
+                out
+            };
+            let width = reach(-1.0) + reach(1.0);
+            if width < narrowest {
+                narrowest = width;
+                wherever = l;
+            }
+        }
+        assert!(
+            narrowest > 34.0,
+            "the floor pinches to {narrowest:.0} m at {wherever:.0} m along — \
+             a party and oncoming traffic do not pass there"
         );
     }
 
@@ -608,18 +670,26 @@ mod probe {
             WALL_THICK * 0.75 / 80.0
         );
 
+        // Wherever the massif is full rock — asked of `solid`, not of coordinates
+        // this probe believes are rock. The named-coordinate version reported a
+        // 22 m "mesa top" the moment the canyon was widened under it.
         let mut top = (f32::MAX, f32::MIN);
-        for c in [-300.0_f32, -180.0, 180.0, 300.0] {
-            for l in [-140.0_f32, 0.0, 140.0] {
-                let at = AT + along * l + across * c;
-                if (c - wander(l)).abs() < GAP_HALF + GAP_RUN + 30.0 {
+        let mut solid_places = 0;
+        for c in -18..=18 {
+            for l in -9..=9 {
+                let at = AT + along * (l as f32 * 22.0) + across * (c as f32 * 22.0);
+                if !solid(at) {
                     continue;
                 }
+                solid_places += 1;
                 let h = terrain.height(at.x, at.y);
                 top = (top.0.min(h), top.1.max(h));
             }
         }
-        println!("the mesa top stands {:.0}..{:.0} m absolute", top.0, top.1);
+        println!(
+            "the mesa top stands {:.0}..{:.0} m absolute over {solid_places} solid places",
+            top.0, top.1
+        );
         let west = AT - along * 300.0;
         let east = AT + along * 300.0;
         println!(

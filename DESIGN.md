@@ -25,15 +25,23 @@ straight line crosses without climbing the full wall**, and no sightline reaches
 the far country. That is the gate: you cannot pass until you find the way, and you
 cannot see what is on the other side until you have walked it.
 
-The floor is **thirty metres wall to wall**, opening to eighty at the junctions —
-because the way through **braids**, which is what a real slot canyon does:
+The floor is **fifty-two metres wall to wall**, measuring 45–96 m of real
+walkable ground along the way. It is sized by **what has to walk down it** — the
+warden, a companion at their heel, and oncoming NPC traffic passing each other,
+with room for the follow camera to swing without clipping rock — not by how a slot
+canyon looks in a photograph. Twenty metres was a crack and thirty was a corridor.
+The way through also **braids**, which is what a real slot canyon does:
 
 * a **fork** leaves the main slot and rejoins it a quarter-kilometre later,
   bulging a hundred and fifty metres aside around an island of true rock. Both
   ways go somewhere; a traveller picks a side with no signpost.
-* two **spurs** open off the way and pinch shut at a headwall. Dead ends are what
-  make a junction a *choice* — take the wrong turn and walk back out — and they
-  are alcoves the world can hide things in later.
+* two **spurs** (30 m wide) open off the way and pinch shut at a headwall. Dead
+  ends are what make a junction a *choice* — take the wrong turn and walk back
+  out — and they are alcoves the world can hide things in later.
+
+The fork is 40 m wide, narrower than the main way so the main way still reads as
+the main way. Above the floor the mesa still stands 183–198 m over 505 sampled
+places of solid rock, so widening the paths has not eaten the massif.
 
 Rock stands only where every one of them says rock, so a junction is nothing more
 than two answers agreeing that the ground is open.
@@ -825,6 +833,13 @@ assets/
 ---
 
 ## Change log
+
+**2026-08-20** — **The canyon is a thoroughfare.** Floor widened to 52 m
+(45–96 m real, fork 40 m, spurs 30 m), sized for NPC traffic alongside the player
+rather than for a photograph. The flat-top test and the measurement probe now
+sample wherever `solid` says the massif is full rock, so widening the canyon
+cannot quietly move a test's samples onto a canyon floor — which is exactly what
+had happened to the probe.
 
 **2026-08-20** — **The canyon braids, and the walls hold.** The slot widened to
 thirty metres, a rejoining fork and two dead-end spurs added, the whole massif
