@@ -446,152 +446,214 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
         .collect();
     let inward = inwardness(&open, wide, deep);
 
+    // Which cells get drawn at all: dug, and left sealed by the carve.
+    //
+    // Asked of a cell AND its four neighbours, because a cell reaches half a cell
+    // into each of them — a sealed cell beside a carved-open one would put its own
+    // edge down in ground the terrain has already opened, which is a rim of
+    // flickering quads round every mouth.
+    let drawn: Vec<bool> = (0..wide * deep)
+        .map(|slot| {
+            if !open[slot] {
+                return false;
+            }
+            let middle = dug.middle_of(
+                (x0 + (slot % wide) as isize) as usize,
+                (z0 + (slot / wide) as isize) as usize,
+            );
+            [(0_isize, 0_isize), (1, 0), (-1, 0), (0, 1), (0, -1)]
+                .into_iter()
+                .all(|(dx, dz)| {
+                    let near = middle + Vec2::new(dx as f32, dz as f32) * CELL;
+                    dug.opening(near, ground(near)) <= 0.0
+                })
+        })
+        .collect();
+
+    // # One surface, not a tile each
+    //
+    // The floor and the vault used to be a quad per cell, each at its own cell's
+    // height — and neighbouring cells have slightly different floors, so no two
+    // tiles met. Every cell boundary was a hairline gap with the sky behind it,
+    // which came back photographed from inside as a floor ruled into a pale grid
+    // and a ceiling full of ragged holes.
+    //
+    // So both are built on the CORNER lattice instead, and every height is sampled
+    // at the corner. Neighbouring quads then share their vertices exactly, by
+    // construction rather than by luck, and there is nothing between them to see
+    // through. `floor_at` is bilinear, so a corner has one answer however many
+    // cells meet at it.
+    let corners = (wide + 1) * (deep + 1);
+    let corner_at = |cx: usize, cz: usize| {
+        Vec2::new(
+            (x0 + cx as isize) as f32 * CELL - dug.half.x,
+            (z0 + cz as isize) as f32 * CELL - dug.half.y,
+        )
+    };
+    // A corner belongs to the mesh if any cell touching it is drawn.
+    let used: Vec<bool> = (0..corners)
+        .map(|slot| {
+            let (cx, cz) = (slot % (wide + 1), slot / (wide + 1));
+            [(0_isize, 0_isize), (-1, 0), (0, -1), (-1, -1)]
+                .into_iter()
+                .any(|(dx, dz)| {
+                    let (nx, nz) = (cx as isize + dx, cz as isize + dz);
+                    nx >= 0
+                        && nz >= 0
+                        && (nx as usize) < wide
+                        && (nz as usize) < deep
+                        && drawn[nz as usize * wide + nx as usize]
+                })
+        })
+        .collect();
+
+    // The floor and the roof at each corner. Averaged over the drawn cells that
+    // meet there, so the roof follows the vault's own shape without any one cell
+    // deciding it alone.
+    let mut sole = vec![0.0_f32; corners];
+    let mut roof = vec![0.0_f32; corners];
+    for slot in 0..corners {
+        if !used[slot] {
+            continue;
+        }
+        let (cx, cz) = (slot % (wide + 1), slot / (wide + 1));
+        let at = corner_at(cx, cz);
+        let floor = dug.floor_at(at).unwrap_or_else(|| {
+            // A corner on the very rim: take the nearest drawn cell's own floor
+            // rather than nothing, so the edge still closes.
+            let mut best = 0.0;
+            for (dx, dz) in [(0_isize, 0_isize), (-1, 0), (0, -1), (-1, -1)] {
+                let (nx, nz) = (cx as isize + dx, cz as isize + dz);
+                if nx < 0 || nz < 0 || nx as usize >= wide || nz as usize >= deep {
+                    continue;
+                }
+                let middle = dug.middle_of((x0 + nx) as usize, (z0 + nz) as usize);
+                if let Some(floor) = dug.floor_at(middle) {
+                    best = floor;
+                }
+            }
+            best
+        });
+
+        let mut lift = 0.0;
+        let mut count = 0.0;
+        for (dx, dz) in [(0_isize, 0_isize), (-1, 0), (0, -1), (-1, -1)] {
+            let (nx, nz) = (cx as isize + dx, cz as isize + dz);
+            if nx < 0 || nz < 0 || nx as usize >= wide || nz as usize >= deep {
+                continue;
+            }
+            let cell = nz as usize * wide + nx as usize;
+            if !drawn[cell] {
+                continue;
+            }
+            lift += vault(inward[cell]);
+            count += 1.0;
+        }
+        let lift = if count > 0.0 { lift / count } else { LEG };
+
+        sole[slot] = floor + FLOOR_LIFT;
+        // Never up through the ground: the surface here is sealed, and a vault that
+        // broke it would be a hole in a hillside nobody dug.
+        roof[slot] = (floor + lift).min(ground(at) - LID).max(sole[slot] + 0.2);
+    }
+
+    // How dark it is at each corner: rock overhead is what makes a cave dark, and
+    // no lamps exist yet, so the vertex colours carry the light.
+    let dark: Vec<f32> = (0..corners)
+        .map(|slot| {
+            if !used[slot] {
+                return 1.0;
+            }
+            let (cx, cz) = (slot % (wide + 1), slot / (wide + 1));
+            let at = corner_at(cx, cz);
+            let over = (ground(at) - sole[slot]).max(0.0);
+            1.0 - crate::util::smoothstep(0.0, 26.0, over) * 0.82
+        })
+        .collect();
+
     let mut mesh = Geometry::default();
+    let mut slots: Vec<Option<u32>> = vec![None; corners * 2];
     let stone = |shade: f32| [0.108 * shade, 0.101 * shade, 0.094 * shade, 1.0];
 
-    for slot in 0..open.len() {
-        if !open[slot] {
+    // One vertex per corner per surface, made on demand and reused by every quad
+    // that touches it.
+    let mut put = |mesh: &mut Geometry, slot: usize, ceiling: bool, normal: Vec3| -> u32 {
+        let key = slot * 2 + ceiling as usize;
+        if let Some(index) = slots[key] {
+            return index;
+        }
+        let (cx, cz) = (slot % (wide + 1), slot / (wide + 1));
+        let at = corner_at(cx, cz);
+        let y = if ceiling { roof[slot] } else { sole[slot] };
+        let shade = dark[slot] * if ceiling { 0.8 } else { 1.15 };
+        let index = mesh.places.len() as u32;
+        mesh.places.push([at.x, y, at.y]);
+        mesh.normals.push(normal.to_array());
+        mesh.uvs.push([cx as f32, cz as f32]);
+        mesh.colours.push(stone(shade));
+        slots[key] = Some(index);
+        index
+    };
+
+    for slot in 0..drawn.len() {
+        if !drawn[slot] {
             continue;
         }
-        let (cx, cz) = (x0 + (slot % wide) as isize, z0 + (slot / wide) as isize);
-        let middle = dug.middle_of(cx as usize, cz as usize);
-        let Some(floor) = dug.floor_at(middle) else {
-            continue;
-        };
-        // The same answer the terrain used when it carved itself — see below —
-        // and asked of this cell AND its neighbours.
-        //
-        // A cell's quad reaches half a cell into each neighbour, so a cell that is
-        // sealed while the one beside it is open still puts its own corners down in
-        // carved ground. One cell of margin and the mesh's edge never touches the
-        // terrain's, which is the difference between a clean seam at a mouth and a
-        // rim of flickering quads round every one.
-        let opening = [(0_isize, 0_isize), (1, 0), (-1, 0), (0, 1), (0, -1)]
-            .into_iter()
-            .map(|(dx, dz)| {
-                let near = middle + Vec2::new(dx as f32, dz as f32) * CELL;
-                dug.opening(near, ground(near))
-            })
-            .fold(0.0_f32, f32::max);
-        let (a, b) = (middle - Vec2::splat(CELL * 0.5), middle + Vec2::splat(CELL * 0.5));
-        // Never through the hillside above — measured at the cell's CORNERS and not
-        // its middle. A cell is two metres across on a slope that can fall a metre
-        // in that distance, so a roof cleared against the middle still broke the
-        // surface at the downhill corner. The lowest corner is the one that decides.
-        let lowest = [
-            Vec2::new(a.x, a.y),
-            Vec2::new(b.x, a.y),
-            Vec2::new(a.x, b.y),
-            Vec2::new(b.x, b.y),
-        ]
-        .into_iter()
-        .map(&ground)
-        .fold(f32::MAX, f32::min);
-        let roof = (floor + vault(inward[slot])).min(lowest - LID);
-        let sole = floor + FLOOR_LIFT;
+        let (cx, cz) = (slot % wide, slot / wide);
+        let corner = |dx: usize, dz: usize| (cz + dz) * (wide + 1) + (cx + dx);
+        let (a, b, c, d) = (
+            corner(0, 0),
+            corner(1, 0),
+            corner(1, 1),
+            corner(0, 1),
+        );
 
-        // # Whether this cell is open is [`Self::opening`]'s decision, not ours
-        //
-        // This asked the question a second way — "is the roof down at the floor?" —
-        // and the two rules disagreed over a band a couple of metres wide, because
-        // `opening` eases the surface down across `DOORWAY` while a height
-        // comparison flips at a point. In that band BOTH drew: the terrain carved
-        // most of the way down and the void's own floor and vault a few
-        // centimetres from it. Two surfaces a hair apart over a wide flat area is
-        // the striping that came back photographed from inside — a floor laid in
-        // pale bands, and a ceiling that was really the underside of ground.
-        //
-        // So the carve decides, once. Where the surface has been opened at all,
-        // the terrain IS the floor and the walls and there is nothing here to
-        // draw; where it has not, this is a sealed passage and the mesh is all
-        // there is.
-        let open_to_sky = opening > 0.0;
-
-        // How deep in the dark this is: a cell with sky close by is lit, and one
-        // well inside the hill is not. No lamps exist yet, so the vertex colours
-        // carry the light.
-        let overhead = (ground(middle) - floor - HIGH).max(0.0);
-        let dark = 1.0 - crate::util::smoothstep(0.0, 26.0, overhead) * 0.82;
-
-        let quad = |mesh: &mut Geometry, corners: [Vec3; 4], up: bool, shade: f32| {
-            let base = mesh.places.len() as u32;
-            let normal = if up { Vec3::Y } else { -Vec3::Y };
-            for corner in corners {
-                mesh.places.push(corner.to_array());
-                mesh.normals.push(normal.to_array());
-                mesh.uvs.push([0.0, 0.0]);
-                mesh.colours.push(stone(shade));
-            }
-            if up {
-                mesh.indices
-                    .extend_from_slice(&[base, base + 2, base + 1, base, base + 3, base + 2]);
-            } else {
-                mesh.indices
-                    .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
-            }
-        };
-
-        if open_to_sky {
-            // The terrain is the floor here, and drawing a second one over it is
-            // what the striping was.
-            continue;
-        }
         // The floor, seen from above.
-        quad(
-            &mut mesh,
-            [
-                Vec3::new(a.x, sole, a.y),
-                Vec3::new(b.x, sole, a.y),
-                Vec3::new(b.x, sole, b.y),
-                Vec3::new(a.x, sole, b.y),
-            ],
-            true,
-            dark * 1.15,
-        );
-        // The vault, seen from below.
-        quad(
-            &mut mesh,
-            [
-                Vec3::new(a.x, roof, a.y),
-                Vec3::new(b.x, roof, a.y),
-                Vec3::new(b.x, roof, b.y),
-                Vec3::new(a.x, roof, b.y),
-            ],
-            false,
-            dark * 0.8,
-        );
+        let floor: Vec<u32> = [a, b, c, d]
+            .into_iter()
+            .map(|slot| put(&mut mesh, slot, false, Vec3::Y))
+            .collect();
+        mesh.indices.extend_from_slice(&[
+            floor[0], floor[3], floor[1], floor[1], floor[3], floor[2],
+        ]);
 
-        // And a wall wherever the rock next door is still solid.
-        for (dx, dz) in [(1_isize, 0_isize), (-1, 0), (0, 1), (0, -1)] {
-            let (nx, nz) = ((slot % wide) as isize + dx, (slot / wide) as isize + dz);
+        // The vault, seen from below.
+        let vault: Vec<u32> = [a, b, c, d]
+            .into_iter()
+            .map(|slot| put(&mut mesh, slot, true, -Vec3::Y))
+            .collect();
+        mesh.indices.extend_from_slice(&[
+            vault[0], vault[1], vault[3], vault[1], vault[2], vault[3],
+        ]);
+
+        // And a wall wherever the rock next door is not part of the cave. Built on
+        // the same two corners the floor and the vault used, so the three meet
+        // exactly and there is no seam to see through.
+        for (dx, dz, near, far) in [
+            (1_isize, 0_isize, b, c),
+            (-1, 0, d, a),
+            (0, 1, c, d),
+            (0, -1, a, b),
+        ] {
+            let (nx, nz) = (cx as isize + dx, cz as isize + dz);
             let solid = nx < 0
                 || nz < 0
                 || nx as usize >= wide
                 || nz as usize >= deep
-                || !open[nz as usize * wide + nx as usize];
+                || !drawn[nz as usize * wide + nx as usize];
             if !solid {
                 continue;
             }
-            // The face between this cell and that one, from floor to vault, wound
-            // to look back at the cell it belongs to.
-            let (p, q) = match (dx, dz) {
-                (1, 0) => (Vec2::new(b.x, a.y), Vec2::new(b.x, b.y)),
-                (-1, 0) => (Vec2::new(a.x, b.y), Vec2::new(a.x, a.y)),
-                (0, 1) => (Vec2::new(b.x, b.y), Vec2::new(a.x, b.y)),
-                _ => (Vec2::new(a.x, a.y), Vec2::new(b.x, a.y)),
-            };
-            let base = mesh.places.len() as u32;
             let inward_normal = Vec3::new(-dx as f32, 0.0, -dz as f32);
-            for corner in [
-                Vec3::new(p.x, sole, p.y),
-                Vec3::new(q.x, sole, q.y),
-                Vec3::new(q.x, roof, q.y),
-                Vec3::new(p.x, roof, p.y),
-            ] {
-                mesh.places.push(corner.to_array());
+            let base = mesh.places.len() as u32;
+            for (slot, ceiling) in [(near, false), (far, false), (far, true), (near, true)] {
+                let (ccx, ccz) = (slot % (wide + 1), slot / (wide + 1));
+                let at = corner_at(ccx, ccz);
+                let y = if ceiling { roof[slot] } else { sole[slot] };
+                mesh.places.push([at.x, y, at.y]);
                 mesh.normals.push(inward_normal.to_array());
                 mesh.uvs.push([0.0, 0.0]);
-                mesh.colours.push(stone(dark));
+                mesh.colours.push(stone(dark[slot]));
             }
             mesh.indices
                 .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
@@ -1313,6 +1375,94 @@ mod probe {
             println!("mouth ground spans {first:?} .. {last:?}");
         } else {
             println!("NO MOUTH ANYWHERE - the cave is sealed shut");
+        }
+    }
+}
+
+#[cfg(test)]
+mod watertight {
+    use super::*;
+
+    /// The cave's surfaces have to MEET, not merely be near each other.
+    ///
+    /// # A floor ruled into a pale grid
+    ///
+    /// The floor and vault were a quad per cell, each flat at its own cell's
+    /// height — and neighbouring cells have slightly different floors, so no two
+    /// tiles ever met. Every cell boundary was a hairline gap with the sky behind
+    /// it. From inside, photographed: a floor drawn as a pale grid, and a ceiling
+    /// full of ragged holes with daylight and trees through them.
+    ///
+    /// Nothing about a per-cell rule can fix that; the surfaces have to be built on
+    /// shared corners so a boundary is one vertex rather than two nearly-equal ones.
+    /// This checks that as a property of the mesh: every edge that ought to be
+    /// interior is used by exactly two triangles, and every vertex position that
+    /// appears twice appears at exactly the same height.
+    #[test]
+    fn the_floor_and_the_vault_have_no_seams_in_them() {
+        let hill = |at: Vec2| 30.0 + 90.0 * (1.0 - (at.x.abs() / 200.0).min(1.0));
+        let mut dug = Dug::empty(Vec2::splat(400.0));
+        // A passage with a bend in it and a varying floor, which is what makes the
+        // tiles disagree in the first place.
+        for step in 0..=90 {
+            let t = step as f32 / 90.0;
+            let at = Vec2::new(-180.0 + t * 360.0, (t * 6.0).sin() * 30.0);
+            dug.dig(at, HALF_WIDE, 34.0 + t * 9.0);
+        }
+
+        let mesh = void(&dug, hill);
+        assert!(!mesh.is_empty(), "nothing was drawn");
+
+        // Corners shared rather than duplicated: two vertices at the same place
+        // must be at the same height, or there is a step between the quads.
+        use std::collections::HashMap;
+        let mut heights: HashMap<(i64, i64, bool), Vec<f32>> = HashMap::new();
+        let key = |place: &[f32; 3]| {
+            (
+                (place[0] * 16.0).round() as i64,
+                (place[2] * 16.0).round() as i64,
+            )
+        };
+        for (place, normal) in mesh.places.iter().zip(&mesh.normals) {
+            // Floors and ceilings are told apart by which way they face; walls are
+            // allowed to share a column with both.
+            if normal[1].abs() < 0.5 {
+                continue;
+            }
+            let (x, z) = key(place);
+            heights
+                .entry((x, z, normal[1] > 0.0))
+                .or_default()
+                .push(place[1]);
+        }
+        let mut split = 0;
+        for ys in heights.values() {
+            let low = ys.iter().copied().fold(f32::MAX, f32::min);
+            let high = ys.iter().copied().fold(f32::MIN, f32::max);
+            if high - low > 0.001 {
+                split += 1;
+            }
+        }
+        assert_eq!(
+            split, 0,
+            "{split} places have two different heights for the same surface — \
+             that is a seam, and the sky comes through it"
+        );
+
+        // And the vault is above the floor everywhere it is drawn, or the cave is
+        // inside out somewhere.
+        for (place, normal) in mesh.places.iter().zip(&mesh.normals) {
+            if normal[1] >= -0.5 {
+                continue;
+            }
+            let at = Vec2::new(place[0], place[2]);
+            if let Some(floor) = dug.floor_at(at) {
+                assert!(
+                    place[1] > floor,
+                    "a ceiling vertex sits at {:.2} m, under its own floor at {floor:.2}",
+                    place[1]
+                );
+            }
         }
     }
 }

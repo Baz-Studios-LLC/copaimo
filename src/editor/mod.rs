@@ -1105,12 +1105,7 @@ fn chunks_over(chunks: &ChunkMap, patch: Patch) -> Vec<(Entity, IVec2)> {
     touched
 }
 
-fn draw_brush(
-    mut gizmos: Gizmos,
-    terrain: Res<TerrainSource>,
-    brush: Res<Brush>,
-    digging: Res<Digging>,
-) {
+fn draw_brush(mut gizmos: Gizmos, terrain: Res<TerrainSource>, brush: Res<Brush>) {
     // The ring is on the aim, which is where the work is: a route is DRAWN on the
     // surface, so the surface is the right place to see the brush. The line itself
     // is drawn by `draw_the_route`.
@@ -2009,13 +2004,10 @@ mod keycaps {
 /// it level. See [`crate::world::dug`].
 pub fn dig_tunnels(
     mut commands: Commands,
-    time: Res<Time>,
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     brush: Res<Brush>,
     free: Res<CursorFree>,
-    bounds: Res<crate::world::WorldBounds>,
-    cameras: Query<&GlobalTransform, With<MainCamera>>,
     terrain: Res<TerrainSource>,
     chunks: Res<ChunkMap>,
     busy: Query<(), With<PendingChunk>>,
