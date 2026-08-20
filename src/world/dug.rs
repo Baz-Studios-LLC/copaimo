@@ -333,6 +333,29 @@ impl Dug {
     /// Read BETWEEN cells, among the open ones only. Nearest-cell would step by two
     /// metres at every boundary, which is a lumpy floor — and blending with the
     /// closed cells around a void would drag its floor toward nothing at the walls.
+    /// How one cell stands to the surface: `None` for undug rock, `Some(false)`
+    /// for a cell the carve opens to the sky, `Some(true)` for a cell still sealed
+    /// under the ground, with the cave running beneath it.
+    ///
+    /// The SAME question [`void`] answers per cell when it decides what it draws,
+    /// offered whole so the terrain can ask it too: a mouth's face is the seam
+    /// between the two answers, and it has to fall in the same place for both
+    /// meshes. The terrain's first attempt asked its own version through the
+    /// bilinear [`Self::floor_at`], which reaches half a cell past the dug ground —
+    /// so the trench's own side walls voted "passage" and the ground unzipped along
+    /// the whole route into a crater. (`ground` may be the sealed or the carved
+    /// surface; they agree here, because the carve either takes a point all the way
+    /// down to the floor or leaves it alone.)
+    pub fn cell_kind(&self, world: Vec2, ground: impl Fn(Vec2) -> f32) -> Option<bool> {
+        let (cx, cz) = self.cell_of(world);
+        if !self.open(cx, cz) {
+            return None;
+        }
+        let middle = self.middle_of(cx as usize, cz as usize);
+        let floor = self.floor_at(middle)?;
+        Some(ground(middle) - floor >= DOORWAY)
+    }
+
     pub fn floor_at(&self, at: Vec2) -> Option<f32> {
         let fx = (at.x + self.half.x) / CELL - 0.5;
         let fz = (at.y + self.half.y) / CELL - 0.5;
@@ -862,11 +885,13 @@ fn raise_a_doorframe(
     };
 
     // The opening runs half a cell past the outermost middles, and the frame
-    // stands just proud of the rock face so the two never fight.
+    // straddles the seam itself: the beam covers the cut edge of the ground where
+    // the face was skipped, and the stones' back halves sit into the hillside over
+    // the vault — which is what a doorframe set into rock looks like.
     let half_across = (across.1 - across.0) * 0.5 + CELL * 0.5;
     let middle = heart
         + side * ((across.1 + across.0) * 0.5)
-        + out * (forward + CELL * 0.5 + LINTEL * 0.5);
+        + out * (forward + CELL * 0.5);
     // The head of the frame sits just over the opening — and the opening is
     // DOORWAY tall by definition, since that is where the carve stops.
     let head = floor + DOORWAY + CLEARANCE;

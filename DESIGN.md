@@ -94,11 +94,19 @@ height at every (x, z), so the ground is an unbroken sheet — at a mouth it sto
 as a grass cliff ACROSS the opening, under the doorframe's own beam. Fifth report of
 the entrance missing, and every earlier fix was real (walls, the carve partition, the
 frame) — but no height a heightfield can take reads as an opening. So the chunk mesh
-skips the face: any quad standing with one corner on carved-open dug ground and
-another on sealed dug ground is a mouth face and is not drawn, and the cave's own
-vault and walls show through the gap. Corners over undug ground vote for neither
-side, which keeps the trench's side slopes solid; walking is untouched, because the
-walker asks heights, not triangles.
+skips the face, and the cave's own vault and walls show through the gap. Walking is
+untouched, because the walker asks heights, not triangles.
+
+A quad is the face exactly when its own cell and a dug neighbour are classified
+differently **by the cave itself** (`Dug::cell_kind`, the same per-cell question
+`void` answers) and its own corners stand on both levels. The first cut asked its own
+version of the question through the bilinear floor, which reaches half a cell past
+the dug ground — so the trench's tall side walls voted "passage" and the ground
+unzipped along the whole route into a crater with the doorframe standing in the
+middle of it. One question, one answer: this is the same shape of bug as the carve
+partition, and the fixture that guards it digs a pit with real walls, because a
+fixture dug in flat ground never caught it. At the maker's two portals the holes now
+measure 7 and 10 quads — a face each, not a crater.
 
 Each pillar seats on the ground it actually stands on — the lowest of its own
 corners, sunk `FOOTING` — not on the mouth's lowest floor, which on a sloping trench

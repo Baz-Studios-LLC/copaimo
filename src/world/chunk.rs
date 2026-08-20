@@ -221,29 +221,44 @@ pub fn build_mesh(terrain: &Terrain, coord: IVec2) -> Mesh {
     // an opening; the only fix is to not draw the face at all and let the cave's
     // vault and walls show through the gap.
     //
-    // A quad is that face exactly when it stands on both sides at once: one corner
-    // over dug ground the carve opened (the rendered surface IS the floor there) and
-    // another over dug ground still sealed (the passage runs on under it). Corners
-    // over undug ground vote for neither, which keeps the trench's own side slopes
-    // solid. Walking is untouched — the walker asks heights, not triangles.
+    // A quad is that face exactly when its own cell and a dug NEIGHBOUR are
+    // classified differently by the cave itself — carved open against sealed — and
+    // its own corners stand on both levels. Undug neighbours are no seam, so the
+    // trench's side slopes stay solid: the first cut asked through the bilinear
+    // floor, which reaches past the dug ground, and the walls of the whole approach
+    // unzipped into a crater with the doorframe standing in the middle of it.
+    // Walking is untouched — the walker asks heights, not triangles.
     let dug = terrain.dug().read().expect("dug ground");
+    // `height()` takes the dug lock itself, so under this one the surface question
+    // is `sealed_height` — and for classifying a CELL the two surfaces agree: the
+    // carve either takes a point all the way to the floor or leaves it alone.
+    let level = |at: Vec2| terrain.sealed_height(at.x, at.y);
     let mouth_face = |ix: usize, iz: usize| -> bool {
         if dug.is_empty() {
             return false;
         }
-        let mut opened = false;
-        let mut sealed = false;
-        for (cx, cz) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-            let (px, pz) = (ix + cx + 1, iz + cz + 1);
-            let world = origin + Vec2::new((px - 1) as f32, (pz - 1) as f32) * step;
-            let Some(floor) = dug.floor_at(world) else {
-                continue;
-            };
-            let over = sampled(px, pz) - floor;
-            opened |= over < 0.5;
-            sealed |= over >= crate::world::dug::DOORWAY - 0.1;
+        let centre = origin + Vec2::new(ix as f32 + 0.5, iz as f32 + 0.5) * step;
+        let Some(kind) = dug.cell_kind(centre, level) else {
+            return false;
+        };
+        let seam = [Vec2::X, Vec2::NEG_X, Vec2::Y, Vec2::NEG_Y]
+            .into_iter()
+            .any(|towards| {
+                dug.cell_kind(centre + towards * step, level)
+                    .is_some_and(|neighbour| neighbour != kind)
+            });
+        if !seam {
+            return false;
         }
-        opened && sealed
+        // The jump itself, not the intact ground one cell behind the seam.
+        let mut low = f32::MAX;
+        let mut high = f32::MIN;
+        for (cx, cz) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+            let sample = sampled(ix + cx + 1, iz + cz + 1);
+            low = low.min(sample);
+            high = high.max(sample);
+        }
+        high - low >= 1.5
     };
     let mut indices = Vec::with_capacity(quads * quads * 6);
     for iz in 0..quads {
@@ -316,7 +331,9 @@ mod mouths {
         {
             let mut dug = terrain.dug().write().expect("dug");
             dug.dig(at - Vec2::new(6.0, 0.0), 6.0, high - 12.0);
-            dug.dig(at + Vec2::new(6.0, 0.0), 6.0, high - 0.5);
+            // Nearly a doorway's depth, so the open pit has WALLS — the crater bug
+            // skipped those too, and a fixture dug in flat ground never caught it.
+            dug.dig(at + Vec2::new(6.0, 0.0), 6.0, high - 4.4);
         }
         let after = count(&build_mesh(&terrain, coord));
 
@@ -329,5 +346,41 @@ mod mouths {
             "only {} triangles were opened — that is a crack, not a doorway",
             (before - after) / 3
         );
+        // And ONLY the face. The first cut unzipped the pit's own walls as well,
+        // which took out a crater; the seam across this mouth is a handful of quads.
+        assert!(
+            before - after <= 20 * 6,
+            "{} quads were opened for one small mouth — that is a crater, not a doorway",
+            (before - after) / 6
+        );
+    }
+}
+
+#[cfg(test)]
+mod probe {
+    use super::*;
+
+    #[test]
+    #[ignore = "a measurement of the maker's own world"]
+    fn how_big_the_holes_at_the_real_portals_are() {
+        let terrain = Terrain::new();
+        for portal in [Vec2::new(984.0, -745.0), Vec2::new(158.0, -512.0)] {
+            let coord = IVec2::new(
+                (portal.x / CHUNK_SIZE).floor() as i32,
+                (portal.y / CHUNK_SIZE).floor() as i32,
+            );
+            let quads = (CHUNK_QUADS as usize).pow(2);
+            let drawn = build_mesh(&terrain, coord)
+                .indices()
+                .map(|list| list.len())
+                .unwrap_or(0)
+                / 6;
+            println!(
+                "portal near ({:.0}, {:.0}): {} of {quads} quads opened",
+                portal.x,
+                portal.y,
+                quads - drawn
+            );
+        }
     }
 }
