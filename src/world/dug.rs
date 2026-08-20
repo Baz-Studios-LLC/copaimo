@@ -458,6 +458,21 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
         let Some(floor) = dug.floor_at(middle) else {
             continue;
         };
+        // The same answer the terrain used when it carved itself — see below —
+        // and asked of this cell AND its neighbours.
+        //
+        // A cell's quad reaches half a cell into each neighbour, so a cell that is
+        // sealed while the one beside it is open still puts its own corners down in
+        // carved ground. One cell of margin and the mesh's edge never touches the
+        // terrain's, which is the difference between a clean seam at a mouth and a
+        // rim of flickering quads round every one.
+        let opening = [(0_isize, 0_isize), (1, 0), (-1, 0), (0, 1), (0, -1)]
+            .into_iter()
+            .map(|(dx, dz)| {
+                let near = middle + Vec2::new(dx as f32, dz as f32) * CELL;
+                dug.opening(near, ground(near))
+            })
+            .fold(0.0_f32, f32::max);
         let (a, b) = (middle - Vec2::splat(CELL * 0.5), middle + Vec2::splat(CELL * 0.5));
         // Never through the hillside above — measured at the cell's CORNERS and not
         // its middle. A cell is two metres across on a slope that can fall a metre
@@ -473,13 +488,24 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
         .map(&ground)
         .fold(f32::MAX, f32::min);
         let roof = (floor + vault(inward[slot])).min(lowest - LID);
-        // Open to the sky: the surface here has been carved to the floor — a
-        // doorway, or a scrape under shallow soil — so there is no roof and no
-        // walls to draw, and drawing them anyway put the ceiling BELOW the floor:
-        // inverted quads flickering in every cutting. The terrain's own carved
-        // edge is the wall.
         let sole = floor + FLOOR_LIFT;
-        let open_to_sky = roof <= sole + 0.05;
+
+        // # Whether this cell is open is [`Self::opening`]'s decision, not ours
+        //
+        // This asked the question a second way — "is the roof down at the floor?" —
+        // and the two rules disagreed over a band a couple of metres wide, because
+        // `opening` eases the surface down across `DOORWAY` while a height
+        // comparison flips at a point. In that band BOTH drew: the terrain carved
+        // most of the way down and the void's own floor and vault a few
+        // centimetres from it. Two surfaces a hair apart over a wide flat area is
+        // the striping that came back photographed from inside — a floor laid in
+        // pale bands, and a ceiling that was really the underside of ground.
+        //
+        // So the carve decides, once. Where the surface has been opened at all,
+        // the terrain IS the floor and the walls and there is nothing here to
+        // draw; where it has not, this is a sealed passage and the mesh is all
+        // there is.
+        let open_to_sky = opening > 0.0;
 
         // How deep in the dark this is: a cell with sky close by is lit, and one
         // well inside the hill is not. No lamps exist yet, so the vertex colours
@@ -505,6 +531,11 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
             }
         };
 
+        if open_to_sky {
+            // The terrain is the floor here, and drawing a second one over it is
+            // what the striping was.
+            continue;
+        }
         // The floor, seen from above.
         quad(
             &mut mesh,
@@ -517,9 +548,6 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
             true,
             dark * 1.15,
         );
-        if open_to_sky {
-            continue;
-        }
         // The vault, seen from below.
         quad(
             &mut mesh,
@@ -909,5 +937,75 @@ mod tests {
         let mut short = to_bytes(&dug);
         short.truncate(40);
         assert_eq!(read(&short, HALF).unwrap_err(), "truncated");
+    }
+}
+
+#[cfg(test)]
+mod one_rule {
+    use super::*;
+
+    /// Nothing may be drawn where the ground has been carved open.
+    ///
+    /// # Two rules for one question, photographed from inside
+    ///
+    /// `opening` eases the surface down over [`DOORWAY`], and the mesh asked the
+    /// same question a second way — "is the roof down at the floor?" — which flips
+    /// at a point rather than easing. Across the band between them BOTH answered
+    /// yes: the terrain carved most of the way down to the floor, and the void laid
+    /// its own floor and vault a few centimetres from it. Two surfaces a hair apart
+    /// over a wide flat area is a depth-buffer fight, and it came back as a floor
+    /// striped in pale bands with a ceiling that was really the underside of ground.
+    ///
+    /// This is the third time in this feature that one question had two answers —
+    /// the biome boundary and the tunnel's own winding were the others — so it is
+    /// worth a test that states the rule rather than the symptom: where the carve
+    /// has opened the ground, the mesh keeps out.
+    #[test]
+    fn nothing_is_drawn_where_the_ground_is_carved_open() {
+        // A hill with a shallow shoulder, so a route across it passes through every
+        // depth of cover there is: open at the ends, the easing band, then sealed.
+        let hill = |at: Vec2| 20.0 + 34.0 * (1.0 - (at.x.abs() / 150.0).min(1.0));
+
+        let mut dug = Dug::empty(Vec2::splat(400.0));
+        for step in -60..=60 {
+            let at = Vec2::new(step as f32 * 2.5, 0.0);
+            // Level, from the ground at one end — a lowered route.
+            dug.dig(at, HALF_WIDE, hill(Vec2::new(150.0, 0.0)));
+        }
+
+        let mesh = void(&dug, hill);
+        assert!(!mesh.is_empty(), "nothing was drawn for a lowered route");
+
+        // Every vertex drawn must be in a cell the carve left SEALED. A vertex in an
+        // opened cell is a surface standing next to the terrain's own.
+        let mut trespass = 0;
+        let mut sealed_seen = 0;
+        for place in &mesh.places {
+            let at = Vec2::new(place[0], place[2]);
+            let ground = hill(at);
+            if dug.opening(at, ground) > 0.0 {
+                trespass += 1;
+            } else {
+                sealed_seen += 1;
+            }
+        }
+        assert_eq!(
+            trespass, 0,
+            "{trespass} vertices are drawn in ground the carve had already opened"
+        );
+        assert!(sealed_seen > 100, "only {sealed_seen} vertices under sealed ground");
+
+        // And the sealed part is a passage rather than a hall: its ceiling is the
+        // vault's own height over the floor, not wherever the hilltop happens to be.
+        let floor = hill(Vec2::new(150.0, 0.0));
+        let tallest = mesh
+            .places
+            .iter()
+            .map(|place| place[1] - floor)
+            .fold(f32::MIN, f32::max);
+        assert!(
+            tallest <= HIGH + 0.2,
+            "the ceiling stands {tallest:.1} m over the floor — that is a hall, not a tunnel"
+        );
     }
 }
