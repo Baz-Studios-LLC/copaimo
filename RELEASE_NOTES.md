@@ -1,5 +1,23 @@
 ## Copaimo: The Wardens Guild
 
+### This release: the packaged build finds its own world
+
+A fix, and a quiet one worth naming. The world's layers — the map, the sculpting,
+the woods, the surfacing, the countries, whatever is placed — were read against the
+**working directory**. Run from the repository that is the crate root and all of it
+is found; but macOS launches a `.app` from `/`, which is how the studio launcher
+starts it, and from there every one of those paths missed. Nothing errored: the map
+fell back to procedural and each missing layer looked like an unpainted world, so
+the packaged mac build drew a world nobody had made and looked fine doing it.
+
+Assets are now found beside the binary when the working directory has none. Bevy's
+own asset server and the window icon each already did this; the files read by hand
+were the set that did not.
+
+Everything below shipped in v0.1.10 and is unchanged.
+
+---
+
 Still a world to walk and nothing yet to do in it — no monsters, no battles, no
 guild exams. This release is about the **road east**, the workbench that furnishes
 the world, and a long list of things that used to look wrong.
