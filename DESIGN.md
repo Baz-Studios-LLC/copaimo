@@ -61,6 +61,35 @@ doorway should be. The rule is about the DIGGING, not about the drawing.
 A route shorter than a couple of brush widths is refused: lowering a dab gives a
 pit, not a passage.
 
+## A mouth is BUILT, not merely absent
+
+An opening is not a landmark. A mouth that was carved ground and a gap in a hillside
+could not be found — reported four times, the last of them from directly above it.
+On a flank rising two hundred metres over five hundred, the ground climbs back over
+head height within about ten metres of where a route ends, so what the carve leaves
+is a pad the size of a room with a hole in its end wall, facing sideways. From the
+air there is nothing to see at all.
+
+So a mouth gets **something built**:
+
+* the cave **reaches out** over its own carved approach — three cells of vault and
+  side walls with no floor, because the carved terrain is the floor there. What
+  stands out of the hillside is an arch over an open cut.
+* **pillars** stand either side of the opening, wherever there is rock to stand them
+  against, under a **lintel** across the top — dressed stone, lighter than the rock,
+  twelve metres of it standing. It reads as a doorway from the air, which is how
+  anybody looks for one, and from the ground, which is how anybody walks through one.
+
+It also says something true: somebody cut this passage, and they finished the ends of
+it.
+
+The rules this file keeps about the cave — no floor laid over carved ground, no wall
+without rock behind it, no two heights in one column — are rules about **hewn rock**,
+and a doorway breaks all three on purpose. So `void_parts` returns the boundary
+between the hewn run of vertices and the built one, rather than leaving a test to
+guess. Guessing by colour failed at the first attempt: the lintel is a darker shade
+of the same stone, and sixty-four of its faces came through as walls.
+
 ## Tunnels
 
 `bores.rs` owns every tunnel in the world. A bore is two points, and what it does is
