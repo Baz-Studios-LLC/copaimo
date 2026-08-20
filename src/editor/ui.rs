@@ -813,10 +813,12 @@ fn refresh_readouts(
                     .read()
                     .map(|dug| dug.cells_dug())
                     .unwrap_or_default();
-                match digging.head {
-                    Some(head) => format!("{cells} cells - driving at {:.0} m", head.floor),
-                    None if digging.in_hand => format!("{cells} cells - shovel up"),
-                    None => format!("{cells} cells"),
+                if !digging.route.is_empty() {
+                    format!("{cells} cells - drawing a route")
+                } else if digging.in_hand {
+                    format!("{cells} cells - shovel up")
+                } else {
+                    format!("{cells} cells")
                 }
             }
             Readout::History => match (undo_depth, redo_depth) {

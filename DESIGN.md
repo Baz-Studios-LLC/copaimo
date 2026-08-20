@@ -13,33 +13,31 @@ collect).
 
 ---
 
-## Digging is DRIVEN, not aimed
+## A tunnel is DRAWN over the hill, then lowered
 
-Arm DIG, point at where you want the mouth, then **hold the button and steer with
-the view**. The first press sets the face and the floor level; after that the
-cutting head advances the way you are looking, at a walking pace, holding that
-level. Release to stop. `Shift` fills in, and filling stays aimed — you fill what
-you can see.
+Arm DIG, then **drag the brush over the mountain — over the top of it**, in plain
+view. Nothing is dug while you draw. Let go, and the line is *lowered*: the floor
+runs from the ground at one end to the ground at the other, graded along the way.
+Under the crest that puts it far below the surface, which is a tunnel; at each end
+it meets the ground it started from, which is a mouth. Both fall out of the same
+arithmetic rather than being placed. `Shift` fills in, and filling stays aimed.
 
-**Why it cannot be aimed.** The crosshair is a ray against the ground, so whatever
-it lands on is a *surface*: it can never point inside a mountain. Three builds tried
-to make the aim do this work — two clicks that computed a tunnel, then a floor read
-from the aim each frame, then a floor held for the stroke — and every one of them
-left the passage on the OUTSIDE of the hill, because sweeping the crosshair at a
-slope walks it up the face and the cutting only ever happens where the face is. The
-report was the same each time: *"still not going THROUGH the mountain."*
+It is also how a tunnel is actually planned: draw the alignment on a map, fix the
+invert levels at the portals, grade between them.
 
-A tunnel is driven. Once that is the model, the aim has exactly one job (where to
-start) and the head does the rest, so a passage goes as deep under a hill as you are
-willing to hold the button.
+**Why nothing else worked.** Three builds asked the AIM to place the tunnel — two
+clicks that computed one, a floor read from the aim each frame, then a head driven
+blind on a held level — and every one left the passage on the OUTSIDE of the hill.
+The reason is structural, not a bug that kept escaping: the crosshair is a ray
+against the ground, so it can only ever touch a **surface**. It cannot point inside
+a mountain. Sweep it at a slope and it walks up the face.
 
-The ring rides the HEAD while a stroke is under way, not the aim — the head is
-inside the hillside where no aim can reach, and a ring left on the surface would be
-marking the one place nothing is happening.
+Drawing never asks it to. The line is laid where the crosshair works perfectly, and
+the depth comes from the ends afterwards — which is the maker's own idea, offered
+after the third failure, and it dissolved the problem instead of fighting it.
 
-Branching still works the way it did: release, aim at a wall of the passage you are
-standing in (the shovel's own march sees through dug air), and drive off at a new
-level.
+A route shorter than a couple of brush widths is refused: lowering a dab gives a
+pit, not a passage.
 
 ## Tunnels
 
