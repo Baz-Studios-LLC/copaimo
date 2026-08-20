@@ -2119,7 +2119,12 @@ pub fn lower_the_route(
     if !buttons.just_released(MouseButton::Left) || digging.route.is_empty() {
         return;
     }
-    let route = std::mem::take(&mut digging.route);
+    // The sketch as drawn, then the alignment made of it: gaps filled, shake
+    // smoothed out, portals left exactly where they were put. A hand cannot drag a
+    // crosshair over a mountain in a straight line and should not have to — see
+    // `dug::tidy`.
+    let sketch = std::mem::take(&mut digging.route);
+    let route = crate::world::dug::tidy(&sketch);
 
     // How long the line is, and how far along it each point sits.
     let mut walked = vec![0.0_f32];
@@ -2139,7 +2144,11 @@ pub fn lower_the_route(
     let ground = |at: Vec2| terrain.0.sealed_height(at.x, at.y);
     let (from, to) = (ground(route[0]), ground(route[route.len() - 1]));
 
-    let radius = brush.radius.min(crate::world::dug::HALF_WIDE * 2.0);
+    // A tunnel's own width, whatever the brush is set to. The vault is an arch
+    // built for `HALF_WIDE`; dug wider than that its crown flattens out and the
+    // passage reads as a hall — which is what a wide brush and a curving line
+    // produced together.
+    let radius = brush.radius.min(crate::world::dug::HALF_WIDE);
     let mut patch: Option<terrain_core::Patch> = None;
     let mut deepest = f32::MAX;
     {
@@ -2363,6 +2372,71 @@ mod digging {
 
         press_row(&mut app);
         assert!(!app.world().resource::<Digging>().in_hand, "the row would not put it down");
+    }
+
+    #[test]
+    fn a_gappy_wobbly_line_still_comes_out_a_continuous_tunnel() {
+        // Drawn the way a hand actually draws: shaking by metres, and with a
+        // stretch missing where the view swung and the pointer jumped. The maker
+        // draws the line and the tool fills it in — so what has to come out is a
+        // passage with no beads and no kinks, from a sketch with both.
+        let mut app = digging_app();
+        press_row(&mut app);
+
+        let (sin, cos) = crate::world::pass::HEADING.sin_cos();
+        let along = Vec2::new(cos, sin);
+        let aside = Vec2::new(-sin, cos);
+        let middle = crate::world::pass::AT;
+        let (west, east) = (middle - along * 620.0, middle + along * 620.0);
+
+        let mut sketch = Vec::new();
+        for step in 0..=80 {
+            // The gap: a fast drag over the crest.
+            if (34..44).contains(&step) {
+                continue;
+            }
+            let t = step as f32 / 80.0;
+            let shake = (t * 47.0).sin() * 9.0 + (t * 111.0).cos() * 4.0;
+            sketch.push(west.lerp(east, t) + aside * shake);
+        }
+        for at in &sketch {
+            let y = app
+                .world()
+                .resource::<TerrainSource>()
+                .0
+                .sealed_height(at.x, at.y);
+            aim(&mut app, *at, y);
+            hold(&mut app);
+        }
+        release(&mut app);
+
+        let terrain = app.world().resource::<TerrainSource>().0.clone();
+        let dug = terrain.dug().read().expect("dug");
+        assert!(!dug.is_empty(), "the sketch dug nothing");
+
+        // Continuous ALONG THE ALIGNMENT the tool made of the sketch — not along
+        // the straight line between the portals, which a wobbly route is bowed away
+        // from by design. Every point of the alignment must be dug: a row of beads
+        // fails here, and so does a passage that stopped at the gap.
+        let route = crate::world::dug::tidy(&sketch);
+        assert!(route.len() > 200, "the alignment is only {} points", route.len());
+        let missing = route
+            .iter()
+            .filter(|at| dug.floor_at(**at).is_none())
+            .count();
+        assert_eq!(
+            missing, 0,
+            "{missing} of {} points on the alignment were left undug",
+            route.len()
+        );
+
+        // And still a tunnel: rock over the middle.
+        let floor = dug.floor_at(middle).expect("the crest should be dug through");
+        let cover = terrain.sealed_height(middle.x, middle.y) - floor;
+        assert!(
+            cover > crate::world::dug::DOORWAY * 10.0,
+            "only {cover:.0} m of rock over the middle"
+        );
     }
 
     #[test]

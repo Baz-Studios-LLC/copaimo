@@ -36,6 +36,21 @@ Drawing never asks it to. The line is laid where the crosshair works perfectly, 
 the depth comes from the ends afterwards — which is the maker's own idea, offered
 after the third failure, and it dissolved the problem instead of fighting it.
 
+**You draw the line; the tool fills it in.** What comes off a mouse is neither
+smooth nor evenly spaced — the points arrive one per frame, so a slow hand piles
+them up and a fast one leaves them tens of metres apart, and the crosshair shakes by
+metres as it is dragged over a hillside. Dug straight, that is a row of beads with
+kinks in it.
+
+So the sketch is resampled to fill every gap and smoothed to take the shake out,
+with **the two ends pinned** — those are the portals, the one part of a drawn route
+that is a decision rather than an accident of the hand. A deliberate bend survives;
+a wobble does not. Nobody has to draw a straight line.
+
+The passage is dug at the bore's own width whatever the brush is set to: the vault is
+an arch built for `HALF_WIDE`, and dug wider its crown flattens and the passage reads
+as a hall.
+
 A route shorter than a couple of brush widths is refused: lowering a dab gives a
 pit, not a passage.
 

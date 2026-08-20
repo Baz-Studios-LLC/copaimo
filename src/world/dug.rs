@@ -1009,3 +1009,195 @@ mod one_rule {
         );
     }
 }
+
+// ------------------------------------------------------------------- the sketch
+
+/// How far apart the points of a tidied route are, in metres.
+///
+/// Under half a cell, so consecutive brushfuls overlap heavily and the passage is
+/// continuous rather than a string of beads.
+const TIDY_STEP: f32 = CELL * 0.5;
+
+/// The scale of wobble a tidied route smooths away, in metres.
+///
+/// A couple of brush widths. Nobody can drag a crosshair over a mountain in a
+/// straight line — the hand shakes, the view swings, the ground drops away — and a
+/// tunnel alignment is straights and gentle curves with no kinks in it. Below this
+/// the wobble goes; above it the curve the maker meant survives.
+const TIDY_REACH: f32 = 26.0;
+
+/// Turns a hand-drawn sketch into a tunnel's alignment.
+///
+/// # A sketch is not a centreline
+///
+/// What comes off the mouse is neither smooth nor evenly spaced: the points arrive
+/// one per frame of a drag, so a slow hand piles them up and a fast one leaves
+/// them tens of metres apart — and a brushful at each would dig a row of beads
+/// rather than a passage. The wobble is worse: a crosshair dragged over a hillside
+/// shakes by metres, and a passage dug along that comes out with kinks a cart
+/// could not take.
+///
+/// So the sketch is **resampled** at [`TIDY_STEP`], which fills every gap, and
+/// then **smoothed** with its two ends pinned, which takes out the shake and
+/// leaves the line the maker meant. The ends stay exactly where they were put
+/// because those are the portals: the one part of a drawn route that is a
+/// decision rather than an accident of the hand.
+pub fn tidy(sketch: &[Vec2]) -> Vec<Vec2> {
+    if sketch.len() < 2 {
+        return sketch.to_vec();
+    }
+
+    // Resampled by arc length, so the spacing is even however fast the hand moved.
+    let mut walked = vec![0.0_f32];
+    for pair in sketch.windows(2) {
+        walked.push(walked.last().copied().unwrap_or(0.0) + pair[0].distance(pair[1]));
+    }
+    let total = walked.last().copied().unwrap_or(0.0);
+    if total < TIDY_STEP {
+        return sketch.to_vec();
+    }
+
+    let steps = (total / TIDY_STEP).ceil() as usize;
+    let mut route = Vec::with_capacity(steps + 1);
+    let mut leg = 0;
+    for step in 0..=steps {
+        let want = (step as f32 / steps as f32) * total;
+        while leg + 2 < sketch.len() && walked[leg + 1] < want {
+            leg += 1;
+        }
+        let span = walked[leg + 1] - walked[leg];
+        let t = if span > 1.0e-4 {
+            ((want - walked[leg]) / span).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        route.push(sketch[leg].lerp(sketch[leg + 1], t));
+    }
+
+    // And smoothed, ends pinned. Laplacian passes rather than one wide average:
+    // the same result, and each pass is a line of arithmetic that cannot get the
+    // window's edges wrong.
+    let passes = ((TIDY_REACH / TIDY_STEP).powi(2) * 0.5) as usize;
+    for _ in 0..passes {
+        let was = route.clone();
+        for index in 1..route.len() - 1 {
+            let middle = (was[index - 1] + was[index + 1]) * 0.5;
+            route[index] = was[index].lerp(middle, 0.5);
+        }
+    }
+    route
+}
+
+#[cfg(test)]
+mod sketches {
+    use super::*;
+
+    /// A hand-drawn line, exaggerated: a straight run with a shake on it and one
+    /// long gap where the view swung and the pointer jumped.
+    fn scrawl() -> Vec<Vec2> {
+        let mut sketch = Vec::new();
+        for step in 0..=60 {
+            let along = step as f32 * 10.0;
+            // Skip a stretch, the way a fast drag does.
+            if (25..32).contains(&step) {
+                continue;
+            }
+            let shake = (along * 0.6).sin() * 7.0 + (along * 1.7).cos() * 3.0;
+            sketch.push(Vec2::new(along, shake));
+        }
+        sketch
+    }
+
+    #[test]
+    fn a_scrawl_becomes_an_alignment_without_moving_its_portals() {
+        let sketch = scrawl();
+        let route = tidy(&sketch);
+
+        // The portals are the one part of a drawn line that is a decision.
+        assert!(
+            route[0].distance(sketch[0]) < 0.01,
+            "the first portal moved to {:?}",
+            route[0]
+        );
+        assert!(
+            route[route.len() - 1].distance(sketch[sketch.len() - 1]) < 0.01,
+            "the last portal moved"
+        );
+
+        // No gaps: every step is one brushful's overlap or less, so the passage is
+        // continuous rather than a row of beads.
+        let widest = route
+            .windows(2)
+            .map(|pair| pair[0].distance(pair[1]))
+            .fold(0.0_f32, f32::max);
+        assert!(
+            widest <= TIDY_STEP + 0.01,
+            "a {widest:.1} m gap survived — that is beads, not a tunnel"
+        );
+
+        // And the shake is gone. Measured as the worst corner in the line: a hand's
+        // wobble turns a few degrees every couple of metres, an alignment does not.
+        let sharpest = |line: &[Vec2]| {
+            line.windows(3)
+                .filter_map(|three| {
+                    let a = (three[1] - three[0]).try_normalize()?;
+                    let b = (three[2] - three[1]).try_normalize()?;
+                    Some(a.angle_to(b).abs())
+                })
+                .fold(0.0_f32, f32::max)
+        };
+        let before = sharpest(&sketch);
+        let after = sharpest(&route);
+        assert!(
+            after < before * 0.25,
+            "the worst corner went from {:.0}° to {:.0}° — still a scrawl",
+            before.to_degrees(),
+            after.to_degrees()
+        );
+        assert!(
+            after < 0.12,
+            "a {:.0}° kink is left in the alignment",
+            after.to_degrees()
+        );
+    }
+
+    #[test]
+    fn a_curve_the_maker_meant_survives_the_tidying() {
+        // Smoothing must not straighten the line into something else. A deliberate
+        // bend — a route swinging round a shoulder — has to still be there.
+        let bend: Vec<Vec2> = (0..=60)
+            .map(|step| {
+                let t = step as f32 / 60.0;
+                let angle = t * std::f32::consts::FRAC_PI_2;
+                Vec2::new(angle.sin(), 1.0 - angle.cos()) * 400.0
+            })
+            .collect();
+        let route = tidy(&bend);
+
+        // How far the line departs from the straight between its ends: a quarter
+        // circle of this size bows out by well over a hundred metres, and the
+        // tidied one has to bow out nearly as far.
+        let bow = |line: &[Vec2]| {
+            let (from, to) = (line[0], line[line.len() - 1]);
+            let axis = (to - from).normalize();
+            line.iter()
+                .map(|at| (*at - from).reject_from(axis).length())
+                .fold(0.0_f32, f32::max)
+        };
+        let (was, is) = (bow(&bend), bow(&route));
+        assert!(
+            is > was * 0.9,
+            "the bend was flattened from {was:.0} m to {is:.0} m of bow"
+        );
+    }
+
+    #[test]
+    fn a_dab_is_left_alone() {
+        // Nothing to resample and nothing to smooth. It is refused upstream as too
+        // short to be a route; this only has to not panic on it.
+        assert_eq!(tidy(&[]).len(), 0);
+        assert_eq!(tidy(&[Vec2::ZERO]).len(), 1);
+        let pair = [Vec2::ZERO, Vec2::new(0.2, 0.0)];
+        assert_eq!(tidy(&pair).len(), 2, "a sub-step pair should pass through");
+    }
+}
