@@ -725,7 +725,7 @@ pub fn void_parts(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> (Geometry, usize) 
     }
     // Everything up to here is hewn out of the rock. The doorways are built.
     let hewn = mesh.places.len();
-    frame_the_doorways(&mut mesh, dug, &open, &drawn, wide, deep, x0, z0);
+    frame_the_doorways(&mut mesh, dug, &open, &drawn, wide, deep, x0, z0, &ground);
     (mesh, hewn)
 }
 
@@ -735,8 +735,8 @@ pub fn void_parts(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> (Geometry, usize) 
 /// the air left between the top of the opening and the beam over it.
 const PILLAR: f32 = 1.8;
 const LINTEL: f32 = 1.6;
-const FOOTING: f32 = 0.6;
-const CLEARANCE: f32 = 0.4;
+const FOOTING: f32 = 0.25;
+const CLEARANCE: f32 = 0.6;
 
 /// Stands one doorframe at every mouth: a pillar either side, a beam across the top.
 ///
@@ -762,6 +762,7 @@ fn frame_the_doorways(
     deep: usize,
     x0: isize,
     z0: isize,
+    ground: &impl Fn(Vec2) -> f32,
 ) {
     // The threshold: sealed cells with carved-open ground next door, each knowing
     // which way out is.
@@ -814,7 +815,7 @@ fn frame_the_doorways(
             }
         }
         let mouth: Vec<(isize, isize, Vec2)> = mouth.into_iter().map(|m| lip[m]).collect();
-        raise_a_doorframe(mesh, dug, &mouth, x0, z0);
+        raise_a_doorframe(mesh, dug, &mouth, x0, z0, ground);
     }
 }
 
@@ -825,7 +826,10 @@ fn raise_a_doorframe(
     mouth: &[(isize, isize, Vec2)],
     x0: isize,
     z0: isize,
+    ground: &impl Fn(Vec2) -> f32,
 ) {
+    // The ground as a walker sees it — the sealed surface with the carve taken out.
+    let carved = |at: Vec2| ground(at) - dug.opening(at, ground(at));
     // Which way the doorway faces is the mouth's own consensus.
     let facing = mouth.iter().fold(Vec2::ZERO, |sum, (_, _, out)| sum + *out);
     let Some(out) = facing.try_normalize() else {
@@ -868,16 +872,28 @@ fn raise_a_doorframe(
     let head = floor + DOORWAY + CLEARANCE;
 
     let dressed = |shade: f32| [0.196 * shade, 0.186 * shade, 0.17 * shade, 1.0];
-    // A pillar flush with each side of the opening, footed into the ground...
+    // A pillar flush with each side of the opening, seated on the ground it actually
+    // stands on. The first build footed both at the mouth's lowest floor, and on the
+    // trench's sloping sides that buried one of them to the knees — "slightly too
+    // low into the ground". Seating is per pillar, on the lowest of its own corners,
+    // sunk just enough that no corner floats.
     for hand in [-1.0_f32, 1.0] {
+        let stand = middle + side * (hand * (half_across - PILLAR * 0.5));
+        let seat = [Vec2::ZERO, Vec2::ONE, -Vec2::ONE, Vec2::new(1.0, -1.0), Vec2::new(-1.0, 1.0)]
+            .into_iter()
+            .map(|corner| {
+                carved(stand + side * (corner.x * PILLAR * 0.5) + out * (corner.y * PILLAR * 0.5))
+            })
+            .fold(f32::MAX, f32::min)
+            .min(floor);
         block(
             mesh,
-            middle + side * (hand * (half_across - PILLAR * 0.5)),
+            stand,
             side,
             out,
             PILLAR * 0.5,
             PILLAR * 0.5,
-            floor - FOOTING,
+            seat - FOOTING,
             head,
             dressed(1.0),
         );

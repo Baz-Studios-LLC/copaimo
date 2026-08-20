@@ -89,6 +89,21 @@ between the hewn run of vertices and the built one, rather than leaving a test t
 guess. Guessing by colour failed at the first attempt: the lintel is a darker shade
 of the same stone, and sixty-four of its faces came through as walls.
 
+**The hole is cut out of the ground's own skin.** A heightfield has exactly one
+height at every (x, z), so the ground is an unbroken sheet — at a mouth it stood up
+as a grass cliff ACROSS the opening, under the doorframe's own beam. Fifth report of
+the entrance missing, and every earlier fix was real (walls, the carve partition, the
+frame) — but no height a heightfield can take reads as an opening. So the chunk mesh
+skips the face: any quad standing with one corner on carved-open dug ground and
+another on sealed dug ground is a mouth face and is not drawn, and the cave's own
+vault and walls show through the gap. Corners over undug ground vote for neither
+side, which keeps the trench's side slopes solid; walking is untouched, because the
+walker asks heights, not triangles.
+
+Each pillar seats on the ground it actually stands on — the lowest of its own
+corners, sunk `FOOTING` — not on the mouth's lowest floor, which on a sloping trench
+side buried one pillar to the knees.
+
 ## Tunnels
 
 `bores.rs` owns every tunnel in the world. A bore is two points, and what it does is
