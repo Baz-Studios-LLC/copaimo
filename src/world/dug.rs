@@ -737,6 +737,11 @@ pub fn draw_the_void(
     if mesh.is_empty() {
         return;
     }
+    info!(
+        "the cave: {} cells dug, {} vertices drawn",
+        dug.cells_dug(),
+        mesh.places.len()
+    );
     commands.spawn((
         Void,
         Mesh3d(meshes.add(crate::world::stream::as_coloured_mesh(&mesh))),
@@ -1199,5 +1204,115 @@ mod sketches {
         assert_eq!(tidy(&[Vec2::ZERO]).len(), 1);
         let pair = [Vec2::ZERO, Vec2::new(0.2, 0.0)];
         assert_eq!(tidy(&pair).len(), 2, "a sub-step pair should pass through");
+    }
+}
+
+#[cfg(test)]
+mod the_makers_own {
+    use super::*;
+
+    /// Whatever is in `assets/world/dug.bin` must come out as a cave.
+    ///
+    /// Not a fixture — the maker's own saved digging, read off disk. Three builds
+    /// of this were argued about from screenshots while the one question nobody
+    /// asked was whether the data on disk produced any interior at all.
+    ///
+    /// Skips itself when nothing has been dug, so it is a check on a real world
+    /// rather than a test that fails on a clean checkout.
+    #[test]
+    fn what_is_on_disk_comes_out_as_a_cave() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let dug = terrain.dug().read().expect("dug ground");
+        if dug.is_empty() {
+            return;
+        }
+
+        let mesh = void(&dug, |at| terrain.height(at.x, at.y));
+        assert!(
+            !mesh.is_empty(),
+            "{} cells are dug and the cave came out with no geometry at all",
+            dug.cells_dug()
+        );
+
+        // A cave has an inside: floor below, vault above, and enough of both to
+        // stand in. Measured off the mesh rather than off the rules that made it.
+        let low = mesh.places.iter().map(|p| p[1]).fold(f32::MAX, f32::min);
+        let high = mesh.places.iter().map(|p| p[1]).fold(f32::MIN, f32::max);
+        assert!(
+            high - low > LEG,
+            "the cave is {:.1} m from floor to ceiling — that is a sheet, not a space",
+            high - low
+        );
+
+        // And it is UNDER something: somewhere along it there is real rock overhead,
+        // or what has been dug is a trench rather than a cave.
+        let mut deepest = 0.0_f32;
+        for place in &mesh.places {
+            let at = Vec2::new(place[0], place[2]);
+            if let Some(floor) = dug.floor_at(at) {
+                deepest = deepest.max(terrain.sealed_height(at.x, at.y) - floor);
+            }
+        }
+        println!(
+            "the maker's digging: {} cells, {} vertices, up to {deepest:.0} m of cover",
+            dug.cells_dug(),
+            mesh.places.len()
+        );
+        assert!(
+            deepest > DOORWAY * 2.0,
+            "the deepest cover anywhere is {deepest:.1} m — nothing is under a hill"
+        );
+    }
+}
+
+#[cfg(test)]
+mod probe {
+    use super::*;
+
+    #[test]
+    #[ignore = "a measurement of the maker's own world"]
+    fn where_are_the_mouths() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let dug = terrain.dug().read().expect("dug");
+        if dug.is_empty() {
+            println!("nothing dug");
+            return;
+        }
+        let mut buckets = [0usize; 6];
+        let mut mouths = Vec::new();
+        let mut sampled = 0;
+        // Walk the whole grid's dug cells by sampling their own middles.
+        for (slot, floor) in dug.floor.iter().enumerate() {
+            if *floor == UNDUG {
+                continue;
+            }
+            sampled += 1;
+            let at = dug.middle_of(slot % dug.wide, slot / dug.wide);
+            let cover = terrain.sealed_height(at.x, at.y) - floor;
+            let which = match cover {
+                c if c < 0.5 => 0,
+                c if c < DOORWAY => 1,
+                c if c < DOORWAY * 2.0 => 2,
+                c if c < 20.0 => 3,
+                c if c < 80.0 => 4,
+                _ => 5,
+            };
+            buckets[which] += 1;
+            if cover < DOORWAY {
+                mouths.push(at);
+            }
+        }
+        println!("dug cells: {sampled}");
+        println!("  cover < 0.5 m (open trench): {}", buckets[0]);
+        println!("  cover < DOORWAY  (a MOUTH):  {}", buckets[1]);
+        println!("  cover < 5.6 m   (thin roof): {}", buckets[2]);
+        println!("  cover < 20 m:                {}", buckets[3]);
+        println!("  cover < 80 m:                {}", buckets[4]);
+        println!("  cover >= 80 m (deep):        {}", buckets[5]);
+        if let (Some(first), Some(last)) = (mouths.first(), mouths.last()) {
+            println!("mouth ground spans {first:?} .. {last:?}");
+        } else {
+            println!("NO MOUTH ANYWHERE - the cave is sealed shut");
+        }
     }
 }

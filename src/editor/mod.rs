@@ -2412,7 +2412,6 @@ mod digging {
 
         let terrain = app.world().resource::<TerrainSource>().0.clone();
         let dug = terrain.dug().read().expect("dug");
-        assert!(!dug.is_empty(), "the sketch dug nothing");
 
         // Continuous ALONG THE ALIGNMENT the tool made of the sketch — not along
         // the straight line between the portals, which a wobbly route is bowed away
@@ -2457,6 +2456,14 @@ mod digging {
         let along = Vec2::new(cos, sin);
         let middle = crate::world::pass::AT;
         let (west, east) = (middle - along * 620.0, middle + along * 620.0);
+        let before = app
+            .world()
+            .resource::<TerrainSource>()
+            .0
+            .dug()
+            .read()
+            .map(|dug| dug.cells_dug())
+            .unwrap_or_default();
 
         let ground = |app: &App, at: Vec2| {
             app.world()
@@ -2479,21 +2486,33 @@ mod digging {
             aim(&mut app, at, y);
             hold(&mut app);
         }
-        {
-            let terrain = app.world().resource::<TerrainSource>().0.clone();
-            let dug = terrain.dug().read().expect("dug");
-            assert!(
-                dug.is_empty(),
-                "the route dug as it was drawn — it is meant to be lowered on release"
-            );
-        }
+        // Measured as a CHANGE, not against an empty layer: the world's own
+        // `dug.bin` carries whatever the maker has already dug, and a test that
+        // assumed a blank one would pass or fail depending on somebody's save.
+        let cells = |app: &App| {
+            app.world()
+                .resource::<TerrainSource>()
+                .0
+                .dug()
+                .read()
+                .map(|dug| dug.cells_dug())
+                .unwrap_or_default()
+        };
+        assert_eq!(
+            cells(&app),
+            before,
+            "the route dug as it was drawn — it is meant to be lowered on release"
+        );
 
         // Let go: the line is lowered.
         release(&mut app);
+        assert!(
+            cells(&app) > before,
+            "releasing the route dug nothing at all"
+        );
 
         let terrain = app.world().resource::<TerrainSource>().0.clone();
         let dug = terrain.dug().read().expect("dug");
-        assert!(!dug.is_empty(), "releasing the route dug nothing at all");
 
         // Under the crest there is real rock overhead — which is the whole claim.
         let floor = dug
