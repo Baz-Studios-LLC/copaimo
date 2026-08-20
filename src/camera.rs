@@ -294,12 +294,8 @@ fn drive_camera(
             let focus = player.translation + Vec3::Y * LOOK_HEIGHT;
             let mut desired = focus + back * orbit.distance;
 
-            // Never let the camera sink into a hillside behind the player — but
-            // inside the mountain pass the hillside overhead is not a floor, so it
-            // asks the same two-level question the warden's feet do, from the
-            // warden's own height.
-            let ground = terrain.walk_floor(desired.x, desired.z, player.translation.y)
-                + GROUND_CLEARANCE;
+            // Never let the camera sink into a hillside behind the player.
+            let ground = terrain.height(desired.x, desired.z) + GROUND_CLEARANCE;
             desired.y = desired.y.max(ground);
 
             // Frame-rate independent exponential smoothing: the camera covers
@@ -358,17 +354,8 @@ fn drive_camera(
             // is the surface actually on screen. The tide moves, so the sea is
             // taken at its own level: skimming the water is fine, being inside it
             // looking up is not.
-            // `walk_floor`, not the drawn surface: inside a dug passage the
-            // drawn surface is the sealed hilltop, and a fly camera clamped to it
-            // could never descend into a tunnel — which in the terrain tool,
-            // where flying is the only way anybody moves, made every passage
-            // "impossible to go through" the moment it was dug.
             let floor = terrain
-                .walk_floor(
-                    camera.translation.x,
-                    camera.translation.z,
-                    camera.translation.y,
-                )
+                .height(camera.translation.x, camera.translation.z)
                 .max(SEA_LEVEL)
                 + FLY_CLEARANCE;
             camera.translation.y = camera.translation.y.max(floor);

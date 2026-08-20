@@ -210,62 +210,9 @@ pub fn build_mesh(terrain: &Terrain, coord: IVec2) -> Mesh {
 
     // Two triangles per quad, wound counter-clockwise seen from above so they
     // face +Y and survive backface culling.
-    //
-    // # A heightfield cannot have a hole in it
-    //
-    // Every (x, z) has exactly one height, so the ground is an unbroken skin: at a
-    // cave mouth, where the carve drops the surface to the tunnel floor in front and
-    // leaves it sealed over the passage behind, the skin stands up as a grass cliff
-    // ACROSS the opening. Fifth report of "still no entrance" — photographed as a
-    // green zigzag under the doorframe's own beam. There is no height that reads as
-    // an opening; the only fix is to not draw the face at all and let the cave's
-    // vault and walls show through the gap.
-    //
-    // A quad is that face exactly when its own cell and a dug NEIGHBOUR are
-    // classified differently by the cave itself — carved open against sealed — and
-    // its own corners stand on both levels. Undug neighbours are no seam, so the
-    // trench's side slopes stay solid: the first cut asked through the bilinear
-    // floor, which reaches past the dug ground, and the walls of the whole approach
-    // unzipped into a crater with the doorframe standing in the middle of it.
-    // Walking is untouched — the walker asks heights, not triangles.
-    let dug = terrain.dug().read().expect("dug ground");
-    // `height()` takes the dug lock itself, so under this one the surface question
-    // is `sealed_height` — and for classifying a CELL the two surfaces agree: the
-    // carve either takes a point all the way to the floor or leaves it alone.
-    let level = |at: Vec2| terrain.sealed_height(at.x, at.y);
-    let mouth_face = |ix: usize, iz: usize| -> bool {
-        if dug.is_empty() {
-            return false;
-        }
-        let centre = origin + Vec2::new(ix as f32 + 0.5, iz as f32 + 0.5) * step;
-        let Some(kind) = dug.cell_kind(centre, level) else {
-            return false;
-        };
-        let seam = [Vec2::X, Vec2::NEG_X, Vec2::Y, Vec2::NEG_Y]
-            .into_iter()
-            .any(|towards| {
-                dug.cell_kind(centre + towards * step, level)
-                    .is_some_and(|neighbour| neighbour != kind)
-            });
-        if !seam {
-            return false;
-        }
-        // The jump itself, not the intact ground one cell behind the seam.
-        let mut low = f32::MAX;
-        let mut high = f32::MIN;
-        for (cx, cz) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-            let sample = sampled(ix + cx + 1, iz + cz + 1);
-            low = low.min(sample);
-            high = high.max(sample);
-        }
-        high - low >= 1.5
-    };
     let mut indices = Vec::with_capacity(quads * quads * 6);
     for iz in 0..quads {
         for ix in 0..quads {
-            if mouth_face(ix, iz) {
-                continue;
-            }
             let a = (iz * side + ix) as u32;
             let b = a + 1;
             let c = a + side as u32;
@@ -273,7 +220,6 @@ pub fn build_mesh(terrain: &Terrain, coord: IVec2) -> Mesh {
             indices.extend_from_slice(&[a, c, b, b, c, d]);
         }
     }
-    drop(dug);
 
     let mut mesh = Mesh::new(
         PrimitiveTopology::TriangleList,
@@ -287,100 +233,4 @@ pub fn build_mesh(terrain: &Terrain, coord: IVec2) -> Mesh {
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
     mesh.insert_indices(Indices::U32(indices));
     mesh
-}
-
-#[cfg(test)]
-mod mouths {
-    use super::*;
-    use crate::config::SEA_LEVEL;
-
-    /// A cave mouth is a HOLE in the skin of the ground, not a cliff across it.
-    ///
-    /// # A heightfield cannot have a hole in it
-    ///
-    /// Every (x, z) has exactly one height, so at a mouth — carved to the tunnel
-    /// floor in front, sealed over the passage behind — the ground stands up as a
-    /// grass wall ACROSS the opening. Fifth report of the entrance missing, and the
-    /// first four fixes were all real: walls, partition, a doorframe. The face has
-    /// to simply not be drawn, and the cave shows through the gap.
-    #[test]
-    fn the_ground_is_not_drawn_across_a_mouth() {
-        let terrain = Terrain::new();
-
-        // A chunk of dry land the maker has not dug.
-        let mut found = None;
-        'hunt: for cz in -8..8 {
-            for cx in -14..14 {
-                let coord = IVec2::new(cx, cz);
-                let at = chunk_origin(coord) + Vec2::splat(CHUNK_SIZE * 0.5);
-                let dry = terrain.height(at.x, at.y) > SEA_LEVEL + 14.0;
-                if dry && terrain.dug().read().expect("dug").floor_at(at).is_none() {
-                    found = Some((coord, at));
-                    break 'hunt;
-                }
-            }
-        }
-        let (coord, at) = found.expect("no dry undug chunk middle anywhere");
-
-        let count = |mesh: &Mesh| mesh.indices().map(|list| list.len()).unwrap_or(0);
-        let before = count(&build_mesh(&terrain, coord));
-
-        // A sealed passage one side of a line and carved-open ground the other:
-        // the seam between them is a mouth's face.
-        let high = terrain.sealed_height(at.x, at.y);
-        {
-            let mut dug = terrain.dug().write().expect("dug");
-            dug.dig(at - Vec2::new(6.0, 0.0), 6.0, high - 12.0);
-            // Nearly a doorway's depth, so the open pit has WALLS — the crater bug
-            // skipped those too, and a fixture dug in flat ground never caught it.
-            dug.dig(at + Vec2::new(6.0, 0.0), 6.0, high - 4.4);
-        }
-        let after = count(&build_mesh(&terrain, coord));
-
-        assert!(
-            before > 0 && after < before,
-            "the ground is still drawn across the mouth: {before} indices before, {after} after"
-        );
-        assert!(
-            before - after >= 4 * 6,
-            "only {} triangles were opened — that is a crack, not a doorway",
-            (before - after) / 3
-        );
-        // And ONLY the face. The first cut unzipped the pit's own walls as well,
-        // which took out a crater; the seam across this mouth is a handful of quads.
-        assert!(
-            before - after <= 20 * 6,
-            "{} quads were opened for one small mouth — that is a crater, not a doorway",
-            (before - after) / 6
-        );
-    }
-}
-
-#[cfg(test)]
-mod probe {
-    use super::*;
-
-    #[test]
-    #[ignore = "a measurement of the maker's own world"]
-    fn how_big_the_holes_at_the_real_portals_are() {
-        let terrain = Terrain::new();
-        for portal in [Vec2::new(984.0, -745.0), Vec2::new(158.0, -512.0)] {
-            let coord = IVec2::new(
-                (portal.x / CHUNK_SIZE).floor() as i32,
-                (portal.y / CHUNK_SIZE).floor() as i32,
-            );
-            let quads = (CHUNK_QUADS as usize).pow(2);
-            let drawn = build_mesh(&terrain, coord)
-                .indices()
-                .map(|list| list.len())
-                .unwrap_or(0)
-                / 6;
-            println!(
-                "portal near ({:.0}, {:.0}): {} of {quads} quads opened",
-                portal.x,
-                portal.y,
-                quads - drawn
-            );
-        }
-    }
 }

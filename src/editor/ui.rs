@@ -60,13 +60,6 @@ enum Readout {
     Planted,
     Marked,
     Surfaced,
-    /// How much has been dug out, and what the shovel is doing.
-    ///
-    /// The instrument that was missing while three builds of the shovel were being
-    /// argued about from screenshots: a passage under a hill shows nothing at all on
-    /// the surface, so without a number there was no way to tell a tunnel that had
-    /// not been dug from one that had been dug and could not be seen.
-    Dug,
     History,
 }
 
@@ -105,7 +98,6 @@ impl Plugin for EditorUiPlugin {
                     pressed_act,
                     crate::tools::widget::light_rows::<Brushing>,
                     crate::tools::widget::light_rows::<crate::editor::Act>,
-                    mark_the_shovel,
                     refresh_tools,
                     refresh_readouts,
                     refresh_meters,
@@ -308,7 +300,6 @@ fn body(panel: &mut ChildSpawnerCommands, font: &UiFont) {
             value_row(body, font, "Planted", Readout::Planted);
             value_row(body, font, "Biome", Readout::Marked);
             value_row(body, font, "Surfaced", Readout::Surfaced);
-            value_row(body, font, "Dug", Readout::Dug);
             value_row(body, font, "History", Readout::History);
 
             body.spawn(rule());
@@ -539,53 +530,6 @@ fn despawn_ui(mut commands: Commands, roots: Query<Entity, With<EditorUiRoot>>) 
 ///
 /// One path from either, so a row and its key cannot come to mean different
 /// things — the fault `TOOL_KEYS` exists to prevent, in its other half.
-/// Lights the DIG row while the shovel is in hand.
-///
-/// The palette marks the brush in force, and DIG is not a palette choice — it is an
-/// action that toggles — so nothing on screen said whether the next drag was going
-/// to dig or to sculpt. A mode with no indicator is a mode somebody is always in by
-/// accident.
-pub fn mark_the_shovel(
-    mut commands: Commands,
-    digging: Res<crate::editor::Digging>,
-    rows: Query<
-        (
-            Entity,
-            &Choice<crate::editor::Act>,
-            Option<&crate::tools::widget::Chosen>,
-            &Children,
-        ),
-    >,
-    mut labels: Query<&mut TextColor, With<RowLabel>>,
-    mut backgrounds: Query<&mut BackgroundColor, With<Choice<crate::editor::Act>>>,
-) {
-    for (entity, choice, chosen, kids) in &rows {
-        // Only the shovel's own row has a state to show; the rest are one-shot
-        // presses and lighting them would say something untrue.
-        if choice.0 != crate::editor::Act::Bore {
-            continue;
-        }
-        let armed = digging.in_hand;
-        if armed && chosen.is_none() {
-            commands.entity(entity).insert(crate::tools::widget::Chosen);
-        } else if !armed && chosen.is_some() {
-            commands.entity(entity).remove::<crate::tools::widget::Chosen>();
-        }
-        if let Ok(mut colour) = backgrounds.get_mut(entity) {
-            colour.0 = if armed {
-                crate::tools::theme::ROW_ACTIVE
-            } else {
-                crate::tools::widget::ROW_IDLE
-            };
-        }
-        for kid in kids.iter() {
-            if let Ok(mut text) = labels.get_mut(kid) {
-                text.0 = if armed { ACCENT } else { TEXT_MUTED };
-            }
-        }
-    }
-}
-
 pub fn pressed_act(
     rows: Query<(&Interaction, &Choice<crate::editor::Act>), Changed<Interaction>>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
@@ -733,7 +677,6 @@ fn refresh_meters(brush: Res<Brush>, mut meters: Query<(&Meter, &mut Node, &mut 
 fn refresh_readouts(
     brush: Res<Brush>,
     terrain: Res<TerrainSource>,
-    digging: Res<crate::editor::Digging>,
     mut readouts: Query<(&Readout, &mut Text)>,
     mut unsaved: Query<&mut BackgroundColor, With<UnsavedMark>>,
 ) {
@@ -807,20 +750,6 @@ fn refresh_readouts(
             Readout::Planted => format!("{} cells", terrain.planted_cells()),
             Readout::Marked => format!("{} cells", terrain.marked_cells()),
             Readout::Surfaced => format!("{} cells", terrain.worn_cells()),
-            Readout::Dug => {
-                let cells = terrain
-                    .dug()
-                    .read()
-                    .map(|dug| dug.cells_dug())
-                    .unwrap_or_default();
-                if !digging.route.is_empty() {
-                    format!("{cells} cells - drawing a route")
-                } else if digging.in_hand {
-                    format!("{cells} cells - shovel up")
-                } else {
-                    format!("{cells} cells")
-                }
-            }
             Readout::History => match (undo_depth, redo_depth) {
                 (false, _) => "nothing to undo".to_string(),
                 (true, true) => "undo and redo ready".to_string(),

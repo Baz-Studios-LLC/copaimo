@@ -5,7 +5,6 @@ pub mod forest;
 pub mod chunk;
 pub mod country;
 pub mod cover;
-pub mod dug;
 pub mod edit;
 pub mod heightmap;
 pub mod pass;
@@ -117,13 +116,9 @@ fn no_sea_yet(seas: Query<(), With<water::Water>>) -> bool {
 fn clear_the_world(
     mut commands: Commands,
     seas: Query<Entity, With<water::Water>>,
-    voids: Query<Entity, With<dug::Void>>,
 ) {
     for sea in &seas {
         commands.entity(sea).despawn();
-    }
-    for void in &voids {
-        commands.entity(void).despawn();
     }
 }
 
@@ -205,7 +200,6 @@ impl Plugin for WorldPlugin {
                     prop::litter_chunks,
                     prop::collect_props,
                     prop::clear_chunks,
-                    dug::draw_the_void,
                 )
                     // Not in the workbench. Streaming a world nobody is looking at
                     // costs a frame's work every frame and, worse, keeps a second

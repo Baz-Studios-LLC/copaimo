@@ -40,10 +40,6 @@ struct Minimap {
     /// and left the overview showing the old one — and the overview is the ONLY
     /// place a maker can see a whole region at once, so it is the one view that
     /// must not go stale while they are drawing a region.
-    ///
-    /// The dug layer counts too, and it matters most of all: a passage under a hill
-    /// cannot be seen from the ground at all, so the overview is the only place it
-    /// is ever visible.
     last_cells: usize,
     /// Seconds since the edit layer last changed.
     quiet: f32,
@@ -93,15 +89,6 @@ impl Plugin for MinimapPlugin {
                     .run_if(in_state(AppState::Editing)),
             );
     }
-}
-
-/// The floor of any passage under a point, or `None`.
-///
-/// Its own function so the paint loop stays readable, and so the lock is taken and
-/// dropped per sample rather than being held across a whole map render — the tool
-/// is digging into this layer while the overview is being drawn.
-fn dug_floor(terrain: &Terrain, at: Vec2) -> Option<f32> {
-    terrain.dug().read().ok()?.floor_at(at)
 }
 
 /// Pixel dimensions of the overview for a world of the given half-extents.
@@ -439,17 +426,6 @@ fn render(terrain: &Terrain, size: UVec2) -> Vec<u8> {
                 terrain.region(x, z).0,
                 terrain.region(x, z).1,
             );
-
-            // What has been dug, laid over the ground it runs under.
-            //
-            // Darkened rather than tinted: a passage is an absence, and an absence
-            // reads as shadow. Painted from the DUG layer directly rather than from
-            // anything the surface knows, because the whole point is to see the part
-            // of it the surface hides.
-            let color = match dug_floor(&terrain, Vec2::new(x, z)) {
-                Some(_) => [color[0] * 0.24, color[1] * 0.26, color[2] * 0.3, color[3]],
-                None => color,
-            };
 
             // `surface_color` returns linear; the texture is sRGB.
             let encode = |linear: f32| {
