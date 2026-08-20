@@ -13,23 +13,38 @@ collect).
 
 ---
 
-## The mountain pass
+## Digging is a shovel, not an architect
 
-A mountain across the road east — desert on its western foot, the green world on
-its eastern, snow beyond that. There is no way over it and no short way round, so
-getting east means going through, and **the way through is a tunnel the maker
-bores**. The pass shipped with one hard-coded, and every number in it was a guess
-from a screenshot: it went wrong four times in an evening. A mountain is landscape,
-which the generator is good at; a doorway through it is a decision, which wants
-eyes on the place.
+`DIG` takes a shovel up; dragging opens material a brushful at a time; pressing the
+row again puts it down. What shape the passage ends up is the maker's business —
+branches, chambers and dog-legs are all just where somebody dug.
 
-`pass.rs` is now only the mountain. It is broken up three ways — a serrated crest,
-gullies stretched down the fall line, creases mid-flank only — and every one of them
-only ever cuts DOWN, so anything bored through it reads the same rock the ground
-draws.
+**Three builds tried to MAKE a tunnel** from two clicks, working out mouths, length,
+arch and floor. Each was wrong in a new way and each was photographed within a
+minute: a stripe shaved over a mountain's shoulder, a black tent pitched on open
+ground, a valley gouged across a hillside. A tunnel is a decision with a shape and
+the tool kept guessing the shape.
 
-Its eastern foot runs into the sea, which is a thing the bore tool has to cope with
-rather than a thing the maker has to remember — see below.
+**The floor is where you were aiming, stamped flat.** Not the terrain's own height
+per cell — that is what makes a dug floor lumpy, and a floor a man dug with a pick
+is not lumpy. Aim lower as you go and the passage slopes; that is also how a branch
+leaves another at a different level. Digging deeper wins where strokes cross; you
+cannot un-dig by painting higher, and `Shift` fills in.
+
+**The surface is never touched.** A hill dug through keeps its trees, its snow and
+its shading, and stays impenetrable at ground level. What digging writes is a
+second, lower surface, and the walking rule hands a walker whichever has claim on
+them — the only place this world has two grounds stacked over each other.
+
+**Nothing may be dug below the waterline.** A pointer can only aim at the surface,
+so a floor is always some real height — but a low aim carried into a hillside is how
+you dig straight down and out through the bottom of the world.
+
+The vault rises with distance from the nearest wall, so a narrow passage gets a low
+arch and a junction of two arches over itself without anything having to work out
+that it is a junction. It never breaks the surface: the roof is cleared against the
+LOWEST corner of each cell, because a cell is two metres across on ground that can
+fall a metre in that distance.
 
 ## Tunnels
 

@@ -250,12 +250,6 @@ fn dress(terrain: &Terrain, low: Vec2) -> Geometry {
 
             // Nothing grows under a mountain. The cutting at either mouth is
             // open to the sky and keeps its grass — see `pass::underground`.
-            // Nothing grows in a tunnel's cutting: that ground is hewn rock.
-            // The corridor under a hill is ordinary hillside and keeps everything
-            // it had, because a bore never touched it.
-            if terrain.in_a_cutting(at.x, at.y) > 0.5 {
-                continue;
-            }
             let ground = terrain.ground_at(at.x, at.y);
             // One climate for the world again. What used to vary from point to
             // point was a coldness that moved the treeline about; the country a

@@ -240,12 +240,6 @@ pub fn litter(terrain: &Terrain, pool: &[Prop], low: Vec2) -> Geometry {
             }
 
             // Nothing stands under a mountain either.
-            // Nothing stands in a tunnel's cutting: that ground is hewn rock.
-            // The corridor under a hill is ordinary hillside and keeps everything
-            // it had, because a bore never touched it.
-            if terrain.in_a_cutting(at.x, at.y) > 0.5 {
-                continue;
-            }
             let ground = terrain.ground_at(at.x, at.y);
             let biome = Biome::of(ground, &terrain.climate());
 

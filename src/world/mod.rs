@@ -5,9 +5,9 @@ pub mod forest;
 pub mod chunk;
 pub mod country;
 pub mod cover;
+pub mod dug;
 pub mod edit;
 pub mod heightmap;
-pub mod bores;
 pub mod pass;
 pub mod placed;
 pub mod prop;
@@ -108,13 +108,13 @@ fn no_sea_yet(seas: Query<(), With<water::Water>>) -> bool {
 fn clear_the_world(
     mut commands: Commands,
     seas: Query<Entity, With<water::Water>>,
-    rocks: Query<Entity, With<bores::Rock>>,
+    voids: Query<Entity, With<dug::Void>>,
 ) {
     for sea in &seas {
         commands.entity(sea).despawn();
     }
-    for rock in &rocks {
-        commands.entity(rock).despawn();
+    for void in &voids {
+        commands.entity(void).despawn();
     }
 }
 
@@ -160,7 +160,7 @@ impl Plugin for WorldPlugin {
                     water::spawn_water.run_if(no_sea_yet),
                     stream::grow_the_grove.run_if(not(resource_exists::<stream::Grove>)),
                     prop::setup_props.run_if(not(resource_exists::<prop::PropPool>)),
-                    bores::raise_the_rock,
+                    dug::draw_the_void,
                 ),
             )
             .add_systems(OnExit(crate::states::AppState::Playing), clear_the_world);
@@ -178,7 +178,7 @@ impl Plugin for WorldPlugin {
                 water::spawn_water.run_if(no_sea_yet),
                 stream::grow_the_grove.run_if(not(resource_exists::<stream::Grove>)),
                 prop::setup_props.run_if(not(resource_exists::<prop::PropPool>)),
-                bores::raise_the_rock,
+                dug::draw_the_void,
             ),
         )
         .add_systems(OnExit(crate::states::AppState::Editing), clear_the_world);

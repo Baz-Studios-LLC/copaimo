@@ -218,14 +218,17 @@ pub struct Carrying(pub Option<u32>);
 #[derive(Event, Clone, Copy)]
 pub struct Asked(pub Act);
 
-/// The mouth of a tunnel a maker has started but not finished.
+/// Whether the shovel is in hand.
 ///
-/// A bore takes two points, so it takes two clicks: the first is remembered here
-/// and the second lays the tunnel. The same shape as the ramp tool, and for the
-/// same reason — a thing defined by where it starts and where it ends cannot be
-/// painted, because painting only ever knows where the brush is now.
-#[derive(Resource, Default)]
-pub struct Boring(pub Option<Vec2>);
+/// # Digging is a mode, and the shelf says which mode
+///
+/// The ground brushes live in `Brushing`, which is terrain-core's enum and shared
+/// with Opificium — where a shovel means nothing, because Opificium has no tunnels.
+/// So digging is not one of them. Pressing DIG takes the shovel up, dragging digs,
+/// and pressing it again puts the shovel down: the same rule the palette follows,
+/// one thing in hand at a time.
+#[derive(Resource, Default, Deref)]
+pub struct Digging(pub bool);
 
 /// What a press in the panel's ACTIONS does.
 ///
@@ -278,8 +281,8 @@ impl Act {
             Act::Carry => ("G", "PICK UP / PUT DOWN"),
             Act::Turn => ("R", "TURN A QUARTER"),
             Act::Remove => ("Del", "TAKE IT AWAY"),
-            Act::Bore => ("T", "BORE A TUNNEL"),
-            Act::Unbore => ("Sh-T", "FILL A TUNNEL IN"),
+            Act::Bore => ("T", "DIG / PUT THE SHOVEL DOWN"),
+            Act::Unbore => ("Sh-T", "HOLD SHIFT TO FILL IN"),
         }
     }
 
@@ -313,7 +316,7 @@ impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<Asked>()
             .init_resource::<Carrying>()
-            .init_resource::<Boring>()
+            .init_resource::<Digging>()
             .init_resource::<Brush>()
             .init_resource::<CursorFree>()
             .init_resource::<Keeping>()
@@ -331,7 +334,7 @@ impl Plugin for EditorPlugin {
                     // After the placing, so a thing picked up this frame follows the
                     // crosshair from the frame it is picked up on.
                     carry_things,
-                    bore_tunnels,
+                    dig_tunnels,
                     history,
                     save_edits,
                     keep_the_work,
@@ -568,12 +571,18 @@ fn paint(
     grove: Option<Res<Grove>>,
     standing: Query<Option<&Children>, With<Chunk>>,
     free: Res<CursorFree>,
+    digging: Res<Digging>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     panels: Query<(&ComputedNode, &GlobalTransform), With<crate::tools::widget::Scrolls>>,
     mut brush: ResMut<Brush>,
 ) {
     // A click on the shelf is for the shelf, not for the ground behind it.
     if !aiming_at_the_world(&free, &windows, &panels) {
+        return;
+    }
+    // And a drag with the shovel in hand is digging, not sculpting: one thing in
+    // hand at a time.
+    if digging.0 {
         return;
     }
     // Laid between two clicked points, not dragged. `lay_ramp` has it.
@@ -1174,14 +1183,14 @@ fn save_edits(
         crate::world::country::save(&mut painted).map(|()| painted.painted_cells())
     };
     let built = crate::world::placed::save(&mut placed).map(|()| placed.len());
-    // The tunnels go with everything else, in the same keystroke. A maker who
-    // has just bored one should not have to learn there is a sixth file.
+    // The digging goes with everything else, in the same keystroke. A maker who
+    // has just dug a passage should not have to learn there is a sixth file.
     let dug = {
-        let Ok(mut bores) = terrain.bores().write() else {
+        let Ok(mut dug) = terrain.dug().write() else {
             return;
         };
-        crate::world::bores::save(&mut bores)
-            .map(|()| bores.len())
+        crate::world::dug::save(&mut dug)
+            .map(|()| dug.cells_dug())
             .map_err(|why| why.to_string())
     };
 
@@ -1610,112 +1619,6 @@ mod tests {
 /// is cut between them through whatever happens to be in the way. It only ever
 /// cuts DOWN — run one over open ground and nothing happens, because there was no
 /// hill to get through.
-pub fn bore_tunnels(
-    keys: Res<ButtonInput<KeyCode>>,
-    brush: Res<Brush>,
-    free: Res<CursorFree>,
-    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    panels: Query<(&ComputedNode, &GlobalTransform), With<crate::tools::widget::Scrolls>>,
-    terrain: Res<TerrainSource>,
-    chunks: Res<ChunkMap>,
-    busy: Query<(), With<PendingChunk>>,
-    mut boring: ResMut<Boring>,
-    mut asked: EventReader<Asked>,
-    mut commands: Commands,
-    mut toast: ResMut<ui::Toast>,
-) {
-    let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
-    // From the key, or from the row in the panel — one path, so the two cannot
-    // come to mean different things.
-    let mut wanted = if keys.just_pressed(Act::Bore.key()) {
-        Some(if shift { Act::Unbore } else { Act::Bore })
-    } else {
-        None
-    };
-    for ask in asked.read() {
-        if matches!(ask.0, Act::Bore | Act::Unbore) {
-            wanted = Some(ask.0);
-        }
-    }
-    let Some(act) = wanted else {
-        return;
-    };
-    if !aiming_at_the_world(&free, &windows, &panels) {
-        return;
-    }
-    let Some(hit) = brush.hit else {
-        return;
-    };
-    let at = Vec2::new(hit.x, hit.z);
-
-    if act == Act::Unbore {
-        let Ok(mut bores) = terrain.0.bores().write() else {
-            return;
-        };
-        // A tunnel is long, so what counts as near it is generous.
-        if bores.remove_nearest(at, crate::world::bores::SPAN * 12.0) {
-            drop(bores);
-            toast.show("Tunnel filled in");
-            redraw_around(&mut commands, &terrain, &chunks, &busy, at, at);
-        } else {
-            toast.show("No tunnel near the ring");
-        }
-        return;
-    }
-
-    let Some(from) = boring.0.take() else {
-        boring.0 = Some(at);
-        toast.show("Tunnel started - aim at the far side and press again");
-        return;
-    };
-    if from.distance(at) < crate::world::bores::SPAN {
-        toast.show("Too short to be a tunnel - aim further off");
-        boring.0 = Some(from);
-        return;
-    }
-
-    // Two points AIMED at a hill, not two mouths surveyed. The ends are walked in
-    // to the first standable ground, so overshooting into water — the normal way
-    // anybody aims — gives a tunnel that comes out at the shore rather than an
-    // error. The floors are read from the ground as it is NOW, before this bore
-    // cuts it; see `bores` for why they cannot be asked for later.
-    let ground = |at: Vec2| terrain.0.unbored(at.x, at.y);
-    let Some(bore) = crate::world::bores::Bore::aimed(from, at, ground) else {
-        toast.show("No dry ground along that aim");
-        boring.0 = Some(from);
-        return;
-    };
-    // The one thing trimming cannot fix. The start is KEPT, so a better second
-    // press is one press away.
-    if let Err(why) = bore.makes_sense(ground) {
-        toast.show(why);
-        boring.0 = Some(from);
-        return;
-    }
-    let Ok(mut bores) = terrain.0.bores().write() else {
-        return;
-    };
-    bores.add(bore);
-    drop(bores);
-    toast.show(format!("Tunnel bored, {:.0} m", from.distance(at)));
-    redraw_around(&mut commands, &terrain, &chunks, &busy, from, at);
-}
-
-/// Rebuilds the ground a tunnel runs under.
-fn redraw_around(
-    commands: &mut Commands,
-    terrain: &TerrainSource,
-    chunks: &ChunkMap,
-    busy: &Query<(), With<PendingChunk>>,
-    from: Vec2,
-    to: Vec2,
-) {
-    let edge = crate::world::bores::SPAN * 2.0;
-    let low = from.min(to) - Vec2::splat(edge);
-    let high = from.max(to) + Vec2::splat(edge);
-    invalidate_area(commands, terrain, chunks, busy, (low, high));
-}
-
 /// Carries whatever is in hand along under the crosshair.
 ///
 /// Moves the DRAWN thing and not the sheet — see [`Carrying`] for why. On the ground
@@ -1965,157 +1868,6 @@ mod carrying {
     }
 }
 
-#[cfg(test)]
-mod boring {
-    use super::*;
-    use crate::world::bores::Bores;
-
-    /// The tool, driven the way a maker drives it: two presses on the ground.
-    fn bench() -> App {
-        let mut app = App::new();
-        app.add_plugins(bevy::state::app::StatesPlugin)
-            .init_state::<AppState>()
-            .init_resource::<Brush>()
-            .init_resource::<Boring>()
-            .init_resource::<CursorFree>()
-            .init_resource::<ui::Toast>()
-            .init_resource::<ButtonInput<KeyCode>>()
-            .init_resource::<ChunkMap>()
-            .add_event::<Asked>()
-            .insert_resource(TerrainSource(std::sync::Arc::new(Terrain::new())))
-            .add_systems(Update, bore_tunnels);
-        app
-    }
-
-    fn press_at(app: &mut App, at: Vec2, shift: bool) {
-        app.world_mut().resource_mut::<Brush>().hit = Some(Vec3::new(at.x, 0.0, at.y));
-        {
-            let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
-            if shift {
-                keys.press(KeyCode::ShiftLeft);
-            }
-            keys.press(Act::Bore.key());
-        }
-        app.update();
-        // Released as well as cleared. `clear` only forgets what was pressed THIS
-        // frame; the key itself stays down, and pressing an already-down key is
-        // not a new press — so without this the second press never happened and
-        // the tool looked broken when it was the test holding the key.
-        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
-        keys.release(Act::Bore.key());
-        keys.release(KeyCode::ShiftLeft);
-        keys.clear();
-    }
-
-    fn bores(app: &App) -> usize {
-        let terrain = app.world().resource::<TerrainSource>();
-        let count = terrain.0.bores().read().unwrap().len();
-        count
-    }
-
-    #[test]
-    fn two_presses_bore_a_tunnel_through_a_mountain() {
-        let mut app = bench();
-        // Through the pass's mountain, which is the one piece of high ground this
-        // test can count on being there. Aimed generously past it at both ends —
-        // the lining trims itself to the rock.
-        let middle = crate::world::pass::AT;
-        let (sin, cos) = crate::world::pass::HEADING.sin_cos();
-        let along = Vec2::new(cos, sin);
-        // Aimed symmetrically and generously, clean past the mountain on both
-        // sides — which on this one overshoots into the sea to the east. That is
-        // the normal way to aim, so the far mouth walks itself back to the shore
-        // rather than the bore being refused.
-        let from = middle - along * 700.0;
-        let to = middle + along * 700.0;
-
-        let was = bores(&app);
-        press_at(&mut app, from, false);
-        assert_eq!(bores(&app), was, "one press laid a tunnel on its own");
-        assert!(
-            app.world().resource::<Boring>().0.is_some(),
-            "the first press did not remember where it was"
-        );
-
-        press_at(&mut app, to, false);
-        assert_eq!(bores(&app), was + 1, "two presses did not lay a tunnel");
-
-        // The hill KEEPS ITS SKIN: the ground over the tunnel is untouched, which
-        // is the whole point of the rework. What opens is the two mouths.
-        let terrain = app.world().resource::<TerrainSource>();
-        let over = terrain.0.height(middle.x, middle.y);
-        assert!(
-            over > 150.0,
-            "the mountain over the tunnel came down to {over:.0} m"
-        );
-        // And it can be WALKED. A single-point question cannot answer this: which
-        // ground claims a walker depends on where they already are, and their
-        // height comes down with the floor as they go — so the walk is the query.
-        let mut standing = terrain.0.height(from.x, from.y);
-        let mut rock_overhead = 0.0_f32;
-        for step in 0..=800 {
-            let at = from.lerp(to, step as f32 / 800.0);
-            standing = terrain.0.walk_floor(at.x, at.y, standing);
-            rock_overhead = rock_overhead.max(terrain.0.height(at.x, at.y) - standing);
-        }
-        assert!(
-            rock_overhead > 100.0,
-            "the walk only ever had {rock_overhead:.0} m of rock overhead"
-        );
-
-        // Shift takes it out again.
-        press_at(&mut app, middle, true);
-        assert_eq!(bores(&app), was, "the tunnel would not fill back in");
-    }
-
-    #[test]
-    fn a_bore_over_open_ground_is_refused() {
-        // A tunnel is a hole through something. Across a plain there is nothing to
-        // make one in, and the first build of this tool laid a mesh in the open
-        // twice before anybody said so — it says so itself now.
-        let mut app = bench();
-        let from = Vec2::new(crate::config::RANCH_AT.0, crate::config::RANCH_AT.1);
-        let to = from + Vec2::new(220.0, 0.0);
-
-        let sample = |app: &App, at: Vec2| {
-            app.world().resource::<TerrainSource>().0.height(at.x, at.y)
-        };
-        let before: Vec<f32> = (0..9)
-            .map(|step| sample(&app, from.lerp(to, step as f32 / 8.0)))
-            .collect();
-
-        press_at(&mut app, from, false);
-        press_at(&mut app, to, false);
-        assert_eq!(bores(&app), 0, "a tunnel across a plain was laid anyway");
-        assert!(
-            app.world().resource::<Boring>().0.is_some(),
-            "the refused start was thrown away rather than kept for a better aim"
-        );
-
-        for (step, was) in before.iter().enumerate() {
-            let at = from.lerp(to, step as f32 / 8.0);
-            let now = sample(&app, at);
-            assert!(
-                (was - now).abs() < 0.01,
-                "the ground moved {:.2} m at step {step} for a tunnel that was refused",
-                was - now
-            );
-        }
-    }
-
-    #[test]
-    fn a_tunnel_needs_two_ends_that_are_not_the_same_place() {
-        let mut app = bench();
-        let at = crate::world::pass::AT;
-        press_at(&mut app, at, false);
-        press_at(&mut app, at + Vec2::new(2.0, 0.0), false);
-        assert_eq!(bores(&app), 0, "a tunnel two metres long was laid");
-        assert!(
-            app.world().resource::<Boring>().0.is_some(),
-            "the start was thrown away rather than kept for a better second press"
-        );
-    }
-}
 
 
 #[cfg(test)]
@@ -2182,5 +1934,227 @@ mod keycaps {
                 "the {says} row prints {printed:?} and is on {key:?}"
             );
         }
+    }
+}
+
+/// Opens material, and fills it back in.
+///
+/// # A shovel, not an architect
+///
+/// Three builds of this tried to MAKE a tunnel from two clicks, and each was wrong
+/// in a new way — because a tunnel is a decision with a shape and the tool kept
+/// guessing at the shape. This one digs: hold the button and material goes, a
+/// brushful at a time, and what shape the passage ends up is the maker's business.
+/// Branches, chambers, dog-legs are all just where somebody dug.
+///
+/// The floor of each brushful is the height under the POINTER, laid flat across the
+/// footprint — so aiming lower as you go slopes the passage and aiming level keeps
+/// it level. See [`crate::world::dug`].
+pub fn dig_tunnels(
+    buttons: Res<ButtonInput<MouseButton>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    brush: Res<Brush>,
+    free: Res<CursorFree>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    panels: Query<(&ComputedNode, &GlobalTransform), With<crate::tools::widget::Scrolls>>,
+    terrain: Res<TerrainSource>,
+    mut digging: ResMut<Digging>,
+    mut asked: EventReader<Asked>,
+    mut toast: ResMut<ui::Toast>,
+) {
+    // The row arms the shovel and puts it down again, so the shelf says whether a
+    // drag is going to dig or to sculpt.
+    let by_press = asked
+        .read()
+        .any(|ask| matches!(ask.0, Act::Bore | Act::Unbore))
+        || keys.just_pressed(Act::Bore.key());
+    if by_press {
+        digging.0 = !digging.0;
+        toast.show(if digging.0 {
+            "Shovel in hand - drag to dig, Shift to fill in"
+        } else {
+            "Shovel down"
+        });
+    }
+    if !digging.0 || !buttons.pressed(MouseButton::Left) {
+        return;
+    }
+    if !aiming_at_the_world(&free, &windows, &panels) {
+        return;
+    }
+    let Some(hit) = brush.hit else {
+        return;
+    };
+    let at = Vec2::new(hit.x, hit.z);
+    let filling = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
+
+    // The world's own floor, said rather than clamped silently: somebody digging
+    // downward deserves to be told where the bottom is.
+    if !filling && hit.y < crate::world::dug::DEEPEST {
+        toast.show("That is as deep as the world goes");
+        return;
+    }
+
+    let Ok(mut dug) = terrain.0.dug().write() else {
+        return;
+    };
+    let radius = brush.radius.min(crate::world::dug::HALF_WIDE * 2.0);
+    let moved = if filling {
+        dug.fill(at, radius)
+    } else {
+        dug.dig(at, radius, hit.y)
+    };
+    // Nothing is said per brushful: a held button digs every frame and a toast
+    // every frame is a flicker. The ground opening up is the feedback.
+    let _ = moved;
+}
+
+#[cfg(test)]
+mod digging {
+    use super::*;
+    use crate::world::dug::{DEEPEST, HALF_WIDE};
+
+    fn digging_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .init_state::<AppState>()
+            .init_resource::<Brush>()
+            .init_resource::<Digging>()
+            .init_resource::<CursorFree>()
+            .init_resource::<ui::Toast>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .add_event::<Asked>()
+            .insert_resource(TerrainSource(std::sync::Arc::new(Terrain::new())))
+            .add_systems(Update, dig_tunnels);
+        app
+    }
+
+    /// Aims the pointer at a spot, at a height.
+    fn aim(app: &mut App, at: Vec2, height: f32) {
+        app.world_mut().resource_mut::<Brush>().hit = Some(Vec3::new(at.x, height, at.y));
+    }
+
+    fn press_row(app: &mut App) {
+        app.world_mut().send_event(Asked(Act::Bore));
+        app.update();
+    }
+
+    fn drag(app: &mut App, keys: &[KeyCode]) {
+        {
+            let mut mouse = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+            mouse.press(MouseButton::Left);
+        }
+        {
+            let mut board = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            for key in keys {
+                board.press(*key);
+            }
+        }
+        app.update();
+        let mut mouse = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+        mouse.release(MouseButton::Left);
+        mouse.clear();
+        let mut board = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        for key in keys {
+            board.release(*key);
+        }
+        board.clear();
+    }
+
+    fn floor(app: &App, at: Vec2) -> Option<f32> {
+        app.world()
+            .resource::<TerrainSource>()
+            .0
+            .dug()
+            .read()
+            .expect("dug")
+            .floor_at(at)
+    }
+
+    #[test]
+    fn the_row_takes_the_shovel_up_and_puts_it_down_again() {
+        // The shelf says whether a drag is going to dig or to sculpt, which is the
+        // whole reason digging is a mode rather than a mouse gesture nobody
+        // mentioned. Dragging with the shovel down must not open anything.
+        let mut app = digging_app();
+        let at = Vec2::new(120.0, -40.0);
+        aim(&mut app, at, 40.0);
+
+        drag(&mut app, &[]);
+        assert_eq!(floor(&app, at), None, "a drag dug with the shovel down");
+
+        press_row(&mut app);
+        assert!(app.world().resource::<Digging>().0, "the row did not take the shovel up");
+        drag(&mut app, &[]);
+        assert!(floor(&app, at).is_some(), "a drag with the shovel up dug nothing");
+
+        press_row(&mut app);
+        assert!(!app.world().resource::<Digging>().0, "the row would not put it down");
+    }
+
+    #[test]
+    fn a_drag_lays_the_floor_where_the_pointer_was_aimed() {
+        // Choice (a): the floor follows the aim, so aiming lower as you go slopes
+        // the passage — which is also what lets a maker branch one passage off
+        // another at a different level.
+        let mut app = digging_app();
+        press_row(&mut app);
+
+        let high = Vec2::new(200.0, 0.0);
+        let low = Vec2::new(240.0, 0.0);
+        aim(&mut app, high, 50.0);
+        drag(&mut app, &[]);
+        aim(&mut app, low, 44.0);
+        drag(&mut app, &[]);
+
+        let (a, b) = (floor(&app, high).expect("dug"), floor(&app, low).expect("dug"));
+        assert!(
+            (a - 50.0).abs() < 0.6 && (b - 44.0).abs() < 0.6,
+            "the floors came out at {a:.1} and {b:.1}, not where the aim was"
+        );
+        assert!(a > b + 4.0, "the passage did not slope with the aim");
+    }
+
+    #[test]
+    fn shift_fills_it_back_in() {
+        let mut app = digging_app();
+        press_row(&mut app);
+        let at = Vec2::new(-80.0, 60.0);
+        aim(&mut app, at, 30.0);
+        drag(&mut app, &[]);
+        assert!(floor(&app, at).is_some(), "nothing was dug to fill in");
+
+        // A wider fill than the dig, so the whole brushful goes.
+        app.world_mut().resource_mut::<Brush>().radius = HALF_WIDE * 2.0;
+        drag(&mut app, &[KeyCode::ShiftLeft]);
+        assert_eq!(floor(&app, at), None, "Shift did not fill it back in");
+    }
+
+    #[test]
+    fn nothing_digs_out_through_the_bottom_of_the_world() {
+        // Reported plainly: "I just shouldn't be able to dig straight down under
+        // the map". Refused with a word rather than clamped silently, so somebody
+        // digging downward learns where the bottom is.
+        let mut app = digging_app();
+        press_row(&mut app);
+        let at = Vec2::new(0.0, 0.0);
+        aim(&mut app, at, DEEPEST - 5.0);
+        drag(&mut app, &[]);
+        assert_eq!(floor(&app, at), None, "a hole was dug below the world's own floor");
+    }
+
+    #[test]
+    fn a_drag_over_the_shelf_digs_nothing() {
+        // The panel is a panel. Its rows are pressed with the same button that
+        // digs, and a press that lands on a row must not also open the hillside
+        // showing behind it.
+        let mut app = digging_app();
+        press_row(&mut app);
+        app.world_mut().resource_mut::<CursorFree>().0 = false;
+        let at = Vec2::new(300.0, 300.0);
+        aim(&mut app, at, 40.0);
+        drag(&mut app, &[]);
+        assert_eq!(floor(&app, at), None, "digging happened while the view was being turned");
     }
 }

@@ -71,8 +71,8 @@ pub struct Terrain {
     map_carries_elevation: bool,
     /// Half-extents of the world in meters (X = east/west, Y here = north/south).
     half: Vec2,
-    /// The tunnels somebody has bored through it. See [`crate::world::bores`].
-    bores: std::sync::RwLock<crate::world::bores::Bores>,
+    /// The rock somebody has dug out of it. See [`crate::world::dug`].
+    dug: std::sync::RwLock<crate::world::dug::Dug>,
     /// Ridge lines. Where this field crosses zero becomes a mountain crest.
     ranges: Fbm<Perlin>,
     /// Much broader field deciding which regions are mountainous at all.
@@ -129,8 +129,8 @@ impl Terrain {
             map_carries_elevation,
             half,
             // Read from file like every other layer a maker writes. A world with
-            // no tunnels file is a world with no tunnels, which is a fine world.
-            bores: std::sync::RwLock::new(crate::world::bores::load()),
+            // no dug file is a world nobody has dug into, which is a fine world.
+            dug: std::sync::RwLock::new(crate::world::dug::load(half)),
             // Plain fBm, and only two octaves. Ridged multifractal noise is what
             // produced the spike-forest: it creases sharply at every zero
             // crossing, and squaring the result narrowed those creases into
@@ -331,12 +331,6 @@ impl Terrain {
                     continue;
                 }
 
-                // No trees in a tunnel's cutting — hewn rock grows nothing. The
-                // hillside over a tunnel's own length is untouched and keeps its
-                // wood, because a bore never carved it.
-                if self.in_a_cutting(at.x, at.y) > 0.5 {
-                    continue;
-                }
 
                 // One gathering of the ground rather than five separate
                 // questions of it, and the same one the biome is decided from —
@@ -932,50 +926,25 @@ impl Terrain {
             + crate::world::pass::lift(Vec2::new(x, z))
     }
 
-    /// The ground a bore is measured against — which is simply the ground.
-    ///
-    /// **Boring a tunnel does not change the surface at all.** It used to carve a
-    /// cutting at each mouth, and the size of that carve was decided by how thinly
-    /// the hill held the tunnel, so a bore through a gentle rise gouged a valley
-    /// across the hillside. Nothing is carved now: a bore's mouths sit at the
-    /// ground's own height, so the tube comes out flush without help, and widening
-    /// one into a portal is what the ground brushes are for.
-    ///
-    /// Kept as its own name because what it MEANS is "the hill the tunnel goes
-    /// through", and the day something wants a bore to move earth again this is the
-    /// question it will ask.
-    pub fn unbored(&self, x: f32, z: f32) -> f32 {
-        self.height(x, z)
-    }
-
     /// The height a walker's feet belong at.
     ///
-    /// The ordinary ground everywhere, except inside a bored tunnel, where there are
-    /// two grounds stacked over each other — see [`crate::world::bores::Bores::walk_floor`]
-    /// for how which one claims a walker is decided.
+    /// The ordinary ground everywhere, except down inside dug-out rock, where there
+    /// are two grounds stacked over each other — see
+    /// [`crate::world::dug::Dug::walk_floor`] for how which one claims a walker is
+    /// decided.
     pub fn walk_floor(&self, x: f32, z: f32, standing: f32) -> f32 {
-        let drawn = self.height(x, z);
-        match self.bores.read() {
-            Ok(bores) if !bores.is_empty() => bores
-                .walk_floor(Vec2::new(x, z), self.unbored(x, z), standing)
-                .unwrap_or(drawn),
-            _ => drawn,
+        let surface = self.height(x, z);
+        match self.dug.read() {
+            Ok(dug) if !dug.is_empty() => dug
+                .walk_floor(Vec2::new(x, z), standing)
+                .unwrap_or(surface),
+            _ => surface,
         }
     }
 
-    /// Whether this ground is a bore's cutting.
-    ///
-    /// Never, now — a bore carves nothing, so no ground anywhere is a cutting. Kept
-    /// as the one place the question is asked, because the colour, the grass, the
-    /// litter and the trees all read it and they must not start disagreeing if
-    /// tunnels ever move earth again.
-    pub fn in_a_cutting(&self, _x: f32, _z: f32) -> f32 {
-        0.0
-    }
-
-    /// The tunnels, for the tool and for saving.
-    pub fn bores(&self) -> &std::sync::RwLock<crate::world::bores::Bores> {
-        &self.bores
+    /// The rock a maker has dug out, for the tool, the drawing and the saving.
+    pub fn dug(&self) -> &std::sync::RwLock<crate::world::dug::Dug> {
+        &self.dug
     }
 
     /// The still water standing in a channel here, if any.
@@ -1716,8 +1685,7 @@ mod tests {
                         terrain.worn(at.x, at.y),
                         terrain.region(at.x, at.y).0,
                         terrain.region(at.x, at.y).1,
-                        terrain.in_a_cutting(at.x, at.y),
-                    );
+                        );
                     for channel in 0..3 {
                         sum[channel] += colour[channel];
                     }
@@ -1974,7 +1942,7 @@ mod tests {
             // mottling and all. A fixed point would take the mottle out of the
             // measurement and leave the test blind to a seam it could cause.
             let colour =
-                crate::world::biome::surface_color(at, 30.0, 0.0, 0.5, 0.0, country, belonging, 0.0);
+                crate::world::biome::surface_color(at, 30.0, 0.0, 0.5, 0.0, country, belonging);
             if let Some(last) = was {
                 for channel in 0..3 {
                     biggest = biggest.max((colour[channel] - last[channel]).abs());
@@ -2591,7 +2559,6 @@ mod look {
                     terrain.worn(at.x, at.y),
                     country,
                     belonging,
-                    terrain.in_a_cutting(at.x, at.y),
                 );
                 // Linear to sRGB, because that is what a screen shows.
                 let byte = |v: f32| {
@@ -2698,7 +2665,6 @@ mod atlas {
                     terrain.worn(at.x, at.y),
                     country,
                     belonging,
-                    terrain.in_a_cutting(at.x, at.y),
                 );
                 let byte = |v: f32| {
                     let s = if v <= 0.003_130_8 {
@@ -2722,122 +2688,5 @@ mod atlas {
 
 
 
-#[cfg(test)]
-mod through_the_pass {
-    use super::*;
-    use crate::world::bores::Bore;
-
-    /// A generous aim straight through the pass, the way somebody would point at
-    /// it: well clear of the mountain on both sides. The bore trims itself to the
-    /// standable ground, which on this mountain matters — its eastern foot runs
-    /// into the sea.
-    fn aimed_through_the_pass(terrain: &Terrain) -> Bore {
-        let (sin, cos) = crate::world::pass::HEADING.sin_cos();
-        let along = Vec2::new(cos, sin);
-        let middle = crate::world::pass::AT;
-        Bore::aimed(middle - along * 700.0, middle + along * 700.0, |at| {
-            terrain.unbored(at.x, at.y)
-        })
-        .expect("a generous aim through the pass should make a tunnel")
-    }
-
-    /// Bore the pass on the real world and walk through it, at a warden's height.
-    ///
-    /// The thing four screenshots in a row disproved and no test was asking: that
-    /// somebody can actually get through, under real rock, without climbing the
-    /// mountain and without falling through anything. The tunnel is not shipped any
-    /// more — the maker bores it — so the test bores one, which also means it
-    /// exercises the tool's own arithmetic rather than a fixture.
-    #[test]
-    fn a_warden_can_walk_through_a_bored_mountain() {
-        let terrain = Terrain::new();
-        let bore = aimed_through_the_pass(&terrain);
-        let (from, to) = (bore.from, bore.to);
-        assert_eq!(
-            bore.makes_sense(|at| terrain.unbored(at.x, at.y)),
-            Ok(()),
-            "a bore straight through the pass was refused"
-        );
-        terrain.bores().write().expect("bores").add(bore);
-
-        let mut standing = terrain.height(from.x, from.y);
-        let mut deepest_rock = 0.0_f32;
-        let mut biggest_step = 0.0_f32;
-        let mut step_at = 0.0;
-        for step in 0..=1_600 {
-            let t = step as f32 / 1_600.0;
-            let at = from.lerp(to, t);
-            let was = standing;
-            standing = terrain.walk_floor(at.x, at.y, standing);
-            if (standing - was).abs() > biggest_step {
-                biggest_step = (standing - was).abs();
-                step_at = t * from.distance(to);
-            }
-            deepest_rock = deepest_rock.max(terrain.height(at.x, at.y) - standing);
-        }
-
-        assert!(
-            biggest_step < 1.5,
-            "the walk jumps {biggest_step:.2} m at {step_at:.0} m along — a wall or a hole"
-        );
-        assert!(
-            deepest_rock > 100.0,
-            "the walk only ever had {deepest_rock:.0} m of rock overhead — it went over the top"
-        );
-        assert!(
-            (standing - terrain.height(to.x, to.y)).abs() < 2.0,
-            "the walk ended at {standing:.0} m with the ground at {:.0} m",
-            terrain.height(to.x, to.y)
-        );
-    }
-
-    #[test]
-    fn an_unbored_mountain_cannot_be_walked_through() {
-        // The other half: with no tunnel in it, the pass is a wall. Anyone crossing
-        // it climbs it.
-        let terrain = Terrain::new();
-        let (sin, cos) = crate::world::pass::HEADING.sin_cos();
-        let along = Vec2::new(cos, sin);
-        let middle = crate::world::pass::AT;
-
-        let mut highest = f32::MIN;
-        let mut standing = terrain.height(
-            (middle - along * 640.0).x,
-            (middle - along * 640.0).y,
-        );
-        for step in 0..=800 {
-            let at = middle + along * (-640.0 + step as f32 * 1.6);
-            standing = terrain.walk_floor(at.x, at.y, standing);
-            highest = highest.max(standing);
-        }
-        assert!(
-            highest > 200.0,
-            "crossing the unbored pass only reached {highest:.0} m — something is letting walkers through"
-        );
-    }
-
-    #[test]
-    fn walking_over_a_tunnel_stays_over_it() {
-        // Somebody up on the mountainside, directly above a tunnel, must stay on
-        // the mountain. If the corridor claimed them they would drop through rock.
-        let terrain = Terrain::new();
-        let (sin, cos) = crate::world::pass::HEADING.sin_cos();
-        let along = Vec2::new(cos, sin);
-        let middle = crate::world::pass::AT;
-        terrain
-            .bores()
-            .write()
-            .expect("bores")
-            .add(aimed_through_the_pass(&terrain));
-
-        let top = terrain.height(middle.x, middle.y);
-        assert!(top > 150.0, "the mountain is only {top:.0} m over the tunnel");
-        let standing = terrain.walk_floor(middle.x, middle.y, top);
-        assert!(
-            (standing - top).abs() < 0.01,
-            "somebody on the summit was dropped to {standing:.0} m"
-        );
-    }
-}
 
 
