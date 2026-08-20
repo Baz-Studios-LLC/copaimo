@@ -44,7 +44,7 @@ impl HeightMap {
     /// to pure procedural generation) if the file is missing or unreadable —
     /// the game should still run before any map has been dropped in.
     pub fn load() -> Option<Self> {
-        let img = match image::open(HEIGHTMAP_PATH) {
+        let img = match image::open(crate::asset_file(HEIGHTMAP_PATH)) {
             Ok(img) => img,
             Err(err) => {
                 warn!("no world map at {HEIGHTMAP_PATH} ({err}) — using procedural fallback");

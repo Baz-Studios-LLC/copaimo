@@ -516,6 +516,37 @@ prove a guard works by pointing it at a deliberately broken binary.
 
 The game is running and holding the exe. Close it.
 
+### The packaged build opens a world nobody made
+
+**Symptom.** The game runs, the window is fine, and the LAND IS WRONG — no
+sculpting, no painted countries, nothing placed. Only in a packaged build, and on
+macOS in particular; never from the repository.
+
+**Cause.** The world's layers are read with plain `std::fs`, so
+`"assets/world/edits.bin"` resolves against the **working directory**. From the
+repository that is the crate root and everything is found. macOS launches a `.app`
+from `/`, which is also how the studio launcher starts it — and from there every
+one of those paths misses. Nothing errors: the heightmap logs a warning and falls
+back to procedural, and each layer file "not existing" is the ordinary case for a
+world nobody has painted, so all of them load empty. Shape #5 — invisible by
+design. The failure looks exactly like a fresh world.
+
+**Fix.** `crate::asset_file` — working directory if it has an `assets` folder,
+otherwise beside the binary. `asset_root` (Bevy's own server) and `wear_the_icon`
+each already carried their own copy of this rule; the hand-read files were the set
+that did not, so now all three answer it the same way.
+
+**How it was confirmed.** Staged a bundle (binary + `assets/`) and ran it from `/`.
+Before: the relative names do not resolve from there at all. After: the log names
+absolute paths beside the binary and reports the real map (2478×1290, 36% land),
+8642 sculpted cells and 6042 painted ones. Run the packaged build from a foreign
+working directory — never only from the repo — or this class of fault cannot show
+up at all.
+
+**The decision is testable on purpose.** `which_asset_file` takes "does the cwd
+have assets" and "where is the binary" as arguments, because both are process-wide
+and a test cannot change either without disturbing every test beside it.
+
 ---
 
 ## The workbench

@@ -23,7 +23,6 @@ use bevy::log::{info, warn};
 use bevy::prelude::*;
 #[cfg(feature = "tools")]
 use std::io;
-use std::path::Path;
 
 use crate::config::COUNTRY_PATH;
 
@@ -36,7 +35,8 @@ pub fn empty(half: Vec2) -> Painted {
 
 /// Reads the countries a maker painted, or an empty layer if there are none.
 pub fn load(half: Vec2) -> Painted {
-    let path = Path::new(COUNTRY_PATH);
+    let path = crate::asset_file(COUNTRY_PATH);
+    let path = path.as_path();
     if !path.exists() {
         // The ordinary case for a world nobody has painted yet.
         return empty(half);
@@ -71,7 +71,8 @@ pub fn load(half: Vec2) -> Painted {
 /// and never writes any of it back, so this is not compiled into one.
 #[cfg(feature = "tools")]
 pub fn save(painted: &mut Painted) -> io::Result<()> {
-    let path = Path::new(COUNTRY_PATH);
+    let path = crate::asset_file(COUNTRY_PATH);
+    let path = path.as_path();
     if let Some(folder) = path.parent() {
         std::fs::create_dir_all(folder)?;
     }

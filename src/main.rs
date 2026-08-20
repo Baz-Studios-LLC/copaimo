@@ -131,6 +131,89 @@ pub fn asset_root() -> String {
         .unwrap_or_else(|| "assets".to_string())
 }
 
+/// One of this build's asset FILES, wherever the assets folder turned out to be.
+///
+/// # A packaged mac build opened a different world and looked fine doing it
+///
+/// The world's layers — the map, the sculpting, the woods, the surfacing, the
+/// countries, what is placed — are read and written with plain `std::fs`, so a
+/// bare `"assets/world/edits.bin"` resolves against the **working directory**.
+/// That is the repository root when the game is run from source, and `/` when
+/// macOS launches a `.app` bundle, which is how the launcher starts it. Nothing
+/// errors: the heightmap falls back to a procedural world and every painted layer
+/// loads empty, so the shipped mac build drew a world nobody had made.
+///
+/// [`asset_root`] already carries this rule for Bevy's own asset server and
+/// `wear_the_icon` carries it for the window icon. This is the one for everything
+/// read by hand, so all three now answer the same question the same way.
+pub fn asset_file(relative: &str) -> std::path::PathBuf {
+    which_asset_file(
+        relative,
+        std::path::Path::new("assets").is_dir(),
+        std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf))
+            .as_deref(),
+    )
+}
+
+/// The decision alone, with the world's answers passed in.
+///
+/// Split out because the inputs are process-wide — the working directory and the
+/// running executable — and a test cannot change either without reaching into
+/// every other test running beside it. This way both cases are actually tested
+/// rather than argued about.
+fn which_asset_file(
+    relative: &str,
+    cwd_has_assets: bool,
+    exe_folder: Option<&std::path::Path>,
+) -> std::path::PathBuf {
+    if cwd_has_assets {
+        return std::path::PathBuf::from(relative);
+    }
+    match exe_folder {
+        Some(folder) => folder.join(relative),
+        // Nothing better to say than the plain name: a missing folder should be
+        // an ordinary "not found" rather than a path built out of nothing.
+        None => std::path::PathBuf::from(relative),
+    }
+}
+
+#[cfg(test)]
+mod assets {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn an_asset_is_found_beside_the_binary_when_the_working_directory_has_none() {
+        // Run from the repository: the working directory is the answer, because
+        // that is where a maker's own sculpting lives.
+        assert_eq!(
+            which_asset_file("assets/world/edits.bin", true, Some(Path::new("/somewhere/else"))),
+            Path::new("assets/world/edits.bin")
+        );
+
+        // Launched from a bundle: `/` has no assets folder, so the one beside the
+        // binary is the world this build shipped with. Asserted as "under the
+        // binary's own folder" rather than against a literal — a POSIX-looking
+        // path is not absolute on Windows, and the first draft of this test failed
+        // on that rather than on anything about the rule.
+        let folder = std::env::temp_dir().join("Copaimo.app/Contents/MacOS");
+        let beside = which_asset_file("assets/world/edits.bin", false, Some(&folder));
+        assert_eq!(beside, folder.join("assets/world/edits.bin"));
+        assert!(
+            beside.starts_with(&folder),
+            "a bundled path has to sit under the binary's own folder"
+        );
+
+        // And with nothing to go on, the plain name — an ordinary "not found".
+        assert_eq!(
+            which_asset_file("assets/world/edits.bin", false, None),
+            Path::new("assets/world/edits.bin")
+        );
+    }
+}
+
 fn main() {
     let mut app = App::new();
     app

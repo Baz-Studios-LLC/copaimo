@@ -251,7 +251,7 @@ fn raise_the_placed(
             //
             // So a model stays a FILE and is carried whole. The sheet places both
             // the same way, which is the only thing they need to have in common.
-            let model = std::path::Path::new("assets/models").join(format!("{}.glb", thing.kind));
+            let model = crate::asset_file("assets/models").join(format!("{}.glb", thing.kind));
             if model.exists() {
                 let scene: Handle<Scene> = assets.load(
                     GltfAssetLabel::Scene(0).from_asset(format!("models/{}.glb", thing.kind)),

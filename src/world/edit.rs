@@ -47,7 +47,7 @@ pub use terrain_core::sculpt::Sculpt;
 /// so the only real work is saying WHICH went wrong. A refused file and an
 /// absent one look identical on screen otherwise.
 pub fn load(half: Vec2) -> Sculpt {
-    load_from(Path::new(EDITS_PATH), half)
+    load_from(&crate::asset_file(EDITS_PATH), half)
 }
 
 /// Path-explicit form, so a test can read a fixture without touching the game's
@@ -88,7 +88,7 @@ pub fn load_from(path: &Path, half: Vec2) -> Sculpt {
 /// and never writes any of it back, so this is not compiled into one.
 #[cfg(feature = "tools")]
 pub fn save(sculpt: &mut Sculpt) -> io::Result<()> {
-    save_to(Path::new(EDITS_PATH), sculpt)
+    save_to(&crate::asset_file(EDITS_PATH), sculpt)
 }
 
 #[cfg(feature = "tools")]

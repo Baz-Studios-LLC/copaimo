@@ -19,7 +19,6 @@ use bevy::log::{info, warn};
 use bevy::prelude::*;
 #[cfg(feature = "tools")]
 use std::io;
-use std::path::Path;
 
 use crate::config::SURFACE_PATH;
 
@@ -32,7 +31,8 @@ pub fn empty(half: Vec2) -> Painted {
 
 /// Reads the surface a maker laid, or an empty layer if there is none.
 pub fn load(half: Vec2) -> Painted {
-    let path = Path::new(SURFACE_PATH);
+    let path = crate::asset_file(SURFACE_PATH);
+    let path = path.as_path();
     if !path.exists() {
         // The ordinary case for a world with no roads worn into it yet.
         return empty(half);
@@ -66,7 +66,8 @@ pub fn load(half: Vec2) -> Painted {
 /// and never writes any of it back, so this is not compiled into one.
 #[cfg(feature = "tools")]
 pub fn save(painted: &mut Painted) -> io::Result<()> {
-    let path = Path::new(SURFACE_PATH);
+    let path = crate::asset_file(SURFACE_PATH);
+    let path = path.as_path();
     if let Some(folder) = path.parent() {
         std::fs::create_dir_all(folder)?;
     }

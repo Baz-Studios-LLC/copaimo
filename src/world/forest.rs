@@ -13,7 +13,6 @@ use bevy::log::{info, warn};
 use bevy::prelude::*;
 #[cfg(feature = "tools")]
 use std::io;
-use std::path::Path;
 
 use crate::config::FOREST_PATH;
 
@@ -25,7 +24,8 @@ pub use terrain_core::forest::{chance, density, natural_density, Painted, Plante
 /// would have it — so the only real work is saying WHICH went wrong. A refused
 /// file and an absent one look identical on screen otherwise.
 pub fn load(half: Vec2) -> Painted {
-    let path = Path::new(FOREST_PATH);
+    let path = crate::asset_file(FOREST_PATH);
+    let path = path.as_path();
     if !path.exists() {
         // The ordinary case for a world nobody has planted. Not news.
         return terrain_core::forest::empty(half);
@@ -60,7 +60,8 @@ pub fn load(half: Vec2) -> Painted {
 /// and never writes any of it back, so this is not compiled into one.
 #[cfg(feature = "tools")]
 pub fn save(painted: &mut Painted) -> io::Result<()> {
-    let path = Path::new(FOREST_PATH);
+    let path = crate::asset_file(FOREST_PATH);
+    let path = path.as_path();
     if let Some(folder) = path.parent() {
         std::fs::create_dir_all(folder)?;
     }

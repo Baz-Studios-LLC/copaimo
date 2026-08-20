@@ -42,7 +42,6 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "tools")]
 use std::io;
-use std::path::Path;
 
 use crate::config::PLACED_PATH;
 
@@ -249,7 +248,8 @@ pub fn write(standing: &Standing) -> String {
 
 /// Reads what a maker placed, or an empty world if there is none.
 pub fn load() -> Standing {
-    let path = Path::new(PLACED_PATH);
+    let path = crate::asset_file(PLACED_PATH);
+    let path = path.as_path();
     if !path.exists() {
         // The ordinary case for a world nobody has built in yet.
         return Standing::default();
@@ -276,7 +276,8 @@ pub fn load() -> Standing {
 /// and never writes any of it back, so this is not compiled into one.
 #[cfg(feature = "tools")]
 pub fn save(standing: &mut Standing) -> io::Result<()> {
-    let path = Path::new(PLACED_PATH);
+    let path = crate::asset_file(PLACED_PATH);
+    let path = path.as_path();
     if let Some(folder) = path.parent() {
         std::fs::create_dir_all(folder)?;
     }
