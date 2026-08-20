@@ -426,7 +426,28 @@ impl Terrain {
             // rather than taking the game down with it.
             Err(_) => generated,
         };
-        shaped
+        // The doorways, last: where a dug floor comes within a doorway's height of
+        // the surface, the surface opens down to it — the mouth of every passage,
+        // and the ONE place digging touches the ground. See `dug::DOORWAY`.
+        match self.dug.read() {
+            Ok(dug) if !dug.is_empty() => {
+                shaped - dug.opening(Vec2::new(x, z), shaped)
+            }
+            _ => shaped,
+        }
+    }
+
+    /// The surface as it stands before any doorway is opened in it.
+    ///
+    /// For code that is already HOLDING the dug lock — the shovel's own ray march —
+    /// because [`Self::height`] takes that lock itself, and taking a lock you hold
+    /// is a deadlock the moment a writer is queued between the two.
+    pub fn sealed_height(&self, x: f32, z: f32) -> f32 {
+        let generated = self.base_height(x, z);
+        match self.edits.read() {
+            Ok(edits) => generated + edits.at(x, z),
+            Err(_) => generated,
+        }
     }
 
     /// Ground height from the generator alone, with the edit layer excluded.
@@ -2690,3 +2711,99 @@ mod atlas {
 
 
 
+
+#[cfg(test)]
+mod shovelling {
+    use super::*;
+
+    /// Digs into the pass's own flank and asks the three questions the tool's
+    /// whole existence hangs on: is there a doorway you can SEE, is the hill over
+    /// the passage still sealed, and can a walker actually get in and under it.
+    ///
+    /// # "The tool doesn't work"
+    ///
+    /// The previous tests drove the systems and every one passed while the tool
+    /// did nothing anybody could use: the void was drawn once on entering the
+    /// state and never again, and — worse — the surface was never opened, so a
+    /// passage had no mouth. You dug a void nobody could see into, and the walk
+    /// rule carried you through the drawn hillside like a ghost. Nothing here
+    /// asked "and is it a hole?", so nothing failed.
+    #[test]
+    fn a_dug_passage_has_a_mouth_a_sealed_roof_and_a_way_in() {
+        let terrain = Terrain::new();
+        let (sin, cos) = crate::world::pass::HEADING.sin_cos();
+        let along = Vec2::new(cos, sin);
+
+        // From open ground west of the mountain, straight in at the foot's own
+        // height — the way a maker would: aim at the base of the slope and walk
+        // the brush inward.
+        let start = crate::world::pass::AT - along * 700.0;
+        let floor = terrain.height(start.x, start.y);
+        assert!(
+            floor > crate::world::dug::DEEPEST,
+            "the approach is not on walkable land"
+        );
+        {
+            let mut dug = terrain.dug().write().expect("dug");
+            for step in 0..=250 {
+                dug.dig(start + along * (step as f32 * 2.0), 8.0, floor);
+            }
+        }
+
+        // Walk the line and sort every sample by how much hill stands over the
+        // floor: none yet (the approach), a doorway's worth (the mouth), and far
+        // more than a doorway (under the mountain proper).
+        let mut mouth = None;
+        let mut deep = None;
+        for step in 0..=250 {
+            let at = start + along * (step as f32 * 2.0);
+            let sealed = terrain.sealed_height(at.x, at.y);
+            let over = sealed - floor;
+            if mouth.is_none() && over > 1.0 && over < crate::world::dug::DOORWAY * 0.7 {
+                mouth = Some(at);
+            }
+            if deep.is_none() && over > crate::world::dug::DOORWAY * 3.0 {
+                deep = Some(at);
+            }
+        }
+        let mouth = mouth.expect("the line never crossed a doorway-sized face");
+        let deep = deep.expect("the line never went under real rock");
+
+        // 1. The mouth is a HOLE: the drawn surface there has opened down to the
+        // floor, so the passage is visible and enterable rather than hidden
+        // behind the hillside's own face.
+        let at_mouth = terrain.height(mouth.x, mouth.y);
+        assert!(
+            (at_mouth - floor).abs() < 1.0,
+            "the mouth's surface stands at {at_mouth:.1} over a floor of {floor:.1} - still walled shut"
+        );
+
+        // 2. Under the mountain the surface is SEALED: exactly what it was before
+        // anybody dug, trees and all.
+        assert!(
+            (terrain.height(deep.x, deep.y) - terrain.sealed_height(deep.x, deep.y)).abs() < 0.01,
+            "digging changed the hilltop over the sealed part of the passage"
+        );
+
+        // 3. A walker starting outside walks IN: their feet stay near the floor
+        // the whole way, no step bigger than a stride, ending under real rock.
+        let mut standing = terrain.height(start.x, start.y);
+        let mut biggest = 0.0_f32;
+        for step in 0..=250 {
+            let at = start + along * (step as f32 * 2.0);
+            let next = terrain.walk_floor(at.x, at.y, standing);
+            biggest = biggest.max((next - standing).abs());
+            standing = next;
+        }
+        assert!(
+            biggest < 1.5,
+            "the walk in jumps {biggest:.1} m - a wall or a hole in the path"
+        );
+        let end = start + along * 500.0;
+        let overhead = terrain.sealed_height(end.x, end.y) - standing;
+        assert!(
+            overhead > crate::world::dug::DOORWAY,
+            "the walk never ended up under the mountain ({overhead:.1} m overhead)"
+        );
+    }
+}

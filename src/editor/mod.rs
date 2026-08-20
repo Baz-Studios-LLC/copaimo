@@ -414,6 +414,52 @@ fn enter_editor(mut camera: ResMut<CameraMode>, mut free: ResMut<CursorFree>) {
 /// Marches the camera's view ray until it goes under the ground, then binary
 /// searches the last step for the crossing. Cheaper and simpler than colliding
 /// against chunk meshes, and it works on terrain that hasn't been meshed yet.
+/// Marches a ray for the SHOVEL: through the open air of anything already dug,
+/// stopping at a dug floor or at solid ground.
+///
+/// The second half of why the shovel "didn't work". The plain march stops at the
+/// drawn surface, and inside a hill the drawn surface is the hilltop — so aiming
+/// into a passage hit the rock face above its mouth, the floor took the face's
+/// height, and every stroke inward built a ledge instead of a tunnel. Digging has
+/// to aim through the hole it has already made: fly the void, land on its floor or
+/// on the first solid wall, and the face recedes stroke by stroke.
+fn raycast_dig(terrain: &Terrain, origin: Vec3, direction: Vec3) -> Option<Vec3> {
+    let dug = terrain.dug().read().ok()?;
+    let mut travelled = 0.0;
+    while travelled < REACH {
+        travelled += MARCH_STEP;
+        let point = origin + direction * travelled;
+        let at = Vec2::new(point.x, point.z);
+
+        // The sealed surface plus the guard's own doorway answer, rather than
+        // `terrain.height()`: that takes the dug lock this march is holding, and
+        // re-taking a lock you hold deadlocks the moment a writer is queued
+        // between the two reads.
+        let sealed = terrain.sealed_height(point.x, point.z);
+        let surface = sealed - dug.opening(at, sealed);
+
+        if let Some(floor) = dug.floor_at(at) {
+            // In a dug cell, above its floor: open air if we are under the
+            // surface's own line at a doorway, or inside the void proper. The
+            // floor stops the ray; the sealed rock face above a mouth does too,
+            // so aiming at the hill over a doorway digs the hill.
+            if point.y <= floor + crate::world::dug::CELL * 0.1 {
+                return Some(Vec3::new(point.x, floor, point.z));
+            }
+            if point.y <= surface && dug.opening(at, sealed) <= 0.0 {
+                // Under the sealed hilltop but inside the passage's airspace:
+                // keep flying. The surface here is the hill OVER the tunnel.
+                continue;
+            }
+            continue;
+        }
+        if point.y <= surface {
+            return Some(point);
+        }
+    }
+    None
+}
+
 fn raycast_terrain(terrain: &Terrain, origin: Vec3, direction: Vec3) -> Option<Vec3> {
     let mut previous = origin;
     let mut travelled = 0.0;
@@ -451,6 +497,7 @@ fn raycast_terrain(terrain: &Terrain, origin: Vec3, direction: Vec3) -> Option<V
 fn aim_brush(
     terrain: Res<TerrainSource>,
     free: Res<CursorFree>,
+    digging: Res<Digging>,
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<MainCamera>>,
     mut brush: ResMut<Brush>,
@@ -467,9 +514,17 @@ fn aim_brush(
         .flatten()
         .and_then(|at| camera.viewport_to_world(eye, at).ok());
 
+    // The shovel aims through what it has already dug; everything else aims at
+    // the surface. One brush.hit either way, so the ring on the ground and the
+    // stroke that follows can never land in two different places.
+    let march: fn(&Terrain, Vec3, Vec3) -> Option<Vec3> = if digging.0 {
+        raycast_dig
+    } else {
+        raycast_terrain
+    };
     brush.hit = match ray {
-        Some(ray) => raycast_terrain(&terrain.0, ray.origin, *ray.direction),
-        None => raycast_terrain(&terrain.0, eye.translation(), eye.forward().as_vec3()),
+        Some(ray) => march(&terrain.0, ray.origin, *ray.direction),
+        None => march(&terrain.0, eye.translation(), eye.forward().as_vec3()),
     };
 }
 
@@ -1951,6 +2006,7 @@ mod keycaps {
 /// footprint — so aiming lower as you go slopes the passage and aiming level keeps
 /// it level. See [`crate::world::dug`].
 pub fn dig_tunnels(
+    mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     brush: Res<Brush>,
@@ -1958,6 +2014,8 @@ pub fn dig_tunnels(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     panels: Query<(&ComputedNode, &GlobalTransform), With<crate::tools::widget::Scrolls>>,
     terrain: Res<TerrainSource>,
+    chunks: Res<ChunkMap>,
+    busy: Query<(), With<PendingChunk>>,
     mut digging: ResMut<Digging>,
     mut asked: EventReader<Asked>,
     mut toast: ResMut<ui::Toast>,
@@ -1995,18 +2053,23 @@ pub fn dig_tunnels(
         return;
     }
 
-    let Ok(mut dug) = terrain.0.dug().write() else {
-        return;
+    let moved = {
+        let Ok(mut dug) = terrain.0.dug().write() else {
+            return;
+        };
+        let radius = brush.radius.min(crate::world::dug::HALF_WIDE * 2.0);
+        if filling {
+            dug.fill(at, radius)
+        } else {
+            dug.dig(at, radius, hit.y)
+        }
     };
-    let radius = brush.radius.min(crate::world::dug::HALF_WIDE * 2.0);
-    let moved = if filling {
-        dug.fill(at, radius)
-    } else {
-        dug.dig(at, radius, hit.y)
-    };
-    // Nothing is said per brushful: a held button digs every frame and a toast
-    // every frame is a flicker. The ground opening up is the feedback.
-    let _ = moved;
+    // The SURFACE changes too, wherever the stroke opened a doorway — so the
+    // chunks over it re-mesh, exactly as any ground brush does. Nothing is said
+    // per brushful: the ground opening up is the feedback.
+    if let Some(patch) = moved {
+        invalidate_area(&mut commands, &terrain, &chunks, &busy, patch);
+    }
 }
 
 #[cfg(test)]
@@ -2024,6 +2087,7 @@ mod digging {
             .init_resource::<ui::Toast>()
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<ChunkMap>()
             .add_event::<Asked>()
             .insert_resource(TerrainSource(std::sync::Arc::new(Terrain::new())))
             .add_systems(Update, dig_tunnels);

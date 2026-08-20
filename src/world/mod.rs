@@ -160,7 +160,6 @@ impl Plugin for WorldPlugin {
                     water::spawn_water.run_if(no_sea_yet),
                     stream::grow_the_grove.run_if(not(resource_exists::<stream::Grove>)),
                     prop::setup_props.run_if(not(resource_exists::<prop::PropPool>)),
-                    dug::draw_the_void,
                 ),
             )
             .add_systems(OnExit(crate::states::AppState::Playing), clear_the_world);
@@ -178,7 +177,6 @@ impl Plugin for WorldPlugin {
                 water::spawn_water.run_if(no_sea_yet),
                 stream::grow_the_grove.run_if(not(resource_exists::<stream::Grove>)),
                 prop::setup_props.run_if(not(resource_exists::<prop::PropPool>)),
-                dug::draw_the_void,
             ),
         )
         .add_systems(OnExit(crate::states::AppState::Editing), clear_the_world);
@@ -198,6 +196,7 @@ impl Plugin for WorldPlugin {
                     prop::litter_chunks,
                     prop::collect_props,
                     prop::clear_chunks,
+                    dug::draw_the_void,
                 )
                     // Not in the workbench. Streaming a world nobody is looking at
                     // costs a frame's work every frame and, worse, keeps a second

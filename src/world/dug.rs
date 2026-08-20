@@ -81,6 +81,23 @@ const LID: f32 = 0.3;
 /// all, since at a mouth both surfaces are at the same height.
 pub const HEADROOM: f32 = HIGH * 1.4;
 
+/// How far below the surface a dug floor opens a DOORWAY in it.
+///
+/// # The one place digging touches the surface, and why it must
+///
+/// "The surface is never touched" was the rule, and it made every passage
+/// invisible and unenterable: the hillside's own face still stood across the
+/// mouth, so a maker dug a void nobody could see into and the walk rule carried
+/// them through the drawn ground like a ghost. A hole has to BE a hole somewhere.
+///
+/// So exactly where the void breaks the hill's face — a dug floor within a
+/// doorway's height of the surface — the surface opens down to the floor. Deeper
+/// in, where the rock over the floor is taller than a doorway, the hill is sealed
+/// and untouched exactly as before. On open flat ground the floor IS the surface,
+/// so nothing changes at all — the trench of the last build stays dead, because
+/// this keys off cells somebody actually dug, not off a corridor's geometry.
+pub const DOORWAY: f32 = HIGH;
+
 /// Nothing has been dug here.
 ///
 /// A sentinel rather than an `Option` per cell: the grid is a few million cells for
@@ -97,6 +114,10 @@ pub struct Dug {
     /// The floor height of each cell, or [`UNDUG`].
     floor: Vec<f32>,
     dug: usize,
+    /// Bumped by every stroke that changes anything, so the drawing knows to
+    /// rebuild. The dug ground lives behind a lock rather than as ECS data, so
+    /// nothing else can watch it change.
+    pub generation: u64,
     /// Whether anything has been dug since this was last written.
     pub unsaved: bool,
 }
@@ -124,6 +145,7 @@ impl Dug {
             half,
             floor: vec![UNDUG; wide * deep],
             dug: 0,
+            generation: 0,
             unsaved: false,
         }
     }
@@ -203,6 +225,7 @@ impl Dug {
             return None;
         }
         self.unsaved = true;
+        self.generation += 1;
         // A cell past the brush either way: the mesh's arch reaches over its
         // neighbours, so the ground that has to be redrawn is wider than the stroke.
         Some((
@@ -240,10 +263,28 @@ impl Dug {
             return None;
         }
         self.unsaved = true;
+        self.generation += 1;
         Some((
             centre - Vec2::splat(radius + CELL * 2.0),
             centre + Vec2::splat(radius + CELL * 2.0),
         ))
+    }
+
+    /// How far the surface over a dug floor is opened down, in metres.
+    ///
+    /// The DOORWAY: nought almost everywhere — sealed under deep rock, and already
+    /// level on open ground — and the full drop to the floor where the void breaks
+    /// the hill's face. Smoothed over the top of the band so the doorway's crown is
+    /// a lintel rather than a one-vertex spike.
+    pub fn opening(&self, at: Vec2, surface: f32) -> f32 {
+        let Some(floor) = self.floor_at(at) else {
+            return 0.0;
+        };
+        let over = surface - floor;
+        if over <= 0.0 {
+            return 0.0;
+        }
+        (surface - floor) * crate::util::smoothstep(DOORWAY * 1.25, DOORWAY * 0.85, over)
     }
 
     /// The floor of the void under a point, or `None` where nothing is dug.
@@ -616,16 +657,29 @@ pub fn draw_the_void(
     mut meshes: ResMut<Assets<Mesh>>,
     material: Option<Res<crate::world::chunk::TerrainMaterial>>,
     standing: Query<Entity, With<Void>>,
+    mut seen: Local<Option<u64>>,
 ) {
     let Some(material) = material else {
         return;
     };
-    for old in &standing {
-        commands.entity(old).despawn();
-    }
     let Ok(dug) = terrain.0.dug().read() else {
         return;
     };
+    // Runs every frame and draws almost never: only when a stroke has changed the
+    // digging — the ground lives behind a lock, so a generation stamp is the only
+    // change detection there is — or when the world was taken down and put back up
+    // with the digging still in it.
+    //
+    // This was an OnEnter one-shot, which is the first half of why the shovel
+    // "didn't work": every stroke updated the data and nothing ever redrew it.
+    let missing = standing.is_empty() && !dug.is_empty();
+    if *seen == Some(dug.generation) && !missing {
+        return;
+    }
+    *seen = Some(dug.generation);
+    for old in &standing {
+        commands.entity(old).despawn();
+    }
     if dug.is_empty() {
         return;
     }
