@@ -129,9 +129,31 @@ constant is being tuned from a photograph, the tool is missing.
 
 ## Tunnels and caves
 
-The longest-running fault in the project. Reported as **"still not going through the
-mountain"** four separate times, and each time the cause was different. If it comes
-back, work down this list in order — they are ordered by how likely each is.
+> **RESOLVED 2026-08-20, by removal.** After the walls, the carve partition, the
+> doorframes, the terrain-skin holes and the crater, the maker called it: the whole
+> tunnel system was scrapped and the mountain became a **canyon** — a flat-topped
+> massif with one winding slot through it, in `world/pass.rs`. The entries below are
+> kept as the record of WHY.
+>
+> **The root cause was never any one bug.** A heightfield has exactly one height at
+> every (x, z). Anything under the ground therefore needs a parallel world: a second
+> mesh, a second walking rule, a second camera rule, a carve to open the surface, a
+> hole cut out of the terrain's own skin (a heightfield cannot represent one), and a
+> built landmark to make the hole findable. Each of those was implemented, each
+> worked, and the sum still read wrong on screen — five rounds of "still no
+> entrance", each a different real fault. The lesson is not "we couldn't fix it";
+> it is **choose gates the terrain representation is good at**. A canyon is the same
+> gate — can't pass without finding the way, can't see through — built out of walls
+> that go up, a floor that stays down, and sky overhead.
+>
+> If underground spaces ever come back to this game, they need a real answer to the
+> heightfield question first (volumetric chunks, portal-stitched interior scenes, or
+> holes as first-class mesh features), not another layer of patches.
+
+The longest-running fault in the project while it lived. Reported as **"still not
+going through the mountain"** four separate times, and each time the cause was
+different — and the code named below is REMOVED; the entries stay because the
+mistakes are portable even where the systems are not.
 
 ### The passage runs ALONG a hillside instead of into it
 

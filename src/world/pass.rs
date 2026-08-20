@@ -1,273 +1,394 @@
-//! The mountain that closes the road east.
+//! The canyon country that closes the road east.
 //!
-//! A wall of rock across the whole route, from the desert's edge to the green
-//! country beyond it. There is no way over and no short way round, so getting east
-//! means going through — and the way through is a tunnel the MAKER bores, with
-//! [`crate::world::bores`] and the terrain tool's own BORE row.
+//! A flat-topped massif across the whole route, from the desert's edge to the green
+//! country beyond it. There is no way over it and no short way round it, so getting
+//! east means going THROUGH: one winding slot canyon, floored by the plain itself,
+//! walled in sheer jagged rock, open to the sky the whole way.
 //!
-//! # It used to carry its own tunnel, and that was the wrong shape for the job
+//! # Why a canyon, and not the tunnel it used to be
 //!
-//! The pass shipped with a hard-coded tunnel: a place, a heading, a thickness. Every
-//! one of those was a number somebody had to guess at from a screenshot, and it went
-//! wrong four times in an evening — the wall crossed the desert boundary instead of
-//! following it, then it was a mesa, then it was too thin, then the tunnel rendered
-//! as a stripe shaved over the mountain's shoulder. Exactly the fault the countries
-//! had before they were paintable.
+//! The mountain shipped with a tunnel — first hard-coded, then bored by the maker's
+//! own tool — and the tunnel fought the world's one load-bearing fact for a week: a
+//! heightfield has exactly one height at every (x, z). Everything under the ground
+//! needed a second mesh, a second walking rule, a second camera rule, a carve, a
+//! hole cut out of the terrain's own skin, and a doorframe to make the hole
+//! findable — and every one of those was real work that ended in "still not right".
 //!
-//! So the tunnel is gone from here and the mountain stays. A mountain is landscape,
-//! which the generator is good at; a doorway through it is a decision, which wants
-//! eyes on the place. The bore tool is those eyes.
+//! A canyon is the same GATE — you cannot pass until you find the way, and the way
+//! bends so you cannot see through it — built entirely out of things a heightfield
+//! is good at: walls go up, the floor stays down, the sky stays overhead. No second
+//! ground, no holes, no doors.
 //!
-//! # A mountain, not a very tall smooth hill
+//! # The shape
 //!
-//! Three things break up what would otherwise be a berm at any size, and each only
-//! ever cuts DOWN, so anything bored through this reads the same mountain the ground
-//! draws:
-//!
-//! * the **crest is serrated**, so the skyline is peaks and saddles rather than a
-//!   ruler line — and never low enough anywhere to be walked over.
-//! * the **flanks are creased** with gullies stretched down the fall line, because
-//!   water runs downhill and isotropic folds came out as round pockets that read as
-//!   hammered metal.
-//! * the creases live **mid-flank only**: at the crest they would notch the skyline
-//!   below the saddles, at the foot they would trench the plain.
+//! * the **top is flat** — a mesa, not a ridge. It reads as a landform you walk
+//!   around or through, never over.
+//! * the **walls are jagged**: the rim is warped by two octaves of noise in the
+//!   massif's own frame, so the silhouette is crags and buttresses rather than a
+//!   drawn line.
+//! * the **canyon winds**: its centreline swings two hundred metres side to side on
+//!   the way through, so no straight line crosses without climbing the full wall,
+//!   and no sightline reaches the far country.
 
 use bevy::prelude::*;
 
-/// The middle of the mountain, in metres.
+/// The middle of the massif, in metres.
 ///
 /// Placed so its WESTERN foot lands on the desert's own eastern edge, at about
 /// (180, -880) — the map printed by `dump_the_world` is what that was read off. So
-/// the journey east is desert, then the west foot, then the mountain, then the
-/// green country, then the snow, and neither flank has the wrong country on it.
+/// the journey east is desert, then the canyon country, then the green world, then
+/// the snow, and neither flank has the wrong country on it.
 pub const AT: Vec2 = Vec2::new(456.0, -997.0);
 
-/// Which way the mountain's thickness runs, in radians about Y — the direction a
-/// road through it would take. Nought is due east.
+/// Which way the massif's thickness runs, in radians about Y — the direction the
+/// canyon carries a traveller. Nought is due east.
 ///
-/// # It leans, because the country does
-///
-/// This was due east, and the wall it makes therefore ran due north-south — across
-/// a desert boundary that runs on a diagonal, because `region`'s own axis is
-/// tilted and the world is half as deep as it is wide. So the wall crossed the
-/// boundary at an angle and one end of it had desert on the side that was supposed
-/// to be green.
-///
-/// Set from the region's own lean rather than picked: the boundary runs along
-/// `(TILT, 1)` in map coordinates, which is `(0.39, 0.92)` on the ground once each
-/// axis is scaled by its own extent, and the tunnel runs across that.
+/// Set from the region's own lean rather than picked: the country boundary runs
+/// along `(TILT, 1)` in map coordinates, which is `(0.39, 0.92)` on the ground once
+/// each axis is scaled by its own extent, and the way through runs across that.
 pub const HEADING: f32 = -0.40;
 
-/// How high the mountain stands above the ground it is raised on, in metres.
+/// How high the top stands above the ground it is raised on, in metres.
 ///
-/// Well over the treeline, and by a margin: the trees give out at 150 m, so a
-/// crest brushing 165 left all but the last few metres forested and the whole
-/// thing read as a very long hill. At 235 the upper flanks strip to alpine rock
-/// and the crest carries snow, which is what "mountain" looks like from below.
-const RIDGE_HIGH: f32 = 235.0;
+/// Well over the treeline (150 m), so the walls strip to bare rock and the rim
+/// reads as stone from the plain below. Not so high that the flat top becomes the
+/// tallest thing in the world — the true mountains keep that.
+const TOP: f32 = 170.0;
 
-/// How far the mountain reaches, in metres: the length of the WALL, measured
-/// across the tunnel, and its THICKNESS, measured along the tunnel.
+/// How far the massif reaches, in metres: the length of the WALL, measured across
+/// the canyon's travel, and its THICKNESS, measured along it.
 ///
-/// The wall is long and the bore is short, which is the whole shape of a pass: a
-/// barrier you cannot walk round and a way through you can walk in a couple of
-/// minutes.
-///
-/// **Named for the wall rather than for the tunnel, and that is worth the extra
-/// word.** They were `ALONG` and `ACROSS`, which read naturally and meant the
-/// opposite of what `local` returns — so the mountain was built long in the
-/// direction you travel and thin in the direction it was supposed to block. The
-/// tests said so at once: the wall gave out 143 m to the side, and the plug was
-/// still 156 m thick at its own edge.
+/// **Named for the wall rather than for the way through, and that is worth the
+/// extra word.** They were `ALONG` and `ACROSS` once, which read naturally and
+/// meant the opposite of what `local` returns — so the massif was built long in
+/// the direction you travel and thin in the direction it was supposed to block.
 const WALL_LONG: f32 = 900.0;
 const WALL_THICK: f32 = 520.0;
 
-/// How much of the wall's LENGTH is its shoulders rather than its body.
+/// How far the walls take to rise from the plain to the top, in metres.
 ///
-/// Only the length. Along its length a ridge really is flat-crested — that is what
-/// makes it a barrier rather than a hill — and it eases down into the plain at
-/// each end. Across its thickness it is not: a shoulder in both directions gives a
-/// flat-topped table, which is what this first came out as and what the note above
-/// this constant was already warning about. Across, the mountain simply peaks, so
-/// there is a crest line running the length of the wall and the bore goes through
-/// the tallest part of it.
-const SHOULDER: f32 = 0.72;
+/// Fifty-five metres of run for a hundred and seventy of rise is a seventy-degree
+/// face: sheer to look at, unclimbable to walk, and still coarse enough that the
+/// two-metre vertex grid draws it without stretching artefacts.
+const WALL_RUN: f32 = 55.0;
 
-/// How much of the mountain this point stands under, 0 to 1.
+/// Half the width of the canyon floor, in metres.
 ///
-/// # A wall of rock, not a smooth earthwork
+/// Twenty metres wall to wall: room for the follow camera behind the warden and
+/// for two parties to pass, tight enough to read as a slot in the rock.
+const GAP_HALF: f32 = 10.0;
+
+/// How far the canyon's walls take to reach full height, in metres.
 ///
-/// The analytic profile alone — two eased falloffs — is a berm at any size:
-/// perfectly smooth flanks and a crest like a ruler. Three things break it up,
-/// and each is scaled so the tests about the PASS still hold:
-///
-/// * the **crest is serrated**: the whole profile scales with a slow noise along
-///   the wall, so the skyline is peaks and saddles rather than a line. It never
-///   drops far enough to be walked over — the saddles are still most of the wall.
-/// * the **flanks are creased**: two octaves of `1 - |noise|` gullies, cut into
-///   the slope. Strongest mid-flank and faded at the crest and the foot, so the
-///   silhouette stays a wall and the plain stays a plain.
-/// * nothing is added ON TOP — creases only ever cut DOWN — so the bore's roof
-///   arithmetic and every walk-through test read the same mountain this draws.
-pub fn ridge(at: Vec2) -> f32 {
-    let (along, across) = local(at);
-    let reach = |d: f32, full: f32, flat: f32| {
-        crate::util::smoothstep(full, full * flat, d.abs())
-    };
-    // Thin along the tunnel and long across it: rock to bore through, and a wall
-    // reaching away on both sides of the mouth. Peaked in the first and
-    // flat-crested in the second — see `SHOULDER`.
-    let body = reach(along, WALL_THICK, 0.0) * reach(across, WALL_LONG, SHOULDER);
-    if body <= 0.0 {
-        return 0.0;
-    }
+/// Steeper than the outer walls on purpose — inside the slot the rock should
+/// feel close overhead-tall, and a gentler flare would read as a valley.
+const GAP_RUN: f32 = 34.0;
 
-    // The serration, in the wall's own frame so it survives being turned.
-    let crest = 1.0 - SERRATION
-        + SERRATION * 2.0 * terrain_core::forest::field(Vec2::new(across, along) / TOOTH, 78);
+/// How far the rims wander from their drawn line, in metres: the big warp that
+/// makes buttresses, and the small one that chips the edges.
+const JAG_BROAD: f32 = 22.0;
+const JAG_FINE: f32 = 7.0;
 
-    // The creases, in the wall's own frame and STRETCHED down the fall line —
-    // a gully is water's work and water runs downhill, so the folds are long in
-    // the direction of the slope and narrow across it. Sampled isotropically
-    // they came out as round pockets, and a hillside of round pockets reads as
-    // hammered metal rather than as spurs.
-    let fold = |narrow: f32, salt: u32| {
-        let stretched = Vec2::new(across / narrow, along / (narrow * 3.2));
-        1.0 - (2.0 * terrain_core::forest::field(stretched, salt) - 1.0).abs()
-    };
-    // Plus one broad UNstretched octave, or the combing is too even: every spur
-    // the same width the whole length of a mountainside is a texture, not ground.
-    let broad = 1.0 - (2.0 * terrain_core::forest::field(at / 150.0, 81) - 1.0).abs();
-    let crease = 0.45 * fold(64.0, 79) + 0.3 * fold(27.0, 80) + 0.25 * broad;
-    // Mid-flank only: at the crest a gully would notch the skyline below the
-    // saddles, and at the foot it would trench the plain.
-    let flank = (body * (1.0 - body) * 4.0).clamp(0.0, 1.0);
-    let cut = RELIEF * flank * (1.0 - crease.powf(1.4));
-
-    RIDGE_HIGH * body * crest * (1.0 - cut)
-}
-
-/// How deep the serration and the gullies go, as shares of the local height.
-///
-/// The serration swings the crest a fifth either way; the gullies take up to
-/// two fifths out of the mid-flank. Between them the wall's LOWEST crossing
-/// stays above half its nominal height, which the walk-over test measures.
-const SERRATION: f32 = 0.2;
-const RELIEF: f32 = 0.42;
-
-/// Metres between teeth along the crest.
-const TOOTH: f32 = 110.0;
-
-/// Where a point sits in the mountain's own frame: along its thickness — the way a
-/// road through it would run — and across its length.
+/// Where a point sits in the massif's own frame: along its thickness — the way the
+/// canyon runs — and across its length.
 fn local(at: Vec2) -> (f32, f32) {
     let away = at - AT;
     let (sin, cos) = HEADING.sin_cos();
     (away.x * cos + away.y * sin, -away.x * sin + away.y * cos)
 }
 
-/// What the mountain adds to the ground here, in metres.
+/// The canyon centreline: how far ACROSS the way through sits, at this point ALONG.
 ///
-/// The mountain, whole. Nothing is carved out of it here at all: a tunnel through it
-/// is a bore, and a bore carves its own two mouths — see [`crate::world::bores`].
-pub fn lift(at: Vec2) -> f32 {
-    ridge(at)
+/// Two sines, a slow full S and a quicker wiggle on top of it. The swing is what
+/// gates the crossing: any straight line through the massif leaves the slot
+/// somewhere and meets full-height rock, so the only way east is to follow the
+/// bends — and the bends also close every sightline to the far side.
+fn wander(along: f32) -> f32 {
+    120.0 * (along * 0.011 + 0.7).sin() + 40.0 * (along * 0.037 + 2.1).sin()
+}
+
+/// How the massif stands over this point: the rock it ADDS above the ground, and
+/// how deep inside the footprint the point is, 0 at the rims to 1 well within.
+///
+/// One computation feeding both [`lift`] and [`shape`], so the rock and the
+/// causeway under it can never disagree about where the massif is.
+fn stands(at: Vec2) -> (f32, f32) {
+    let (along, across) = local(at);
+
+    // Out past the footprint entirely: most of the world, answered cheaply.
+    if along.abs() > WALL_THICK * 0.5 || across.abs() > WALL_LONG * 0.5 {
+        return (0.0, 0.0);
+    }
+
+    // The rim warp, in the massif's own frame so it turns with it. One broad
+    // octave for buttresses, one fine octave to chip the edge.
+    let frame = Vec2::new(across, along);
+    let jag = (2.0 * terrain_core::forest::field(frame / 90.0, 83) - 1.0) * JAG_BROAD
+        + (2.0 * terrain_core::forest::field(frame / 24.0, 84) - 1.0) * JAG_FINE;
+
+    // A mesa in both directions: flat inside, a sheer warped wall at the edge.
+    let rim = |d: f32, half: f32| crate::util::smoothstep(half, half - WALL_RUN, d + jag);
+    let mesa = rim(across.abs(), WALL_LONG * 0.5).min(rim(along.abs(), WALL_THICK * 0.5));
+    if mesa <= 0.0 {
+        return (0.0, 0.0);
+    }
+
+    // The slot: nothing near the centreline, full rock past its own jagged walls.
+    let stray = (across - wander(along)).abs();
+    let chip = (2.0 * terrain_core::forest::field(frame / 50.0, 85) - 1.0) * 8.0;
+    let slot = crate::util::smoothstep(GAP_HALF, GAP_HALF + GAP_RUN, stray + chip);
+    if slot <= 0.0 {
+        return (0.0, mesa);
+    }
+
+    // The top, flat with a metre or three of drift so it is stone, not glass.
+    let crown = 0.97 + 0.05 * terrain_core::forest::field(frame / 130.0, 86);
+
+    (TOP * mesa * slot * crown, mesa)
+}
+
+/// What the massif adds to the ground here, in metres. Only ever ADDS.
+///
+/// The game itself goes through [`shape`]; this is the bare rock alone, and it is
+/// the tests' own instrument.
+#[cfg(test)]
+fn lift(at: Vec2) -> f32 {
+    stands(at).0
+}
+
+/// The ground with the whole massif on it: the rock, standing on a floor that has
+/// been GRADED through the slot.
+///
+/// The graded floor is the one thing here that is not pure addition, and it earns
+/// its exception: the natural ground under the massif dips six metres below the
+/// sea partway through, and a flooded slot is not a road — the warden would wade a
+/// bend of it with their feet clamped to the tide. So inside the footprint the
+/// floor is raised (never cut) toward a causeway running gently down from the
+/// desert side to the green side, blended in over the mouths so each end meets the
+/// plain it walks out onto. Ground already above the grade keeps its own shape.
+pub fn shape(at: Vec2, ground: f32) -> f32 {
+    let (rock, inside) = stands(at);
+    if inside <= 0.0 {
+        return ground + rock;
+    }
+    let (along, _) = local(at);
+    // Down from the western approach (~24 m) to the eastern (~13 m).
+    let grade = 24.0 + (13.0 - 24.0) * (along / WALL_THICK + 0.5).clamp(0.0, 1.0);
+    let floored = ground + (grade - ground).max(0.0) * inside;
+    floored + rock
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_mountain_blocks_every_way_over_it() {
-        // What blocks a walker is the highest ground on their PATH, so each
-        // candidate crossing is measured by the most it makes them climb — not by
-        // every sample on a flank being high, which the gullies would fail.
+    fn axes() -> (Vec2, Vec2) {
         let (sin, cos) = HEADING.sin_cos();
-        let along = Vec2::new(cos, sin);
-        let across = Vec2::new(-sin, cos);
+        (Vec2::new(cos, sin), Vec2::new(-sin, cos))
+    }
 
-        let mut weakest = f32::MAX;
-        let mut where_weakest = Vec2::ZERO;
-        for side in [-1.0_f32, 1.0] {
-            for out in 0..=((WALL_LONG * 0.7) as i32 / 10) {
-                let aside = out as f32 * 10.0;
-                let mut barrier = 0.0_f32;
-                for step in -30..=30 {
-                    let at = AT
-                        + across * aside * side
-                        + along * step as f32 * (WALL_THICK * 1.2 / 30.0);
-                    barrier = barrier.max(lift(at));
+    /// The top is a MESA: flat, tall, and nothing pokes through or drops out.
+    #[test]
+    fn the_top_is_flat_and_tall() {
+        let (along, across) = axes();
+        let mut low = f32::MAX;
+        let mut high = f32::MIN;
+        for a in -8..=8 {
+            for c in -14..=14 {
+                let at = AT + along * (a as f32 * 24.0) + across * (c as f32 * 24.0);
+                let (l, _) = local(at);
+                // Inside the body, clear of the rims and clear of the canyon.
+                let (l_abs, c_local) = (l.abs(), local(at).1);
+                if l_abs > WALL_THICK * 0.5 - WALL_RUN - JAG_BROAD - 10.0 {
+                    continue;
                 }
-                if barrier < weakest {
-                    weakest = barrier;
-                    where_weakest = across * aside * side;
+                if c_local.abs() > WALL_LONG * 0.5 - WALL_RUN - JAG_BROAD - 10.0 {
+                    continue;
                 }
+                if (c_local - wander(l)).abs() < GAP_HALF + GAP_RUN + 24.0 {
+                    continue;
+                }
+                let stands = lift(at);
+                low = low.min(stands);
+                high = high.max(stands);
             }
         }
+        assert!(high > TOP * 0.95, "the top only reaches {high:.0} m");
         assert!(
-            weakest > RIDGE_HIGH * 0.5,
-            "the crossing at {where_weakest:?} only climbs {weakest:.0} m"
+            high - low < TOP * 0.12,
+            "the top varies by {:.0} m — that is a ridge, not a mesa",
+            high - low
         );
     }
 
+    /// No straight line crosses the massif without climbing most of the wall.
+    ///
+    /// This is the GATE. The canyon exists and its floor is the plain — but it
+    /// wanders, so a straight crossing anywhere leaves the slot and meets rock.
     #[test]
-    fn the_wall_cannot_be_walked_round_without_going_a_long_way() {
-        let (sin, cos) = HEADING.sin_cos();
-        let across = Vec2::new(-sin, cos);
-        for side in [-1.0_f32, 1.0] {
-            let mut round = 0.0;
-            for step in 0..1_400 {
-                let out = AT + across * side * step as f32;
-                if ridge(out) < 8.0 {
-                    round = step as f32;
+    fn no_straight_line_crosses_without_climbing() {
+        let (along, across) = axes();
+        let mut weakest = f32::MAX;
+        let mut where_weakest = 0.0;
+        for c in -84..=84 {
+            let aside = c as f32 * 5.0;
+            let mut barrier = 0.0_f32;
+            for step in -32..=32 {
+                let at = AT + across * aside + along * (step as f32 * (WALL_THICK * 1.2 / 64.0));
+                barrier = barrier.max(lift(at));
+            }
+            if barrier < weakest {
+                weakest = barrier;
+                where_weakest = aside;
+            }
+        }
+        assert!(
+            weakest > TOP * 0.6,
+            "the straight crossing at {where_weakest:.0} m aside only climbs {weakest:.0} m"
+        );
+    }
+
+    /// The canyon goes through at ground level, and it WINDS.
+    #[test]
+    fn the_canyon_winds_through_at_ground_level() {
+        let (along, across) = axes();
+        let mut tallest = 0.0_f32;
+        let mut swing = (f32::MAX, f32::MIN);
+        for step in -70..=70 {
+            let l = step as f32 * (WALL_THICK * 0.7 / 70.0);
+            let centre = wander(l);
+            swing = (swing.0.min(centre), swing.1.max(centre));
+            let at = AT + along * l + across * centre;
+            tallest = tallest.max(lift(at));
+        }
+        assert!(
+            tallest < 3.0,
+            "the canyon floor stands {tallest:.1} m proud of the plain"
+        );
+        assert!(
+            swing.1 - swing.0 > 200.0,
+            "the canyon only swings {:.0} m — a corridor, not a winding slot",
+            swing.1 - swing.0
+        );
+    }
+
+    /// The canyon's walls are sheer, and they are CRAGS rather than drawn lines.
+    #[test]
+    fn the_walls_are_sheer_and_jagged() {
+        let (along, across) = axes();
+
+        // Sheer: from the centreline, full height arrives within the slot's own
+        // run plus the chip the noise is allowed.
+        let l = 40.0;
+        let centre = wander(l);
+        let foot = AT + along * l + across * centre;
+        let wall = AT + along * l + across * (centre + GAP_HALF + GAP_RUN + 14.0);
+        assert!(lift(foot) < 3.0, "the foot of the wall is not on the floor");
+        assert!(
+            lift(wall) > TOP * 0.6,
+            "the wall only stands {:.0} m a stone's throw from the floor",
+            lift(wall)
+        );
+
+        // Jagged: where the wall stands varies along the slot. For a run of
+        // stations, find how far from the centreline the rock reaches half
+        // height; a drawn line would put it in the same place every time.
+        let mut nearest = f32::MAX;
+        let mut furthest = f32::MIN;
+        for step in -8..=8 {
+            let l = step as f32 * 24.0;
+            let centre = wander(l);
+            let mut reach = GAP_HALF + GAP_RUN + 30.0;
+            for off in 0..80 {
+                let stray = GAP_HALF + off as f32;
+                let at = AT + along * l + across * (centre + stray);
+                if lift(at) > TOP * 0.5 {
+                    reach = stray;
                     break;
                 }
             }
+            nearest = nearest.min(reach);
+            furthest = furthest.max(reach);
+        }
+        assert!(
+            furthest - nearest > 8.0,
+            "the wall stands {nearest:.0}–{furthest:.0} m out — a drawn line, not crags"
+        );
+    }
+
+    /// The floor through the slot is DRY GROUND, graded gently.
+    ///
+    /// The natural ground under the massif dips six metres below the sea partway
+    /// through, and a flooded slot is not a road — the warden would wade a bend of
+    /// it with their feet clamped to the tide. `shape` grades the floor up, and
+    /// only ever UP: a hill already standing in the slot keeps its own shape.
+    #[test]
+    fn the_floor_is_a_dry_road_even_over_drowned_ground() {
+        let (along, across) = axes();
+        for step in -45..=45 {
+            let l = step as f32 * 4.0;
+            let at = AT + along * l + across * wander(l);
+            let floored = shape(at, -6.0);
             assert!(
-                round > WALL_LONG * 0.9,
-                "the wall gives out {round:.0} m along, which is a stroll around it"
+                floored > 10.0,
+                "at {l:.0} m along, a drowned floor is only raised to {floored:.1} m"
             );
+        }
+        let at = AT + across * wander(0.0);
+        assert!(
+            (shape(at, 40.0) - 40.0).abs() < 0.01,
+            "a hill standing in the slot was flattened"
+        );
+    }
+
+    /// And on the REAL ground: the walk through is dry the whole way, with no
+    /// step in it steeper than a walk.
+    #[test]
+    fn the_real_walk_through_is_dry_and_gentle() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let (along, across) = axes();
+        let mut last = None;
+        for step in -55..=55 {
+            let l = step as f32 * 4.0;
+            let at = AT + along * l + across * wander(l);
+            let here = terrain.height(at.x, at.y);
+            assert!(here > 2.0, "the floor at {l:.0} m along is {here:.1} m — wet feet");
+            if let Some(previous) = last {
+                let rise: f32 = here - previous;
+                assert!(
+                    rise.abs() < 2.5,
+                    "a {rise:.1} m step at {l:.0} m along — a wall in the road"
+                );
+            }
+            last = Some(here);
         }
     }
 
+    /// Going AROUND is the long way: the wall holds most of its length.
     #[test]
-    fn the_mountain_is_broken_ground_and_not_a_smooth_berm() {
-        // A crest like a ruler and flanks like a lawn is a berm at any size. Both
-        // halves measured: the skyline varies along the wall, and the flanks are
-        // creased across it.
-        let (sin, cos) = HEADING.sin_cos();
-        let along = Vec2::new(cos, sin);
-        let across = Vec2::new(-sin, cos);
-
-        // Walked along the crest, the height must vary.
-        let crest: Vec<f32> = (-40..=40)
-            .map(|step| ridge(AT + across * step as f32 * 12.0))
-            .collect();
-        let high = crest.iter().copied().fold(f32::MIN, f32::max);
-        let low = crest.iter().copied().fold(f32::MAX, f32::min);
-        assert!(
-            high - low > RIDGE_HIGH * 0.1,
-            "the crest varies by {:.0} m — a ruler, not a skyline",
-            high - low
-        );
-
-        // And across the flank, gullies: neighbouring lines down the slope differ.
-        let flank = |offset: f32| {
-            (10..30)
-                .map(|step| ridge(AT + along * step as f32 * 12.0 + across * offset))
-                .collect::<Vec<f32>>()
-        };
-        let (a, b) = (flank(0.0), flank(45.0));
-        let apart = a
-            .iter()
-            .zip(&b)
-            .map(|(x, y)| (x - y).abs())
-            .fold(0.0_f32, f32::max);
-        assert!(
-            apart > 12.0,
-            "two lines down the flank differ by only {apart:.0} m — no gullies"
-        );
+    fn the_wall_cannot_be_walked_round_without_going_a_long_way() {
+        let (along, across) = axes();
+        for side in [-1.0_f32, 1.0] {
+            let mut holds_to = 0.0;
+            for c in 0..90 {
+                let aside = c as f32 * 5.0 * side;
+                // A barrier still stands at this offset if SOME point along the
+                // thickness is high — the crossing test's own question.
+                let mut barrier = 0.0_f32;
+                for step in -32..=32 {
+                    let at =
+                        AT + across * aside + along * (step as f32 * (WALL_THICK * 1.2 / 64.0));
+                    barrier = barrier.max(lift(at));
+                }
+                if barrier > TOP * 0.5 {
+                    holds_to = aside.abs();
+                }
+            }
+            assert!(
+                holds_to > WALL_LONG * 0.42,
+                "the wall gives out {holds_to:.0} m to one side — a stroll around it"
+            );
+        }
     }
 }
 
@@ -275,7 +396,7 @@ mod tests {
 mod country {
     use super::*;
 
-    /// The mountain has to be the JOIN between the two countries, not a wall
+    /// The massif has to be the JOIN between the two countries, not a wall
     /// standing across one of them.
     #[test]
     fn the_desert_meets_its_western_foot_and_the_green_world_its_eastern() {
@@ -288,17 +409,10 @@ mod country {
         let mut desert = 0;
         let mut green = 0;
         let mut looked = 0;
-        // Near the pass, and along the wall rather than out to its ends: the
-        // wall is half a kilometre thick now, so probing its feet at the far
-        // ends of a nine-hundred-metre wall lands in the sea and measures
-        // nothing. What the claim is about is the ground either side of the
-        // tunnel.
         for step in -5..=5 {
             let down = across_way * step as f32 * (WALL_LONG * 0.06);
-            // Just outside each MOUTH rather than out past the mountain's feet:
-            // where a walker actually steps out of the tunnel, and where the
-            // question "which country is this" has an answer that matters. Out at
-            // the feet of a half-kilometre wall the probes land in the sea.
+            // Just outside each end of the canyon: where a walker actually steps
+            // out, and where "which country is this" has an answer that matters.
             let west = AT + down - along_way * WALL_THICK * 0.9;
             let east = AT + down + along_way * WALL_THICK * 0.9;
             if terrain.height(west.x, west.y) < 1.0 || terrain.height(east.x, east.y) < 1.0 {
@@ -317,6 +431,60 @@ mod country {
         assert!(
             green * 3 >= looked * 2,
             "the eastern foot is the green world at only {green} of {looked} places"
+        );
+    }
+}
+
+#[cfg(test)]
+mod probe {
+    use super::*;
+
+    #[test]
+    #[ignore = "a measurement of the real ground"]
+    fn what_the_canyon_measures() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let (sin, cos) = HEADING.sin_cos();
+        let along = Vec2::new(cos, sin);
+        let across = Vec2::new(-sin, cos);
+
+        let mut floor = (f32::MAX, f32::MIN);
+        let mut biggest_step = 0.0_f32;
+        let mut last = None;
+        for step in -80..=80 {
+            let l = step as f32 * (WALL_THICK * 0.5 / 80.0);
+            let at = AT + along * l + across * wander(l);
+            let h = terrain.height(at.x, at.y);
+            floor = (floor.0.min(h), floor.1.max(h));
+            if let Some(previous) = last {
+                biggest_step = biggest_step.max(h - previous).max(previous - h);
+            }
+            last = Some(h);
+        }
+        println!(
+            "the canyon floor runs {:.0}..{:.0} m, worst step {biggest_step:.2} m per {:.1} m",
+            floor.0,
+            floor.1,
+            WALL_THICK * 0.75 / 80.0
+        );
+
+        let mut top = (f32::MAX, f32::MIN);
+        for c in [-300.0_f32, -180.0, 180.0, 300.0] {
+            for l in [-140.0_f32, 0.0, 140.0] {
+                let at = AT + along * l + across * c;
+                if (c - wander(l)).abs() < GAP_HALF + GAP_RUN + 30.0 {
+                    continue;
+                }
+                let h = terrain.height(at.x, at.y);
+                top = (top.0.min(h), top.1.max(h));
+            }
+        }
+        println!("the mesa top stands {:.0}..{:.0} m absolute", top.0, top.1);
+        let west = AT - along * 300.0;
+        let east = AT + along * 300.0;
+        println!(
+            "the approaches: west {:.0} m, east {:.0} m",
+            terrain.height(west.x, west.y),
+            terrain.height(east.x, east.y)
         );
     }
 }

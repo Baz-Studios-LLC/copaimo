@@ -914,10 +914,11 @@ impl Terrain {
     /// against, so they are placed on a map that already has its valleys.
     pub fn dry_height(&self, x: f32, z: f32) -> f32 {
         // The pass rides on the generated land, under everything a maker does to
-        // it: a town levelled across the mouth of a tunnel should level the mouth,
-        // and a brush stroke should cut into the mountain like any other hill.
-        self.raw_height(x, z) - self.rivers.cut_at(x, z)
-            + crate::world::pass::lift(Vec2::new(x, z))
+        // it: a brush stroke cuts into the massif like any other hill.
+        crate::world::pass::shape(
+            Vec2::new(x, z),
+            self.raw_height(x, z) - self.rivers.cut_at(x, z),
+        )
     }
 
     /// The still water standing in a channel here, if any.

@@ -248,8 +248,8 @@ fn dress(terrain: &Terrain, low: Vec2) -> Geometry {
                 continue;
             }
 
-            // Nothing grows under a mountain. The cutting at either mouth is
-            // open to the sky and keeps its grass — see `pass::underground`.
+            // Nothing grows on sheer rock; the canyon floor is the plain and
+            // keeps its grass.
             let ground = terrain.ground_at(at.x, at.y);
             // One climate for the world again. What used to vary from point to
             // point was a coldness that moved the treeline about; the country a

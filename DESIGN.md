@@ -13,146 +13,36 @@ collect).
 
 ---
 
-## A tunnel is DRAWN over the hill, then lowered
+## The canyon gates the road east
 
-Arm DIG, then **drag the brush over the mountain — over the top of it**, in plain
-view. Nothing is dug while you draw. Let go, and the line is *lowered*: the floor
-runs from the ground at one end to the ground at the other, graded along the way.
-Under the crest that puts it far below the surface, which is a tunnel; at each end
-it meets the ground it started from, which is a mouth. Both fall out of the same
-arithmetic rather than being placed. `Shift` fills in, and filling stays aimed.
+The way from the desert to the green country is ONE winding slot canyon through a
+flat-topped massif (`world/pass.rs`). The top is a mesa — too high to walk over,
+above the treeline so it reads as bare rock. The walls are sheer (seventy degrees)
+and jagged: the rims are warped by two octaves of noise in the massif's own frame,
+so the silhouette is crags and buttresses rather than a drawn line. The canyon's
+centreline swings two hundred metres side to side on the way through, so **no
+straight line crosses without climbing the full wall**, and no sightline reaches
+the far country. That is the gate: you cannot pass until you find the way, and you
+cannot see what is on the other side until you have walked it.
 
-It is also how a tunnel is actually planned: draw the alignment on a map, fix the
-invert levels at the portals, grade between them.
+The floor of the slot is the plain itself — the massif only ever ADDS rock — which
+is what lets the desert hand over to the green country inside the canyon with no
+stitching. One exception, and it earns itself: the natural ground under the massif
+dips six metres below the sea partway through, and a flooded slot is not a road.
+So `shape` grades the floor up (never down) toward a causeway running gently from
+the desert side to the green side, blended in over the mouths. Ground already
+above the grade keeps its own shape.
 
-**Why nothing else worked.** Three builds asked the AIM to place the tunnel — two
-clicks that computed one, a floor read from the aim each frame, then a head driven
-blind on a held level — and every one left the passage on the OUTSIDE of the hill.
-The reason is structural, not a bug that kept escaping: the crosshair is a ray
-against the ground, so it can only ever touch a **surface**. It cannot point inside
-a mountain. Sweep it at a slope and it walks up the face.
+### Why a canyon, and not the tunnel it replaced
 
-Drawing never asks it to. The line is laid where the crosshair works perfectly, and
-the depth comes from the ends afterwards — which is the maker's own idea, offered
-after the third failure, and it dissolved the problem instead of fighting it.
-
-**You draw the line; the tool fills it in.** What comes off a mouse is neither
-smooth nor evenly spaced — the points arrive one per frame, so a slow hand piles
-them up and a fast one leaves them tens of metres apart, and the crosshair shakes by
-metres as it is dragged over a hillside. Dug straight, that is a row of beads with
-kinks in it.
-
-So the sketch is resampled to fill every gap and smoothed to take the shake out,
-with **the two ends pinned** — those are the portals, the one part of a drawn route
-that is a decision rather than an accident of the hand. A deliberate bend survives;
-a wobble does not. Nobody has to draw a straight line.
-
-The passage is dug at the bore's own width whatever the brush is set to: the vault is
-an arch built for `HALF_WIDE`, and dug wider its crown flattens and the passage reads
-as a hall. Eighteen metres across and ten tall — sized for the follow camera to stay
-behind the warden and for two monsters to pass each other, not for one person edging
-through.
-
-**A wall belongs against rock.** The cave emitted one wherever a drawn cell met a
-cell it had not drawn — and a cell the carve has opened is dug but *not* drawn, so
-every mouth got a wall built straight across it: from outside, a grey slab where a
-doorway should be. The rule is about the DIGGING, not about the drawing.
-
-A route shorter than a couple of brush widths is refused: lowering a dab gives a
-pit, not a passage.
-
-## A mouth gets a doorframe
-
-An opening is not a landmark. A mouth that was carved ground and a gap in a hillside
-could not be found — reported four times, the last of them from directly above it.
-So every mouth gets something **built**: a doorframe of dressed stone, lighter than
-the rock — a square pillar flush with each side of the opening and one level beam
-across the top, standing just proud of the rock face, footed into the ground. Light
-stone around a black hole reads as an entrance from the air and from the ground, and
-it says something true: somebody cut this passage, and they finished the ends of it.
-
-**One frame per MOUTH, not a stone per cell.** The first build put a lintel on every
-threshold cell at that cell's own crown height, ten metres up — and neighbouring
-floors differ by centimetres, so what stood was a floating crenellated wall. It also
-reached a porch of vault out over the approach, which photographed as a black tent
-with a torn hem: the cave's baked-dark ceiling standing in daylight. Both went. Now
-the threshold cells are clustered into mouths, each mouth measures its own facing and
-width, and three stones are raised in that frame — oriented, so a doorway on a
-diagonal passage stands square to its opening rather than to the world. The head of
-the frame sits just over the opening, which is `DOORWAY` tall by definition — that is
-where the carve stops.
-
-The rules this file keeps about the cave — no floor laid over carved ground, no wall
-without rock behind it, no two heights in one column — are rules about **hewn rock**,
-and built stone breaks all three on purpose. So `void_parts` returns the boundary
-between the hewn run of vertices and the built one, rather than leaving a test to
-guess. Guessing by colour failed at the first attempt: the lintel is a darker shade
-of the same stone, and sixty-four of its faces came through as walls.
-
-**The hole is cut out of the ground's own skin.** A heightfield has exactly one
-height at every (x, z), so the ground is an unbroken sheet — at a mouth it stood up
-as a grass cliff ACROSS the opening, under the doorframe's own beam. Fifth report of
-the entrance missing, and every earlier fix was real (walls, the carve partition, the
-frame) — but no height a heightfield can take reads as an opening. So the chunk mesh
-skips the face, and the cave's own vault and walls show through the gap. Walking is
-untouched, because the walker asks heights, not triangles.
-
-A quad is the face exactly when its own cell and a dug neighbour are classified
-differently **by the cave itself** (`Dug::cell_kind`, the same per-cell question
-`void` answers) and its own corners stand on both levels. The first cut asked its own
-version of the question through the bilinear floor, which reaches half a cell past
-the dug ground — so the trench's tall side walls voted "passage" and the ground
-unzipped along the whole route into a crater with the doorframe standing in the
-middle of it. One question, one answer: this is the same shape of bug as the carve
-partition, and the fixture that guards it digs a pit with real walls, because a
-fixture dug in flat ground never caught it. At the maker's two portals the holes now
-measure 7 and 10 quads — a face each, not a crater.
-
-Each pillar seats on the ground it actually stands on — the lowest of its own
-corners, sunk `FOOTING` — not on the mouth's lowest floor, which on a sloping trench
-side buried one pillar to the knees.
-
-## Tunnels
-
-`bores.rs` owns every tunnel in the world. A bore is two points, and what it does is
-**not** carve a corridor:
-
-* the hill **keeps its skin** — trees, snow, shading — because nothing touches the
-  ground over a tunnel's length. The first build carved the corridor and left the
-  rock above it as a mesh, and a bore through a small rise came out as a black tent
-  pitched on open ground.
-* it carves a short **cutting at each mouth**, where the hill holds only a few
-  metres over the crown. The mouths place themselves: move the hill and its doorways
-  move with it.
-* it builds a **tube** — floor and arched ceiling, wound to face inward, with the
-  light baked into the vertex colours because no sun reaches a tunnel and there are
-  no lamps yet.
-
-**The tube is only as long as the rock is.** Aim generously past a hill at both
-ends and the lining trims itself to the stretch that genuinely has rock over it, so
-a rough aim is forgiven rather than hanging a mesh in the air.
-
-**You aim at the hill; you do not survey the mouths.** Both ends are walked in to
-the first ground somebody could stand on, so overshooting into water — the normal
-way anybody aims — gives a tunnel that comes out at the shore. Aim clean past a hill
-on both sides and it comes out at the foot on both sides. A tunnel can go anywhere
-through a mountain, including where the far side is a coast.
-
-The one thing trimming cannot fix is an aim with no hill in it: over a plain there
-is no rock over the floor anywhere, so there is nothing to bore. The tool says so
-and keeps your first point, so a better aim is one press away.
-
-**This is the one place in the world with two grounds.** `Terrain::walk_floor`
-replaces the plain height snap for the warden and the follow camera. Which ground
-claims you cannot be told from where you are — both are directly overhead one
-another — so it is told from where you *already* are, which is also what makes a
-mouth need no door. A single-point query cannot answer it: a walker's height comes
-down with the floor as they go, so the walk is the query.
-
-`a_warden_can_walk_through_a_bored_mountain` bores the pass on the real world and
-walks it, checking the three things the screenshots kept disproving — the ground
-never jumps, there is always real rock overhead, and you come out the far side
-rather than on top.
+The tunnel fought the world's one load-bearing fact for a week: **a heightfield
+has exactly one height at every (x, z)**. Everything under the ground needed a
+second mesh, a second walking rule, a second camera rule, a carve, a hole cut out
+of the terrain's own skin, and a doorframe to make the hole findable — and every
+one of those was real work that ended in "still not right". A canyon is the same
+gate built entirely out of things a heightfield is good at: walls go up, the floor
+stays down, the sky stays overhead. The whole tunnel system (the dug layer, the
+carve, the shovel tool, `dug.bin`) is gone; TROUBLESHOOTING.md keeps the story.
 
 ## The terrain tool looks with the mouse and reaches with ALT
 
@@ -182,12 +72,13 @@ picked up the biome brush and started a tunnel.
 The panel exists so the keys can be SEEN, and that only helps if they are true.
 Truth across two tables is exactly what a person cannot check by reading, so
 `no_key_is_bound_to_two_things` checks it — and a second test checks every row
-prints the key that actually does it. The bore is on `T` now.
+prints the key that actually does it. (The bore lived on `T` until the tunnel
+system was removed for the canyon.)
 
 ## Every action in the tool has a row to press
 
 The palette was clickable but the actions were not — placing a building, picking one
-up, turning it, taking it away and boring a tunnel were all keyboard-only, and a key
+up, turning it and taking it away were all keyboard-only, and a key
 nobody has been told about is a tool that does not exist as far as anyone can tell.
 They are rows now, in DO SOMETHING, each printing its own key.
 
@@ -906,6 +797,14 @@ assets/
 ---
 
 ## Change log
+
+**2026-08-20** — **The tunnel is gone; the canyon gates the east.** A week of
+fighting the heightfield (cave mesh, carve, doorframes, holes in the terrain
+skin) ended by decision: no holes in a heightfield world. The whole dug system
+and the boring tool were removed (~3,400 lines), and the mountain was rebuilt as
+a flat-topped massif with one winding slot canyon through it — walls sheer and
+jagged, floor graded dry, no straight crossing. See `world/pass.rs` and
+TROUBLESHOOTING.md.
 
 **2026-08-18** — **The kiln, and the tools out of releases.**
 
