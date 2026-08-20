@@ -68,6 +68,11 @@ world is built, invariants that must not be broken, controls, and a change log.
 Read it before changing world generation — several approaches have already been
 tried and rejected for reasons recorded there.
 
+**[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** is the other half of that: what the
+game did when it was BROKEN, arranged by symptom. If something looks wrong on
+screen, look there first — most of the hard bugs in this project have been one of
+six recurring shapes, and the entry names the test that was meant to stop it.
+
 ## Tests
 
 ```bash
