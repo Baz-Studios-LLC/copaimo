@@ -26,7 +26,7 @@ const MAX_DISTANCE: f32 = 45.0;
 const ZOOM_SPEED: f32 = 2.5;
 /// Height on the warden the camera aims at — roughly the shoulders, so the
 /// horizon sits where you'd expect rather than at their feet.
-const LOOK_HEIGHT: f32 = 1.5;
+pub const LOOK_HEIGHT: f32 = 1.5;
 /// How quickly the camera catches up to its ideal position. Higher is tighter.
 const FOLLOW_STIFFNESS: f32 = 14.0;
 /// Minimum clearance the camera keeps above the ground, so backing into a hill

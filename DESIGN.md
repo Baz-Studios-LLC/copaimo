@@ -49,7 +49,14 @@ a wobble does not. Nobody has to draw a straight line.
 
 The passage is dug at the bore's own width whatever the brush is set to: the vault is
 an arch built for `HALF_WIDE`, and dug wider its crown flattens and the passage reads
-as a hall.
+as a hall. Eighteen metres across and ten tall — sized for the follow camera to stay
+behind the warden and for two monsters to pass each other, not for one person edging
+through.
+
+**A wall belongs against rock.** The cave emitted one wherever a drawn cell met a
+cell it had not drawn — and a cell the carve has opened is dug but *not* drawn, so
+every mouth got a wall built straight across it: from outside, a grey slab where a
+doorway should be. The rule is about the DIGGING, not about the drawing.
 
 A route shorter than a couple of brush widths is refused: lowering a dab gives a
 pit, not a passage.

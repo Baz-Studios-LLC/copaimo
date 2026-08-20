@@ -68,9 +68,17 @@ pub const DEEPEST: f32 = SEA_LEVEL + 1.0;
 /// An arch with a FLAT BOTTOM, which is what a dug passage is: a floor you can
 /// stand a cart on, walls that go straight up far enough to walk beside, and a
 /// curved top because that is the shape that holds itself up.
-pub const HALF_WIDE: f32 = 6.0;
-pub const LEG: f32 = 2.6;
-pub const HIGH: f32 = 6.5;
+///
+/// # Sized for a camera and a crowd, not for one person
+///
+/// It was eleven metres by six and a half, which fits a walker and nothing else:
+/// the follow camera sits back and above the warden, so in a passage that size it
+/// spent the whole way clipped into rock, and two monsters could not pass each
+/// other. Eighteen by ten gives the camera its room and leaves a road wide enough
+/// for whatever ends up using it.
+pub const HALF_WIDE: f32 = 9.0;
+pub const LEG: f32 = 3.6;
+pub const HIGH: f32 = 10.0;
 
 /// How far above the floor the walking surface sits, so the drawn floor and the
 /// ground it lies over are never the same surface twice.
@@ -461,12 +469,29 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
                 (x0 + (slot % wide) as isize) as usize,
                 (z0 + (slot / wide) as isize) as usize,
             );
-            [(0_isize, 0_isize), (1, 0), (-1, 0), (0, 1), (0, -1)]
-                .into_iter()
-                .all(|(dx, dz)| {
-                    let near = middle + Vec2::new(dx as f32, dz as f32) * CELL;
-                    dug.opening(near, ground(near)) <= 0.0
-                })
+            // Its own middle, its four CORNERS, and its four neighbours' middles.
+            //
+            // The corners are the ones that matter and the ones I first left out:
+            // a cell's vertices sit on its corners, so testing only the middles
+            // let a corner land in ground the carve had opened — a rim of quads
+            // a few centimetres off the terrain, round every mouth. Widening the
+            // passage is what made it show.
+            [
+                (0.0, 0.0),
+                (-0.5, -0.5),
+                (0.5, -0.5),
+                (-0.5, 0.5),
+                (0.5, 0.5),
+                (1.0, 0.0),
+                (-1.0, 0.0),
+                (0.0, 1.0),
+                (0.0, -1.0),
+            ]
+            .into_iter()
+            .all(|(dx, dz)| {
+                let near = middle + Vec2::new(dx, dz) * CELL;
+                dug.opening(near, ground(near)) <= 0.0
+            })
         })
         .collect();
 
@@ -626,9 +651,19 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
             vault[0], vault[1], vault[3], vault[1], vault[2], vault[3],
         ]);
 
-        // And a wall wherever the rock next door is not part of the cave. Built on
-        // the same two corners the floor and the vault used, so the three meet
-        // exactly and there is no seam to see through.
+        // And a wall wherever there is ROCK next door. Built on the same two
+        // corners the floor and the vault used, so the three meet exactly and
+        // there is no seam to see through.
+        //
+        // # Rock, not merely "not drawn"
+        //
+        // This asked whether the neighbour was DRAWN, and a cell the carve has
+        // opened is dug but not drawn — so every mouth got a wall built straight
+        // across it. Reported as the entrances being drawn over, and that is
+        // exactly what it was: the cave sealing its own doorways from the inside.
+        //
+        // A wall's job is to hold back rock. Where the neighbour is dug, there is
+        // no rock to hold back, whether or not this cave bothers to draw it.
         for (dx, dz, near, far) in [
             (1_isize, 0_isize, b, c),
             (-1, 0, d, a),
@@ -636,12 +671,12 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
             (0, -1, a, b),
         ] {
             let (nx, nz) = (cx as isize + dx, cz as isize + dz);
-            let solid = nx < 0
+            let rock = nx < 0
                 || nz < 0
                 || nx as usize >= wide
                 || nz as usize >= deep
-                || !drawn[nz as usize * wide + nx as usize];
-            if !solid {
+                || !open[nz as usize * wide + nx as usize];
+            if !rock {
                 continue;
             }
             let inward_normal = Vec3::new(-dx as f32, 0.0, -dz as f32);
@@ -1464,5 +1499,108 @@ mod watertight {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod mouths {
+    use super::*;
+
+    /// No wall may stand where there is no rock to hold back.
+    ///
+    /// # The cave sealed its own doorways
+    ///
+    /// A wall was emitted wherever a DRAWN cell met a cell that was not drawn — and
+    /// a cell the carve has opened is dug but not drawn, so every mouth got a wall
+    /// built straight across it. Reported as "the entrances are still being drawn
+    /// over", which is precisely what it was: from outside, a grey slab where a
+    /// doorway should be.
+    ///
+    /// A wall holds back rock. Where the neighbour is dug there is no rock, whether
+    /// or not this cave bothers to draw it, so the rule is about the DIGGING and not
+    /// about the drawing.
+    #[test]
+    fn a_mouth_is_not_walled_shut() {
+        // A hill with a plain in front of it, and a passage driven in from the
+        // plain — so the route has one genuinely open end.
+        let hill = |at: Vec2| 20.0 + 70.0 * crate::util::smoothstep(-40.0, 90.0, at.x);
+        let mut dug = Dug::empty(Vec2::splat(400.0));
+        for step in 0..=70 {
+            let at = Vec2::new(-120.0 + step as f32 * 4.0, 0.0);
+            dug.dig(at, HALF_WIDE, 20.0);
+        }
+
+        let mesh = void(&dug, hill);
+        assert!(!mesh.is_empty(), "nothing was drawn");
+
+        // Every wall in the mesh must have rock on its far side. A wall's normal
+        // points INTO the cave, so the side it holds back is half a cell the other
+        // way.
+        let mut walled = 0;
+        let mut worst = None;
+        for face in mesh.indices.chunks(3) {
+            let corner = |i: usize| Vec3::from_array(mesh.places[face[i] as usize]);
+            let normal = Vec3::from_array(mesh.normals[face[0] as usize]);
+            if normal.y.abs() > 0.5 {
+                continue;
+            }
+            let middle = (corner(0) + corner(1) + corner(2)) / 3.0;
+            // Snapped to the neighbouring CELL's own middle, which is the unit the
+            // mesh decides on. `floor_at` is bilinear and reaches half a cell past
+            // the dug ground, so an unsnapped probe calls the rock at the far end
+            // of a passage "dug" and reports a wall that is doing its job.
+            let behind = Vec2::new(middle.x, middle.z) - Vec2::new(normal.x, normal.z) * CELL * 0.6;
+            let (bx, bz) = dug.cell_of(behind);
+            let behind = dug.middle_of(bx.max(0) as usize, bz.max(0) as usize);
+            if dug.open(bx, bz) {
+                walled += 1;
+                worst = worst.or(Some(behind));
+            }
+        }
+        assert_eq!(
+            walled, 0,
+            "{walled} wall faces stand against dug ground — the first at {worst:?}, \
+             which is a doorway with a wall across it"
+        );
+
+        // And the open end really is open: at the mouth the cave has a floor and no
+        // roof over it, because the terrain has been carved down to the floor there.
+        let mouth = Vec2::new(-110.0, 0.0);
+        assert!(dug.floor_at(mouth).is_some(), "the mouth is not dug");
+        // Open means the ground is not standing over the floor — either because the
+        // carve took it down or, as here, because there was never any to take: at
+        // the foot of the hill the floor IS the ground, and `opening` is nought
+        // because there is nothing to carve rather than because it is sealed.
+        let cover = hill(mouth) - dug.floor_at(mouth).expect("dug");
+        assert!(
+            cover < DOORWAY,
+            "the mouth is under {cover:.1} m of ground — that is not a doorway"
+        );
+    }
+
+    /// And there is room in it for a camera and for a crowd.
+    #[test]
+    fn the_passage_is_wide_and_tall_enough_to_follow_somebody_through() {
+        // Asked for plainly: wider, and the ceiling raised, so the follow camera
+        // can stay behind the warden and two monsters can pass each other.
+        assert!(
+            HALF_WIDE * 2.0 >= 16.0,
+            "a {:.0} m wide passage is a corridor",
+            HALF_WIDE * 2.0
+        );
+        assert!(HIGH >= 9.0, "a {HIGH} m ceiling is too low to follow anybody through");
+        // The camera sits about this far above what it is watching; it has to fit
+        // under the crown with something to spare.
+        assert!(
+            HIGH > crate::camera::LOOK_HEIGHT + 6.0,
+            "only {:.1} m of clearance over the warden's shoulders",
+            HIGH - crate::camera::LOOK_HEIGHT
+        );
+        // The vault has to be an arch across that width, not a flat lid.
+        assert!(
+            vault(HALF_WIDE) > vault(0.0) + 3.0,
+            "the vault only rises {:.1} m from wall to crown",
+            vault(HALF_WIDE) - vault(0.0)
+        );
     }
 }
