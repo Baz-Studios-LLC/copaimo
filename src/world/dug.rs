@@ -87,6 +87,13 @@ const FLOOR_LIFT: f32 = 0.1;
 /// The thinnest skin of rock left between a vault and the open air, in metres.
 const LID: f32 = 0.3;
 
+/// How many cells of DOORWAY the cave builds out over its own approach.
+///
+/// Three, which on two-metre cells is about six metres of arch standing out of the
+/// hillside. Enough to see from the air and to walk under; not so much that it reads
+/// as a building.
+const PORCH: isize = 3;
+
 /// How far above a floor still counts as being IN the void.
 ///
 /// Head height and a bit. Below this a walker belongs to the tunnel; above it they
@@ -459,8 +466,24 @@ fn vault(inward: f32) -> f32 {
 /// through: dig a shallow scrape and the roof over it stays under the hillside
 /// rather than standing out of it as a sliver of ceiling in the open air.
 pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
+    void_parts(dug, ground).0
+}
+
+/// The void, and how much of it is HEWN.
+///
+/// The vertices come in two runs: the cave's own floor, vault and walls, cut out of
+/// the rock, and then the dressed stone of the doorways, which is BUILT and stands in
+/// ground the carve opened on purpose. Almost every rule this file keeps — no floor
+/// over carved ground, no wall without rock behind it, no two heights in one column —
+/// is a rule about hewn rock, and a doorway breaks all three deliberately.
+///
+/// So the boundary between the two runs is returned rather than guessed at. A colour
+/// was tried as the marker and went wrong at once: the lintel is a darker shade of the
+/// same stone, so a test looking for one exact colour let sixty-four lintel faces
+/// through and called them walls.
+pub fn void_parts(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> (Geometry, usize) {
     let Some((low, high)) = dug.bounds() else {
-        return Geometry::default();
+        return (Geometry::default(), 0);
     };
     // A ring of solid cells round the lot, so the walls at the outermost dug cells
     // have somewhere to stand.
@@ -520,6 +543,42 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
     // construction rather than by luck, and there is nothing between them to see
     // through. `floor_at` is bilinear, so a corner has one answer however many
     // cells meet at it.
+    // # The doorway
+    //
+    // A mouth was real and impossible to find. On a mountain flank rising two
+    // hundred metres over five hundred, the ground climbs past `DOORWAY` within
+    // about ten metres of where a route ends — so the approach was a pad the size of
+    // a room with a hole in its end wall, facing sideways. From above, which is how
+    // anybody looks for it, there was nothing to see at all.
+    //
+    // So the cave reaches OUT over its own carved approach: the cells just outside
+    // the sealed ground get the vault and the side walls, and no floor, because the
+    // carved terrain is the floor there. What stands up out of the hillside is an
+    // arch over an open cut — a doorway, visible from the air and from the ground,
+    // and walkable straight through.
+    let porch: Vec<bool> = (0..wide * deep)
+        .map(|slot| {
+            if drawn[slot] || !open[slot] {
+                return false;
+            }
+            let (cx, cz) = ((slot % wide) as isize, (slot / wide) as isize);
+            (-PORCH..=PORCH).any(|dz| {
+                (-PORCH..=PORCH).any(|dx| {
+                    let (nx, nz) = (cx + dx, cz + dz);
+                    nx >= 0
+                        && nz >= 0
+                        && (nx as usize) < wide
+                        && (nz as usize) < deep
+                        && drawn[nz as usize * wide + nx as usize]
+                })
+            })
+        })
+        .collect();
+    // Everything the mesh covers: sealed passage plus its doorways.
+    let roofed: Vec<bool> = (0..wide * deep)
+        .map(|slot| drawn[slot] || porch[slot])
+        .collect();
+
     let corners = (wide + 1) * (deep + 1);
     let corner_at = |cx: usize, cz: usize| {
         Vec2::new(
@@ -539,7 +598,7 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
                         && nz >= 0
                         && (nx as usize) < wide
                         && (nz as usize) < deep
-                        && drawn[nz as usize * wide + nx as usize]
+                        && roofed[nz as usize * wide + nx as usize]
                 })
         })
         .collect();
@@ -580,7 +639,7 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
                 continue;
             }
             let cell = nz as usize * wide + nx as usize;
-            if !drawn[cell] {
+            if !roofed[cell] {
                 continue;
             }
             lift += vault(inward[cell]);
@@ -589,9 +648,25 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
         let lift = if count > 0.0 { lift / count } else { LEG };
 
         sole[slot] = floor + FLOOR_LIFT;
-        // Never up through the ground: the surface here is sealed, and a vault that
-        // broke it would be a hole in a hillside nobody dug.
-        roof[slot] = (floor + lift).min(ground(at) - LID).max(sole[slot] + 0.2);
+        // Held under the ground where the ground is SEALED — a vault breaking a
+        // hillside would be a hole nobody dug. Over a doorway the clamp is lifted:
+        // the ground there has been cut away to the floor, so an arch standing above
+        // it is the thing somebody walks in through rather than a mistake.
+        let sealed = [(0_isize, 0_isize), (-1, 0), (0, -1), (-1, -1)]
+            .into_iter()
+            .any(|(dx, dz)| {
+                let (nx, nz) = (cx as isize + dx, cz as isize + dz);
+                nx >= 0
+                    && nz >= 0
+                    && (nx as usize) < wide
+                    && (nz as usize) < deep
+                    && drawn[nz as usize * wide + nx as usize]
+            });
+        roof[slot] = if sealed {
+            (floor + lift).min(ground(at) - LID).max(sole[slot] + 0.2)
+        } else {
+            floor + lift
+        };
     }
 
     // How dark it is at each corner: rock overhead is what makes a cave dark, and
@@ -607,6 +682,7 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
             1.0 - crate::util::smoothstep(0.0, 26.0, over) * 0.82
         })
         .collect();
+
 
     let mut mesh = Geometry::default();
     let mut slots: Vec<Option<u32>> = vec![None; corners * 2];
@@ -632,8 +708,8 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
         index
     };
 
-    for slot in 0..drawn.len() {
-        if !drawn[slot] {
+    for slot in 0..roofed.len() {
+        if !roofed[slot] {
             continue;
         }
         let (cx, cz) = (slot % wide, slot / wide);
@@ -645,14 +721,17 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
             corner(0, 1),
         );
 
-        // The floor, seen from above.
-        let floor: Vec<u32> = [a, b, c, d]
-            .into_iter()
-            .map(|slot| put(&mut mesh, slot, false, Vec3::Y))
-            .collect();
-        mesh.indices.extend_from_slice(&[
-            floor[0], floor[3], floor[1], floor[1], floor[3], floor[2],
-        ]);
+        // The floor, seen from above — only under sealed ground. Over a doorway the
+        // terrain has been carved down to the floor and IS the floor.
+        if drawn[slot] {
+            let floor: Vec<u32> = [a, b, c, d]
+                .into_iter()
+                .map(|slot| put(&mut mesh, slot, false, Vec3::Y))
+                .collect();
+            mesh.indices.extend_from_slice(&[
+                floor[0], floor[3], floor[1], floor[1], floor[3], floor[2],
+            ]);
+        }
 
         // The vault, seen from below.
         let vault: Vec<u32> = [a, b, c, d]
@@ -683,12 +762,18 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
             (0, -1, a, b),
         ] {
             let (nx, nz) = (cx as isize + dx, cz as isize + dz);
-            let rock = nx < 0
-                || nz < 0
-                || nx as usize >= wide
-                || nz as usize >= deep
-                || !open[nz as usize * wide + nx as usize];
-            if !rock {
+            let outside = nx < 0 || nz < 0 || nx as usize >= wide || nz as usize >= deep;
+            let neighbour = if outside {
+                None
+            } else {
+                Some(nz as usize * wide + nx as usize)
+            };
+            // A wall holds back rock, so it wants undug ground next door — and a
+            // DOORWAY must not be walled across the way in, so the open end of a
+            // porch is left standing open.
+            let rock = neighbour.is_none_or(|cell| !open[cell]);
+            let facing_out = porch[slot] && neighbour.is_none_or(|cell| !roofed[cell]);
+            if !rock || facing_out {
                 continue;
             }
             let inward_normal = Vec3::new(-dx as f32, 0.0, -dz as f32);
@@ -706,7 +791,186 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
                 .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         }
     }
-    mesh
+    // Everything up to here is hewn out of the rock. The doorways are built.
+    let hewn = mesh.places.len();
+    frame_the_doorways(&mut mesh, dug, &open, &drawn, &porch, wide, deep, x0, z0);
+    (mesh, hewn)
+}
+
+
+/// How big the stones of a doorway are, in metres: how far a pillar stands out from
+/// the passage wall, and how deep the lintel over it is.
+const PILLAR: f32 = 1.6;
+const LINTEL: f32 = 1.4;
+
+/// How far a pillar is sunk into the ground it stands on, in metres.
+const FOOTING: f32 = 0.4;
+
+/// Stands a pair of pillars and a lintel at every mouth.
+///
+/// # An opening is not a landmark
+///
+/// A mouth that was only an ABSENCE — carved ground and a gap in a hillside — could
+/// not be found. Reported four times, the last of them from directly above it.
+///
+/// So a mouth gets something BUILT: pillars up either side of the opening and a
+/// lintel across the top, in dressed stone lighter than the rock around it. It reads
+/// as a doorway from the air, which is how anybody looks for one, and as a doorway
+/// from the ground, which is how anybody walks through it. It also says something
+/// true about the world — somebody cut this passage, and they finished the ends of it.
+#[allow(clippy::too_many_arguments)]
+fn frame_the_doorways(
+    mesh: &mut Geometry,
+    dug: &Dug,
+    open: &[bool],
+    drawn: &[bool],
+    porch: &[bool],
+    wide: usize,
+    deep: usize,
+    x0: isize,
+    z0: isize,
+) {
+    let dressed = |shade: f32| [0.196 * shade, 0.186 * shade, 0.17 * shade, 1.0];
+
+    for (slot, sealed) in drawn.iter().enumerate() {
+        // The threshold: sealed passage with its own carved approach in front of it.
+        if !sealed {
+            continue;
+        }
+        let (cx, cz) = ((slot % wide) as isize, (slot / wide) as isize);
+        let cell_at = |dx: isize, dz: isize| -> Option<usize> {
+            let (nx, nz) = (cx + dx, cz + dz);
+            (nx >= 0 && nz >= 0 && (nx as usize) < wide && (nz as usize) < deep)
+                .then(|| nz as usize * wide + nx as usize)
+        };
+
+        for (dx, dz) in [(1_isize, 0_isize), (-1, 0), (0, 1), (0, -1)] {
+            // Facing out through an approach is what makes this a doorway rather
+            // than a piece of wall.
+            if !cell_at(dx, dz).is_some_and(|cell| porch[cell]) {
+                continue;
+            }
+            let middle = dug.middle_of((x0 + cx) as usize, (z0 + cz) as usize);
+            let Some(floor) = dug.floor_at(middle) else {
+                continue;
+            };
+            let out = Vec2::new(dx as f32, dz as f32);
+            let side = Vec2::new(-dz as f32, dx as f32);
+            let crown = floor + vault(HALF_WIDE);
+
+            // A pillar on each side that has rock to stand against, so a doorway
+            // frames its opening instead of floating in the middle of it.
+            for hand in [-1.0_f32, 1.0] {
+                let lateral = side * hand;
+                let against = cell_at(lateral.x as isize, lateral.y as isize);
+                if against.is_some_and(|cell| open[cell]) {
+                    continue;
+                }
+                block(
+                    mesh,
+                    middle + lateral * (CELL * 0.5) + out * (CELL * 0.5),
+                    Vec2::new(PILLAR, PILLAR),
+                    // Footed BELOW the ground it stands on, so its underside is not
+                    // a second surface at the same height as the carved floor —
+                    // which is the striping this file has already been taught once.
+                    floor - FOOTING,
+                    crown + LINTEL,
+                    dressed(1.0),
+                );
+            }
+
+            // And the lintel over the top — one cell of it per threshold cell, so
+            // along a wide mouth they meet into one beam.
+            block(
+                mesh,
+                middle + out * (CELL * 0.5),
+                Vec2::new(CELL, CELL),
+                crown,
+                crown + LINTEL,
+                dressed(0.86),
+            );
+        }
+    }
+}
+
+/// One rectangular block of dressed stone, drawn on all six faces.
+///
+/// Its own little box rather than anything the cave shares, because a doorway is a
+/// THING standing in the world: it is seen from outside as well as from in, so every
+/// face of it has to be there.
+fn block(mesh: &mut Geometry, at: Vec2, size: Vec2, low: f32, high: f32, colour: [f32; 4]) {
+    if high <= low {
+        return;
+    }
+    let half = size * 0.5;
+    let corner = |sx: f32, sz: f32, y: f32| Vec3::new(at.x + half.x * sx, y, at.y + half.y * sz);
+    let faces = [
+        (
+            [
+                corner(-1.0, -1.0, high),
+                corner(1.0, -1.0, high),
+                corner(1.0, 1.0, high),
+                corner(-1.0, 1.0, high),
+            ],
+            Vec3::Y,
+        ),
+        (
+            [
+                corner(-1.0, 1.0, low),
+                corner(1.0, 1.0, low),
+                corner(1.0, -1.0, low),
+                corner(-1.0, -1.0, low),
+            ],
+            -Vec3::Y,
+        ),
+        (
+            [
+                corner(1.0, -1.0, low),
+                corner(1.0, 1.0, low),
+                corner(1.0, 1.0, high),
+                corner(1.0, -1.0, high),
+            ],
+            Vec3::X,
+        ),
+        (
+            [
+                corner(-1.0, 1.0, low),
+                corner(-1.0, -1.0, low),
+                corner(-1.0, -1.0, high),
+                corner(-1.0, 1.0, high),
+            ],
+            -Vec3::X,
+        ),
+        (
+            [
+                corner(-1.0, 1.0, low),
+                corner(1.0, 1.0, low),
+                corner(1.0, 1.0, high),
+                corner(-1.0, 1.0, high),
+            ],
+            Vec3::Z,
+        ),
+        (
+            [
+                corner(1.0, -1.0, low),
+                corner(-1.0, -1.0, low),
+                corner(-1.0, -1.0, high),
+                corner(1.0, -1.0, high),
+            ],
+            -Vec3::Z,
+        ),
+    ];
+    for (quad, normal) in faces {
+        let base = mesh.places.len() as u32;
+        for point in quad {
+            mesh.places.push(point.to_array());
+            mesh.normals.push(normal.to_array());
+            mesh.uvs.push([0.0, 0.0]);
+            mesh.colours.push(colour);
+        }
+        mesh.indices
+            .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    }
 }
 
 // ------------------------------------------------------------------- on the disk
@@ -1087,17 +1351,35 @@ mod one_rule {
             dug.dig(at, HALF_WIDE, hill(Vec2::new(150.0, 0.0)));
         }
 
-        let mesh = void(&dug, hill);
+        let (mesh, hewn) = void_parts(&dug, hill);
         assert!(!mesh.is_empty(), "nothing was drawn for a lowered route");
 
         // Every vertex drawn must be in a cell the carve left SEALED. A vertex in an
         // opened cell is a surface standing next to the terrain's own.
+        // The FLOOR is the surface this is about: a second floor laid at the same
+        // height as carved ground is the striping. It is a rule about CELLS, so it is
+        // asked at each floor triangle's own middle rather than at its corners — a
+        // corner is shared by four cells and belongs to none of them, and the ones
+        // along a threshold sit exactly on the line between sealed and open.
+        //
+        // A doorway's dressed stone is left out: it stands in carved ground on
+        // purpose, well clear of it, and that is the whole point of it.
         let mut trespass = 0;
         let mut sealed_seen = 0;
-        for place in &mesh.places {
-            let at = Vec2::new(place[0], place[2]);
-            let ground = hill(at);
-            if dug.opening(at, ground) > 0.0 {
+        for face in mesh.indices.chunks(3) {
+            if face.iter().any(|&i| i as usize >= hewn) {
+                continue;
+            }
+            if mesh.normals[face[0] as usize][1] < 0.5 {
+                continue;
+            }
+            let middle = face
+                .iter()
+                .map(|&i| Vec3::from_array(mesh.places[i as usize]))
+                .sum::<Vec3>()
+                / 3.0;
+            let at = Vec2::new(middle.x, middle.z);
+            if dug.opening(at, hill(at)) > 0.0 {
                 trespass += 1;
             } else {
                 sealed_seen += 1;
@@ -1105,15 +1387,17 @@ mod one_rule {
         }
         assert_eq!(
             trespass, 0,
-            "{trespass} vertices are drawn in ground the carve had already opened"
+            "{trespass} floor tiles are laid in ground the carve had already opened"
         );
-        assert!(sealed_seen > 100, "only {sealed_seen} vertices under sealed ground");
+        assert!(
+            sealed_seen > 50,
+            "only {sealed_seen} floor tiles under sealed ground"
+        );
 
         // And the sealed part is a passage rather than a hall: its ceiling is the
         // vault's own height over the floor, not wherever the hilltop happens to be.
         let floor = hill(Vec2::new(150.0, 0.0));
-        let tallest = mesh
-            .places
+        let tallest = mesh.places[..hewn]
             .iter()
             .map(|place| place[1] - floor)
             .fold(f32::MIN, f32::max);
@@ -1457,7 +1741,7 @@ mod watertight {
             dug.dig(at, HALF_WIDE, 34.0 + t * 9.0);
         }
 
-        let mesh = void(&dug, hill);
+        let (mesh, hewn) = void_parts(&dug, hill);
         assert!(!mesh.is_empty(), "nothing was drawn");
 
         // Corners shared rather than duplicated: two vertices at the same place
@@ -1470,7 +1754,9 @@ mod watertight {
                 (place[2] * 16.0).round() as i64,
             )
         };
-        for (place, normal) in mesh.places.iter().zip(&mesh.normals) {
+        // The hewn cave only: a doorway's stones are boxes, and a box has a top and
+        // a bottom in the same column as the floor and the vault it stands between.
+        for (place, normal) in mesh.places[..hewn].iter().zip(&mesh.normals[..hewn]) {
             // Floors and ceilings are told apart by which way they face; walls are
             // allowed to share a column with both.
             if normal[1].abs() < 0.5 {
@@ -1498,7 +1784,7 @@ mod watertight {
 
         // And the vault is above the floor everywhere it is drawn, or the cave is
         // inside out somewhere.
-        for (place, normal) in mesh.places.iter().zip(&mesh.normals) {
+        for (place, normal) in mesh.places[..hewn].iter().zip(&mesh.normals[..hewn]) {
             if normal[1] >= -0.5 {
                 continue;
             }
@@ -1542,7 +1828,7 @@ mod mouths {
             dug.dig(at, HALF_WIDE, 20.0);
         }
 
-        let mesh = void(&dug, hill);
+        let (mesh, hewn) = void_parts(&dug, hill);
         assert!(!mesh.is_empty(), "nothing was drawn");
 
         // Every wall in the mesh must have rock on its far side. A wall's normal
@@ -1554,6 +1840,11 @@ mod mouths {
             let corner = |i: usize| Vec3::from_array(mesh.places[face[i] as usize]);
             let normal = Vec3::from_array(mesh.normals[face[0] as usize]);
             if normal.y.abs() > 0.5 {
+                continue;
+            }
+            // Not the doorway's own stones: a pillar is a THING standing in the
+            // opening, and it has rock on some sides and air on others by design.
+            if face.iter().any(|&i| i as usize >= hewn) {
                 continue;
             }
             let middle = (corner(0) + corner(1) + corner(2)) / 3.0;
@@ -1728,5 +2019,52 @@ mod entrances {
                 if drawn { "cave" } else { "open cut" }
             );
         }
+    }
+
+    #[test]
+    #[ignore = "a measurement of the maker's own world"]
+    fn what_the_doorways_look_like() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let dug = terrain.dug().read().expect("dug");
+        if dug.is_empty() {
+            println!("nothing dug");
+            return;
+        }
+        let (mesh, hewn) = void_parts(&dug, |at| terrain.sealed_height(at.x, at.y));
+        let dressed = mesh.places.len() - hewn;
+        println!(
+            "the cave: {} cells dug, {hewn} hewn vertices, {dressed} of dressed stone",
+            dug.cells_dug()
+        );
+        // 24 vertices to a block, so this counts the stones that were stood up.
+        println!("stones stood: {}", dressed / 24);
+
+        // And where they are, clustered so a maker can walk to one.
+        let mut clusters: Vec<(Vec2, f32, f32, usize)> = Vec::new();
+        for place in &mesh.places[hewn..] {
+            let at = Vec2::new(place[0], place[2]);
+            match clusters
+                .iter_mut()
+                .find(|(middle, _, _, _)| middle.distance(at) < 60.0)
+            {
+                Some((_, low, high, count)) => {
+                    *low = low.min(place[1]);
+                    *high = high.max(place[1]);
+                    *count += 1;
+                }
+                None => clusters.push((at, place[1], place[1], 1)),
+            }
+        }
+        for (at, low, high, count) in &clusters {
+            println!(
+                "  a doorway near ({:.0}, {:.0}): {} m of stone standing, {count} vertices, \
+                 ground {:.0} m",
+                at.x,
+                at.y,
+                (high - low).round(),
+                terrain.sealed_height(at.x, at.y)
+            );
+        }
+        assert!(!clusters.is_empty(), "no doorway was built anywhere");
     }
 }
