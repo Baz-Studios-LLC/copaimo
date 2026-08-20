@@ -108,16 +108,19 @@ pub const HEADROOM: f32 = HIGH * 1.4;
 /// scrape dug under shallow soil, which is a cutting open to the sky. Where MORE
 /// than this stands over the floor, the hill is sealed and untouched.
 ///
-/// # Small, and the size is the lesson
+/// # The size of it decides how tall a mouth is
 ///
-/// This began as the full arch height with a soft band above it — "open the
-/// surface wherever the roof would be thinner than a doorway" — which is eight
-/// metres of cover gone. On a mountainside that is a mouth; on rolling grass it
-/// is everywhere, and one test drag strip-mined a field into grey terraces. A
-/// roof worth keeping starts at about head height: below this there is no tunnel
-/// to be in, above it there is, and the vault mesh handles every roof from here
-/// up because it clamps itself under the surface.
-pub const DOORWAY: f32 = 2.8;
+/// It is also the height of the opening: the first cell the cave is drawn in has
+/// this much ground over its floor, so the vault there clears the floor by about
+/// this much and that is the doorway you walk through. Below it the ground is cut
+/// away; above it the hill is left alone.
+///
+/// This began at the full arch height with a soft band above it — eight metres of
+/// cover gone — which on a mountainside is a mouth and on rolling grass is
+/// everywhere: one test drag strip-mined a field into grey terraces. Then 2.8 m,
+/// which made the mouths too low to read as openings at all. Four and a half is a
+/// doorway a cart could take, against a vault of `HIGH` deeper in.
+pub const DOORWAY: f32 = 4.5;
 
 /// Nothing has been dug here.
 ///
@@ -305,7 +308,24 @@ impl Dug {
         if over <= 0.0 {
             return 0.0;
         }
-        (surface - floor) * crate::util::smoothstep(DOORWAY * 1.2, DOORWAY * 0.8, over)
+        // # All the way down, or not at all
+        //
+        // This eased the carve out across `DOORWAY` with a smoothstep, and that
+        // left a band where the ground was carved PART of the way to the floor and
+        // the cave was not drawn either — so walking in from a mouth the ground
+        // ramped back up and sealed over the passage. Measured at the time: the
+        // pad ended at 20 m, the next cells stood at 21.2, and the cave began under
+        // ground at 24.5. There was no hole because the hillside covered it.
+        //
+        // Carve and cave have to PARTITION the dug ground: every dug cell is either
+        // cut down to the floor with no roof over it, or left alone with the cave
+        // drawn underneath. A hard threshold does that, and the step it leaves in
+        // the terrain at the boundary is the mouth's own lintel.
+        if over < DOORWAY {
+            over
+        } else {
+            0.0
+        }
     }
 
     /// The floor of the void under a point, or `None` where nothing is dug.
@@ -469,29 +489,21 @@ pub fn void(dug: &Dug, ground: impl Fn(Vec2) -> f32) -> Geometry {
                 (x0 + (slot % wide) as isize) as usize,
                 (z0 + (slot / wide) as isize) as usize,
             );
-            // Its own middle, its four CORNERS, and its four neighbours' middles.
+            // Cells with real ground over them, and nothing else. The carve takes
+            // everything under `DOORWAY`, so the two TILE: a dug cell is cut down
+            // to the floor with no roof, or left alone with the cave under it.
             //
-            // The corners are the ones that matter and the ones I first left out:
-            // a cell's vertices sit on its corners, so testing only the middles
-            // let a corner land in ground the carve had opened — a rim of quads
-            // a few centimetres off the terrain, round every mouth. Widening the
-            // passage is what made it show.
-            [
-                (0.0, 0.0),
-                (-0.5, -0.5),
-                (0.5, -0.5),
-                (-0.5, 0.5),
-                (0.5, 0.5),
-                (1.0, 0.0),
-                (-1.0, 0.0),
-                (0.0, 1.0),
-                (0.0, -1.0),
-            ]
-            .into_iter()
-            .all(|(dx, dz)| {
-                let near = middle + Vec2::new(dx, dz) * CELL;
-                dug.opening(near, ground(near)) <= 0.0
-            })
+            // Eroding the cave back from the carve used to be necessary because the
+            // carve faded out, and it is what buried every mouth under the fading
+            // band. Both now come from one number — how much ground stands over the
+            // floor — read by two consumers.
+            //
+            // Asking `opening() <= 0` instead was nearly right and wrong at the far
+            // end: out on the flat past a hill there is NO ground over the floor, so
+            // there is nothing to carve, so opening is nought — and a cave got drawn
+            // with its vault clamped BELOW its own floor. Nothing to carve and
+            // nothing to roof are different answers.
+            ground(middle) - dug.floor_at(middle).unwrap_or(f32::MAX) >= DOORWAY
         })
         .collect();
 
@@ -1602,5 +1614,119 @@ mod mouths {
             "the vault only rises {:.1} m from wall to crown",
             vault(HALF_WIDE) - vault(0.0)
         );
+    }
+}
+
+#[cfg(test)]
+mod entrances {
+    use super::*;
+
+    /// A tunnel has to have a hole you can walk in through.
+    ///
+    /// # Reported four times as "still no entrances"
+    ///
+    /// The carve faded out across `DOORWAY` with a smoothstep, so between the pad it
+    /// cut and the first cell the cave was drawn in there was a band carved only
+    /// PART of the way down — the ground ramped back up and sealed over the passage.
+    /// Measured at the time: the pad ended at 20 m, the band stood at 21.2, and the
+    /// cave began under ground at 24.5. There was no hole because the hillside
+    /// covered it.
+    ///
+    /// Carve and cave PARTITION the dug ground now, from one number: ground under
+    /// `DOORWAY` is cut away to the floor with no roof; ground over it is left alone
+    /// with the cave beneath. The step that leaves in the terrain is the mouth's own
+    /// lintel, and the gap between the floor and the vault behind it is the doorway.
+    #[test]
+    fn a_tunnel_has_a_hole_you_can_walk_in_through() {
+        let hill = |at: Vec2| 20.0 + 80.0 * crate::util::smoothstep(-60.0, 120.0, at.x);
+        let mut dug = Dug::empty(Vec2::splat(400.0));
+        for step in 0..=80 {
+            dug.dig(Vec2::new(-160.0 + step as f32 * 4.0, 0.0), HALF_WIDE, 20.0);
+        }
+
+        // Walk in along the passage and find the first cell the cave is drawn in —
+        // the mouth — checking the ground never rises between the pad and it.
+        let mut pad_top = f32::MIN;
+        let mut mouth = None;
+        for step in 0..120 {
+            let at = Vec2::new(-160.0 + step as f32 * 2.0, 0.0);
+            let Some(floor) = dug.floor_at(at) else { continue };
+            let cover = hill(at) - floor;
+            if cover >= DOORWAY {
+                mouth = Some((at, floor, cover));
+                break;
+            }
+            // Still outside: the ground here must be cut ALL the way to the floor,
+            // or it is a ramp burying whatever is behind it.
+            let carved = hill(at) - dug.opening(at, hill(at));
+            pad_top = pad_top.max(carved - floor);
+        }
+        let (at, floor, cover) = mouth.expect("the passage never reaches sealed ground");
+        assert!(
+            pad_top < 0.01,
+            "the ground stands {pad_top:.2} m above the floor on the way in — a ramp              over the mouth, not a pad up to it"
+        );
+
+        // And the mouth is a hole with room in it: the vault behind the lintel
+        // clears the floor by something a walker fits through.
+        let headroom = (hill(at) - LID).min(floor + vault(HALF_WIDE)) - floor;
+        assert!(
+            headroom > 3.0,
+            "the opening at the mouth is only {headroom:.1} m tall"
+        );
+        assert!(
+            cover >= DOORWAY && cover < DOORWAY + 2.0,
+            "the mouth sits under {cover:.1} m of ground, which is not where the              carve hands over"
+        );
+    }
+
+    /// Nothing may be roofed where there is no ground to roof it with.
+    #[test]
+    fn flat_ground_gets_a_cutting_and_not_a_cave() {
+        // Out past a hill the floor IS the ground: nothing to carve, and nothing to
+        // put a roof on. Asking `opening() <= 0` got this wrong — there is nothing
+        // to carve there, so opening is nought, so a cave was drawn with its vault
+        // clamped BELOW its own floor.
+        let flat = |_: Vec2| 20.0;
+        let mut dug = Dug::empty(Vec2::splat(400.0));
+        for step in 0..=40 {
+            dug.dig(Vec2::new(-80.0 + step as f32 * 4.0, 0.0), HALF_WIDE, 20.0);
+        }
+        let mesh = void(&dug, flat);
+        assert!(
+            mesh.is_empty(),
+            "{} vertices of cave were drawn on flat ground with nothing over it",
+            mesh.places.len()
+        );
+    }
+
+    #[test]
+    #[ignore = "a measurement"]
+    fn what_stands_between_the_carved_pad_and_the_cave() {
+        let hill = |at: Vec2| 20.0 + 80.0 * crate::util::smoothstep(-60.0, 120.0, at.x);
+        let mut dug = Dug::empty(Vec2::splat(400.0));
+        for step in 0..=80 {
+            dug.dig(Vec2::new(-160.0 + step as f32 * 4.0, 0.0), HALF_WIDE, 20.0);
+        }
+        println!(" x    ground  floor  cover  drawn-surface  headroom  what");
+        for step in 0..34 {
+            let at = Vec2::new(-100.0 + step as f32 * 6.0, 0.0);
+            let g = hill(at);
+            let Some(floor) = dug.floor_at(at) else { continue };
+            let opening = dug.opening(at, g);
+            // Whether void() would draw this cell: its own rule, corners and all.
+            // The same rule `void` uses, so the table cannot lie about the mesh.
+            let drawn = g - floor >= DOORWAY;
+            let _ = opening;
+            let vault_top = if drawn { (g - LID).min(floor + vault(HALF_WIDE)) } else { floor };
+            println!(
+                "{:6.0} {g:7.1} {floor:6.1} {:6.1} {:12.1} {:9.1}  {}",
+                at.x,
+                g - floor,
+                g - opening,
+                if drawn { vault_top - floor } else { 0.0 },
+                if drawn { "cave" } else { "open cut" }
+            );
+        }
     }
 }
