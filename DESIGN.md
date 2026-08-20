@@ -13,38 +13,33 @@ collect).
 
 ---
 
-## Digging is a shovel, not an architect
+## Digging is DRIVEN, not aimed
 
-`DIG` takes a shovel up; dragging opens material a brushful at a time; pressing the
-row again puts it down. What shape the passage ends up is the maker's business —
-branches, chambers and dog-legs are all just where somebody dug.
+Arm DIG, point at where you want the mouth, then **hold the button and steer with
+the view**. The first press sets the face and the floor level; after that the
+cutting head advances the way you are looking, at a walking pace, holding that
+level. Release to stop. `Shift` fills in, and filling stays aimed — you fill what
+you can see.
 
-**Three builds tried to MAKE a tunnel** from two clicks, working out mouths, length,
-arch and floor. Each was wrong in a new way and each was photographed within a
-minute: a stripe shaved over a mountain's shoulder, a black tent pitched on open
-ground, a valley gouged across a hillside. A tunnel is a decision with a shape and
-the tool kept guessing the shape.
+**Why it cannot be aimed.** The crosshair is a ray against the ground, so whatever
+it lands on is a *surface*: it can never point inside a mountain. Three builds tried
+to make the aim do this work — two clicks that computed a tunnel, then a floor read
+from the aim each frame, then a floor held for the stroke — and every one of them
+left the passage on the OUTSIDE of the hill, because sweeping the crosshair at a
+slope walks it up the face and the cutting only ever happens where the face is. The
+report was the same each time: *"still not going THROUGH the mountain."*
 
-**The floor is where you were aiming, stamped flat.** Not the terrain's own height
-per cell — that is what makes a dug floor lumpy, and a floor a man dug with a pick
-is not lumpy. Aim lower as you go and the passage slopes; that is also how a branch
-leaves another at a different level. Digging deeper wins where strokes cross; you
-cannot un-dig by painting higher, and `Shift` fills in.
+A tunnel is driven. Once that is the model, the aim has exactly one job (where to
+start) and the head does the rest, so a passage goes as deep under a hill as you are
+willing to hold the button.
 
-**The surface is never touched.** A hill dug through keeps its trees, its snow and
-its shading, and stays impenetrable at ground level. What digging writes is a
-second, lower surface, and the walking rule hands a walker whichever has claim on
-them — the only place this world has two grounds stacked over each other.
+The ring rides the HEAD while a stroke is under way, not the aim — the head is
+inside the hillside where no aim can reach, and a ring left on the surface would be
+marking the one place nothing is happening.
 
-**Nothing may be dug below the waterline.** A pointer can only aim at the surface,
-so a floor is always some real height — but a low aim carried into a hillside is how
-you dig straight down and out through the bottom of the world.
-
-The vault rises with distance from the nearest wall, so a narrow passage gets a low
-arch and a junction of two arches over itself without anything having to work out
-that it is a junction. It never breaks the surface: the roof is cleared against the
-LOWEST corner of each cell, because a cell is two metres across on ground that can
-fall a metre in that distance.
+Branching still works the way it did: release, aim at a wall of the passage you are
+standing in (the shovel's own march sees through dug air), and drive off at a new
+level.
 
 ## Tunnels
 

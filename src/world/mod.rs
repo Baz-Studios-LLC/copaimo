@@ -45,7 +45,7 @@ pub struct WorldBounds {
 }
 
 impl WorldBounds {
-    fn new(half: Vec2) -> Self {
+    pub(crate) fn new(half: Vec2) -> Self {
         Self {
             half,
             min_chunk: IVec2::new(
@@ -64,6 +64,15 @@ impl WorldBounds {
             && coord.x <= self.max_chunk.x
             && coord.y >= self.min_chunk.y
             && coord.y <= self.max_chunk.y
+    }
+
+    /// Keeps a flat position inside the map, well in from the border.
+    ///
+    /// What a tunnel head is held by while it drives: a bore that ran off the edge
+    /// of the world would be a hole into nothing.
+    pub fn clamp_flat(&self, at: Vec2) -> Vec2 {
+        let limit = (self.half - Vec2::splat(CHUNK_SIZE)).max(Vec2::ZERO);
+        at.clamp(-limit, limit)
     }
 
     /// Keeps a world position inside the map. `margin` holds the subject that

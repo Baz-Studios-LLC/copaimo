@@ -217,12 +217,26 @@ pub struct Asked(pub Act);
 pub struct Digging {
     /// Whether the shovel is up.
     pub in_hand: bool,
-    /// The level THIS stroke is digging at, taken where the stroke began.
+    /// Where the cutting head is and what level it is cutting at, while a stroke
+    /// is under way.
     ///
-    /// See the note in [`dig_tunnels`]: a floor re-read from the aim every frame is
-    /// what made a tunnel run along a mountainside instead of into it.
-    pub floor: Option<f32>,
+    /// See [`dig_tunnels`]: a head that was wherever the aim happened to land is
+    /// what kept a passage on the outside of a mountain.
+    pub head: Option<Head>,
 }
+
+/// A tunnel being driven: where the face is now, and the level it holds.
+#[derive(Clone, Copy)]
+pub struct Head {
+    pub at: Vec2,
+    pub floor: f32,
+}
+
+/// How fast the shovel drives forward while it is held, in metres a second.
+///
+/// A walking pace. Fast enough to get through a mountain in the time somebody is
+/// willing to hold a button, slow enough to steer.
+const DRIVE: f32 = 14.0;
 
 /// What a press in the panel's ACTIONS does.
 ///
@@ -275,7 +289,7 @@ impl Act {
             Act::Carry => ("G", "PICK UP / PUT DOWN"),
             Act::Turn => ("R", "TURN A QUARTER"),
             Act::Remove => ("Del", "TAKE IT AWAY"),
-            Act::Bore => ("T", "DIG / PUT THE SHOVEL DOWN"),
+            Act::Bore => ("T", "DIG - HOLD AND STEER"),
             Act::Unbore => ("Sh-T", "HOLD SHIFT TO FILL IN"),
         }
     }
@@ -1095,13 +1109,28 @@ fn chunks_over(chunks: &ChunkMap, patch: Patch) -> Vec<(Entity, IVec2)> {
     touched
 }
 
-fn draw_brush(mut gizmos: Gizmos, terrain: Res<TerrainSource>, brush: Res<Brush>) {
-    let Some(hit) = brush.hit else {
-        return;
+fn draw_brush(
+    mut gizmos: Gizmos,
+    terrain: Res<TerrainSource>,
+    brush: Res<Brush>,
+    digging: Res<Digging>,
+) {
+    // While a tunnel is being driven, the ring goes on the HEAD and not on the
+    // aim. The head is the thing doing the work, it is somewhere inside a hillside
+    // where no aim can reach, and a ring left out on the surface would be showing
+    // the one place nothing is happening.
+    let (hit, level) = match digging.head {
+        Some(head) => (Vec3::new(head.at.x, head.floor, head.at.y), Some(head.floor)),
+        None => match brush.hit {
+            Some(hit) => (hit, None),
+            None => return,
+        },
     };
 
     // Rings sampled at ground height rather than a flat circle, so on a slope
     // the brush wraps the terrain and you can see exactly what a stroke covers.
+    // On the head, they sit at the tunnel's own floor instead — under the hill,
+    // which is where the cutting is.
     const SEGMENTS: usize = 72;
     let colour = crate::tools::theme::tool_color(brush.how);
 
@@ -1109,7 +1138,8 @@ fn draw_brush(mut gizmos: Gizmos, terrain: Res<TerrainSource>, brush: Res<Brush>
         let angle = index as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
         let x = hit.x + angle.cos() * radius;
         let z = hit.z + angle.sin() * radius;
-        Vec3::new(x, terrain.height(x, z) + 0.4, z)
+        let y = level.unwrap_or_else(|| terrain.height(x, z));
+        Vec3::new(x, y + 0.4, z)
     };
 
     let mut ring = |radius: f32, colour: Color| {
@@ -1989,12 +2019,13 @@ mod keycaps {
 /// it level. See [`crate::world::dug`].
 pub fn dig_tunnels(
     mut commands: Commands,
+    time: Res<Time>,
     buttons: Res<ButtonInput<MouseButton>>,
     keys: Res<ButtonInput<KeyCode>>,
     brush: Res<Brush>,
     free: Res<CursorFree>,
-    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    panels: Query<(&ComputedNode, &GlobalTransform), With<crate::tools::widget::Scrolls>>,
+    bounds: Res<crate::world::WorldBounds>,
+    cameras: Query<&GlobalTransform, With<MainCamera>>,
     terrain: Res<TerrainSource>,
     chunks: Res<ChunkMap>,
     busy: Query<(), With<PendingChunk>>,
@@ -2020,10 +2051,10 @@ pub fn dig_tunnels(
             "Shovel down"
         });
     }
-    // The stroke's own level is forgotten the moment the button comes up, so the
-    // next stroke may be dug at a different height.
+    // The head is put down the moment the button comes up, so the next stroke
+    // starts wherever it is aimed and at whatever level that is.
     if !buttons.pressed(MouseButton::Left) {
-        digging.floor = None;
+        digging.head = None;
     }
     if !digging.in_hand || !buttons.pressed(MouseButton::Left) {
         return;
@@ -2034,47 +2065,78 @@ pub fn dig_tunnels(
     let Some(hit) = brush.hit else {
         return;
     };
-    let at = Vec2::new(hit.x, hit.z);
     let filling = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
 
-    // # The floor is set ONCE, where the stroke began
+    // # The shovel DRIVES; it does not follow the aim
     //
-    // It used to be read from the aim every frame, and that is exactly why a
-    // tunnel could only run ALONG a mountainside instead of into it. Driving in
-    // from outside, the aim is a ray against the SURFACE — so dragging the
-    // crosshair up a mountain face fed a floor that climbed with the slope. Every
-    // cell ahead of the stroke was fresh ground taking that risen floor, and the
-    // deeper-wins rule could not help because it only guards cells already dug.
-    // The passage followed the hill up and never got under it.
+    // Two builds tried to make the aim do this work and neither could, for a
+    // reason that is structural rather than a bug: the crosshair is a ray against
+    // the ground, so **it can never point inside a mountain**. Whatever it lands
+    // on is a surface. Sweep it toward a hill and it walks up the face; hold the
+    // floor level and the cutting still only ever happens where the face is. The
+    // passage stayed on the outside of the mountain both times, which is exactly
+    // what was reported both times.
     //
-    // A tunneller sets the invert level at the portal and drives forward from it.
-    // So does this: press at the height you want the floor, then drag into the
-    // face, and what grows is the rock over your head.
-    let level = match digging.floor {
-        Some(level) => level,
+    // A tunnel is not aimed, it is DRIVEN. Press once to set the face and the
+    // level — that first press is the only thing the aim decides — and while the
+    // button is held the head advances along the way the view is facing, at
+    // [`DRIVE`] metres a second, cutting at its held level. Steering is turning
+    // your head, which is what steering a tunnel is.
+    //
+    // Filling in is the other way round and stays aimed: you fill what you can
+    // see, and what you can see is a mouth or a cutting.
+    let radius = brush.radius.min(crate::world::dug::HALF_WIDE * 2.0);
+    if filling {
+        let moved = terrain
+            .0
+            .dug()
+            .write()
+            .ok()
+            .and_then(|mut dug| dug.fill(Vec2::new(hit.x, hit.z), radius));
+        if let Some(patch) = moved {
+            invalidate_area(&mut commands, &terrain, &chunks, &busy, patch);
+        }
+        return;
+    }
+
+    let head = match digging.head {
+        Some(head) => head,
         None => {
-            if !filling && hit.y < crate::world::dug::DEEPEST {
+            if hit.y < crate::world::dug::DEEPEST {
                 toast.show("That is as deep as the world goes");
                 return;
             }
-            if !filling {
-                digging.floor = Some(hit.y);
-                toast.show(format!("Digging level at {:.0} m", hit.y));
-            }
-            hit.y
+            let head = Head {
+                at: Vec2::new(hit.x, hit.z),
+                floor: hit.y,
+            };
+            digging.head = Some(head);
+            toast.show(format!("Driving at {:.0} m — hold and steer", hit.y));
+            head
         }
     };
+
+    // Forward is where the view faces, flattened: a tunnel driven at the level it
+    // holds does not dive because somebody looked at their feet.
+    let forward = cameras
+        .iter()
+        .next()
+        .map(|eye| eye.forward().as_vec3())
+        .map(|way| Vec2::new(way.x, way.z))
+        .filter(|way| way.length_squared() > 1.0e-4)
+        .map(|way| way.normalize())
+        .unwrap_or(Vec2::X);
+    let head = Head {
+        at: bounds.clamp_flat(head.at + forward * DRIVE * time.delta_secs()),
+        ..head
+    };
+    digging.head = Some(head);
 
     let moved = {
         let Ok(mut dug) = terrain.0.dug().write() else {
             return;
         };
-        let radius = brush.radius.min(crate::world::dug::HALF_WIDE * 2.0);
-        if filling {
-            dug.fill(at, radius)
-        } else {
-            dug.dig(at, radius, level)
-        }
+        dug.dig(head.at, radius, head.floor)
     };
     // The SURFACE changes too, wherever the stroke opened a doorway — so the
     // chunks over it re-mesh, exactly as any ground brush does. Nothing is said
@@ -2100,10 +2162,43 @@ mod digging {
             .init_resource::<ButtonInput<KeyCode>>()
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<ChunkMap>()
-            .add_event::<Asked>()
-            .insert_resource(TerrainSource(std::sync::Arc::new(Terrain::new())))
+            .init_resource::<Time>()
+            .add_event::<Asked>();
+        let terrain = Terrain::new();
+        app.insert_resource(crate::world::WorldBounds::new(terrain.half()))
+            .insert_resource(TerrainSource(std::sync::Arc::new(terrain)))
             .add_systems(Update, dig_tunnels);
+        // A camera to face along: the head drives the way the view is pointed, so
+        // without one there is no forward.
+        app.world_mut().spawn((
+            MainCamera,
+            Transform::from_xyz(0.0, 60.0, 0.0).looking_to(Vec3::X, Vec3::Y),
+            GlobalTransform::from(Transform::from_xyz(0.0, 60.0, 0.0).looking_to(Vec3::X, Vec3::Y)),
+        ));
         app
+    }
+
+    /// Faces the view along a heading, which is the only steering there is.
+    fn face(app: &mut App, way: Vec2) {
+        let stance = Transform::from_xyz(0.0, 60.0, 0.0)
+            .looking_to(Vec3::new(way.x, 0.0, way.y), Vec3::Y);
+        let mut eyes = app
+            .world_mut()
+            .query_filtered::<&mut GlobalTransform, With<MainCamera>>();
+        for mut eye in eyes.iter_mut(app.world_mut()) {
+            *eye = GlobalTransform::from(stance);
+        }
+    }
+
+    /// Runs a frame of a held stroke with real time passing, so the head advances.
+    fn drive(app: &mut App, seconds: f32) {
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(std::time::Duration::from_secs_f32(seconds));
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
     }
 
     /// Aims the pointer at a spot, at a height.
@@ -2194,44 +2289,77 @@ mod digging {
     }
 
     #[test]
-    fn each_stroke_lays_its_own_level_and_holds_it() {
-        // Choice (a), as it turned out to have to work. The floor is the aim where
-        // the STROKE began, and it holds for that stroke — because the aim is a ray
-        // against the surface, and dragging into a mountain face feeds a height
-        // that climbs with the slope. Held, the passage drives level into the hill;
-        // re-read every frame it ran along the hillside instead, which is exactly
-        // what was reported.
+    fn a_held_stroke_drives_forward_under_a_hillside() {
+        // The thing three builds could not do, and the reason none of them could:
+        // **the crosshair can never point inside a mountain.** It is a ray against
+        // the ground, so whatever it lands on is a surface — sweep it at a hill and
+        // it walks up the face, and the cutting only ever happens where the face
+        // is. Twice the report was the same: the passage stayed on the outside.
         //
-        // Separate strokes still choose separate levels, which is what lets a maker
-        // branch one passage off another at a different height.
+        // A tunnel is driven, not aimed. The first press sets the face and the
+        // level; after that the head advances the way the view is facing and the
+        // aim has no say at all. So this test presses once at the foot of a rise,
+        // faces into it, holds, and asks the only question that matters: is there
+        // rock over the far end.
         let mut app = digging_app();
         press_row(&mut app);
 
-        let mouth = Vec2::new(200.0, 0.0);
-        let inward = Vec2::new(240.0, 0.0);
+        // The pass's own mountain, driven at from its western foot.
+        let (sin, cos) = crate::world::pass::HEADING.sin_cos();
+        let along = Vec2::new(cos, sin);
+        let foot = crate::world::pass::AT - along * 620.0;
+        let ground = {
+            let terrain = &app.world().resource::<TerrainSource>().0;
+            terrain.sealed_height(foot.x, foot.y)
+        };
 
-        // One stroke: press at 50, drag on while the aim climbs to 62 the way a
-        // mountain face would carry it.
-        aim(&mut app, mouth, 50.0);
-        hold(&mut app);
-        aim(&mut app, inward, 62.0);
-        hold(&mut app);
-        release(&mut app);
+        face(&mut app, along);
+        aim(&mut app, foot, ground);
+        drive(&mut app, 0.016);
 
-        let (a, b) = (floor(&app, mouth).expect("dug"), floor(&app, inward).expect("dug"));
+        let level = app
+            .world()
+            .resource::<Digging>()
+            .head
+            .expect("the stroke set a head")
+            .floor;
+        assert!((level - ground).abs() < 0.6, "the level came out at {level:.1}");
+
+        // Hold for a good while: at DRIVE metres a second this is a few hundred
+        // metres of rock.
+        for _ in 0..600 {
+            drive(&mut app, 0.05);
+        }
+        let head = app
+            .world()
+            .resource::<Digging>()
+            .head
+            .expect("still driving")
+            .at;
+
         assert!(
-            (a - 50.0).abs() < 0.6 && (b - 50.0).abs() < 0.6,
-            "the stroke's floor drifted from {a:.1} to {b:.1} — it followed the aim"
+            head.distance(foot) > 300.0,
+            "the head only got {:.0} m in — it is not driving",
+            head.distance(foot)
+        );
+        assert!(
+            (app.world().resource::<Digging>().head.unwrap().floor - level).abs() < 0.01,
+            "the level drifted while driving"
         );
 
-        // A second stroke, aimed lower, digs lower.
-        let below = Vec2::new(280.0, 0.0);
-        aim(&mut app, below, 44.0);
-        hold(&mut app);
-        release(&mut app);
-        let c = floor(&app, below).expect("dug");
-        assert!((c - 44.0).abs() < 0.6, "the second stroke came out at {c:.1}");
-        assert!(a > c + 4.0, "two strokes could not choose two levels");
+        // And the passage it left is UNDER the mountain: at the far end there is
+        // real rock overhead, not a trench in the open.
+        let terrain = app.world().resource::<TerrainSource>().0.clone();
+        let dug = terrain.dug().read().expect("dug ground");
+        let overhead = terrain.sealed_height(head.x, head.y) - level;
+        assert!(
+            overhead > crate::world::dug::DOORWAY * 3.0,
+            "only {overhead:.1} m of rock over the far end — it drove along the              outside of the mountain again"
+        );
+        assert!(
+            dug.floor_at(head).is_some(),
+            "nothing was dug where the head ended up"
+        );
     }
 
     #[test]
