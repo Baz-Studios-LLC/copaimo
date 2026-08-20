@@ -29,6 +29,17 @@ const SPRINT_SPEED: f32 = 15.0;
 const TURN_RATE: f32 = 12.0;
 /// Standing eye-to-toe height, used to keep the body clear of the ground.
 const LEG_HEIGHT: f32 = 0.9;
+/// The steepest rise the warden can WALK up, in metres climbed per metre
+/// travelled. One-in-one is a 45° scramble and still walking; this is a little
+/// past it.
+///
+/// Terrain is this game's only geometry, so this rule is what makes a wall a
+/// WALL: the canyon country's faces rise three-to-five metres per metre, and
+/// without a refusal here the warden strolls up them and the canyon gates
+/// nothing. Only the step UP is refused — any slope can be walked back down —
+/// so nowhere is a trap.
+const CLIMB_LIMIT: f32 = 1.4;
+
 /// How deep the warden may wade, in metres below sea level.
 ///
 /// The sea is not walkable in the base game — it is for boats. This is both how
@@ -36,6 +47,27 @@ const LEG_HEIGHT: f32 = 0.9;
 /// so the depth they are held at and the depth they are turned back at can never
 /// disagree and leave them bobbing at a line they cannot cross.
 const WADE_DEPTH: f32 = 1.4;
+
+/// Whether one step of a walk is allowed: not into deep water, not up a cliff.
+///
+/// The sea is for boats. Rather than an invisible wall at the waterline — which
+/// reads as a bug, and stops you paddling at a beach at all — the warden wades
+/// until the water is about knee-to-waist and is then turned back by it. Only the
+/// step INTO deeper water is refused, so someone who somehow ends up out there
+/// can always walk home. The cliff rule is the same shape: only the step UP is
+/// refused, so no slope is a trap.
+fn may_step(terrain: &crate::world::terrain::Terrain, from: Vec3, to: Vec3) -> bool {
+    let here = terrain.height(from.x, from.z);
+    let there = terrain.height(to.x, to.z);
+
+    let depth = SEA_LEVEL - there;
+    if depth > WADE_DEPTH && depth >= SEA_LEVEL - here {
+        return false;
+    }
+
+    let run = Vec2::new(to.x - from.x, to.z - from.z).length();
+    run <= f32::EPSILON || there - here <= run * CLIMB_LIMIT
+}
 
 #[derive(Component)]
 pub struct Player;
@@ -251,15 +283,19 @@ pub fn move_player(
         let next = transform.translation + direction * speed * time.delta_secs();
         let next = bounds.clamp(next, 2.0);
 
-        // The sea is for boats. Rather than an invisible wall at the waterline —
-        // which reads as a bug, and stops you paddling at a beach at all — the
-        // warden wades until the water is about knee-to-waist and is then turned
-        // back by it. Only the step INTO deep water is refused, so someone who
-        // somehow ends up out there can always walk home.
-        let depth = SEA_LEVEL - terrain.height(next.x, next.z);
-        let here = SEA_LEVEL - terrain.height(transform.translation.x, transform.translation.z);
-        if depth <= WADE_DEPTH || depth < here {
-            transform.translation = next;
+        // The step, or the best part of it: a refused step is retried along each
+        // axis alone, so brushing a canyon wall at an angle slides along it
+        // rather than sticking to it.
+        let from = transform.translation;
+        let step = [
+            next,
+            Vec3::new(next.x, from.y, from.z),
+            Vec3::new(from.x, from.y, next.z),
+        ]
+        .into_iter()
+        .find(|to| *to != from && may_step(&terrain.0, from, *to));
+        if let Some(to) = step {
+            transform.translation = to;
         }
 
         // Ease into the new facing instead of snapping, so quick direction
@@ -281,6 +317,89 @@ mod tests {
     use super::*;
     use crate::save::{Progress, Save};
     use bevy::state::app::StatesPlugin;
+
+    /// The way east is WALKABLE end to end, with the climb rule in force.
+    ///
+    /// The gate has to refuse the walls and pass the floor. The wall half is the
+    /// test below; this is the other half, and it is the one that would strand a
+    /// player: a canyon nobody can walk is not a gate, it is a full stop.
+    #[test]
+    fn the_canyon_can_be_walked_from_the_desert_to_the_green_world() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let stand = |flat: Vec2| Vec3::new(flat.x, terrain.height(flat.x, flat.y), flat.y);
+
+        // Along the canyon's own way, at a stride a walk actually takes.
+        let mut at = crate::world::pass::way_through(-320.0);
+        let mut refused = 0;
+        let mut worst = 0.0_f32;
+        for step in -319..=320 {
+            let next = crate::world::pass::way_through(step as f32);
+            if may_step(&terrain, stand(at), stand(next)) {
+                at = next;
+            } else {
+                refused += 1;
+                let rise = terrain.height(next.x, next.y) - terrain.height(at.x, at.y);
+                worst = worst.max(rise);
+            }
+        }
+        assert_eq!(
+            refused, 0,
+            "{refused} steps along the canyon are refused, the worst a {worst:.1} m rise"
+        );
+        let out = crate::world::pass::way_through(320.0);
+        assert!(
+            at.distance(out) < 1.0,
+            "the walk stopped {:.0} m short of the eastern mouth",
+            at.distance(out)
+        );
+    }
+
+    /// A canyon wall is a WALL to the walk: the step up it is refused, the step
+    /// back down is not, and walking along the floor is untouched.
+    ///
+    /// Terrain is the game's only geometry and nothing else stops a walker — so
+    /// without this, the warden strolls up a seventy-degree face and the canyon
+    /// gates nothing at all.
+    #[test]
+    fn a_canyon_wall_refuses_the_step_up_but_never_the_step_down() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let middle = crate::world::pass::way_through(40.0);
+        let ahead = crate::world::pass::way_through(43.0);
+        let (sin, cos) = crate::world::pass::HEADING.sin_cos();
+        // Toward negative across: the plain slot wall, clear of the junctions.
+        let out = -Vec2::new(-sin, cos);
+        let stand = |flat: Vec2| Vec3::new(flat.x, terrain.height(flat.x, flat.y), flat.y);
+
+        // Walk out from the middle to where the wall starts, so the step under
+        // test is the one that leaves the floor — the gap's width is a tuning
+        // number and this test must not care what it currently is.
+        let floor = terrain.height(middle.x, middle.y);
+        let mut foot = middle;
+        for step in 1..200 {
+            let at = middle + out * step as f32;
+            if terrain.height(at.x, at.y) > floor + 2.0 {
+                break;
+            }
+            foot = at;
+        }
+        let into_wall = foot + out * 1.5;
+        assert!(
+            (terrain.height(foot.x, foot.y) - floor).abs() < 2.5,
+            "the scan never found the canyon floor"
+        );
+        assert!(
+            may_step(&terrain, stand(middle), stand(ahead)),
+            "walking along the canyon floor is refused"
+        );
+        assert!(
+            !may_step(&terrain, stand(foot), stand(into_wall)),
+            "the wall let the warden walk up it — the canyon gates nothing"
+        );
+        assert!(
+            may_step(&terrain, stand(into_wall), stand(foot)),
+            "the way back DOWN the wall is refused — a slope became a trap"
+        );
+    }
 
     /// The whole continue-and-new-game flow, run rather than reasoned about.
     ///

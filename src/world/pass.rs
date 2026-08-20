@@ -74,9 +74,10 @@ const WALL_RUN: f32 = 55.0;
 
 /// Half the width of the canyon floor, in metres.
 ///
-/// Twenty metres wall to wall: room for the follow camera behind the warden and
-/// for two parties to pass, tight enough to read as a slot in the rock.
-const GAP_HALF: f32 = 10.0;
+/// Thirty metres wall to wall: room for the follow camera behind the warden and
+/// for two parties to pass with air between them, still tight enough to read as a
+/// slot in the rock. (It was twenty, and twenty read as a crack.)
+const GAP_HALF: f32 = 15.0;
 
 /// How far the canyon's walls take to reach full height, in metres.
 ///
@@ -88,6 +89,32 @@ const GAP_RUN: f32 = 34.0;
 /// makes buttresses, and the small one that chips the edges.
 const JAG_BROAD: f32 = 22.0;
 const JAG_FINE: f32 = 7.0;
+
+/// The fork: a second true way through, leaving the main slot and rejoining it.
+///
+/// Real slot canyons braid, and a braid is the honest kind of "diverging path":
+/// both ways go somewhere, the island between them is real rock, and a traveller
+/// picks a side without a signpost. Narrower than the main way, so the main way
+/// still reads as the main way.
+const FORK_FROM: f32 = -150.0;
+const FORK_TO: f32 = 120.0;
+const FORK_SWING: f32 = 150.0;
+const FORK_HALF: f32 = 11.0;
+
+/// The spurs: box canyons that open off the way and pinch shut.
+///
+/// Dead ends are what make a junction a CHOICE — take the wrong turn and walk
+/// back out — and they are alcoves the world can hide things in later. Each is
+/// (where it leaves, its heading in the massif's frame, how far it runs); the
+/// last stretch narrows to nothing, a headwall rather than a door.
+const SPURS: [(f32, f32, f32); 2] = [(-40.0, 2.35, 130.0), (150.0, 1.3, 100.0)];
+const SPUR_HALF: f32 = 9.0;
+
+/// The (across, along) noise frame turned back into (along, across), which is the
+/// order every centreline here thinks in.
+fn frame_along_across(frame: Vec2) -> Vec2 {
+    Vec2::new(frame.y, frame.x)
+}
 
 /// Where a point sits in the massif's own frame: along its thickness — the way the
 /// canyon runs — and across its length.
@@ -105,6 +132,30 @@ fn local(at: Vec2) -> (f32, f32) {
 /// bends — and the bends also close every sightline to the far side.
 fn wander(along: f32) -> f32 {
     120.0 * (along * 0.011 + 0.7).sin() + 40.0 * (along * 0.037 + 2.1).sin()
+}
+
+/// The fork's own centreline, where it is running: it lifts off the main way at
+/// [`FORK_FROM`], bulges [`FORK_SWING`] metres aside, and lands back on it at
+/// [`FORK_TO`] — a sine window, so both junctions are smooth.
+fn fork(along: f32) -> Option<f32> {
+    if !(FORK_FROM..=FORK_TO).contains(&along) {
+        return None;
+    }
+    let t = (along - FORK_FROM) / (FORK_TO - FORK_FROM);
+    Some(wander(along) + FORK_SWING * (std::f32::consts::PI * t).sin())
+}
+
+/// A point on the canyon's way through, in world space: where the main centreline
+/// crosses `along` metres into the massif.
+///
+/// The tests' instrument — they walk it to prove the gate passes the floor and
+/// refuses the walls. Nothing in the game routes itself yet; when something does
+/// (a road, an NPC crossing east), this is what it should ask rather than
+/// rediscovering the centreline.
+#[cfg(test)]
+pub fn way_through(along: f32) -> Vec2 {
+    let (sin, cos) = HEADING.sin_cos();
+    AT + Vec2::new(cos, sin) * along + Vec2::new(-sin, cos) * wander(along)
 }
 
 /// How the massif stands over this point: the rock it ADDS above the ground, and
@@ -133,10 +184,26 @@ fn stands(at: Vec2) -> (f32, f32) {
         return (0.0, 0.0);
     }
 
-    // The slot: nothing near the centreline, full rock past its own jagged walls.
-    let stray = (across - wander(along)).abs();
+    // The ways through and into the rock: the main slot, the fork, the spurs.
+    // Rock stands only where every one of them says rock, so a junction is just
+    // two answers agreeing that the ground is open.
     let chip = (2.0 * terrain_core::forest::field(frame / 50.0, 85) - 1.0) * 8.0;
-    let slot = crate::util::smoothstep(GAP_HALF, GAP_HALF + GAP_RUN, stray + chip);
+    let open = |stray: f32, half: f32| {
+        crate::util::smoothstep(half, half + GAP_RUN, stray + chip)
+    };
+    let mut slot = open((across - wander(along)).abs(), GAP_HALF);
+    if let Some(centre) = fork(along) {
+        slot = slot.min(open((across - centre).abs(), FORK_HALF));
+    }
+    for (from, heading, long) in SPURS {
+        let start = Vec2::new(from, wander(from));
+        let way = Vec2::new(heading.cos(), heading.sin());
+        let gone = (frame_along_across(frame) - start).dot(way).clamp(0.0, long);
+        let near = (frame_along_across(frame) - start - way * gone).length();
+        // Pinches shut over its last stretch: a headwall, not a door.
+        let width = SPUR_HALF * crate::util::smoothstep(long, long - 45.0, gone);
+        slot = slot.min(open(near, width));
+    }
     if slot <= 0.0 {
         return (0.0, mesa);
     }
@@ -154,6 +221,19 @@ fn stands(at: Vec2) -> (f32, f32) {
 #[cfg(test)]
 fn lift(at: Vec2) -> f32 {
     stands(at).0
+}
+
+/// How firmly the canyon country claims this ground for the DESERT, nought to one.
+///
+/// Wall to wall and slot floor included, the massif is desert rock: the green
+/// world begins on the plain past the eastern mouth, not halfway down the canyon.
+/// The claim fades to nothing over a skirt outside the footprint; `region` remaps
+/// both sides so each lets go AT the handover line — the lesson every painted
+/// boundary in this world already learned, applied to a generated one.
+pub fn claim(at: Vec2) -> f32 {
+    let (along, across) = local(at);
+    let hold = |d: f32, half: f32| crate::util::smoothstep(half + 80.0, half - 40.0, d);
+    hold(along.abs(), WALL_THICK * 0.5).min(hold(across.abs(), WALL_LONG * 0.5))
 }
 
 /// The ground with the whole massif on it: the rock, standing on a floor that has
@@ -188,26 +268,18 @@ mod tests {
     }
 
     /// The top is a MESA: flat, tall, and nothing pokes through or drops out.
+    ///
+    /// Sampled over two strips of the top that no way through reaches — the main
+    /// slot swings to −160 and everything that diverges from it diverges toward
+    /// positive across, so far-negative and far-positive strips are pure rock.
     #[test]
     fn the_top_is_flat_and_tall() {
         let (along, across) = axes();
         let mut low = f32::MAX;
         let mut high = f32::MIN;
-        for a in -8..=8 {
-            for c in -14..=14 {
-                let at = AT + along * (a as f32 * 24.0) + across * (c as f32 * 24.0);
-                let (l, _) = local(at);
-                // Inside the body, clear of the rims and clear of the canyon.
-                let (l_abs, c_local) = (l.abs(), local(at).1);
-                if l_abs > WALL_THICK * 0.5 - WALL_RUN - JAG_BROAD - 10.0 {
-                    continue;
-                }
-                if c_local.abs() > WALL_LONG * 0.5 - WALL_RUN - JAG_BROAD - 10.0 {
-                    continue;
-                }
-                if (c_local - wander(l)).abs() < GAP_HALF + GAP_RUN + 24.0 {
-                    continue;
-                }
+        for a in -7..=7 {
+            for c in [-340.0_f32, -310.0, -280.0, -250.0, 305.0, 330.0, 355.0] {
+                let at = AT + along * (a as f32 * 25.0) + across * c;
                 let stands = lift(at);
                 low = low.min(stands);
                 high = high.max(stands);
@@ -282,7 +354,9 @@ mod tests {
         let l = 40.0;
         let centre = wander(l);
         let foot = AT + along * l + across * centre;
-        let wall = AT + along * l + across * (centre + GAP_HALF + GAP_RUN + 14.0);
+        // The NEGATIVE side: the fork and both spurs diverge toward positive
+        // across, so this wall face is the plain slot wall everywhere.
+        let wall = AT + along * l + across * (centre - (GAP_HALF + GAP_RUN + 14.0));
         assert!(lift(foot) < 3.0, "the foot of the wall is not on the floor");
         assert!(
             lift(wall) > TOP * 0.6,
@@ -301,7 +375,9 @@ mod tests {
             let mut reach = GAP_HALF + GAP_RUN + 30.0;
             for off in 0..80 {
                 let stray = GAP_HALF + off as f32;
-                let at = AT + along * l + across * (centre + stray);
+                // Scanned away from the fork and the spurs, so what varies is the
+                // wall itself and not a junction.
+                let at = AT + along * l + across * (centre - stray);
                 if lift(at) > TOP * 0.5 {
                     reach = stray;
                     break;
@@ -314,6 +390,44 @@ mod tests {
             furthest - nearest > 8.0,
             "the wall stands {nearest:.0}–{furthest:.0} m out — a drawn line, not crags"
         );
+    }
+
+    /// The way through DIVERGES: a fork rejoins around an island of true rock.
+    #[test]
+    fn the_fork_is_a_second_true_way_round_an_island() {
+        let (along, across) = axes();
+        let mid = (FORK_FROM + FORK_TO) * 0.5;
+        let main = AT + along * mid + across * wander(mid);
+        let branch = AT + along * mid + across * fork(mid).expect("the fork is running");
+        let island = (main + branch) * 0.5;
+        assert!(lift(main) < 3.0, "the main way is blocked beside the fork");
+        assert!(lift(branch) < 3.0, "the fork is not open at its own middle");
+        assert!(
+            lift(island) > TOP * 0.5,
+            "only {:.0} m of rock between the two ways — a wide spot, not a fork",
+            lift(island)
+        );
+    }
+
+    /// A spur is a box canyon: open to walk into, pinched shut at its head.
+    #[test]
+    fn a_spur_is_a_box_canyon_not_a_second_gate() {
+        let (along, across) = axes();
+        let world = |p: Vec2| AT + along * p.x + across * p.y;
+        for (from, heading, long) in SPURS {
+            let start = Vec2::new(from, wander(from));
+            let way = Vec2::new(heading.cos(), heading.sin());
+            let mouth = world(start + way * 30.0);
+            let head = world(start + way * (long + 55.0));
+            assert!(
+                lift(mouth) < 3.0,
+                "the spur at {from} m along is not open at its mouth"
+            );
+            assert!(
+                lift(head) > TOP * 0.6,
+                "the spur at {from} m along breaks through — a second gate, not a dead end"
+            );
+        }
     }
 
     /// The floor through the slot is DRY GROUND, graded gently.
@@ -395,6 +509,33 @@ mod tests {
 #[cfg(test)]
 mod country {
     use super::*;
+
+    /// The whole canyon country is DESERT: the top, the walls, and the floor of
+    /// the slot itself. The handover to the green world happens on the plain past
+    /// the eastern mouth, not halfway down the canyon.
+    #[test]
+    fn the_canyon_country_is_all_desert() {
+        use terrain_core::region::Country;
+        let terrain = crate::world::terrain::Terrain::new();
+        for l in [-200.0_f32, -80.0, 0.0, 90.0, 200.0] {
+            let at = way_through(l);
+            assert_eq!(
+                terrain.region(at.x, at.y).0,
+                Country::Desert,
+                "the canyon floor {l:.0} m along is not desert"
+            );
+        }
+        let (sin, cos) = HEADING.sin_cos();
+        let across = Vec2::new(-sin, cos);
+        for c in [-320.0_f32, 320.0] {
+            let top = AT + across * c;
+            assert_eq!(
+                terrain.region(top.x, top.y).0,
+                Country::Desert,
+                "the mesa top {c:.0} m across is not desert"
+            );
+        }
+    }
 
     /// The massif has to be the JOIN between the two countries, not a wall
     /// standing across one of them.
@@ -486,5 +627,44 @@ mod probe {
             terrain.height(west.x, west.y),
             terrain.height(east.x, east.y)
         );
+
+        // How wide the floor actually is, walked at stations along the way: out
+        // from the centreline each way until the ground climbs two metres.
+        let mut widths = Vec::new();
+        for step in -8..=8 {
+            let l = step as f32 * 30.0;
+            let middle = way_through(l);
+            let floor = terrain.height(middle.x, middle.y);
+            let reach = |dir: f32| {
+                let mut out = 0.0;
+                for probe in 1..140 {
+                    let at = middle + across * (dir * probe as f32);
+                    if terrain.height(at.x, at.y) > floor + 2.0 {
+                        break;
+                    }
+                    out = probe as f32;
+                }
+                out
+            };
+            widths.push(reach(-1.0) + reach(1.0));
+        }
+        let narrow = widths.iter().copied().fold(f32::MAX, f32::min);
+        let wide = widths.iter().copied().fold(f32::MIN, f32::max);
+        println!("the floor is {narrow:.0}..{wide:.0} m wide along the way");
+
+        // And the junctions, so the branching is visible as numbers.
+        for (name, l) in [("fork mouth", FORK_FROM), ("fork middle", (FORK_FROM + FORK_TO) * 0.5)] {
+            let main = way_through(l);
+            let branch = fork(l).map(|c| AT + along * l + across * c);
+            match branch {
+                Some(b) => println!(
+                    "{name}: main floor {:.0} m, branch floor {:.0} m, {:.0} m apart",
+                    terrain.height(main.x, main.y),
+                    terrain.height(b.x, b.y),
+                    main.distance(b)
+                ),
+                None => println!("{name}: the fork is not running here"),
+            }
+        }
     }
 }

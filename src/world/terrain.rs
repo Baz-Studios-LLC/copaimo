@@ -730,6 +730,25 @@ impl Terrain {
         let (u, v) = self.to_map_uv(x, z);
         let (natural, natural_share) = terrain_core::region::at(Vec2::new(u, v));
 
+        // The canyon country carries its own country: desert from wall to wall,
+        // slot floor included — the green world begins on the plain past the
+        // eastern mouth, not halfway down the canyon. It joins in as part of
+        // NATURE, under any paint, and both sides let go at the handover line so
+        // the boundary blends the way every painted one does.
+        let claimed = crate::world::pass::claim(Vec2::new(x, z));
+        let (natural, natural_share) = if claimed <= 0.0
+            || natural == terrain_core::region::Country::Desert
+        {
+            (natural, natural_share.max(claimed))
+        } else if claimed >= 0.5 {
+            (
+                terrain_core::region::Country::Desert,
+                (claimed - 0.5) * 2.0,
+            )
+        } else {
+            (natural, natural_share.min(1.0 - claimed * 2.0))
+        };
+
         let Ok(painted) = self.country.read() else {
             return (natural, natural_share);
         };

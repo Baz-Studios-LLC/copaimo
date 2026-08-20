@@ -25,6 +25,34 @@ straight line crosses without climbing the full wall**, and no sightline reaches
 the far country. That is the gate: you cannot pass until you find the way, and you
 cannot see what is on the other side until you have walked it.
 
+The floor is **thirty metres wall to wall**, opening to eighty at the junctions —
+because the way through **braids**, which is what a real slot canyon does:
+
+* a **fork** leaves the main slot and rejoins it a quarter-kilometre later,
+  bulging a hundred and fifty metres aside around an island of true rock. Both
+  ways go somewhere; a traveller picks a side with no signpost.
+* two **spurs** open off the way and pinch shut at a headwall. Dead ends are what
+  make a junction a *choice* — take the wrong turn and walk back out — and they
+  are alcoves the world can hide things in later.
+
+Rock stands only where every one of them says rock, so a junction is nothing more
+than two answers agreeing that the ground is open.
+
+**The whole canyon country is desert** — top, walls and slot floor. The handover to
+the green world happens on the plain past the eastern mouth, not halfway down the
+canyon. `pass::claim` states it and `region` folds it in as part of *nature*, under
+any paint, with both sides letting go at the handover line: the lesson every
+painted boundary here already learned, applied to a generated one.
+
+**A wall is only a wall if the walk refuses it.** Terrain is this game's only
+geometry — nothing else stops a walker — so `player::may_step` refuses any step
+that climbs more than `CLIMB_LIMIT` (1.4 m per metre travelled). Without it the
+warden strolls up a seventy-degree face and the canyon gates nothing. Only the step
+*up* is refused, so no slope is ever a trap, and a refused step is retried on each
+axis alone, so brushing a wall at an angle slides along it rather than sticking.
+Both halves are tested: the walls refuse, and the way through is walkable end to
+end.
+
 The floor of the slot is the plain itself — the massif only ever ADDS rock — which
 is what lets the desert hand over to the green country inside the canyon with no
 stitching. One exception, and it earns itself: the natural ground under the massif
@@ -797,6 +825,11 @@ assets/
 ---
 
 ## Change log
+
+**2026-08-20** — **The canyon braids, and the walls hold.** The slot widened to
+thirty metres, a rejoining fork and two dead-end spurs added, the whole massif
+claimed for the desert, and `may_step` given a climb limit so the walls are walls
+to the warden and not just to the eye.
 
 **2026-08-20** — **The tunnel is gone; the canyon gates the east.** A week of
 fighting the heightfield (cave mesh, carve, doorframes, holes in the terrain
