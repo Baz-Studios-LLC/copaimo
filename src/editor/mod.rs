@@ -219,8 +219,8 @@ pub struct Digging {
     pub in_hand: bool,
     /// The level THIS stroke is digging at, taken where the stroke began.
     ///
-    /// See the note in `dig_out`: a floor re-read from the aim every frame is what
-    /// made a tunnel run along a mountainside instead of into it.
+    /// See the note in [`dig_tunnels`]: a floor re-read from the aim every frame is
+    /// what made a tunnel run along a mountainside instead of into it.
     pub floor: Option<f32>,
 }
 
@@ -317,6 +317,7 @@ impl Plugin for EditorPlugin {
             .init_resource::<Keeping>()
             .add_plugins((ui::EditorUiPlugin, minimap::MinimapPlugin))
             .add_systems(OnEnter(AppState::Editing), enter_editor)
+            .add_systems(OnExit(AppState::Editing), leave_editor)
             .add_systems(
                 Update,
                 (
@@ -341,7 +342,6 @@ impl Plugin for EditorPlugin {
     }
 }
 
-/// ALT frees the pointer for as long as it is held.
 /// Whether the tool's aim belongs to the world rather than to the panel.
 ///
 /// One name for the question every tool here has to ask, so they cannot drift into
@@ -372,6 +372,21 @@ fn hold_to_reach(
         bevy::window::CursorGrabMode::Confined
     };
     window.cursor_options.visible = wanted;
+}
+
+/// Lets go of the pointer on the way out.
+///
+/// # ALT held through ESC used to kill mouse-look for the session
+///
+/// `CursorFree` is written only by `hold_to_reach`, which runs in the terrain tool
+/// alone — but `camera::orbit_input` READS it and runs in the game too. So leaving
+/// the tool with ALT down left it set, and the game's camera then refused to turn
+/// with the mouse until somebody went back into the tool and pressed ALT again.
+///
+/// A resource one state writes and two states read has to be put back by the state
+/// that writes it.
+fn leave_editor(mut free: ResMut<CursorFree>) {
+    free.0 = false;
 }
 
 fn enter_editor(mut camera: ResMut<CameraMode>, mut free: ResMut<CursorFree>) {
@@ -540,8 +555,6 @@ fn adjust_brush(
     mut brush: ResMut<Brush>,
 ) {
     let notches = crate::util::wheel_notches(&scroll);
-    // The wheel over the shelf is the shelf's scroll and must not also resize the
-    // brush behind it.
     // With ALT held and the pointer on the panel, the wheel is the panel's scroll
     // and must not also resize the brush behind it. Only then: while sculpting the
     // cursor is hidden but still MOVES with the mouse, so a bare over-panel test
@@ -595,7 +608,7 @@ fn paint(
     panels: Query<(&ComputedNode, &GlobalTransform), With<crate::tools::widget::Scrolls>>,
     mut brush: ResMut<Brush>,
 ) {
-    // A click on the shelf is for the shelf, not for the ground behind it.
+    // The pointer is out reaching for a panel, not aimed at the ground.
     if !aiming_at_the_world(&free) {
         return;
     }
@@ -1391,11 +1404,24 @@ fn place_things(
     // A row pressed in the panel and the key it prints mean the same thing, so
     // they arrive by the same door.
     let mut pressed: Vec<Act> = asked.read().map(|ask| ask.0).collect();
-    {
+
+    // # A row press is not a keypress, and the difference is which hand is where
+    //
+    // These two doors need different guards, and giving them the same one made
+    // every ACTIONS row in the panel DEAD. The guard is "the pointer is not out
+    // reaching for a row" — which is true of a keypress and, by construction,
+    // false of a row press: a row can only be clicked while ALT has the pointer
+    // free, so `Asked` arrived and was thrown away on the very frame it could
+    // only have arrived on.
+    //
+    // So the guard belongs on the KEYBOARD alone. A press on a row means the act
+    // outright: the maker put the pointer on that row and pressed it, which is
+    // less ambiguous than any key.
+    if aiming_at_the_world(&free) {
         for act in [Act::Place, Act::Carry, Act::Turn, Act::Remove] {
             let shift = keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]);
-            // Shift+B is the bore's own business, and Shift+R turns the other way
-            // rather than being a different act.
+            // Shift+T is the shovel's own business, and Shift+R turns the other
+            // way rather than being a different act.
             if act != Act::Remove && shift && act == Act::Place {
                 continue;
             }
@@ -1407,7 +1433,7 @@ fn place_things(
             pressed.push(Act::Remove);
         }
     }
-    if !aiming_at_the_world(&free) {
+    if pressed.is_empty() {
         return;
     }
     let Some(hit) = brush.hit else {
@@ -1518,7 +1544,7 @@ mod tests {
     /// A real app running the real system, because what went wrong in this codebase
     /// has twice been the wiring rather than the arithmetic — a key that nothing
     /// listened for, a guard that fired at the wrong moment.
-    fn placing_app() -> App {
+    pub(super) fn placing_app() -> App {
         let mut app = App::new();
         app.init_resource::<Brush>()
             .init_resource::<Carrying>()
@@ -1534,7 +1560,7 @@ mod tests {
         app
     }
 
-    fn press(app: &mut App, keys: &[KeyCode]) {
+    pub(super) fn press(app: &mut App, keys: &[KeyCode]) {
         {
             let mut input = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
             for key in keys {
@@ -1549,7 +1575,7 @@ mod tests {
         input.clear();
     }
 
-    fn facing(app: &App, id: u32) -> f32 {
+    pub(super) fn facing(app: &App, id: u32) -> f32 {
         app.world().resource::<Standing>().get(id).expect("still there").turn
     }
 
@@ -1602,12 +1628,8 @@ mod tests {
 
     #[test]
     fn turning_holds_still_while_the_pointer_is_free() {
-        // `CursorFree` used to mean "reaching for a panel", so everything guarded
-        // on it and this test asserted that nothing acted while it was set. It
-        // means the opposite now — pointing, which is the tool's resting state —
-        // so what it guards is the other half: while ALT has hold of the view
-        // there is no pointer aimed at anything, and R must not turn whatever the
-        // brush was last over.
+        // ALT frees the pointer to reach a row, and no gesture aimed at the world
+        // acts while it is held.
         let mut app = placing_app();
         let id = app
             .world_mut()
@@ -1848,7 +1870,7 @@ mod carrying {
         press(&mut app, &[KeyCode::KeyG]);
         assert!(
             app.world().resource::<Carrying>().0.is_some(),
-            "G would not pick up with the pointer aimed at it"
+            "G would not pick up with the crosshair on it"
         );
     }
 
@@ -1982,10 +2004,14 @@ pub fn dig_tunnels(
 ) {
     // The row arms the shovel and puts it down again, so the shelf says whether a
     // drag is going to dig or to sculpt.
-    let by_press = asked
+    // The row and the key, split the same way as the acts above: a row press
+    // arrives only while ALT frees the pointer, so it must not be gated on the
+    // pointer being on the world — and the KEY must be, or a keystroke aimed at
+    // a panel would take the shovel up behind it.
+    let by_row = asked
         .read()
-        .any(|ask| matches!(ask.0, Act::Bore | Act::Unbore))
-        || keys.just_pressed(Act::Bore.key());
+        .any(|ask| matches!(ask.0, Act::Bore | Act::Unbore));
+    let by_press = by_row || (aiming_at_the_world(&free) && keys.just_pressed(Act::Bore.key()));
     if by_press {
         digging.in_hand = !digging.in_hand;
         toast.show(if digging.in_hand {
@@ -2102,14 +2128,18 @@ mod digging {
             }
         }
         app.update();
-        let mut mouse = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
-        mouse.release(MouseButton::Left);
-        mouse.clear();
-        let mut board = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
-        for key in keys {
-            board.release(*key);
+        {
+            let mut board = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+            for key in keys {
+                board.release(*key);
+            }
+            board.clear();
         }
-        board.clear();
+        // Through `release`, which runs a frame with the button UP — the stroke's
+        // level is forgotten on such a frame, and a helper that released without
+        // one left it set for the NEXT drag. `shift_fills_it_back_in` only escaped
+        // that because its second stroke is a fill, which ignores the level.
+        release(app);
     }
 
     /// One frame of a stroke that stays down, so a drag can be several frames with
@@ -2245,5 +2275,104 @@ mod digging {
         aim(&mut app, at, 40.0);
         drag(&mut app, &[]);
         assert_eq!(floor(&app, at), None, "digging happened while reaching for a row");
+    }
+}
+
+#[cfg(test)]
+mod reaching {
+    use super::*;
+    use super::tests::{facing, placing_app, press};
+    use crate::world::placed::Standing;
+
+    /// A row in the panel has to DO something when it is pressed.
+    ///
+    /// # Every ACTIONS row was dead, and the reason is a nice one
+    ///
+    /// A row can only be clicked while ALT holds the pointer free — that is what
+    /// ALT is for. And `place_things` guarded BOTH its doors with "the pointer is
+    /// not out reaching for a row", so the row press arrived and was thrown away
+    /// on the very frame it could only have arrived on. Pressing PLACE, PICK UP,
+    /// TURN or TAKE AWAY did nothing at all, for as long as the panel has had
+    /// those rows.
+    ///
+    /// Two doors, two guards: the keyboard is gated on the pointer being on the
+    /// world, and a row press means the act outright — the maker put the pointer
+    /// on that row and pressed it, which is less ambiguous than any key.
+    #[test]
+    fn a_row_press_acts_even_though_the_pointer_is_off_the_world() {
+        let mut app = placing_app();
+        let id = app
+            .world_mut()
+            .resource_mut::<Standing>()
+            .add("cottage", Vec2::new(10.0, -4.0), 0.0, 1.0);
+
+        // ALT held, which is the only way a row can be clicked at all.
+        app.world_mut().resource_mut::<CursorFree>().0 = true;
+        app.world_mut().send_event(Asked(Act::Turn));
+        app.update();
+
+        assert!(
+            facing(&app, id) != 0.0,
+            "the TURN row did nothing — the pointer being off the world ate it"
+        );
+
+        // And the KEY still holds still while ALT is held, which is the half the
+        // guard is actually for: a keystroke aimed at a panel is not an act.
+        let was = facing(&app, id);
+        press(&mut app, &[KeyCode::KeyR]);
+        assert_eq!(facing(&app, id), was, "R fired while reaching for a row");
+    }
+
+    /// ALT held through ESC used to kill mouse-look for the rest of the session.
+    ///
+    /// `CursorFree` is written only inside the terrain tool, and `camera::orbit_input`
+    /// reads it in the GAME too. So leaving with ALT down left it set, and the
+    /// game's camera then refused to turn with the mouse until somebody went back
+    /// into the tool and pressed ALT again. A resource one state writes and two
+    /// states read has to be put back by the state that writes it.
+    #[test]
+    fn leaving_the_tool_lets_go_of_the_pointer() {
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin)
+            .init_state::<AppState>()
+            .init_resource::<CursorFree>()
+            .add_systems(OnExit(AppState::Editing), leave_editor);
+
+        // Into the tool, ALT down, then out.
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::Editing);
+        app.update();
+        app.world_mut().resource_mut::<CursorFree>().0 = true;
+        app.world_mut()
+            .resource_mut::<NextState<AppState>>()
+            .set(AppState::Menu);
+        app.update();
+
+        assert!(
+            !app.world().resource::<CursorFree>().0,
+            "the tool kept hold of the pointer after leaving, which stops the \
+             game's camera turning"
+        );
+    }
+
+    /// And that it is actually WIRED, which is a different claim.
+    ///
+    /// The test above builds its own little app and registers `leave_editor` in it,
+    /// so it passes whether or not the real plugin ever calls it — and the real
+    /// plugin did not, because I wrote the function and forgot the line. That is
+    /// the second time in one session a system existed and never ran.
+    ///
+    /// Reading the source is a blunt way to check a registration and it is the only
+    /// one that costs nothing: the alternative is standing up `EditorPlugin` with
+    /// every resource it touches, which is a fixture that breaks whenever the tool
+    /// grows a field.
+    #[test]
+    fn leaving_the_tool_is_wired_up_and_not_merely_written() {
+        let source = include_str!("mod.rs");
+        assert!(
+            source.contains("OnExit(AppState::Editing), leave_editor"),
+            "leave_editor is never registered, so nothing puts the pointer back"
+        );
     }
 }

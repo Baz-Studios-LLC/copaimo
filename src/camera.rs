@@ -245,11 +245,10 @@ fn orbit_input(
     #[cfg(feature = "tools")] free: Option<Res<crate::editor::CursorFree>>,
     mut orbit: ResMut<Orbit>,
 ) {
-    // The tool's pointer is free — it is aiming at rows and at ground, not turning
-    // the view. Turning happens while the middle button is held, which is what
-    // clears this; see `editor::CursorFree`.
+    // The pointer has been let go to reach a panel. Moving it there must not
+    // swing the view, exactly as in the menu.
     //
-    // Only the tools ever free it, so in a player's build there is no panel to
+    // Only the tools ever let it go, so in a player's build there is no panel to
     // reach for and nothing to ask.
     #[cfg(feature = "tools")]
     if free.is_some_and(|free| free.0) {

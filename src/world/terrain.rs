@@ -2728,6 +2728,14 @@ mod shovelling {
     /// passage had no mouth. You dug a void nobody could see into, and the walk
     /// rule carried you through the drawn hillside like a ghost. Nothing here
     /// asked "and is it a hole?", so nothing failed.
+    ///
+    /// # It drives every brushful at ONE held floor, exactly as the tool now does
+    ///
+    /// Worth saying because it is why this test passed all along while the tool was
+    /// broken: it captures the floor once and digs 251 brushfuls at that height,
+    /// which is the fixed-level behaviour `editor::dig_tunnels` only grew later. The
+    /// test and the tool disagreed about the tool's central rule and nothing
+    /// noticed, so this is the specification and the two must not part again.
     #[test]
     fn a_dug_passage_has_a_mouth_a_sealed_roof_and_a_way_in() {
         let terrain = Terrain::new();

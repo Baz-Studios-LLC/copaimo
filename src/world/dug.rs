@@ -20,22 +20,27 @@
 //! hands a walker whichever of the two has claim on them. That is the only place
 //! this world has two grounds stacked over each other.
 //!
-//! # The floor is where you were AIMING, stamped flat
+//! # The floor is set where the STROKE began, and held
 //!
-//! A brushful takes the height of the point under the pointer and lays the whole
-//! footprint at that one height. Not the terrain's own height per cell, which is
-//! what would make a dug floor lumpy — and a floor a man dug with a pick is not
-//! lumpy. Aim lower as you go and the tunnel slopes; aim level and it is level.
+//! A brushful lays its whole footprint at one height, rather than following the
+//! terrain's own height per cell — a floor a man dug with a pick is not lumpy. That
+//! one height is the aim where the STROKE began, and it holds until the button
+//! comes up.
+//!
+//! It used to be re-read from the aim every brushful, which sounds like the same
+//! thing and is not: driving into a hillside, the aim climbs with the slope, so the
+//! passage climbed with it and never got under the hill. Separate strokes still
+//! choose separate levels, which is what lets one passage branch off another at a
+//! different height. See `editor::dig_tunnels`.
 //!
 //! Where a brushful crosses ground already dug, the LOWER floor stands: you can dig
 //! deeper but you cannot un-dig by painting over it. Filling in is its own stroke.
 //!
 //! # A shaft to nowhere
 //!
-//! Nothing may be dug below [`DEEPEST`]. A pointer can only aim at the surface, so
-//! the floor is always some real height somewhere — but a low aim carried into a
-//! hillside is how you would dig straight down and out through the bottom of the
-//! world, and that is a hole nobody can climb out of.
+//! Nothing may be dug below [`DEEPEST`]. A low aim carried into a hillside is how
+//! you would dig straight down and out through the bottom of the world, and that is
+//! a hole nobody can climb out of.
 
 use bevy::prelude::*;
 

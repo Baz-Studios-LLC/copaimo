@@ -109,6 +109,18 @@ impl Plugin for EditorUiPlugin {
     }
 }
 
+/// Whether there is a pointer a person can actually see.
+///
+/// The tool hides the cursor while it has hold of the view, and a hidden cursor
+/// still moves and still reports hover and press. Anything driven by pointing has
+/// to ask this first.
+fn pointer_is_visible(windows: &Query<&Window, With<bevy::window::PrimaryWindow>>) -> bool {
+    windows
+        .iter()
+        .next()
+        .is_some_and(|window| window.cursor_options.visible)
+}
+
 // ----------------------------------------------------------------- construction
 
 fn spawn_sidebar(mut commands: Commands, font: Res<UiFont>) {
@@ -520,8 +532,19 @@ fn despawn_ui(mut commands: Commands, roots: Query<Entity, With<EditorUiRoot>>) 
 /// things — the fault `TOOL_KEYS` exists to prevent, in its other half.
 pub fn pressed_act(
     rows: Query<(&Interaction, &Choice<crate::editor::Act>), Changed<Interaction>>,
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     mut asked: EventWriter<crate::editor::Asked>,
 ) {
+    // Only a pointer somebody can SEE.
+    //
+    // The tool confines and HIDES the cursor for mouse-look, and a confined cursor
+    // still moves — so Bevy goes on reporting hover and press on whatever it
+    // happens to be over. Left ungated, a click meant for the ground could press
+    // whichever row the invisible pointer had drifted onto. The same test the panel
+    // already uses for scrolling, for the same reason.
+    if !pointer_is_visible(&windows) {
+        return;
+    }
     for (touch, choice) in &rows {
         if *touch == Interaction::Pressed {
             asked.write(crate::editor::Asked(choice.0));

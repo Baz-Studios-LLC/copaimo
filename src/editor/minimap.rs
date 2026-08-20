@@ -238,8 +238,6 @@ fn fly_to_click(
     mut cameras: Query<&mut Transform, With<MainCamera>>,
     mut toast: ResMut<crate::editor::ui::Toast>,
 ) {
-    // Pointing rather than looking — the tool's resting state now, so this is only
-    // asking that somebody is not mid-turn of the view.
     if !free.0 || !buttons.just_pressed(MouseButton::Left) {
         return;
     }
