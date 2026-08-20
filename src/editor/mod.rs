@@ -618,8 +618,6 @@ fn paint(
     standing: Query<Option<&Children>, With<Chunk>>,
     free: Res<CursorFree>,
     digging: Res<Digging>,
-    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    panels: Query<(&ComputedNode, &GlobalTransform), With<crate::tools::widget::Scrolls>>,
     mut brush: ResMut<Brush>,
 ) {
     // The pointer is out reaching for a panel, not aimed at the ground.
@@ -852,8 +850,6 @@ fn lay_ramp(
     chunks: Res<ChunkMap>,
     busy: Query<(), With<PendingChunk>>,
     free: Res<CursorFree>,
-    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    panels: Query<(&ComputedNode, &GlobalTransform), With<crate::tools::widget::Scrolls>>,
     mut brush: ResMut<Brush>,
     mut toast: ResMut<ui::Toast>,
 ) {
@@ -1423,8 +1419,6 @@ fn place_things(
     catalogue: Res<crate::build::Catalogue>,
     brush: Res<Brush>,
     free: Res<CursorFree>,
-    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    panels: Query<(&ComputedNode, &GlobalTransform), With<crate::tools::widget::Scrolls>>,
     mut placed: ResMut<crate::world::placed::Standing>,
     mut carrying: ResMut<Carrying>,
     mut asked: EventReader<Asked>,
