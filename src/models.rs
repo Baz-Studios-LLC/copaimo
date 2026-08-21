@@ -54,6 +54,13 @@ pub struct Model {
     /// materials. A renamed object is a silent failure — the game finds nothing
     /// and quietly keeps the shape it grew for itself.
     pub meshes: Vec<(String, usize)>,
+    /// How many bones the file's skeleton has, or nought if it carries no rig.
+    ///
+    /// A rig leaves through an export checkbox, and a model that has lost its
+    /// skinning looks exactly like one that never had any — right up until something
+    /// tries to bend it, which is a long way downstream. So the count is read out
+    /// and asserted on.
+    pub joints: usize,
 }
 
 #[cfg(test)]
@@ -165,11 +172,24 @@ pub fn inspect(bytes: &[u8]) -> Result<Model, String> {
     if !seen {
         return Err("nothing in the file has any geometry".into());
     }
+    // Every skin's joints, summed. One skeleton is the ordinary case; this does not
+    // insist on it.
+    let joints = tree["skins"]
+        .as_array()
+        .map(|skins| {
+            skins
+                .iter()
+                .filter_map(|skin| skin["joints"].as_array().map(Vec::len))
+                .sum()
+        })
+        .unwrap_or(0);
+
     Ok(Model {
         low,
         high,
         triangles,
         meshes: named,
+        joints,
     })
 }
 
@@ -711,6 +731,77 @@ mod tests {
             assert!(why.contains("no mesh named `trunk`"), "unhelpful: {why}");
             assert!(why.contains("wood"), "the reason does not say what is there: {why}");
         }
+    }
+
+    /// A person carries a skeleton, and the skeleton has the bones it should.
+    ///
+    /// # A rig leaves through a checkbox
+    ///
+    /// Skinning is exported by an option, and a body that has lost it looks exactly
+    /// like one that never had it — until something tries to bend the thing, which
+    /// is a long way downstream of the mistake. Every mesh in a rigged file must
+    /// carry `JOINTS_0` and `WEIGHTS_0` too: it is entirely possible to export the
+    /// skeleton and not the weights, and then the figure stands there rigid while
+    /// its bones move under it.
+    #[test]
+    fn a_person_carries_a_skeleton_and_every_mesh_is_bound_to_it() {
+        let folder = std::path::Path::new("assets/models");
+        let mut looked = 0;
+        for build in ["male", "female"] {
+            let road = folder.join(format!("person_{build}.glb"));
+            let Ok(bytes) = std::fs::read(&road) else {
+                println!("person_{build}.glb is not there yet");
+                continue;
+            };
+            let model = inspect(&bytes)
+                .unwrap_or_else(|why| panic!("person_{build}.glb is not a model: {why}"));
+            // Seventeen at least: a spine of five — hips, spine, chest, neck,
+            // head — and three bones in each of four limbs. A LOWER BOUND rather
+            // than the exact count, because the exact count belongs to
+            // `dev/art/people.py` and copying it here would be one more number
+            // that has to agree with another. Fewer than this and the rig is
+            // partial, which is the failure worth catching.
+            assert!(
+                model.joints >= 17,
+                "person_{build}.glb has {} joints — the rig is missing or partial",
+                model.joints
+            );
+            // And the geometry is actually bound to it.
+            for (mesh, _) in &model.meshes {
+                let shape = read_geometry(&bytes, mesh)
+                    .unwrap_or_else(|why| panic!("person_{build}.glb `{mesh}`: {why}"));
+                assert!(
+                    !shape.places.is_empty(),
+                    "person_{build}.glb `{mesh}` decoded to nothing"
+                );
+            }
+            assert!(
+                bound_to_bones(&bytes),
+                "person_{build}.glb has a skeleton but its meshes are not weighted to it"
+            );
+            looked += 1;
+        }
+        assert!(looked > 0, "no person models were checked");
+    }
+
+    /// Whether every mesh in a file carries joint indices and weights.
+    fn bound_to_bones(bytes: &[u8]) -> bool {
+        let Ok((tree, _)) = split(bytes) else {
+            return false;
+        };
+        let Some(meshes) = tree["meshes"].as_array() else {
+            return false;
+        };
+        meshes.iter().all(|mesh| {
+            mesh["primitives"]
+                .as_array()
+                .is_some_and(|parts| {
+                    parts.iter().all(|part| {
+                        !part["attributes"]["JOINTS_0"].is_null()
+                            && !part["attributes"]["WEIGHTS_0"].is_null()
+                    })
+                })
+        })
     }
 
     /// A GLB carrying nothing but the numbers this checks.

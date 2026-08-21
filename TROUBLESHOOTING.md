@@ -895,6 +895,51 @@ be a **dict**, and `bpy.context.object` is unavailable, so work at the data leve
 (`bmesh`, `mesh.from_pydata`, `evaluated_get(depsgraph).to_mesh()`) rather than
 through operators.
 
+### A posed figure tears open, usually at the torso
+
+**Symptom.** Rest pose looks fine. Posed, a sheet of the torso stretches from the
+chest down past the hip, and a shoulder drags the chest with it.
+
+**Cause.** Weights computed by **inverse distance to the nearest bones**, over the
+whole skeleton. A vertex on the front of the belly is genuinely nearer to a thigh
+bone than to the spine, and nothing in the rule said otherwise, so the thigh took
+it.
+
+**Fix.** Distance is the wrong instrument when the parts are known. Every piece of
+this body is built by name — a vertex in the left sleeve belongs to the left arm and
+to nothing else, whatever it happens to be near. So each part carries a **chain**:
+which bones may claim it at all, and at what height each takes over. The vertex's
+height along that chain decides how the claim is shared between the two bones it
+lies between; nothing else can touch it.
+
+Weights are assigned **before the parts are welded** — afterwards there is no
+telling which vertex came from which piece. Blender merges vertex groups by name on
+join, so they survive it.
+
+### The skeleton stands where the body used to
+
+Bones are written in world metres. The figure is seated on the floor *after* it is
+built, and a rig made before that seating is left behind by however far the body
+moved. Build the rig last, and pass it the same shift.
+
+### A rig leaves through a checkbox
+
+Skinning is exported by an option, and a body that has lost it looks exactly like
+one that never had it — until something tries to bend the thing, which is a long way
+downstream. `inspect` reads the joint count out of the file, and the test also checks
+that every mesh carries `JOINTS_0` and `WEIGHTS_0`: exporting the skeleton without
+the weights is entirely possible, and then the figure stands rigid while its bones
+move under it.
+
+The joint count is asserted as a **lower bound** (a spine of five, plus three bones
+in each of four limbs) rather than an exact number, because the exact number belongs
+to `dev/art/people.py` and copying it into the test would be one more pair of numbers
+that has to agree.
+
+**And `Vector.length_squared` is a property, not a method** — calling it is a
+`TypeError: 'float' object is not callable`, which reads like a much stranger problem
+than it is.
+
 ### A test that keeps needing its threshold moved is asserting the wrong thing
 
 Worth its own entry. The check for "this model still carries its baked shading" was

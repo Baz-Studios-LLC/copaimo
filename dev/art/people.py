@@ -323,36 +323,248 @@ def mitt(hand: int, at_x: float, at_z: float):
     return weld([stack, thumb], "hand")
 
 
+# --------------------------------------------------------------------- the rig
+#
+# # Why a skeleton, and why now
+#
+# Nothing in the world moves yet, and a static figure needs no bones. But every
+# part of the body was just rebuilt, and the ONE thing that decides whether a rig
+# is any good is where the joints sit relative to the shapes — an elbow bone in the
+# middle of a forearm creases the sleeve wherever it bends. Rigging the figure while
+# the shapes are fresh means the joints are placed against the geometry that exists,
+# not against remembered numbers.
+#
+# Bevy reads glTF skins on its own: a rigged mesh arrives as a `SkinnedMesh` with no
+# game code at all. What it does NOT bring is animation — that is clips and an
+# `AnimationPlayer`, and it comes next.
+
+# Which bones a part belongs to, and at what height each takes over.
+#
+# Keyed by object name, filled as `person` builds each piece.
+CHAINS: dict = {}
+
+# How many bones may claim one vertex. Two: a vertex lies between the bone above it
+# and the bone below it, and nothing else has any business moving it.
+MOST_BONES = 2
+
+
+def chain_of(part, links) -> None:
+    """Records which bones own a part, as `(bone, height)` from the bottom up."""
+    CHAINS[part.name] = links
+
+
+def weigh(part) -> None:
+    """Weights one part to its own bones, blending along its length.
+
+    # Distance to a bone is the wrong instrument
+
+    The first attempt weighted every vertex by inverse distance to the nearest few
+    bones, over the whole skeleton. Posed, the torso TORE: a sheet of it stretched
+    from the chest down past the hip, because a vertex on the front of the belly is
+    genuinely nearer to a thigh bone than to the spine, and nothing in the rule said
+    otherwise. A shoulder dragged the chest for the same reason.
+
+    But the part a vertex belongs to is not a guess here — every piece of this body
+    is built by name. A vertex in the left sleeve is owned by the left arm and by
+    nothing else, whatever it happens to be near. So the chain says which bones may
+    claim a part at all, and the vertex's HEIGHT along that chain says how the claim
+    is shared between the two it lies between.
+
+    Assigned before the parts are welded, because after the weld there is no way to
+    tell which vertex came from which piece. Blender merges vertex groups by name on
+    join, so the weights survive it.
+    """
+    links = CHAINS.get(part.name)
+    if not links:
+        return
+    groups = {}
+    for bone, _ in links:
+        if bone not in groups:
+            groups[bone] = part.vertex_groups.new(name=bone)
+    place = part.matrix_world
+    for point in part.data.vertices:
+        up = (place @ point.co).z
+        # Below the first link or above the last: all of it to that end.
+        if up <= links[0][1]:
+            groups[links[0][0]].add([point.index], 1.0, "REPLACE")
+            continue
+        if up >= links[-1][1]:
+            groups[links[-1][0]].add([point.index], 1.0, "REPLACE")
+            continue
+        for (lower, at_low), (upper, at_high) in zip(links, links[1:]):
+            if at_low <= up <= at_high:
+                span = max(at_high - at_low, 1.0e-5)
+                share = (up - at_low) / span
+                groups[lower].add([point.index], 1.0 - share, "REPLACE")
+                groups[upper].add([point.index], share, "REPLACE")
+                break
+
+
+def bone_plan(build: str):
+    """Every bone, as `(name, parent, head, tail)` in world metres.
+
+    Placed against the body's own numbers — the same `hip`, `chest` and `HEAD_AT` the
+    shapes are built from — so a joint cannot drift away from the shape it bends.
+    """
+    marks = body_marks(build)
+    hip, chest = marks["hip"], marks["chest"]
+    arm_out, leg_out = marks["arm_out"], marks["leg_out"]
+    boot_top = marks["boot_top"]
+
+    bones = [
+        ("hips", None, (0.0, 0.0, hip), (0.0, 0.0, hip + 0.14)),
+        ("spine", "hips", (0.0, 0.0, hip + 0.14), (0.0, 0.0, chest - 0.06)),
+        ("chest", "spine", (0.0, 0.0, chest - 0.06), (0.0, 0.0, chest + 0.04)),
+        ("neck", "chest", (0.0, 0.0, chest + 0.04), (0.0, 0.0, HEAD_AT - 0.14)),
+        ("head", "neck", (0.0, 0.0, HEAD_AT - 0.14), (0.0, 0.0, HEAD_AT + 0.20)),
+    ]
+    for side, hand in (("l", 1), ("r", -1)):
+        elbow, wrist = marks["elbow"], marks["wrist"]
+        knee, ankle = marks["knee"], marks["ankle"]
+        bones += [
+            (
+                f"arm.{side}",
+                "chest",
+                (hand * arm_out, 0.0, chest - 0.03),
+                (hand * arm_out, 0.0, elbow),
+            ),
+            (
+                f"forearm.{side}",
+                f"arm.{side}",
+                (hand * arm_out, 0.0, elbow),
+                (hand * arm_out, 0.0, wrist),
+            ),
+            (
+                f"hand.{side}",
+                f"forearm.{side}",
+                (hand * arm_out, 0.0, wrist),
+                (hand * arm_out, 0.0, wrist - 0.10),
+            ),
+            (
+                f"thigh.{side}",
+                "hips",
+                (hand * leg_out, 0.0, hip),
+                (hand * leg_out, 0.0, knee),
+            ),
+            (
+                f"shin.{side}",
+                f"thigh.{side}",
+                (hand * leg_out, 0.0, knee),
+                (hand * leg_out, 0.0, ankle),
+            ),
+            (
+                f"foot.{side}",
+                f"shin.{side}",
+                (hand * leg_out, 0.0, ankle),
+                (hand * leg_out, -0.14, 0.02),
+            ),
+        ]
+    return bones
+
+
+def rig(parts, build: str, lift: float):
+    """Builds the skeleton and binds the already-weighted parts to it.
+
+    `lift` is how far the figure was moved to seat it on the floor, applied to every
+    bone: the bones are written in world metres against the design's own numbers, and
+    a body seated after the plan was made would leave its skeleton behind.
+    """
+    frame = bpy.data.armatures.new("skeleton")
+    rigged = bpy.data.objects.new("skeleton", frame)
+    bpy.context.collection.objects.link(rigged)
+    bpy.context.view_layer.objects.active = rigged
+    bpy.ops.object.mode_set(mode="EDIT")
+    made = {}
+    for name, parent, head, tail in bone_plan(build):
+        bone = frame.edit_bones.new(name)
+        bone.head = (head[0], head[1], head[2] + lift)
+        bone.tail = (tail[0], tail[1], tail[2] + lift)
+        if parent:
+            bone.parent = made[parent]
+        made[name] = bone
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    for obj in parts:
+        obj.parent = rigged
+        skin = obj.modifiers.new(name="skin", type="ARMATURE")
+        skin.object = rigged
+    return rigged
+
+
 # ------------------------------------------------------------------- the body
 
 
+def body_marks(build: str) -> dict:
+    """Every landmark of a body, in world metres.
+
+    # One set of numbers for the shapes AND the bones
+
+    The shapes are built from these and so is the skeleton. Written twice they would
+    drift — an elbow bone a couple of centimetres off the sleeve's own middle ring
+    creases the sleeve wherever it bends, and nothing about the model would look
+    wrong until it was posed. This project has met that shape of bug enough times to
+    know not to invite it.
+
+    Higher hips and a higher chest than a realistic figure: the body is SHORT because
+    the head is big, and a chibi has almost no neck to speak of.
+    """
+    hip = 0.80 if build == "male" else 0.79
+    chest = 1.22 if build == "male" else 1.20
+    # Two presets, and this is all of the difference: a male tapers from a wide
+    # shoulder to a narrow hip, a female the other way about and a little smaller.
+    shoulder = 0.190 if build == "male" else 0.162
+    seat = 0.158 if build == "male" else 0.172
+    boot_top = 0.135
+    return {
+        "boot_top": boot_top,
+        "hip": hip,
+        "chest": chest,
+        "neck_at": HEAD_AT - HEAD_HIGH * 0.5,
+        "shoulder": shoulder,
+        "waist": 0.150 if build == "male" else 0.142,
+        "seat": seat,
+        "deep": 0.112 if build == "male" else 0.104,
+        # Just OUTSIDE the real shoulder. Two mistakes were made here in turn: at
+        # shoulder + 0.035 the arms hung clear of the body as separate tubes, and at
+        # shoulder - 0.012 — with thicker chibi sleeves — they merged into it and the
+        # figure came out as one wide mass with no arms in it. A sleeve wants to
+        # touch the torso and still be a sleeve.
+        "arm_out": shoulder + 0.022,
+        "leg_out": seat * 0.52,
+        # The joints, each at the middle ring of the shape it bends.
+        "elbow": (chest + hip) * 0.5 - 0.04,
+        "wrist": hip - 0.045,
+        "knee": (hip + boot_top) * 0.5,
+        "ankle": boot_top * 0.9,
+    }
+
+
+def side(hand: int) -> str:
+    """Which side of the body a `hand` of 1 or -1 belongs to. Left is +X."""
+    return "l" if hand > 0 else "r"
+
+
 def person(build: str):
-    """One body, as four meshes the game tints apart.
+    """One body, as five meshes the game tints apart.
 
     Built from lofted hulls rather than stacked primitives — see [`loft`] for why
     that is the difference between a person and a doll. Limbs run INTO the torso
     rather than up to it, so there is no seam at a shoulder or a hip.
-    """
-    # Higher hips and a higher chest than a realistic figure: the body is SHORT
-    # because the head is big, and a chibi has almost no neck to speak of.
-    boot_top = 0.135
-    hip = 0.80 if build == "male" else 0.79
-    chest = 1.22 if build == "male" else 1.20
-    neck_at = HEAD_AT - HEAD_HIGH * 0.5
 
-    # Two presets, and this is all of the difference: a male tapers from a wide
-    # shoulder to a narrow hip, a female the other way about and a little smaller.
-    shoulder = 0.190 if build == "male" else 0.162
-    waist = 0.150 if build == "male" else 0.142
-    seat = 0.158 if build == "male" else 0.172
-    deep = 0.112 if build == "male" else 0.104
-    # Just OUTSIDE the real shoulder. Two mistakes were made here in turn: at
-    # shoulder + 0.035 the arms hung clear of the body as separate tubes, and at
-    # shoulder - 0.012 — with thicker chibi sleeves — they merged into it and the
-    # figure came out as one wide mass with no arms in it. A sleeve wants to touch
-    # the torso and still be a sleeve.
-    arm_out = shoulder + 0.022
-    leg_out = seat * 0.52
+    Each part is also tagged with the bones that own it — see [`weigh`] — because
+    after the parts are welded there is no telling which vertex came from which.
+    """
+    marks = body_marks(build)
+    boot_top = marks["boot_top"]
+    hip = marks["hip"]
+    chest = marks["chest"]
+    neck_at = marks["neck_at"]
+    shoulder = marks["shoulder"]
+    waist = marks["waist"]
+    seat = marks["seat"]
+    deep = marks["deep"]
+    arm_out = marks["arm_out"]
+    leg_out = marks["leg_out"]
 
     # --- the head, and a neck under it
     #
@@ -376,11 +588,15 @@ def person(build: str):
         "neck",
     )
     smooth_out(neck, 1)
+    chain_of(head, [("head", 0.0)])
+    chain_of(neck, [("chest", chest - 0.04), ("neck", chest + 0.07), ("head", neck_at)])
     skin = [head, neck]
     for hand in (-1, 1):
         ear = blob((0.040, 0.062, 0.088), (hand * (HEAD_WIDE * 0.5 - 0.005), 0.018, HEAD_AT + 0.005), subdiv=1)
+        chain_of(ear, [("head", 0.0)])
         skin.append(smooth_out(ear, 1))
         fist = mitt(hand, hand * arm_out, hip - 0.045)
+        chain_of(fist, [(f"hand.{side(hand)}", 0.0)])
         skin.append(fist)
 
     # --- the tunic: one hull from the hem to the shoulder
@@ -395,6 +611,12 @@ def person(build: str):
         "torso",
     )
     smooth_out(torso, 1)
+    # The trunk blends up through the spine, and NOTHING below the hip may claim
+    # it: weighting by distance let a thigh drag the belly and tore the torso open.
+    chain_of(
+        torso,
+        [("hips", hip - 0.10), ("spine", hip + 0.16), ("chest", chest - 0.04)],
+    )
     clothes = [torso]
     for hand in (-1, 1):
         # A sleeve that starts INSIDE the shoulder and tapers to the wrist.
@@ -412,6 +634,15 @@ def person(build: str):
         for point in arm.data.vertices:
             point.co.x += hand * arm_out
         smooth_out(arm, 1)
+        chain_of(
+            arm,
+            [
+                (f"hand.{side(hand)}", marks["wrist"] - 0.07),
+                (f"forearm.{side(hand)}", marks["wrist"]),
+                (f"arm.{side(hand)}", marks["elbow"]),
+                ("chest", chest - 0.01),
+            ],
+        )
         clothes.append(arm)
         # A leg from inside the hem down to the boot.
         leg = loft(
@@ -431,12 +662,23 @@ def person(build: str):
         for point in leg.data.vertices:
             point.co.x += hand * leg_out
         smooth_out(leg, 1)
+        chain_of(
+            leg,
+            [
+                (f"foot.{side(hand)}", marks["ankle"] - 0.04),
+                (f"shin.{side(hand)}", marks["ankle"] + 0.03),
+                (f"thigh.{side(hand)}", marks["knee"]),
+                ("hips", hip + 0.02),
+            ],
+        )
         clothes.append(leg)
         # And a boot. NOT subdivided: a cube put through subdivision comes out a
         # ball, and the figures walked about on two spheres. A boot is the one stiff
         # thing on a soft body, so it keeps its corners — and it gets a toe, because
         # a foot that is as deep at the heel as at the toe reads as a brick.
-        clothes.append(boot(hand * leg_out, boot_top))
+        shoe = boot(hand * leg_out, boot_top)
+        chain_of(shoe, [(f"foot.{side(hand)}", 0.0)])
+        clothes.append(shoe)
 
     # --- the eyes
     #
@@ -452,19 +694,22 @@ def person(build: str):
     for hand in (-1, 1):
         x = hand * 0.070
         z = HEAD_AT - 0.030
-        sclera.append(blob((EYE_WIDE, 0.052, EYE_TALL), (x, front + 0.028, z)))
-        eyes.append(
-            blob(
-                (EYE_WIDE * 0.66, 0.044, EYE_TALL * 0.60),
-                (x, front + 0.014, z - EYE_TALL * 0.14),
-            )
+        white = blob((EYE_WIDE, 0.052, EYE_TALL), (x, front + 0.028, z))
+        iris = blob(
+            (EYE_WIDE * 0.66, 0.044, EYE_TALL * 0.60),
+            (x, front + 0.014, z - EYE_TALL * 0.14),
         )
-        pupils.append(
-            blob(
-                (EYE_WIDE * 0.30, 0.038, EYE_TALL * 0.28),
-                (x, front + 0.004, z - EYE_TALL * 0.16),
-            )
+        dot = blob(
+            (EYE_WIDE * 0.30, 0.038, EYE_TALL * 0.28),
+            (x, front + 0.004, z - EYE_TALL * 0.16),
         )
+        # All three ride the head and nothing else, or a shoulder pulls an eye
+        # out of its socket.
+        for part in (white, iris, dot):
+            chain_of(part, [("head", 0.0)])
+        sclera.append(white)
+        eyes.append(iris)
+        pupils.append(dot)
 
     return {
         "skin": (skin, 0.88, 1.0),
@@ -586,6 +831,9 @@ def build_body(build: str) -> None:
     welded = []
     for name, (parts, low, high) in made.items():
         for part in parts:
+            # BEFORE the weld: afterwards there is no telling which vertex came
+            # from which piece. Blender merges vertex groups by name on join.
+            weigh(part)
             bpy.ops.object.select_all(action="DESELECT")
             part.select_set(True)
             bpy.context.view_layer.objects.active = part
@@ -605,6 +853,11 @@ def build_body(build: str) -> None:
         obj.location.z -= lowest
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
+
+    # The skeleton LAST — after the figure has been dropped onto the floor. Bones
+    # are written in world metres, and a body moved after rigging leaves its
+    # skeleton standing where it used to be.
+    rig(welded, build, -lowest)
 
     here = os.path.dirname(os.path.abspath(__file__))
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(here, f"person_{build}.blend"))
