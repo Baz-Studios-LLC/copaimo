@@ -160,18 +160,34 @@ def pine():
 
 
 def birch():
-    """Slim and sparse, leaning a little — the pale one in a wood."""
-    fork = 7.4
+    """Slim and pale, leaning a little, with a deep crown.
+
+    # A tree is a proportion, not a height
+
+    This forked at 7.4 m on a 10.3 m tree, so nearly three quarters of it was bare
+    stem under one small ball of leaves. In the game — where the trunk is chalk
+    pale, because that is what makes a birch a birch — it read as a lamp post with
+    a shrub balanced on top.
+
+    The height was never the problem. What was wrong is the SHARE of the tree that
+    is crown: a quarter reads as a pole, and about half reads as a tree. So the
+    fork came down to 4.9 m and the crown grew into five masses that reach below
+    the fork, which is also how a birch actually looks — foliage well down the
+    stem rather than a cap on the end of it.
+    """
+    fork = 4.9
     crown = [
-        ((0.25, 0.10, 9.0), 1.45),
-        ((-0.70, 0.40, 7.9), 1.15),
-        ((0.80, -0.50, 8.3), 1.00),
+        ((0.10, 0.00, 7.00), 2.00),
+        ((1.30, 0.35, 6.15), 1.40),
+        ((-1.20, -0.45, 6.35), 1.30),
+        ((0.20, 1.05, 8.00), 1.15),
+        ((-0.35, 0.55, 5.50), 1.05),
     ]
-    wood = [trunk(0.20, 0.0, fork + 0.6, sides=10, lean=math.radians(2.5))]
+    wood = [trunk(0.24, 0.0, fork + 0.7, sides=10, lean=math.radians(2.5))]
     leaves = [clump(radius, at, squash=0.9) for at, radius in crown]
     start = mathutils.Vector((0.0, 0.0, fork))
     for at, _ in crown[1:]:
-        wood.append(branch_to(start, mathutils.Vector(at), 0.075))
+        wood.append(branch_to(start, mathutils.Vector(at), 0.085))
     return wood, leaves
 
 

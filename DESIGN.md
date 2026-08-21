@@ -908,6 +908,14 @@ guesswork. A branch is now given the point it must arrive at — the middle of t
 clump it holds up — and derives its own length and orientation, so it ends inside
 the foliage by construction and moving a clump moves its branch with it.
 
+**A tree is a proportion, not a height.** The birch forked at 7.4 m on a 10.3 m
+stem, so nearly three quarters of it was bare pole under one small ball of leaves —
+and because the game paints a birch chalk pale, it read as a lamp post with a shrub
+on top. The height was never the problem: the share of the tree that is CROWN is.
+A quarter reads as a pole and about half reads as a tree, so the fork came down to
+4.9 m and the crown grew into five masses that reach below it. That is also how a
+birch actually looks: foliage well down the stem rather than a cap on the end.
+
 **Detail follows size.** A clump is an icosphere at subdivision 3 above 1.3 m of
 radius and 2 below it, and a cone's rim gets fourteen sides rather than eight or
 nine. One number for everything is the wrong shape of rule here: an oak's crown
