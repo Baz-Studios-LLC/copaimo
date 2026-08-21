@@ -35,12 +35,10 @@
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 
 #[cfg(feature = "tools")]
-#[cfg(feature = "tools")]
 mod bench;
 mod build;
 mod camera;
 mod config;
-#[cfg(feature = "tools")]
 #[cfg(feature = "tools")]
 mod editor;
 #[cfg(feature = "tools")]

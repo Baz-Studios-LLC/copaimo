@@ -790,6 +790,67 @@ hillside legitimately grades two metres over two. At a quarter of a metre a ramp
 shrinks in proportion and a discontinuity does not. The same measurement reads
 0.26 m now and 4.45 m with the old code put back.
 
+## Modelling people in a script
+
+### A figure reads as a jointed doll, however the numbers are tuned
+
+**Cause.** It was built from separate closed primitives — a ball for a head,
+cylinders for arms, lumps for a torso. A body made of separate shells has a SEAM
+everywhere a real one has a continuous surface, and the eye finds every one. No
+amount of tuning the proportions fixes it, and several passes were spent trying.
+
+**Fix.** A low-poly **cage plus subdivision**, which is how stylised characters are
+actually made. A limb or a torso is one skin lofted through rings of
+`(height, half-width, half-depth)` and subdivided once; limbs run INTO the torso
+rather than up to it, so there is no seam at a shoulder.
+
+**And a head is not part of that loft.** Lofting chest→neck→jaw→crown in one hull
+gives a cone: the jaw ring and the head ring end up near enough the same width, so
+there is no head in it — the face comes out as a long wedge with the hair sitting on
+top like a cap. A cartoon head is a rounded volume on a short neck. A subdivided
+CUBE makes a better one than a sphere: flatter face, squarer crown, and no pole in
+the middle of the face.
+
+### A wig disappears, or cuts away to nothing
+
+Two faults in one place. The boolean cutters that carved a face out of a full cap
+were positioned with **fixed heights**, so making the head bigger left them in the
+wrong place and one style lost its whole cap — a bald figure. Tied to the head
+properly, the boolean then returned *nothing at all*: a wig is several overlapping
+shells joined together, not one solid, and a difference against that is unreliable
+by nature.
+
+**Fix: do not cut.** A wig is built to sit BEHIND the face in the first place —
+every piece placed back and up from the head's middle, the cap stopping short of the
+front of the head. That has no failure mode; it is the same arithmetic that places an
+ear.
+
+### A whole mesh comes out one flat colour after a join
+
+**Cause.** A shading ramp given in world heights — a foot and a crown — but read
+from `point.co.z`, which is measured from the object's ORIGIN. After a join that
+origin is wherever the first part happened to sit, so a wig joined from a cap at
+1.58 m had every vertex reading as below the ramp. The bodies were being shaded off
+a ramp anchored at the head.
+
+**Fix.** `obj.matrix_world @ point.co`. If a ramp is stated in world heights, measure
+in world heights.
+
+### A test that keeps needing its threshold moved is asserting the wrong thing
+
+Worth its own entry. The check for "this model still carries its baked shading" was
+moved **four times**: 0.02 of absolute spread (a dark fence failed it), then a ratio
+of 1.08 (an iris failed it), then scoped to meshes over 20 cm (a face failed it).
+
+Every counterexample was legitimate. The mistake was that the assertion was an ART
+JUDGEMENT — how strong a gradient should be — while both faults it exists to catch
+are **binary**: a dropped `COLOR_0` gives no colour, and a misanchored ramp gives
+exactly one value. The rule is now that a gradient EXISTS (1.005), and how strong it
+is belongs to whoever painted it.
+
+**The tell:** if a threshold has to move every time a new legitimate case appears, it
+is measuring taste rather than correctness.
+
 ## Keeping this honest
 
 Add an entry when a bug took **more than one attempt** to fix, or when the symptom

@@ -80,6 +80,20 @@ def bounds() -> tuple[list[float], list[float]]:
     return low, high
 
 
+def is_a_part(name: str) -> bool:
+    """Whether this file is a PART of something rather than a thing in its own right.
+
+    A hairstyle is not placed on the ground; it sits on a head, a metre and a half
+    up. The footing rule — base on Z=0 — is right for everything that stands
+    somewhere and wrong for everything that attaches. Marked by the filename rather
+    than guessed at, so it is visible in the folder listing and in the diff.
+
+    Everything else still applies: a part authored in centimetres is as broken as a
+    building authored in centimetres.
+    """
+    return name.startswith("part_")
+
+
 def check(name: str, low: list[float], high: list[float]) -> list[str]:
     """What is wrong with this model, in Blender's axes, before it is written."""
     faults = []
@@ -100,7 +114,10 @@ def check(name: str, low: list[float], high: list[float]) -> list[str]:
             f"it measures {biggest:.3f} m — under {SMALLEST} m, which is a scale "
             "mistake, not a very small thing"
         )
-    # Blender Z is up here; it becomes Y on the way out.
+    # Blender Z is up here; it becomes Y on the way out. A part attaches to
+    # something rather than standing on the ground, so the footing is not its rule.
+    if is_a_part(name):
+        return faults
     if low[2] < -FOOTING_SLACK:
         faults.append(
             f"its base sits {low[2]:.2f} m BELOW the floor, so it will import "
