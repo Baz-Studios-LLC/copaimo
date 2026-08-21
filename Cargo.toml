@@ -97,3 +97,11 @@ opt-level = 3
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# Test-only. `models.rs` reads a GLB's glTF header to check a model against the
+# game's conventions before it can reach a release; a dev-dependency is compiled
+# for `cargo test` and NOT for the shipped binary, which is exactly the split
+# wanted here. Already in the lockfile — bevy_gltf pulls it — so this costs
+# nothing to fetch.
+[dev-dependencies]
+serde_json = "1"

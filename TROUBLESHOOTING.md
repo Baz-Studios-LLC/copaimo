@@ -573,6 +573,50 @@ four rounds of reasoning had missed.
 
 ---
 
+## Models from Blender
+
+### A model arrives on its back, or backwards, or filling the sky
+
+**Symptom.** The GLB loads with no error and looks wrong: lying down, walking
+backwards, a hundred times too big, half-buried, or hovering.
+
+**Cause.** Blender and Bevy disagree about which way is up and which way is
+forward, and the glTF exporter's own conversion only fixes the first one.
+
+* **Up.** Blender is Z-up, glTF and Bevy are Y-up. `export_yup=True` handles it.
+* **Forward.** This is the one nobody guesses. Blender's own *front* view looks
+  down **-Y**, so modelling toward -Y feels correct — and the Y-up conversion maps
+  Blender -Y onto **+Z**, while Bevy's forward is **-Z**. So the axis that feels
+  right exports backwards. **Build facing +Y in Blender.** Verified both ways
+  empirically rather than reasoned about: -Y gave +Z, +Y gave -Z.
+* **Scale.** A figure authored in centimetres is a hundred times too big, and
+  nothing objects.
+* **Origin.** Feet on Z=0 in Blender, or the model imports sunk or floating —
+  placing it at a terrain height puts its ORIGIN there.
+
+**Fix.** Export through `dev/model_export.sh`, which sets the options once and
+refuses a model that breaks the rules at the moment it is made. `models.rs` asks
+the same questions of whatever is in `assets/models/` under `cargo test`, so a
+model dropped in by hand is caught too.
+
+**Two gates, one set of numbers.** The bounds live in both files, and
+`the_two_gates_agree_about_what_they_allow` reads the Python from the Rust test
+and fails if they have drifted — this project's most frequent bug shape is one
+question with two answers.
+
+**And bound it tightly enough to catch the thing it is for.** The size cap was
+first written at 200 m. A deliberately broken fixture — a 1.8 m figure authored in
+centimetres, so 180 m tall — passed it. A bound that admits the exact mistake it
+exists to stop is decoration. It is 60 m now, and there is a test with the 180 m
+figure in it.
+
+**A known limit, stated.** The Z-up diagnosis is a *hint* layered on the
+base-on-the-floor rule, not a general detector: it fires when the model is sunk
+below the floor and is also wider and deeper than it is tall. A Z-up export that
+happens to sit entirely above Y=0 is caught as "floating" instead, which is the
+right refusal for the wrong reason. "Tallest axis must be Y" cannot be the rule —
+a fence rail and a carpet are legitimately not tallest in Y.
+
 ## Keeping this honest
 
 Add an entry when a bug took **more than one attempt** to fix, or when the symptom

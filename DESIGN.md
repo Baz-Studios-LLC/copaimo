@@ -832,7 +832,51 @@ assets/
 
 ---
 
+## Models come from Blender, through one script
+
+Everything the game draws today is built from primitives in code. The loading path
+for real assets already exists and has since early on: drop `<kind>.glb` into
+`assets/models/` and the bench sheet places it whole, as a `SceneRoot`, alongside
+parts built from the kit. A model is a FILE and is carried whole — it cannot be
+painted, snapped or baked into a building's boxes, and pretending otherwise would
+break the brush and the bake at once.
+
+What was missing was the way in. It is `dev/model_export.sh`, a Blender script
+rather than the export dialog, because the dialog has thirty options and three of
+them decide whether a model arrives upright, the right size, and facing the way it
+walks — and every one of those failures loads perfectly well and simply looks
+wrong. The conventions:
+
+| Convention | Why |
+| --- | --- |
+| Metres, real scale | The warden is 1.8 m; terrain, camera distance and walking speed are tuned against it |
+| Feet on Z=0 | Placing a model at a terrain height puts its ORIGIN there, so its base must be its origin |
+| **Facing +Y in Blender** | The Y-up conversion maps Blender -Y onto +Z, and Bevy's forward is -Z — so the axis that feels right exports backwards |
+| Y-up export | Blender is Z-up; without this the model arrives on its back |
+
+The rules are asked **twice, at two moments**: the export script refuses a bad
+model when the fix is a keypress in Blender, and `models.rs` asks the same
+questions of whatever is actually in the folder under `cargo test`, which also
+covers anything dropped in by hand or produced by the kiln. The two sets of
+numbers agreeing is itself a test that reads one file from the other — one
+question with two answers is this project's most frequent bug, and two gates that
+have quietly drifted apart are exactly that.
+
+`models.rs` is `cfg(test)` only and `serde_json` is a dev-dependency, so none of
+this is in a player's build.
+
+This also makes the kiln optional rather than the only way to get a model: Blender
+is local, free, spends no credits, and a `.blend` in the repository can be
+re-derived, which an AI generation cannot.
+
 ## Change log
+
+**2026-08-21** — **A way in for models.** `dev/model_export.sh` exports `.blend`
+files to `assets/models/` with the conventions set once, and refuses a model that
+breaks them. `models.rs` (test-only) checks whatever is in the folder, and a test
+reads the export script to prove the two gates still allow the same things. The
+orientation trap — build facing +Y, because Blender's own front view exports
+backwards — is verified empirically and written into TROUBLESHOOTING.md.
 
 **2026-08-20** — **The canyon is a thoroughfare.** Floor widened to 52 m
 (45–96 m real, fork 40 m, spurs 30 m), sized for NPC traffic alongside the player

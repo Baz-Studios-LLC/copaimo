@@ -48,6 +48,10 @@ mod tools;
 #[cfg(feature = "tools")]
 mod hud;
 mod menu;
+// Test-only: the gate that keeps a badly exported model out of the game. Its twin
+// is `dev/model_export.py`, which asks the same questions at export time.
+#[cfg(test)]
+mod models;
 mod player;
 mod save;
 mod typeface;
