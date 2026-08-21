@@ -40,12 +40,12 @@ import mathutils
 
 # How far a thigh reaches at full stride, in degrees, and how far an arm answers it.
 WALK_STRIDE = 26.0
-WALK_ARM = 20.0
+WALK_ARM = 6.0
 # 28, not 42. Rendered and looked at: 42 degrees each way is 84 between the legs,
 # and with the knees straight it read as the splits — mid-air, no foot ever planted.
 # A stylised run wants a modest stride and a lot of KNEE.
 RUN_STRIDE = 28.0
-RUN_ARM = 26.0
+RUN_ARM = 10.0
 
 # How much a knee bends as the leg passes under the body.
 WALK_KNEE = 38.0
@@ -59,6 +59,25 @@ RUN_BOB = 0.020
 # How far the body leans into a run, and how much the spine counter-twists.
 RUN_LEAN = 6.0
 SPINE_TWIST = 4.0
+
+# The arms hang a little OUT and the palms turn IN, in every frame — and the swing
+# is deliberately SMALL, because of a fact about the mesh that no rig fix reaches:
+#
+# # The fingers are welded to the pockets
+#
+# The generator outputs one fused skin. At bind pose the fingertips touch the
+# pocket tops, so they SHARE geometry there — zoomed in, a swung arm pulls a
+# rubber band of surface from the fingers to the pocket rim. Three rounds of
+# weight surgery cleaned up everything weights can clean (mixed loyalties, orphan
+# corners, a strap that never nears a wrist), and the band survived them all
+# because it is not a weighting: the vertices belong to both parts.
+#
+# It is also why the generator's own idle keeps the hands parked at the pockets.
+# So the gaits do the same — swings small enough that the weld never tears. The
+# real fix is upstream: regenerate the character with the arms posed AWAY from the
+# body, so nothing fuses.
+ARM_OUT = 5.0
+PALM_IN = 10.0
 
 
 def swing(rig, bone: str, degrees: float, axis=(0.0, 1.0, 0.0)):
@@ -104,13 +123,25 @@ def rest(rig) -> None:
 
 
 def key(rig, frame: int, bones):
-    """Writes the current pose of the named bones at this frame."""
-    for bone in bones:
-        posed = rig.pose.bones.get(bone)
-        if posed is None:
-            continue
+    """Writes the current pose of EVERY bone at this frame.
+
+    # Un-keyed bones freeze at whatever the last clip left
+
+    Only the driven bones were keyed at first, and the clips looked right in Blender
+    and wrong in the game. In Blender the test started from rest, so the other
+    twenty-seven bones sat at rest. In the game an animation player only moves the
+    bones a clip has curves for — everything else HOLDS ITS LAST POSE, which after
+    blending from the idle is some frame of the idle. The result was a chimera:
+    walking legs under an idle's pelvis, twists and toes, which read as knees
+    bending the wrong way.
+
+    The `bones` argument is gone: it existed to say which bones to key, and keying
+    a subset is exactly the bug this comment describes.
+    """
+    _ = bones
+    for posed in rig.pose.bones:
         posed.keyframe_insert("rotation_quaternion", frame=frame)
-        if bone in ("Hip", "Root"):
+        if posed.name in ("Hip", "Root"):
             posed.keyframe_insert("location", frame=frame)
 
 
@@ -132,6 +163,38 @@ DRIVEN = (
     "L_Forearm",
     "R_Forearm",
 )
+
+
+# The weights are NOT touched, and that is a decision.
+#
+# # 432 disconnected arm-weighted fragments
+#
+# The hands appear stitched to the trouser pockets: a swung limb pulls a ribbon of
+# surface between the glove and the pocket rim. Three repairs were written and
+# measured before this note replaced them.
+#
+# * Vertices weighted to BOTH an arm bone and a leg bone — 692 of them — had the arm
+#   share removed. The ribbon was unchanged.
+# * Arm-weighted pieces that never come within a hand's length of a wrist — 566
+#   vertices, mostly a backpack strap — were released. Unchanged.
+# * Splitting the mesh along every edge joining a hand-dominant vertex to a
+#   leg-dominant one. There are NONE: the two never touch directly.
+#
+# Then the measurement that explains all three failures: the arm-weighted geometry
+# is **432 separate connected pieces**. This is not a continuous skin with a
+# weighting mistake in it — it is a generated soup of small shells, some of which
+# straddle a hand and a thigh with no shared edge to cut. Nothing about weighting or
+# splitting reaches that.
+#
+# The ribbon is also not caused by the arm swinging: it looked identical at six
+# degrees and at twenty, because the pocket rides the THIGH, which swings twenty-six
+# whatever the arm does.
+#
+# So the repairs are gone rather than left in unverified. Editing somebody's asset
+# on a guess is worse than the defect. The fix is upstream: regenerate the character
+# with the arms held AWAY from the body — an A-pose or T-pose — so nothing near the
+# hands fuses to the hips in the first place. That is a setting at generation time
+# and costs nothing.
 
 
 def gait(rig, name: str, stride: float, arm: float, knee: float, bob: float, lean: float, span: int):
@@ -174,6 +237,22 @@ def gait(rig, name: str, stride: float, arm: float, knee: float, bob: float, lea
                 swing(rig, f"{side}_Upperarm", -arm * forward)
             # A held bend, so the arms are not two planks.
             swing(rig, f"{side}_Forearm", 18.0 if name == "walk" else 62.0)
+
+        # The arms out a little and the palms in, every frame — see ARM_OUT.
+        # `shoulder`, NOT `arm`: `arm` is this function's swing amount, and naming
+        # the bone the same thing handed a PoseBone to a subtraction.
+        for side, hand in (("L", 1.0), ("R", -1.0)):
+            shoulder = rig.pose.bones.get(f"{side}_Upperarm")
+            if shoulder is not None:
+                # Composed ON TOP of the swing set above: abduction about the
+                # forward axis, so the arm hangs clear of the pocket.
+                rest_axes = shoulder.bone.matrix_local.to_3x3().inverted()
+                out_axis = (rest_axes @ mathutils.Vector((1.0, 0.0, 0.0))).normalized()
+                shoulder.rotation_quaternion = (
+                    mathutils.Quaternion(out_axis, math.radians(ARM_OUT * hand))
+                    @ shoulder.rotation_quaternion
+                )
+            swing(rig, f"{side}_Hand", PALM_IN * hand, axis=(0.0, 0.0, 1.0))
 
         # The spine counter-twists against the hips, and leans into a run. The
         # WAIST is set too — it was in the keyed list and never posed, so every

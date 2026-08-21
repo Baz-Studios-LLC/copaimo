@@ -83,7 +83,9 @@ SKIN_LOW = 90
 SKIN_HIGH = 242
 
 # What an eye white comes down to. Still a white — just not a headlight.
-SCLERA_BECOMES = 168
+# 150, down from 168: at 168 the whites still read as lines in the game's own
+# dimmer light. Still lighter than the skin around them, so the eye keeps a white.
+SCLERA_BECOMES = 150
 
 
 def chunks_of(raw: bytes):
