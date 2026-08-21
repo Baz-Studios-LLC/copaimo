@@ -55,14 +55,39 @@ def trunk(radius, low, high, sides=8, lean=0.0, at=(0.0, 0.0)):
     return stem
 
 
-def limb(radius, length, at, pitch, spin):
-    """One branch, angled out and up from a point on the stem."""
+def branch_to(start, end, radius):
+    """A limb from one point to another, thick end first.
+
+    # Aimed, not angled
+
+    Branches used to be placed by an angle and a length, and they did not reach
+    the foliage: from the game camera an oak wore a pair of bare crossed sticks
+    under a floating ball of leaves. An angle and a length are two numbers that
+    have to be right together, and eyeballing them in a script is guesswork.
+
+    So a branch is given the point it must ARRIVE at — the middle of the clump it
+    holds up — and its length and orientation are derived. It ends inside the
+    foliage by construction, and moving a clump moves its branch with it.
+    """
+    span = end - start
+    reach = span.length
+    if reach < 1.0e-4:
+        raise ValueError("a branch has to go somewhere")
     bpy.ops.mesh.primitive_cone_add(
-        vertices=6, radius1=radius, radius2=radius * 0.5, depth=length, location=at
+        vertices=6,
+        radius1=radius,
+        radius2=radius * 0.45,
+        depth=reach,
+        location=start + span * 0.5,
     )
-    branch = bpy.context.object
-    branch.rotation_euler = (pitch, 0.0, spin)
-    return branch
+    limb = bpy.context.object
+    # A cone is built along +Z; turn that axis onto the span.
+    limb.rotation_euler = (
+        mathutils.Vector((0.0, 0.0, 1.0))
+        .rotation_difference(span.normalized())
+        .to_euler()
+    )
+    return limb
 
 
 def skirt(radius, deep, z, sides=9):
@@ -85,15 +110,24 @@ def clump(radius, at, squash=0.82):
 
 def oak():
     """Broad and round: the shape most people draw when they draw a tree."""
-    wood = [trunk(0.42, 0.0, 3.6, sides=8)]
-    wood.append(limb(0.16, 2.2, (0.6, 0.0, 3.2), math.radians(58), 0.0))
-    wood.append(limb(0.14, 2.0, (-0.5, 0.4, 3.4), math.radians(-52), math.radians(30)))
-    leaves = [
-        clump(2.75, (0.0, 0.0, 6.1)),
-        clump(1.85, (1.7, 0.5, 5.0)),
-        clump(1.70, (-1.5, -0.7, 5.3)),
-        clump(1.55, (0.3, 1.4, 7.3)),
+    # Where the trunk gives out and the crown starts.
+    fork = 4.1
+    # Each mass of foliage: middle and radius. The crown is built from these and
+    # so are the branches, so the two cannot disagree about where the leaves are.
+    crown = [
+        ((0.0, 0.0, 6.4), 2.55),
+        ((1.75, 0.45, 5.5), 1.75),
+        ((-1.55, -0.70, 5.75), 1.62),
+        ((0.30, 1.45, 7.35), 1.40),
     ]
+    wood = [trunk(0.44, 0.0, fork + 0.5, sides=8)]
+    leaves = [clump(radius, at) for at, radius in crown]
+    # A limb from the fork into the middle of every outlying mass. Into the
+    # MIDDLE, so the end of the branch is swallowed by the foliage rather than
+    # stopping at its edge where a gap would show.
+    start = mathutils.Vector((0.0, 0.0, fork))
+    for at, _ in crown[1:]:
+        wood.append(branch_to(start, mathutils.Vector(at), 0.15))
     return wood, leaves
 
 
@@ -114,13 +148,17 @@ def pine():
 
 def birch():
     """Slim and sparse, leaning a little — the pale one in a wood."""
-    wood = [trunk(0.20, 0.0, 9.6, sides=7, lean=math.radians(2.5))]
-    wood.append(limb(0.08, 1.1, (0.22, 0.0, 7.6), math.radians(58), 0.0))
-    leaves = [
-        clump(1.45, (0.25, 0.1, 9.0), squash=0.9),
-        clump(1.15, (-0.7, 0.4, 7.8), squash=0.9),
-        clump(1.00, (0.8, -0.5, 8.2), squash=0.9),
+    fork = 7.4
+    crown = [
+        ((0.25, 0.10, 9.0), 1.45),
+        ((-0.70, 0.40, 7.9), 1.15),
+        ((0.80, -0.50, 8.3), 1.00),
     ]
+    wood = [trunk(0.20, 0.0, fork + 0.6, sides=7, lean=math.radians(2.5))]
+    leaves = [clump(radius, at, squash=0.9) for at, radius in crown]
+    start = mathutils.Vector((0.0, 0.0, fork))
+    for at, _ in crown[1:]:
+        wood.append(branch_to(start, mathutils.Vector(at), 0.075))
     return wood, leaves
 
 
@@ -134,12 +172,13 @@ def spruce():
 
 def scrub():
     """Barely a tree: a low wide mass for dry ground, with a stub of a stem."""
-    wood = [trunk(0.16, 0.0, 0.7, sides=6)]
-    leaves = [
-        clump(1.05, (0.0, 0.0, 1.15), squash=0.62),
-        clump(0.80, (0.75, 0.35, 0.95), squash=0.6),
-        clump(0.72, (-0.65, -0.45, 1.0), squash=0.6),
+    crown = [
+        ((0.0, 0.0, 1.15), 1.05),
+        ((0.75, 0.35, 0.95), 0.80),
+        ((-0.65, -0.45, 1.0), 0.72),
     ]
+    wood = [trunk(0.16, 0.0, 0.9, sides=6)]
+    leaves = [clump(radius, at, squash=0.62) for at, radius in crown]
     return wood, leaves
 
 
@@ -152,8 +191,21 @@ BUILDERS = {
 }
 
 
+# Above this angle between two faces, the edge between them stays SHARP.
+#
+# Sixty degrees smooths everything round — an eight-sided trunk turns 45 degrees a
+# face and a coarse ball far less — while leaving the corners that should read as
+# corners: the rim of a conifer layer turns a right angle or more.
+#
+# Flat shading everywhere was the first cut, and in the game every facet read as
+# its own panel: a canopy came out as a heap of triangles rather than a mass of
+# leaves. Smoothing the whole object instead would have rounded the layer rims off
+# a spruce, which is the one thing that makes a spruce look like a spruce.
+SHARP_ABOVE = math.radians(60.0)
+
+
 def weld(parts, name):
-    """Joins parts into one flat-shaded object under a known name.
+    """Joins parts into one object under a known name, smoothly shaded.
 
     The NAME is the contract: the game looks for `wood` and `leaves` by name when
     it reads the file, because a tree wears two materials and has to know which
@@ -168,7 +220,7 @@ def weld(parts, name):
     whole = bpy.context.object
     whole.name = name
     whole.data.name = name
-    bpy.ops.object.shade_flat()
+    bpy.ops.object.shade_auto_smooth(angle=SHARP_ABOVE)
     return whole
 
 

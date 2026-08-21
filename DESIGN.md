@@ -893,6 +893,25 @@ its file arrives. What is replaced is the **mesh asset behind the pool's handle*
 never the handle: a tree already standing in the world changes shape too, rather
 than only the ones planted afterwards.
 
+**Shading is smooth where the surface is round and sharp where it turns a
+corner** — `shade_auto_smooth` at sixty degrees. Flat everywhere was the first
+cut, and in the game every facet read as its own panel: a canopy came out as a
+heap of triangles rather than a mass of leaves. Smoothing the whole object instead
+would have rounded the layer rims off a spruce, which is the one thing that makes
+a spruce look like a spruce.
+
+**Branches are AIMED, not angled.** They used to be placed by an angle and a
+length, and they did not reach the foliage: from the game camera an oak wore a
+pair of bare crossed sticks under a floating ball of leaves. An angle and a length
+are two numbers that have to be right together, and eyeballing them in a script is
+guesswork. A branch is now given the point it must arrive at — the middle of the
+clump it holds up — and derives its own length and orientation, so it ends inside
+the foliage by construction and moving a clump moves its branch with it.
+
+Each species is 156 to 408 triangles, which leaves room to round the silhouettes
+further if they want it: a clump is an icosphere at subdivision 2, and going to 3
+quadruples its triangles.
+
 A species with no file keeps the shape the world grew for it, so this is
 species-at-a-time and reversible — delete a `.glb` and the wood grows its own
 again. Species repeat across the pool (five shapes over twenty varieties), which
