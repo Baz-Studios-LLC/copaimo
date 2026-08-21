@@ -964,9 +964,35 @@ the same bargain the heightmap already makes. Blender writes `COLOR_0` as
 0..65535 and every rock in the world would draw at full white; a test asserts the
 range on every real model in the game.
 
-**The reach goes with the shape.** `reach` is what the planter spaces litter by, so
-an authored rock left under the grown shape's reach would either overlap its
-neighbours or stand in a bare ring. It is recomputed from the mesh.
+**How cluttered the world feels is this world's business.** `prop::density` says
+how much litter a biome carries and `belongs` says which kinds may stand in it, and
+between them they cannot say "plenty of cactus but few boulders" — a biome's kinds
+are picked evenly. The desert showed it: three kinds at 0.30 density means a third
+of everything out there is a boulder, and it read as a rockery.
+
+So `keeps(biome, kind)` thins by kind, in this crate rather than upstream, where
+the density and the belonging are shared with other worlds. Measured per chunk:
+
+| Country | Before | After | What is left |
+| --- | --- | --- | --- |
+| Desert | 32 | 15 | Boulder 2, Brush 7, Cactus 6 |
+| Grass | 17 | 12 | Boulder 2, Brush 5, Bush 5 |
+| Forest | 70 | 55 | Stump 16, Snag 13, Boulder 10, Log 9, Bush 7 |
+| Rock | 92 | 86 | Boulder 36, Snag 28, Scree 22 |
+| Snow | 22 | 21 | Scree 12, Boulder 9 |
+| Shore | 15 | 12 | Boulder 4, Brush 4, Log 4 |
+
+The default is a shade under one, which is the general trim — the world was
+slightly busier than it wanted to be everywhere, not only in the desert. Stone
+country is left nearly alone on purpose: thinning a mountain's scree is thinning
+the thing that makes it read as a mountain.
+
+**The reach goes with the shape**, because it is how deep a thing is BEDDED into
+the ground it sits on. Left inherited, an authored rock would be sunk by another
+shape's measurements — a tight pile of scree buried to a spread spill's depth is a
+pile of scree with its top showing. (It is not what spaces litter apart; that is
+`PROP_SPACING` and the per-biome density. A comment here claimed otherwise for a
+while.)
 
 **The light is painted in.** Every prop is darker at its foot. Nothing is textured
 and the world has one sun, so the shading that makes a rock sit *in* the ground

@@ -389,6 +389,38 @@ mod tests {
         }
     }
 
+    /// What the authored shapes changed about SPACING.
+    ///
+    ///     cargo test what_the_authored_reaches_are -- --ignored --nocapture
+    ///
+    /// `reach` is what the planter spaces litter by, so swapping a shape changes
+    /// how crowded the world is whether or not anybody meant it to. This says by
+    /// how much, per kind, rather than leaving it to be noticed later as "there is
+    /// too much stuff about".
+    #[test]
+    #[ignore = "a measurement"]
+    fn what_the_authored_reaches_are() {
+        use terrain_core::prop::{Kind, VARIANTS};
+        println!("{:9} {:>8} {:>8} {:>8}", "kind", "grown", "authored", "change");
+        for (which, kind) in Kind::ALL.into_iter().enumerate() {
+            let grown: f32 = (0..VARIANTS)
+                .map(|variant| terrain_core::prop::from_pool(which * VARIANTS + variant).reach)
+                .sum::<f32>()
+                / VARIANTS as f32;
+            match authored_prop(kind) {
+                Some(shape) => {
+                    let ours = reach_of(&shape);
+                    println!(
+                        "{:9} {grown:8.2} {ours:8.2} {:>7.0}%",
+                        format!("{kind:?}"),
+                        (ours / grown - 1.0) * 100.0
+                    );
+                }
+                None => println!("{:9} {grown:8.2}      —        —", format!("{kind:?}")),
+            }
+        }
+    }
+
     /// The kinds listed here are the kinds Blender actually builds.
     #[test]
     fn the_kinds_here_are_the_kinds_blender_builds() {

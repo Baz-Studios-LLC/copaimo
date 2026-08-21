@@ -78,9 +78,14 @@ pub fn setup_props(mut commands: Commands, mut materials: ResMut<Assets<Shaded>>
     let mut taken = 0;
     for prop in &mut pool {
         if let Some(shape) = crate::world::authored::authored_prop(prop.kind) {
-            // The reach goes with the shape. It is what the planter spaces litter
-            // by, so an authored rock under an inherited reach would either
-            // overlap its neighbours or stand in a bare ring.
+            // The reach goes with the shape, because it is how deep the thing is
+            // BEDDED into the ground it sits on — see `bedded`. Left inherited, an
+            // authored rock would be sunk by another shape's measurements: a tight
+            // pile of scree buried to a spread spill's depth, which is a pile of
+            // scree with its top showing.
+            //
+            // (It is not what spaces litter apart. That is `PROP_SPACING` and the
+            // per-biome density, and a comment here said otherwise for a while.)
             prop.reach = crate::world::authored::reach_of(&shape);
             prop.mesh = shape;
             taken += 1;
@@ -276,6 +281,11 @@ pub fn litter(terrain: &Terrain, pool: &[Prop], low: Vec2) -> Geometry {
             let Some(grown) = pool.get(variety) else {
                 continue;
             };
+            // How much of this kind this country actually keeps. A second roll, so
+            // thinning one kind does not shuffle which kinds the others get.
+            if terrain_core::forest::chance(slot_x, slot_z, 48) > keeps(biome, grown.kind) {
+                continue;
+            }
 
             let turn = terrain_core::forest::chance(slot_x, slot_z, 46) * std::f32::consts::TAU;
             let scale = PROP_SCALE.0
@@ -316,6 +326,41 @@ pub fn litter(terrain: &Terrain, pool: &[Prop], low: Vec2) -> Geometry {
 /// wins, then it is pressed a little further in. A boulder is half-buried and a
 /// bush grows out of the soil; nothing in a landscape balances on the one point
 /// directly beneath its middle.
+/// What share of a kind of litter a country keeps, nought to one.
+///
+/// # A second thinning, on top of the density
+///
+/// `terrain_core::prop::density` says how much litter a biome carries and
+/// `belongs` says which kinds may stand in it — and between them they cannot say
+/// "plenty of cactus but few boulders", because a biome's kinds are picked evenly.
+/// The desert showed it: three kinds at 0.30 density means a third of everything
+/// out there is a boulder, and it read as a rockery rather than as desert.
+///
+/// So this thins by KIND as well, here rather than upstream: the density and the
+/// belonging are the shared crate's business and other worlds are built on them,
+/// while how cluttered THIS world feels is this world's business.
+///
+/// The default is a shade under one, which is the general trim — the world was
+/// slightly busier than it wanted to be everywhere, not only in the desert.
+fn keeps(biome: Biome, kind: terrain_core::prop::Kind) -> f32 {
+    use terrain_core::prop::Kind;
+    match (biome, kind) {
+        // Desert. A boulder is a landmark out here and there were dozens of them;
+        // cactus is what the eye should catch, so it keeps nearly all of it.
+        (Biome::Desert, Kind::Boulder) => 0.18,
+        (Biome::Desert, Kind::Cactus) => 0.85,
+        (Biome::Desert, Kind::Brush) => 0.65,
+        // Open grassland that is not open is not grassland — the crate's own words
+        // about this biome, and stones in a field should be occasional.
+        (Biome::Grass, Kind::Boulder) => 0.55,
+        // Country that IS stone keeps its stone. Thinning these would be thinning
+        // the thing that makes them read as what they are.
+        (Biome::Rock | Biome::Snow, Kind::Scree | Kind::Boulder) => 0.92,
+        // Everything else: the general trim.
+        _ => 0.8,
+    }
+}
+
 fn bedded(terrain: &Terrain, at: Vec2, reach: f32) -> f32 {
     let mut lowest = terrain.drawn_height(at.x, at.y);
     for step in 0..AROUND {
@@ -455,5 +500,119 @@ mod affordable {
                 mesh.vertices()
             );
         }
+    }
+
+    /// The thinning says what it means, and only where it means it.
+    ///
+    /// Stated as numbers because "slightly too much decor" cannot be argued from a
+    /// screenshot, and because the danger in a table like this is thinning the
+    /// wrong thing: cutting the desert's boulders is right, cutting its cacti with
+    /// them would leave dry country empty, and cutting a mountain's scree would
+    /// take away the thing that makes a mountain read as one.
+    #[test]
+    fn thinning_cuts_the_deserts_rocks_and_leaves_the_stone_country_alone() {
+        use terrain_core::prop::Kind;
+
+        for biome in [
+            Biome::Grass, Biome::Forest, Biome::Rock, Biome::Snow,
+            Biome::Desert, Biome::Shore, Biome::Water, Biome::Settled,
+        ] {
+            for kind in Kind::ALL {
+                let share = keeps(biome, kind);
+                assert!(
+                    (0.0..=1.0).contains(&share),
+                    "{biome:?}/{kind:?} keeps {share}, which is not a share"
+                );
+            }
+        }
+
+        // A boulder in the desert is a landmark, not a ground cover.
+        assert!(
+            keeps(Biome::Desert, Kind::Boulder) < keeps(Biome::Desert, Kind::Cactus) / 3.0,
+            "the desert's boulders are not much rarer than its cacti"
+        );
+        // And what the desert is FOR is kept.
+        assert!(
+            keeps(Biome::Desert, Kind::Cactus) > 0.7,
+            "the desert has been emptied along with its rocks"
+        );
+        // Stone country keeps its stone: thinning this is thinning the biome.
+        for kind in [Kind::Scree, Kind::Boulder] {
+            for biome in [Biome::Rock, Biome::Snow] {
+                assert!(
+                    keeps(biome, kind) > 0.85,
+                    "{biome:?} has had its {kind:?} thinned, and that is what it is made of"
+                );
+            }
+        }
+        // And there IS a general trim, or the report was only half answered.
+        assert!(
+            keeps(Biome::Forest, Kind::Log) < 1.0,
+            "nothing was trimmed anywhere but the desert"
+        );
+    }
+
+    /// How much litter each country actually carries, by kind.
+    ///
+    ///     cargo test how_much_litter_the_world_carries -- --ignored --nocapture
+    ///
+    /// Reported as the world being slightly too busy, and the desert reading as a
+    /// rockery. "Slightly" cannot be tuned by argument, so this counts what stands
+    /// in a chunk of each country — per kind, so a change aimed at boulders can be
+    /// seen not to have taken the cacti with it.
+    #[test]
+    #[ignore = "a measurement"]
+    fn how_much_litter_the_world_carries() {
+        use std::collections::BTreeMap;
+        let terrain = Terrain::new();
+        let climate = terrain.climate();
+        let step = PROP_SPACING.max(1.0);
+
+        // One chunk's worth of the lattice, counted for a given biome by pretending
+        // the whole chunk is that biome — which isolates the thinning from where
+        // the biomes happen to fall.
+        for biome in [
+            Biome::Grass,
+            Biome::Forest,
+            Biome::Rock,
+            Biome::Snow,
+            Biome::Desert,
+            Biome::Shore,
+        ] {
+            let mut kept: BTreeMap<String, usize> = BTreeMap::new();
+            let mut before = 0;
+            let across = (CHUNK_SIZE / step).ceil() as i32;
+            for slot_z in 0..across {
+                for slot_x in 0..across {
+                    let thickness = prop::density(biome);
+                    if thickness <= 0.0
+                        || terrain_core::forest::chance(slot_x, slot_z, 43) > thickness
+                    {
+                        continue;
+                    }
+                    let Some(variety) = prop::pick(
+                        biome,
+                        terrain_core::forest::chance(slot_x, slot_z, 44),
+                        terrain_core::forest::chance(slot_x, slot_z, 45),
+                    ) else {
+                        continue;
+                    };
+                    let kind = prop::from_pool(variety).kind;
+                    before += 1;
+                    if terrain_core::forest::chance(slot_x, slot_z, 48) > keeps(biome, kind) {
+                        continue;
+                    }
+                    *kept.entry(format!("{kind:?}")).or_default() += 1;
+                }
+            }
+            let after: usize = kept.values().sum();
+            let listed: Vec<String> =
+                kept.iter().map(|(kind, count)| format!("{kind} {count}")).collect();
+            println!(
+                "{biome:?}: {before} -> {after} a chunk   [{}]",
+                listed.join(", ")
+            );
+        }
+        let _ = climate;
     }
 }
