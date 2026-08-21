@@ -75,8 +75,26 @@ pub fn setup_material(mut commands: Commands, mut materials: ResMut<Assets<Shade
 }
 
 /// Starts building cover for loaded chunks near the viewer that have none.
+/// The authored blade and flower head, read once and shared.
+///
+/// An `Arc` because a chunk's cover is welded on a background thread and every
+/// task needs the same pieces — and `Option` because a world with no files simply
+/// grows its own, which is the designed fallback.
+#[derive(Resource, Deref, Default)]
+pub struct SprigKit(pub Option<std::sync::Arc<crate::world::tufts::Kit>>);
+
+/// Reads the authored pieces, once, on the way into the world.
+pub fn read_the_sprig_kit(mut commands: Commands) {
+    let kit = crate::world::tufts::read_kit().map(std::sync::Arc::new);
+    if kit.is_some() {
+        info!("ground cover is stamped from authored pieces");
+    }
+    commands.insert_resource(SprigKit(kit));
+}
+
 pub fn dress_chunks(
     mut commands: Commands,
+    kit: Res<SprigKit>,
     terrain: Res<TerrainSource>,
     chunks: Res<ChunkMap>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
@@ -113,8 +131,9 @@ pub fn dress_chunks(
             }
 
             let ground = terrain.0.clone();
+            let pieces = kit.0.clone();
             let low = chunk_origin(coord);
-            let task = pool.spawn(async move { dress(&ground, low) });
+            let task = pool.spawn(async move { dress(&ground, low, pieces.as_deref()) });
             commands.entity(entity).insert(PendingCover(task));
             room -= 1;
         }
@@ -225,7 +244,7 @@ pub fn undress_chunks(
 ///
 /// Pure and thread-safe: it asks the terrain questions and appends geometry, and
 /// touches nothing else. That is what lets it run on the task pool.
-fn dress(terrain: &Terrain, low: Vec2) -> Geometry {
+fn dress(terrain: &Terrain, low: Vec2, kit: Option<&crate::world::tufts::Kit>) -> Geometry {
     let high = low + CHUNK_SIZE;
     let step = sprigs::SPACING.max(0.5);
 
@@ -278,17 +297,34 @@ fn dress(terrain: &Terrain, low: Vec2) -> Geometry {
             } * (0.7 + 0.6 * sprigs::chance(slot_x, slot_z, sprigs::SALT_SCALE))
                 * sprigs::stature(patch);
 
+            // The authored pieces where there are any, and the grown shapes
+            // where there are not. Same arguments either way — the variation is
+            // the world's and does not care which draws it.
+            let place = Vec3::new(
+                at.x - low.x,
+                terrain.drawn_height(at.x, at.y),
+                at.y - low.y,
+            );
+            let turn = sprigs::chance(slot_x, slot_z, sprigs::SALT_TURN) * std::f32::consts::TAU;
+            let dapple = sprigs::chance(slot_x, slot_z, sprigs::SALT_SHADE);
+            let bloom = sprigs::chance(slot_x, slot_z, sprigs::SALT_PETAL);
+            if let Some(kit) = kit {
+                crate::world::tufts::stamp(
+                    &mut mesh, kit, kind, place, turn, scale, dapple, bloom, patch,
+                );
+                continue;
+            }
             sprigs::add(
                 &mut mesh,
                 kind,
-                // Chunk-local, and set on the ground's own surface.
-                // The drawn surface, like the trees — a tuft floating a
-                // handspring off the ground is as wrong as a tree doing it.
-                Vec3::new(at.x - low.x, terrain.drawn_height(at.x, at.y), at.y - low.y),
-                sprigs::chance(slot_x, slot_z, sprigs::SALT_TURN) * std::f32::consts::TAU,
+                // Chunk-local, and set on the ground's own surface — the DRAWN
+                // surface, like the trees: a tuft floating a handspring off the
+                // ground is as wrong as a tree doing it.
+                place,
+                turn,
                 scale,
-                sprigs::chance(slot_x, slot_z, sprigs::SALT_SHADE),
-                sprigs::chance(slot_x, slot_z, sprigs::SALT_PETAL),
+                dapple,
+                bloom,
                 // How deep into the thicket this one is: fuller, wider and
                 // darker the further in, so a patch reads as a mass.
                 patch,
@@ -335,10 +371,24 @@ mod tests {
             })
             .expect("the world should hold some open country near the ranch");
 
-        let mesh = dress(&terrain, chunk_origin(coord));
+        // BOTH paths, because both can ship: a world with authored pieces stamps
+        // them, and one without grows its own. The ceiling is about what the frame
+        // can afford, so it applies to whichever is actually drawn.
+        let grown = dress(&terrain, chunk_origin(coord), None).places.len();
+        let kit = crate::world::tufts::read_kit();
+        let mesh = match &kit {
+            Some(kit) => dress(&terrain, chunk_origin(coord), Some(kit)),
+            None => dress(&terrain, chunk_origin(coord), None),
+        };
 
         let vertices = mesh.places.len();
-        println!("cover on open country: {vertices} vertices");
+        match kit.is_some() {
+            true => println!(
+                "cover on open country: {vertices} vertices stamped from authored                  pieces, against {grown} grown"
+            ),
+            false => println!("no authored pieces; {vertices} vertices grown"),
+        }
+        assert!(grown < 145_000, "the grown shapes alone cost {grown} vertices");
 
         // Every vertex needs its colour or the mesh is refused by the renderer.
         assert_eq!(mesh.colours.len(), vertices);

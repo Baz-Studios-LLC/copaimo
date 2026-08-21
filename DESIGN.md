@@ -869,6 +869,51 @@ This also makes the kiln optional rather than the only way to get a model: Blend
 is local, free, spends no credits, and a `.blend` in the repository can be
 re-derived, which an AI generation cannot.
 
+## Ground cover: the PIECE is authored, the tuft is still composed
+
+Grass and flowers are not placed the way a tree or a rock is. A tuft is
+*composed*: how many blades it carries, how far round they fan, which way the
+clump leans, how deep a green it is and how tall it has grown all come from the
+ground it stands on. That composition is the whole reason a meadow does not read
+as wallpaper, and one authored tuft stamped everywhere would trade it away for a
+shape.
+
+So what `dev/art/cover.py` provides is **one blade and one head of petals**, and
+`world::tufts` stamps them as many times as the world says, where it says, in the
+colour it says. Both pieces are painted in **greys** — a modulation the game
+multiplies by the tuft's own green, or by whichever colour that flower turned out
+to be. A green authored into the file would fight the composition and a meadow
+would come out flat.
+
+**The arrangement is this crate's own**, because `cover::add` draws its blades as
+it goes and cannot be handed a different one. That is two implementations of one
+idea, which is this project's most frequent bug — so the two must agree about
+colour: the greens are copied out of a private palette, and a test grows a real
+tuft through the public API and compares the brightest vertex of each. Move a
+green and it fails, naming both numbers.
+
+**Normals point straight up, and it is done in the stamp.** A blade's own normal
+points sideways, and a meadow lit honestly flickers dark as the camera turns. Done
+in the stamp rather than in the file so no export setting can lose it — Blender
+will not have a vertex normal set anyway, it is read-only.
+
+### Two numbers to respect before making these richer
+
+**The budget is fragments, not vertices.** A chunk of open country carries 103,772
+vertices stamped from authored pieces against 93,415 grown, and a ceiling of
+145,000. But width is what bites: grass overdraws itself many times over, and
+narrowing a blade once put vertices up a fifth and fragments down by a third at
+the same frame cost. So a blade is 1.8% of its own length wide, and that is the
+number to reach for if the frame ever needs headroom.
+
+**Flat shading splits vertices on export.** The first cut of the blade was flat
+shaded, so the exporter wrote every vertex once per face: an eight-vertex blade
+shipped as twelve, and a chunk went to 156,654 — over the ceiling. Smooth shading
+shares them, and it costs nothing to look at here because the stamp overwrites
+every normal anyway. The petal head is a five-petal cup at six vertices against
+the generated head's three ribbons at twenty-one, which is where the budget for
+the blade's extra station came from.
+
 ## Litter is authored too, and by the opposite rule
 
 Rocks, logs, bushes, stumps, snags, cacti and brush — eight kinds, built by

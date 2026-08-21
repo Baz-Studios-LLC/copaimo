@@ -15,6 +15,7 @@ pub mod settle;
 pub mod stream;
 pub mod surface;
 pub mod terrain;
+pub mod tufts;
 pub mod water;
 
 use std::sync::Arc;
@@ -167,6 +168,8 @@ impl Plugin for WorldPlugin {
                     prop::setup_props.run_if(not(resource_exists::<prop::PropPool>)),
                     authored::ask_for_the_authored_woods
                         .run_if(not(resource_exists::<authored::AuthoredWoods>)),
+                    cover::read_the_sprig_kit
+                        .run_if(not(resource_exists::<cover::SprigKit>)),
                 ),
             )
             .add_systems(OnExit(crate::states::AppState::Playing), clear_the_world);
@@ -186,6 +189,8 @@ impl Plugin for WorldPlugin {
                 prop::setup_props.run_if(not(resource_exists::<prop::PropPool>)),
                 authored::ask_for_the_authored_woods
                     .run_if(not(resource_exists::<authored::AuthoredWoods>)),
+                cover::read_the_sprig_kit
+                    .run_if(not(resource_exists::<cover::SprigKit>)),
             ),
         )
         .add_systems(OnExit(crate::states::AppState::Editing), clear_the_world);
