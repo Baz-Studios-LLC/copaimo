@@ -71,6 +71,10 @@ const TILT: f32 = 0.5;
 /// The authored pieces a tuft is built from.
 pub struct Kit {
     blade: Geometry,
+    /// The stem and the head of a flower, authored at unit height. Two meshes
+    /// because they are tinted differently — the stem is the leaves' green and the
+    /// head is whatever colour that flower drew.
+    stem: Option<Geometry>,
     petals: Option<Geometry>,
 }
 
@@ -103,7 +107,8 @@ pub fn read_kit() -> Option<Kit> {
     }
     Some(Kit {
         blade,
-        petals: read("cover_petals.glb", "petals"),
+        stem: read("cover_flower.glb", "stem"),
+        petals: read("cover_flower.glb", "petals"),
     })
 }
 
@@ -180,20 +185,19 @@ pub fn stamp(
     }
 
     if kind == Sprig::Flower {
+        // Stem and head together, from the tuft's own foot, scaled by its HEIGHT.
+        //
+        // Scaled by `scale` before, which is a multiplier and not a length: the
+        // head came out about fifteen centimetres across, and with no stem under it
+        // the whole thing read as coloured confetti hovering over the grass. A
+        // flower is a stem with something on the end of it.
+        let spun = Quat::from_rotation_y(turn);
+        if let Some(stem) = &kit.stem {
+            put(into, stem, at, spun, tall, green, 1.0);
+        }
         if let Some(petals) = &kit.petals {
             let colour = PETALS[(petal * PETALS.len() as f32) as usize % PETALS.len()];
-            let head = at + Vec3::Y * tall * 0.92;
-            // Scaled by the tuft, not by the blade: a flower's head is its own
-            // size and does not get longer because one blade did.
-            put(
-                into,
-                petals,
-                head,
-                Quat::from_rotation_y(turn),
-                scale,
-                colour,
-                1.0,
-            );
+            put(into, petals, at, spun, tall, colour, 1.0);
         }
     }
 }
@@ -446,6 +450,103 @@ mod tests {
         assert!(
             widest > leafy * 2.0,
             "a flower's colours spread {widest:.3} and a plain tuft's {leafy:.3} —              the head is not a different colour from the leaves"
+        );
+    }
+}
+
+#[cfg(test)]
+mod probe {
+    use super::*;
+
+    /// Dumps a patch of stamped cover as a PLY, for looking at.
+    ///
+    ///     cargo test dump_a_patch_of_cover -- --ignored --nocapture
+    ///     dev/cover_look.sh
+    ///
+    /// The template can be opened in Blender any time; what cannot be seen there is
+    /// what the STAMP makes of it — the fan, the lean, the greens, a flower among
+    /// the grass. So this writes the real thing the chunk dresser would weld, and
+    /// the shell script renders it.
+    #[test]
+    #[ignore = "writes a file to look at"]
+    fn dump_a_patch_of_cover() {
+        let kit = read_kit().expect("cover pieces should be built");
+        let mut mesh = Geometry::default();
+
+        // A patch on the same one-metre lattice the world uses, with the variation
+        // walked across it so the picture shows the range rather than one tuft.
+        let wide = 7;
+        for row in 0..wide {
+            for column in 0..wide {
+                let at = Vec3::new(column as f32 * 0.5, 0.0, row as f32 * 0.5);
+                let step = (row * wide + column) as f32 / (wide * wide) as f32;
+                let shade = fract(step * 7.3 + 0.11);
+                let lush = fract(step * 3.1 + 0.4);
+                let scale = 0.8 + 0.5 * fract(step * 11.7);
+                let turn = fract(step * 5.9) * std::f32::consts::TAU;
+                // About one in six, which is roughly how a meadow flowers.
+                let kind = if (row * wide + column) % 6 == 2 {
+                    Sprig::Flower
+                } else {
+                    Sprig::Grass
+                };
+                stamp(&mut mesh, &kit, kind, at, turn, scale, shade, fract(step * 13.3), lush);
+            }
+        }
+
+        let out = std::path::Path::new("cover_patch.ply");
+        let mut text = String::new();
+        text.push_str("ply
+format ascii 1.0
+");
+        text.push_str(&format!("element vertex {}
+", mesh.places.len()));
+        text.push_str("property float x
+property float y
+property float z
+");
+        text.push_str("property uchar red
+property uchar green
+property uchar blue
+");
+        text.push_str(&format!("element face {}
+", mesh.indices.len() / 3));
+        text.push_str("property list uchar int vertex_index
+end_header
+");
+        for (place, colour) in mesh.places.iter().zip(&mesh.colours) {
+            // PLY carries bytes, and the game's colours are linear — so they are
+            // written back as sRGB, or the picture comes out half as bright as the
+            // game draws it.
+            let byte = |part: f32| {
+                let shown = if part <= 0.003_130_8 {
+                    part * 12.92
+                } else {
+                    1.055 * part.powf(1.0 / 2.4) - 0.055
+                };
+                (shown.clamp(0.0, 1.0) * 255.0).round() as u8
+            };
+            text.push_str(&format!(
+                "{} {} {} {} {} {}
+",
+                place[0],
+                place[1],
+                place[2],
+                byte(colour[0]),
+                byte(colour[1]),
+                byte(colour[2])
+            ));
+        }
+        for face in mesh.indices.chunks(3) {
+            text.push_str(&format!("3 {} {} {}
+", face[0], face[1], face[2]));
+        }
+        std::fs::write(out, text).expect("the patch should write");
+        println!(
+            "wrote {} with {} vertices and {} triangles",
+            out.display(),
+            mesh.places.len(),
+            mesh.indices.len() / 3
         );
     }
 }

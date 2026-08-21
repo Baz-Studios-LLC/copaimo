@@ -897,9 +897,38 @@ points sideways, and a meadow lit honestly flickers dark as the camera turns. Do
 in the stamp rather than in the file so no export setting can lose it — Blender
 will not have a vertex normal set anyway, it is read-only.
 
+### A flower is a stem with something on the end
+
+The first one was a flat five-sided fan, sized by the tuft's `scale` rather than
+its height, placed at 92% of that height with nothing joining it to the ground. In
+the game it read as exactly what it was: coloured pentagons hovering over the
+grass. Four faults, and the shape was only one of them.
+
+* **No stem.** Nothing said the colour belonged to a plant. The flower is now a
+  stem and a head, authored together at unit height and scaled by the tuft's
+  height, as two meshes because they are tinted differently — the stem takes the
+  leaves' green, the head takes whatever colour that flower drew.
+* **Too big, then too small.** `scale` is a multiplier, not a length, so the head
+  came out about 15 cm across; 2 cm was a speck. It is about 8.5 cm now, and `span`
+  in `dev/art/cover.py` is the one number to move if they should be more or less
+  noticeable.
+* **Hidden.** A blade runs to between 0.72 and 1.14 of a tuft's height, so a head
+  at 0.90 was behind half the blades in its own tuft. It stands at 1.06 now, above
+  the grass.
+* **The petal shape took three tries**, and all three failures were a petal
+  treated as a triangle. Pointed outward, a ring of them is an **agave** — the
+  trap `terrain_core::cover` already records for grass tufts. Pointed inward,
+  meeting at one shared middle vertex, a ring of them is a folded **paper fan**,
+  because the head becomes a cone. And made into a steep cup to give it depth, it
+  is a **funnel**, which from anywhere but straight above is a paper fan again.
+
+  What works is what a daisy does: petals as quads with an inner EDGE, radiating
+  from a small dark boss, lying nearly level. A small flower IS mostly flat — its
+  presence comes from the stem holding it up, not from depth in the head.
+
 ### Two numbers to respect before making these richer
 
-**The budget is fragments, not vertices.** A chunk of open country carries 103,772
+**The budget is fragments, not vertices.** A chunk of open country carries 107,258
 vertices stamped from authored pieces against 93,415 grown, and a ceiling of
 145,000. But width is what bites: grass overdraws itself many times over, and
 narrowing a blade once put vertices up a fifth and fragments down by a third at

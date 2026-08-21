@@ -16,3 +16,4 @@ desktop.ini
 # delete the script that made it — a generator and a hand-edited file cannot
 # both be the source of truth.
 /dev/art/*.blend
+/cover_patch.ply
