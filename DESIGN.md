@@ -17,9 +17,18 @@ collect).
 
 The way from the desert to the green country is ONE winding slot canyon through a
 flat-topped massif (`world/pass.rs`). The top is a mesa — too high to walk over,
-above the treeline so it reads as bare rock. The walls are sheer (seventy degrees)
-and jagged: the rims are warped by two octaves of noise in the massif's own frame,
-so the silhouette is crags and buttresses rather than a drawn line. The canyon's
+above the treeline so it reads as bare rock. The walls are sheer (seventy degrees),
+and their rims are warped by two octaves of noise in the massif's own frame — but
+**gently**, and that is a constraint rather than a taste. Moving a rim sideways by a
+metre moves the ground by the wall's own gradient, about 4.6 m per metre here, so a
+rim wandering half a metre between two vertices steps the ground by two — and
+vertices are two metres apart. The first cut wandered 22 m over 90 and 7 m over 24,
+and every wall came out with a fine comb along its top and bottom: forty-one metres
+of step between neighbours at worst. A wander of A metres over L needs L greater
+than about 26·A.
+
+Sheer, jagged, and a heightfield: pick two. The walls stay sheer, so the massing
+comes from the thing that was always doing that work: the canyon's
 centreline swings two hundred metres side to side on the way through, so **no
 straight line crosses without climbing the full wall**, and no sightline reaches
 the far country. That is the gate: you cannot pass until you find the way, and you
