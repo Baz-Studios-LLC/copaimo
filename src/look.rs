@@ -28,11 +28,22 @@ use bevy::prelude::*;
 
 use crate::shade::{shaded, Shaded};
 
-/// Which body a warden wears. Two presets and no more — the difference is a
-/// shoulder-to-hip taper, which is all a stylised figure needs to read either way.
+/// How tall a warden stands in the world, in metres.
+///
+/// The terrain, the camera distance and the walking speed are all tuned against
+/// this, so a model authored at some other height is scaled to it rather than the
+/// world being re-tuned around whatever a file happens to be.
+pub const TALL: f32 = 1.70;
+
+/// Which body a warden wears.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Build {
+    /// The made character: textured, dressed, and rigged as a full biped.
     #[default]
+    Ranger,
+    /// The scripted bodies. Kept because they are the ones whose PARTS can be
+    /// tinted apart — see `colour_of` — which is what a character creator needs and
+    /// what a single-material model cannot give.
     Male,
     Female,
 }
@@ -41,9 +52,50 @@ impl Build {
     /// The file this build's body lives in.
     pub fn model(self) -> &'static str {
         match self {
+            Build::Ranger => "models/person_ranger.glb",
             Build::Male => "models/person_male.glb",
             Build::Female => "models/person_female.glb",
         }
+    }
+
+    /// How tall the figure in the file stands, in its own units.
+    ///
+    /// Not every model is authored at human scale — one that comes in at a unit
+    /// high is perfectly normal — so the game scales it to [`TALL`] rather than
+    /// insisting the file be rebuilt.
+    pub fn authored_height(self) -> f32 {
+        match self {
+            Build::Ranger => 1.00,
+            Build::Male | Build::Female => 1.70,
+        }
+    }
+
+    /// Which way to turn the model so its front is the game's forward, in radians.
+    ///
+    /// # Every model faces somewhere different
+    ///
+    /// The game's forward is -Z. The scripted bodies are built to it. The made
+    /// character faces +X, which is neither wrong nor unusual — it is simply what
+    /// the tool that produced it chose — so it is turned a quarter circle here. A
+    /// yaw of +90 degrees carries +X onto -Z.
+    ///
+    /// Kept as a table beside the file name because that is what it is: a fact
+    /// about an asset, not a rule about the world. Rebuilding somebody else's file
+    /// to suit ours would be worse — the correction would have to be redone every
+    /// time they sent a new one.
+    pub fn turn(self) -> f32 {
+        match self {
+            Build::Ranger => std::f32::consts::FRAC_PI_2,
+            Build::Male | Build::Female => 0.0,
+        }
+    }
+
+    /// Whether the model already has its own hair and clothes.
+    ///
+    /// A made character arrives dressed, with hair modelled and textured in. Putting
+    /// a wig and a cap on top of that would be two heads of hair.
+    pub fn dressed(self) -> bool {
+        matches!(self, Build::Ranger)
     }
 }
 
@@ -121,7 +173,7 @@ impl Default for Look {
     /// point of the default is to be unremarkable enough to test movement against.
     fn default() -> Self {
         Self {
-            build: Build::Male,
+            build: Build::Ranger,
             hair: Hair::None,
             hat: Hat::Cap,
             skin: Srgba::rgb(0.86, 0.68, 0.55).into(),
@@ -368,6 +420,78 @@ mod tests {
             }
         }
         assert!(looked >= 8, "only {looked} models were checked");
+    }
+
+    /// Every build's authored height matches the file it names.
+    ///
+    /// # The number that silently resizes the warden
+    ///
+    /// A model is scaled from `authored_height` up to `TALL`, so if that number is
+    /// wrong the warden is the wrong size — and nothing else complains. A figure
+    /// authored a unit high and assumed to be 1.7 m comes out at three metres, and
+    /// the only symptom is that the world suddenly looks small.
+    ///
+    /// The file knows its own height, so the claim is checked against it rather than
+    /// trusted. This is what catches a replaced asset: somebody sends a new export
+    /// at a different scale and this fails instead of the game looking odd.
+    #[test]
+    fn every_build_knows_how_tall_its_file_is() {
+        let folder = std::path::Path::new("assets/models");
+        for build in [Build::Ranger, Build::Male, Build::Female] {
+            let file = folder.join(build.model().trim_start_matches("models/"));
+            let Ok(bytes) = std::fs::read(&file) else {
+                panic!("{build:?} names {} and it is not there", build.model());
+            };
+            let model = crate::models::inspect(&bytes)
+                .unwrap_or_else(|why| panic!("{build:?}: {why}"));
+            let stands = model.high[1] - model.low[1];
+            let said = build.authored_height();
+            assert!(
+                (stands - said).abs() < 0.05,
+                "{build:?} says its file is {said:.2} m and the file is {stands:.2} m —                  the warden would come out {:.2} m instead of {TALL:.2}",
+                TALL * stands / said
+            );
+            // And it is rigged, because the warden walks.
+            assert!(
+                model.joints >= 17,
+                "{build:?} has {} joints — it cannot be animated",
+                model.joints
+            );
+        }
+    }
+
+    /// A dressed build brings its own hair, and an undressed one can be tinted.
+    ///
+    /// Two facts that have to agree with the file. A model with ONE material cannot
+    /// have its skin and eyes coloured separately — there is nothing to colour apart
+    /// — so it must be the sort that arrives dressed. And a model whose parts ARE
+    /// separable must not be, or the creator has nothing to work with.
+    #[test]
+    fn a_dressed_build_is_one_piece_and_an_undressed_one_is_not() {
+        let folder = std::path::Path::new("assets/models");
+        for build in [Build::Ranger, Build::Male, Build::Female] {
+            let file = folder.join(build.model().trim_start_matches("models/"));
+            let Ok(bytes) = std::fs::read(&file) else {
+                continue;
+            };
+            let model = crate::models::inspect(&bytes).expect("a body should read");
+            let paintable = model
+                .meshes
+                .iter()
+                .filter(|(name, _)| Look::default().colour_of(name).is_some())
+                .count();
+            if build.dressed() {
+                assert_eq!(
+                    paintable, 0,
+                    "{build:?} says it arrives dressed but has {paintable} parts the                      painter would colour — one of the two is wrong"
+                );
+            } else {
+                assert!(
+                    paintable >= 4,
+                    "{build:?} is meant to be tintable and only {paintable} of its                      meshes have a colour"
+                );
+            }
+        }
     }
 
     /// A warden faces the way the game means by forward.

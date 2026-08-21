@@ -221,6 +221,15 @@ fn raise_the_warden(
     let body: Handle<Scene> =
         assets.load(GltfAssetLabel::Scene(0).from_asset(look.build.model()));
 
+    // The body hangs on a child of its own, carrying the scale and the turn that
+    // make this particular file fit the world. The warden's OWN transform stays
+    // clean: it is what the walk moves, what the camera follows and what the save
+    // records, and none of that wants a model's quirks baked into it.
+    let fitted = Transform::from_scale(Vec3::splat(
+        crate::look::TALL / look.build.authored_height(),
+    ))
+    .with_rotation(Quat::from_rotation_y(look.build.turn()));
+
     commands
         .spawn((
             Player,
@@ -232,11 +241,16 @@ fn raise_the_warden(
             // scene is instanced asynchronously and none of it exists yet.
             crate::look::Dressing,
             Striding::default(),
-            SceneRoot(body),
             Transform::from_translation(spawn).with_rotation(Quat::from_rotation_y(facing)),
             Visibility::default(),
         ))
         .with_children(|parent| {
+            parent.spawn((SceneRoot(body), fitted, Visibility::default()));
+            // A model that arrives dressed keeps its own hair, and a cap over
+            // modelled hair is two heads of it.
+            if look.build.dressed() {
+                return;
+            }
             if let Some(style) = look.hair.model() {
                 let hair: Handle<Scene> =
                     assets.load(GltfAssetLabel::Scene(0).from_asset(style));
