@@ -15,7 +15,6 @@ use bevy::prelude::*;
 
 use crate::camera::{CameraMode, MainCamera};
 use crate::config::{RANCH_AT, SEA_LEVEL};
-use crate::shade::{shaded, Shaded};
 use crate::states::AppState;
 use crate::util::facing_quat;
 use crate::world::terrain::TerrainSource;
@@ -28,7 +27,6 @@ const SPRINT_SPEED: f32 = 15.0;
 /// How fast the warden swivels to face the way they're heading, in radians/sec.
 const TURN_RATE: f32 = 12.0;
 /// Standing eye-to-toe height, used to keep the body clear of the ground.
-const LEG_HEIGHT: f32 = 0.9;
 /// The steepest rise the warden can WALK up, in metres climbed per metre
 /// travelled. One-in-one is a 45° scramble and still walking; this is a little
 /// past it.
@@ -86,9 +84,16 @@ impl Plugin for PlayerPlugin {
         app.add_systems(OnEnter(AppState::Playing), spawn_player)
             // The warden only walks in the game. In the terrain tool the same
             // keys fly the camera, and in the menu nothing should move at all.
+            .init_resource::<crate::look::Look>()
             .add_systems(
                 Update,
-                move_player.run_if(in_state(AppState::Playing)),
+                (
+                    move_player,
+                    // Every frame while the world is open: a scene arrives over
+                    // several frames and a part cannot be painted before it exists.
+                    crate::look::paint_the_warden,
+                )
+                    .run_if(in_state(AppState::Playing)),
             );
     }
 }
@@ -122,8 +127,8 @@ fn find_spawn(terrain: &TerrainSource, bounds: &WorldBounds) -> Vec3 {
 
 fn spawn_player(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<Shaded>>,
+    assets: Res<AssetServer>,
+    look: Res<crate::look::Look>,
     terrain: Res<TerrainSource>,
     bounds: Res<WorldBounds>,
     progress: Res<crate::save::Progress>,
@@ -165,7 +170,7 @@ fn spawn_player(
         warden.rotation = Quat::from_rotation_y(facing);
         return;
     }
-    raise_the_warden(&mut commands, &mut meshes, &mut materials, spawn, facing);
+    raise_the_warden(&mut commands, &assets, &look, spawn, facing);
 }
 
 /// Stands the warden up, wherever they are starting from.
@@ -175,64 +180,42 @@ fn spawn_player(
 /// two places is a warden that grows a hat in one of them.
 fn raise_the_warden(
     commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<Shaded>,
+    assets: &AssetServer,
+    look: &crate::look::Look,
     spawn: Vec3,
     facing: f32,
 ) {
-    let mut solid = |r: f32, g: f32, b: f32| {
-        materials.add(shaded(StandardMaterial {
-            base_color: Srgba::rgb(r, g, b).into(),
-            perceptual_roughness: 0.8,
-            ..default()
-        }))
-    };
-    let coat = solid(0.22, 0.34, 0.24);
-    let skin = solid(0.80, 0.62, 0.48);
-    let hat = solid(0.18, 0.42, 0.22);
+    // The body, and the hair and hat as children of it.
+    //
+    // Three files rather than one because a hairstyle and a hat are CHOICES: the
+    // body is the same model whichever hair is on it, and a hat is authored to sit
+    // over a wig rather than instead of one. They are parented to the warden, so
+    // they travel and turn with them without anything having to keep them in step.
+    let body: Handle<Scene> =
+        assets.load(GltfAssetLabel::Scene(0).from_asset(look.build.model()));
+    let hair: Handle<Scene> =
+        assets.load(GltfAssetLabel::Scene(0).from_asset(look.hair.model()));
 
-    // Parent holds the warden's world position with its origin at the feet;
-    // the body parts hang off it at fixed local heights.
     commands
         .spawn((
             Player,
             // Pushes the grass aside as they go. About the width of a person
             // plus an arm — what actually brushes past is wider than what walks.
             crate::shade::Wades { reach: 1.8 },
+            // Its parts are painted as the scene brings them in — see
+            // `look::paint_the_warden`. Nothing can be painted at spawn: a glTF
+            // scene is instanced asynchronously and none of it exists yet.
+            crate::look::Dressing,
+            SceneRoot(body),
             Transform::from_translation(spawn).with_rotation(Quat::from_rotation_y(facing)),
             Visibility::default(),
         ))
         .with_children(|parent| {
-            // Legs
-            parent.spawn((
-                Mesh3d(meshes.add(Cuboid::new(0.46, LEG_HEIGHT, 0.30))),
-                MeshMaterial3d(coat.clone()),
-                Transform::from_xyz(0.0, LEG_HEIGHT * 0.5, 0.0),
-            ));
-            // Torso
-            parent.spawn((
-                Mesh3d(meshes.add(Cuboid::new(0.56, 0.62, 0.34))),
-                MeshMaterial3d(coat),
-                Transform::from_xyz(0.0, 1.21, 0.0),
-            ));
-            // Head
-            parent.spawn((
-                Mesh3d(meshes.add(Cuboid::new(0.30, 0.30, 0.28))),
-                MeshMaterial3d(skin),
-                Transform::from_xyz(0.0, 1.67, 0.0),
-            ));
-            // Hat crown and brim — the warden's silhouette, and a clear read on
-            // which way they're facing from any camera angle.
-            parent.spawn((
-                Mesh3d(meshes.add(Cylinder::new(0.18, 0.16))),
-                MeshMaterial3d(hat.clone()),
-                Transform::from_xyz(0.0, 1.90, 0.0),
-            ));
-            parent.spawn((
-                Mesh3d(meshes.add(Cylinder::new(0.34, 0.03))),
-                MeshMaterial3d(hat),
-                Transform::from_xyz(0.0, 1.83, 0.0),
-            ));
+            parent.spawn((SceneRoot(hair), Transform::default(), Visibility::default()));
+            if let Some(worn) = look.hat.model() {
+                let hat: Handle<Scene> = assets.load(GltfAssetLabel::Scene(0).from_asset(worn));
+                parent.spawn((SceneRoot(hat), Transform::default(), Visibility::default()));
+            }
         });
 }
 
@@ -423,6 +406,10 @@ mod tests {
         ))
         .init_state::<AppState>()
         .init_asset::<Mesh>()
+        // The warden is a glTF scene now. Without `Assets<Scene>` registered,
+        // allocating a handle for one panics inside the asset server rather than
+        // failing to load — which reads as a mystery rather than a missing plugin.
+        .init_asset::<Scene>()
         .init_asset::<crate::shade::Shaded>()
         .insert_resource(TerrainSource(std::sync::Arc::new(terrain)))
         .insert_resource(WorldBounds {
@@ -431,6 +418,8 @@ mod tests {
             max_chunk: IVec2::ZERO,
         })
         .init_resource::<Progress>()
+        // The warden is a model now, and raising one reads how it should look.
+        .init_resource::<crate::look::Look>()
         .add_systems(OnEnter(AppState::Playing), spawn_player);
 
         // A save from somewhere that is NOT the ranch, with a stale height —

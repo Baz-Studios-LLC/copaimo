@@ -45,6 +45,8 @@ mod editor;
 mod tools;
 #[cfg(feature = "tools")]
 mod hud;
+/// How a warden looks, and painting it onto the model.
+mod look;
 mod menu;
 // Reads model files: the gate that keeps a badly exported one out of the game, and
 // the reader that turns a GLB into geometry the world can weld into a chunk.

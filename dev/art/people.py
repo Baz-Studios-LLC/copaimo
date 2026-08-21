@@ -822,6 +822,56 @@ def curls():
 
 HAIR = {"crop": crop, "bob": bob, "tail": tail, "braids": braids, "curls": curls}
 
+
+# --------------------------------------------------------------------- the hats
+#
+# A hat is its OWN slot, not a hairstyle. Somebody wearing a cap still has hair
+# under it, so the two have to be separate things the game can pick independently —
+# and a hat is authored to sit over a wig rather than instead of one.
+
+
+def baseball_cap():
+    """A baseball cap: a crown over the head and a peak out the front.
+
+    Named in full because `cap` is already taken in this file — it is the wig shell
+    every hairstyle is built on, and defining a second `cap` here quietly replaced
+    it, so every hairstyle started returning a list of lists.
+
+    Sized a little larger than the widest wig so it sits over hair rather than
+    inside it. The peak is the whole of the read from any distance — a crown alone
+    is a swimming cap — so it is wide, and it tips DOWN, because a peak parallel to
+    the ground reads as a plate.
+    """
+    parts = [
+        # The crown: over the top and the back, stopping short of the brow.
+        blob(
+            (HEAD_WIDE + 0.055, HEAD_DEEP + 0.050, HEAD_HIGH * 0.78),
+            (0.0, HEAD_DEEP * 0.05, HEAD_AT + HEAD_HIGH * 0.20),
+        ),
+        # The button on the crown, which is a cap's one piece of detail.
+        blob((0.032, 0.032, 0.026), (0.0, HEAD_DEEP * 0.05, HEAD_AT + HEAD_HIGH * 0.50), subdiv=1),
+    ]
+    # The peak.
+    #
+    # A flattened ELLIPSOID, not a loft. The loft stacks its rings along Z, so what
+    # came out was a thin strip across the head — 33 cm wide and 4 cm deep — where a
+    # peak wants the opposite: wide across the brow and reaching FORWARD, thin
+    # vertically. It read as a beak.
+    #
+    # Tipped down about fifteen degrees, because a peak parallel to the ground is a
+    # plate and the shadow it casts is the whole point of one.
+    peak = blob((0.290, 0.185, 0.034), (0.0, 0.0, 0.0), subdiv=2)
+    lean = math.radians(-15.0)
+    for point in peak.data.vertices:
+        y, z = point.co.y, point.co.z
+        point.co.y = y * math.cos(lean) - z * math.sin(lean) - HEAD_DEEP * 0.46
+        point.co.z = y * math.sin(lean) + z * math.cos(lean) + HEAD_AT + HEAD_HIGH * 0.085
+    parts.append(peak)
+    return parts
+
+
+HATS = {"cap": baseball_cap}
+
 SHARP_ABOVE = math.radians(62.0)
 
 
@@ -867,6 +917,27 @@ def build_body(build: str) -> None:
     print(f"BUILT person_{build} — {highest:.2f} m, {len(welded)} meshes")
 
 
+def build_hat(style: str) -> None:
+    """Builds one hat. Same shading and naming rules as hair — see `build_hair`."""
+    fresh()
+    parts = HATS[style]()
+    for part in parts:
+        bpy.ops.object.select_all(action="DESELECT")
+        part.select_set(True)
+        bpy.context.view_layer.objects.active = part
+        bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+    whole = weld(parts, "hat")
+    shade_in(whole, 0.74, 1.0, HEAD_AT - 0.24, HEAD_AT + HEAD_HIGH * 0.55)
+    bpy.ops.object.select_all(action="DESELECT")
+    whole.select_set(True)
+    bpy.context.view_layer.objects.active = whole
+    bpy.ops.object.shade_auto_smooth(angle=SHARP_ABOVE)
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(here, f"part_hat_{style}.blend"))
+    print(f"BUILT part_hat_{style} — {len(whole.data.vertices)} vertices")
+
+
 def build_hair(style: str) -> None:
     fresh()
     parts, _ = HAIR[style]()
@@ -893,3 +964,5 @@ for one in BUILDS:
     build_body(one)
 for one in STYLES:
     build_hair(one)
+for one in HATS:
+    build_hat(one)
