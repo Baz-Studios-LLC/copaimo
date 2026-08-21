@@ -367,6 +367,14 @@ pub struct Variety {
     pub leaves: Handle<Mesh>,
     pub leaf: Handle<Shaded>,
     pub bark: Handle<Shaded>,
+    /// What kind of tree this variety IS.
+    ///
+    /// Recorded because the pool's own layout — grouped by species, four variants
+    /// apiece — is `terrain_core`'s business and not something to be re-derived
+    /// here. An authored shape has to land on the variety whose COLOUR belongs to
+    /// the same species, and the first cut worked that out with a modulo: it put
+    /// a birch's chalk-pale trunk under an oak's crown, all over the world.
+    pub species: terrain_core::tree::Species,
 }
 
 /// The range a leaf can be, dark to light.
@@ -384,7 +392,46 @@ const LEAF_LIGHT: Srgba = Srgba::rgb(0.38, 0.55, 0.24);
 /// trunk is most of what tells one from an oak at any distance, and it was the
 /// same brown as everything else.
 const BARK_DARK: Srgba = Srgba::rgb(0.19, 0.13, 0.09);
-const BARK_PALE: Srgba = Srgba::rgb(0.82, 0.80, 0.74);
+/// The palest bark in the world, which is a birch.
+///
+/// Warmed and brought down from (0.82, 0.80, 0.74). That was very nearly white,
+/// and a near-white matte surface under an open sky takes its colour from the sky:
+/// it came out cool grey — concrete rather than bark — even though the numbers
+/// themselves are warm. Bark is never brighter than the grass it stands in.
+const BARK_PALE: Srgba = Srgba::rgb(0.74, 0.69, 0.58);
+
+/// The green a tree wears, from where it sits in the leaf range.
+fn leaf_colour(tint: f32) -> Vec4 {
+    LinearRgba::from(LEAF_DARK)
+        .to_vec4()
+        .lerp(LinearRgba::from(LEAF_LIGHT).to_vec4(), tint)
+}
+
+/// The colour of a trunk, from where its species sits in the bark range.
+///
+/// # Cubed, not squared, and not straight
+///
+/// Straight, the ramp put every species in the MIDDLE of brown-to-chalk, and the
+/// middle of brown-to-chalk is grey: a whole wood the colour of concrete. Squaring
+/// fixed most of that. Cubing finishes it — the species that should be brown are
+/// pushed further down the ramp, and a birch, which draws 0.86 and up, still lands
+/// near the pale end where it belongs.
+///
+/// The numbers this has to keep apart, from `terrain_core`: spruce draws
+/// 0.12–0.26, acacia 0.28–0.44, oak 0.30–0.48, pine 0.44–0.62, birch 0.86–1.0.
+/// Cubed, pine's palest is 0.24 and birch's darkest is 0.64 — a gap wide enough
+/// that no amount of variation blurs a pine into a birch.
+///
+/// Worth saying plainly, because it was misread once: the wood full of pale trunks
+/// was NOT this. Authored shapes were being matched to varieties by position
+/// instead of by species, so birch-coloured trunks were wearing oak crowns. The
+/// palette only ever needed warming.
+fn bark_colour(bark: f32) -> Vec4 {
+    let pale = bark * bark * bark;
+    LinearRgba::from(BARK_DARK)
+        .to_vec4()
+        .lerp(LinearRgba::from(BARK_PALE).to_vec4(), pale)
+}
 
 /// Grows the world's trees once, at startup.
 pub fn grow_the_grove(
@@ -395,21 +442,10 @@ pub fn grow_the_grove(
     let trees = (0..terrain_core::tree::VARIETIES as u32)
         .map(|seed| {
             let tree = terrain_core::tree::grow(seed);
-            let green = LinearRgba::from(LEAF_DARK)
-                .to_vec4()
-                .lerp(LinearRgba::from(LEAF_LIGHT).to_vec4(), tree.tint);
-            // Squared, so only a birch gets anywhere near the pale end.
-            //
-            // Straight, the ramp put every species in the middle of it — and the
-            // middle of brown-to-chalk is grey, so a whole wood came out the
-            // colour of concrete. Squaring holds oak, spruce, pine and the rest
-            // down in the browns where they belong and lets birch, which draws
-            // 0.86 and up, still reach the chalk that makes it a birch.
-            let pale = tree.bark * tree.bark;
-            let wood_colour = LinearRgba::from(BARK_DARK)
-                .to_vec4()
-                .lerp(LinearRgba::from(BARK_PALE).to_vec4(), pale);
+            let green = leaf_colour(tree.tint);
+            let wood_colour = bark_colour(tree.bark);
             Variety {
+                species: tree.species,
                 wood: meshes.add(as_mesh(&tree.wood)),
                 leaves: meshes.add(as_mesh(&tree.leaves)),
                 // A material apiece. Twenty of them is nothing — the meshes were
@@ -523,4 +559,70 @@ pub fn setup_river_material(mut commands: Commands, mut materials: ResMut<Assets
         ..default()
     }));
     commands.insert_resource(RiverMaterial(handle));
+}
+
+#[cfg(test)]
+mod palette {
+    use super::*;
+    use terrain_core::tree::Species;
+
+    /// A brown-barked tree reads brown, and only a birch goes pale.
+    ///
+    /// The fault this guards is not a crash: it is a wood that comes out the
+    /// colour of concrete, which nobody can call a bug from a screenshot without
+    /// arguing about it. So the claim is stated in numbers — how much warmer than
+    /// blue a trunk is, and how far apart the palest brown tree and the darkest
+    /// birch sit on the ramp.
+    #[test]
+    fn brown_barked_trees_read_brown_and_only_a_birch_goes_pale() {
+        let warmth = |bark: f32| {
+            let colour = bark_colour(bark);
+            colour.x - colour.z
+        };
+        let lightness = |bark: f32| bark_colour(bark).x;
+
+        // The ranges each species draws from, out of `terrain_core`.
+        let brown = [
+            ("spruce", 0.12, 0.26),
+            ("acacia", 0.28, 0.44),
+            ("oak", 0.30, 0.48),
+            ("pine", 0.44, 0.62),
+        ];
+        for (name, low, high) in brown {
+            for bark in [low, (low + high) * 0.5, high] {
+                assert!(
+                    warmth(bark) > 0.0,
+                    "{name} at {bark} is not warmer than it is blue"
+                );
+                assert!(
+                    lightness(bark) < 0.35,
+                    "{name} at {bark} reads at {:.2} — that is stone, not bark",
+                    lightness(bark)
+                );
+            }
+        }
+
+        // A birch is the pale one, and the gap is wide.
+        let palest_brown = lightness(0.62);
+        let darkest_birch = lightness(0.86);
+        assert!(
+            darkest_birch > palest_brown * 2.0,
+            "the darkest birch reads {darkest_birch:.2} and the palest brown tree \
+             {palest_brown:.2} — too close to tell apart"
+        );
+        // And still bark rather than paper: warm, and no brighter than grass.
+        assert!(warmth(1.0) > 0.05, "the palest bark has gone colourless");
+        assert!(lightness(1.0) < 0.8, "the palest bark is brighter than the world");
+
+        // Every species the world actually grows lands inside the claim above.
+        for species in Species::ALL {
+            let tree = terrain_core::tree::grow_as(species, 0);
+            let light = lightness(tree.bark);
+            assert!(
+                (0.0..0.8).contains(&light),
+                "{species:?} draws bark {:.2}, which paints {light:.2}",
+                tree.bark
+            );
+        }
+    }
 }

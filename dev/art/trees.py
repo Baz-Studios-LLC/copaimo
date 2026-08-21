@@ -32,7 +32,9 @@ import bpy
 import mathutils
 
 # Each species: how tall it stands, in metres, against a 1.8 m person.
-SPECIES = ("oak", "pine", "birch", "spruce", "scrub")
+# These are terrain-core's own species names: a file is matched to the tree pool
+# by species, so the name is the contract and not a label.
+SPECIES = ("oak", "birch", "spruce", "pine", "acacia")
 
 
 def fresh() -> None:
@@ -199,24 +201,36 @@ def spruce():
     return wood, leaves
 
 
-def scrub():
-    """Barely a tree: a low wide mass for dry ground, with a stub of a stem."""
+def acacia():
+    """Flat-topped and open: all shade and no height, for dry country.
+
+    An umbrella, because shade is the scarce thing where an acacia grows — a bare
+    trunk that forks low and wide, and a crown that is broad and SHALLOW. It is
+    the one silhouette here that is wider than it is tall, which is what makes it
+    read as dry country from a long way off.
+    """
+    fork = 2.9
     crown = [
-        ((0.0, 0.0, 1.15), 1.05),
-        ((0.75, 0.35, 0.95), 0.80),
-        ((-0.65, -0.45, 1.0), 0.72),
+        ((0.00, 0.00, 5.05), 2.30),
+        ((2.35, 0.35, 4.65), 1.70),
+        ((-2.20, -0.40, 4.75), 1.60),
+        ((0.30, 2.05, 4.70), 1.45),
+        ((-0.40, -2.00, 4.60), 1.35),
     ]
-    wood = [trunk(0.16, 0.0, 0.9, sides=8)]
-    leaves = [clump(radius, at, squash=0.62) for at, radius in crown]
+    wood = [trunk(0.38, 0.0, fork + 0.5, sides=10)]
+    leaves = [clump(radius, at, squash=0.42) for at, radius in crown]
+    start = mathutils.Vector((0.0, 0.0, fork))
+    for at, _ in crown[1:]:
+        wood.append(branch_to(start, mathutils.Vector(at), 0.13))
     return wood, leaves
 
 
 BUILDERS = {
     "oak": oak,
-    "pine": pine,
     "birch": birch,
     "spruce": spruce,
-    "scrub": scrub,
+    "pine": pine,
+    "acacia": acacia,
 }
 
 

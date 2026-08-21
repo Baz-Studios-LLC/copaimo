@@ -929,6 +929,23 @@ every clump in it is under the threshold. All five species together are 2816
 triangles, and the worst single tree is under 1400, so a wood is still cheap in
 the place it matters: every caster is resubmitted per shadow cascade.
 
+**Matched by species, never by position.** The pool is grouped by species, four
+variants apiece, and that layout is `terrain_core`'s. The first cut picked
+varieties with `index % 5`, which scattered authored shapes across the groups — a
+variety wore one species' crown over another's bark, and since a birch's trunk is
+chalk pale, the world filled with pale trunks under oak canopies. It was read as
+the bark palette being wrong. The palette needed warming too, but the fault was
+this.
+
+The bark ramp is **cubed** and its pale end warmed to (0.74, 0.69, 0.58). Straight,
+every species sat in the middle of brown-to-chalk, and the middle of brown-to-chalk
+is grey. Squaring was not enough on its own because the ramp ENDED near white, so
+even a fifth of the way up read washed out — pine was painting (0.49, 0.46, 0.42),
+which is concrete. Cubed and warmed, spruce reads (0.20, 0.14, 0.10), oak
+(0.27, 0.22, 0.17), pine (0.35, 0.31, 0.25), and birch (0.68, 0.63, 0.53) — pale,
+and still bark rather than paper. A test states the claim in numbers, because "the
+wood looks like concrete" is not something anybody can argue from a screenshot.
+
 A species with no file keeps the shape the world grew for it, so this is
 species-at-a-time and reversible — delete a `.glb` and the wood grows its own
 again. Species repeat across the pool (five shapes over twenty varieties), which

@@ -35,12 +35,44 @@ use bevy::prelude::*;
 
 use super::stream::Grove;
 
-/// The species a `.glb` may be authored for, and the order they map onto the
-/// grown pool.
+/// The species a `.glb` may be authored for.
+///
+/// These are `terrain_core`'s own species names, lowercased, because a file has to
+/// be matched to the variety whose COLOUR belongs to the same tree — see
+/// [`file_for`]. Palm and willow are not here and keep the shapes the world grows
+/// for them, which is the designed fallback.
 ///
 /// **This must match `SPECIES` in `dev/art/trees.py`** — see
 /// `the_species_here_are_the_species_blender_builds`, which reads that file.
-pub const SPECIES: [&str; 5] = ["oak", "pine", "birch", "spruce", "scrub"];
+pub const SPECIES: [&str; 5] = ["oak", "birch", "spruce", "pine", "acacia"];
+
+/// Which authored file, if any, belongs to a species.
+///
+/// # Matched by species, never by position
+///
+/// The pool is grouped by species, four variants apiece, and that layout belongs
+/// to `terrain_core`. The first cut of this picked a file with `index % 5`, which
+/// scattered authored shapes across the groups: a variety got a birch's shape and
+/// a spruce's bark, or an oak's crown over the chalk-pale trunk that makes a birch
+/// a birch. Reported as every trunk in the world looking like concrete, and it was
+/// not the palette at all.
+///
+/// Exhaustive on purpose. Add a species to `terrain_core` and this stops
+/// compiling until somebody decides whether it has a model — which is the
+/// question worth being asked, rather than silently keeping a grown shape nobody
+/// meant to keep.
+fn file_for(species: terrain_core::tree::Species) -> Option<&'static str> {
+    use terrain_core::tree::Species;
+    Some(match species {
+        Species::Oak => "oak",
+        Species::Birch => "birch",
+        Species::Spruce => "spruce",
+        Species::Pine => "pine",
+        Species::Acacia => "acacia",
+        // No model yet; the world grows its own.
+        Species::Palm | Species::Willow => return None,
+    })
+}
 
 /// The authored files, once asked for.
 #[derive(Resource)]
@@ -138,9 +170,9 @@ pub fn take_the_authored_shapes(
 /// has already streamed in, is never. Overwriting the asset the handle points at
 /// changes what every instance draws, at once.
 ///
-/// The pool is larger than the number of authored species, so species repeat:
-/// twenty varieties over five shapes still gives twenty different greens, and the
-/// colour is where most of the variety in a wood comes from.
+/// Every variety of that species takes the same shape — four of them, one per
+/// variant — and they still differ in colour, which is where most of what makes a
+/// wood look like a wood comes from. A species with no file is left alone.
 fn lay_the_shape_into_the_pool(
     grove: &Grove,
     meshes: &mut Assets<Mesh>,
@@ -149,8 +181,8 @@ fn lay_the_shape_into_the_pool(
     leaves: &Mesh,
 ) -> usize {
     let mut dressed = 0;
-    for (index, variety) in grove.trees.iter().enumerate() {
-        if index % SPECIES.len() != which {
+    for variety in &grove.trees {
+        if file_for(variety.species) != Some(SPECIES[which]) {
             continue;
         }
         meshes.insert(&variety.wood, wood.clone());
@@ -187,25 +219,31 @@ mod tests {
     use super::*;
 
 
-    /// The shapes really do reach every tree that should get them.
+    /// A shape lands on the varieties of its OWN species, and nowhere else.
     ///
     /// # What this covers, and what it does not
     ///
     /// The written-here part: which varieties a species claims, and that the
-    /// replacement lands on the ASSET rather than on the handle — so a tree
-    /// already standing in the world changes shape instead of only ones planted
-    /// afterwards. That is the half that could be wrong in a way nothing would
-    /// notice, because a wood full of grown shapes looks like a wood.
+    /// replacement lands on the ASSET rather than the handle — so a tree already
+    /// standing in the world changes shape instead of only ones planted after.
     ///
-    /// The glTF loading itself is Bevy's, and is left to Bevy. A headless load was
-    /// tried first and does not complete under a hand-assembled plugin set — every
-    /// file sits at `Loading` through several seconds of real waiting, which is
-    /// worth knowing before anybody spends an afternoon on it again. What stands in
-    /// for it is the file contract, checked above: two meshes, named `wood` and
-    /// `leaves`, one primitive each.
+    /// It is built to catch the bug that shipped. The pool is grouped by species,
+    /// four variants apiece, and the first cut picked varieties with `index % 5`:
+    /// authored shapes scattered across the groups, so a variety wore one species'
+    /// crown over another's bark. In the world that came out as chalk-pale birch
+    /// trunks under oak canopies everywhere, and it was read as the bark palette
+    /// being wrong. So this asserts the negative as hard as the positive — nothing
+    /// belonging to another species may move.
+    ///
+    /// The glTF loading itself is Bevy's and is left to Bevy. A headless load was
+    /// tried and does not complete under a hand-assembled plugin set — every file
+    /// sits at `Loading` through seconds of real waiting, which is worth knowing
+    /// before anybody spends an afternoon on it. What stands in for it is the file
+    /// contract, checked above: two meshes, named `wood` and `leaves`.
     #[test]
-    fn a_species_claims_its_own_varieties_and_replaces_what_they_draw() {
+    fn a_shape_lands_only_on_the_varieties_of_its_own_species() {
         use bevy::render::mesh::PrimitiveTopology;
+        use terrain_core::tree::{Species, VARIANTS};
 
         let mut meshes = Assets::<Mesh>::default();
         let flat = |points: usize| {
@@ -219,45 +257,56 @@ mod tests {
             )
         };
 
-        // Two varieties per species, so the repeat is exercised rather than assumed.
-        let varieties = SPECIES.len() * 2;
+        // The real layout: every species, VARIANTS of each, in pool order.
         let mut trees = Vec::new();
-        for _ in 0..varieties {
-            trees.push(crate::world::stream::Variety {
-                wood: meshes.add(flat(3)),
-                leaves: meshes.add(flat(3)),
-                leaf: Handle::default(),
-                bark: Handle::default(),
-            });
+        for species in Species::ALL {
+            for _ in 0..VARIANTS {
+                trees.push(crate::world::stream::Variety {
+                    species,
+                    wood: meshes.add(flat(3)),
+                    leaves: meshes.add(flat(3)),
+                    leaf: Handle::default(),
+                    bark: Handle::default(),
+                });
+            }
         }
         // The handles a planted tree would be holding, taken BEFORE the swap.
-        let planted: Vec<(Handle<Mesh>, Handle<Mesh>)> = trees
+        let planted: Vec<(Species, Handle<Mesh>, Handle<Mesh>)> = trees
             .iter()
-            .map(|variety| (variety.wood.clone(), variety.leaves.clone()))
+            .map(|variety| (variety.species, variety.wood.clone(), variety.leaves.clone()))
             .collect();
         let grove = Grove { trees };
 
-        // One species takes over.
-        let which = 2;
+        // Birch takes over. Chosen deliberately: it is the palest bark in the
+        // world, so it is the species whose shape being in the wrong place was
+        // visible from any hillside.
+        let which = SPECIES
+            .iter()
+            .position(|name| *name == "birch")
+            .expect("birch is an authored species");
         let dressed = lay_the_shape_into_the_pool(&grove, &mut meshes, which, &flat(40), &flat(70));
-        assert_eq!(dressed, 2, "species {which} claimed {dressed} varieties, not 2");
+        assert_eq!(
+            dressed, VARIANTS,
+            "birch claimed {dressed} varieties; the pool holds {VARIANTS} of each species"
+        );
 
-        for (index, (wood, leaves)) in planted.iter().enumerate() {
+        for (species, wood, leaves) in &planted {
+            // Read back through the ORIGINAL handle: that is what a standing tree
+            // holds, and it is the whole reason the asset is replaced.
             let woody = meshes.get(wood).expect("a pool mesh went missing").count_vertices();
             let leafy = meshes.get(leaves).expect("a pool mesh went missing").count_vertices();
-            if index % SPECIES.len() == which {
-                // Read through the ORIGINAL handle: this is the assertion that
-                // matters, because it is what a standing tree is holding.
+            if *species == Species::Birch {
                 assert_eq!(
                     (woody, leafy),
                     (40, 70),
-                    "variety {index} belongs to species {which} and still draws the grown shape"
+                    "a birch variety still draws the shape the world grew for it"
                 );
             } else {
                 assert_eq!(
                     (woody, leafy),
                     (3, 3),
-                    "variety {index} belongs to another species and should not have changed"
+                    "a {species:?} took the birch shape — that is the bug that put \
+                     chalk-pale trunks under oak crowns"
                 );
             }
         }
