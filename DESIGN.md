@@ -869,6 +869,38 @@ This also makes the kiln optional rather than the only way to get a model: Blend
 is local, free, spends no credits, and a `.blend` in the repository can be
 re-derived, which an AI generation cannot.
 
+## Litter is authored too, and by the opposite rule
+
+Rocks, logs, bushes, stumps, snags, cacti and brush — eight kinds, built by
+`dev/art/props.py`, one object named `prop` apiece.
+
+**They carry their colour in their vertices, which is the opposite of a tree.** A
+tree is planted as an object and tinted by the material its variety wears. Litter
+is welded into ONE mesh per chunk, because fifty separate little objects per chunk
+would be fifty draw calls paid for again in every shadow cascade — and one mesh
+wears one material, so every colour a rock has must be in its vertices. The game's
+prop material is plain white and multiplies by it.
+
+**Read synchronously, not through the asset server.** A chunk's litter is welded on
+a background thread the moment the chunk streams in, so there is nothing to wait on
+and nowhere to put a late arrival — unlike a tree, whose mesh can be swapped under
+a standing instance. `models::read_geometry` reads a GLB into geometry directly,
+the same bargain the heightmap already makes. Blender writes `COLOR_0` as
+*normalised integers*, so a reader that took the raw value would hand back
+0..65535 and every rock in the world would draw at full white; a test asserts the
+range on every real model in the game.
+
+**The reach goes with the shape.** `reach` is what the planter spaces litter by, so
+an authored rock left under the grown shape's reach would either overlap its
+neighbours or stand in a bare ring. It is recomputed from the mesh.
+
+**The light is painted in.** Every prop is darker at its foot. Nothing is textured
+and the world has one sun, so the shading that makes a rock sit *in* the ground
+rather than on it has to be in the colour. The ramp is the height of the
+NEIGHBOURHOOD, not of the piece: scaled to the piece, a spill of scree came out
+near white while a boulder of the same rock read mid grey, because every little
+chunk reached the top of its own ramp.
+
 ## Authored shapes take over the ones the world grows
 
 The world grows its own trees — `terrain_core::tree` builds a pool of varieties

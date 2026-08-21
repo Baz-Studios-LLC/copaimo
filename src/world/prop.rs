@@ -68,9 +68,28 @@ pub struct PropPool(Arc<Vec<Prop>>);
 pub struct PropMaterial(pub Handle<Shaded>);
 
 pub fn setup_props(mut commands: Commands, mut materials: ResMut<Assets<Shaded>>) {
-    commands.insert_resource(PropPool(Arc::new(
-        (0..prop::VARIETIES).map(prop::from_pool).collect(),
-    )));
+    // Authored shapes take over from grown ones where a file exists, kind by kind.
+    //
+    // Read here, synchronously, rather than through the asset server: a chunk's
+    // litter is welded into one mesh on a background thread the moment the chunk
+    // streams in, so there is nothing to wait on and nowhere to put a late
+    // arrival. See `world::authored`.
+    let mut pool: Vec<Prop> = (0..prop::VARIETIES).map(prop::from_pool).collect();
+    let mut taken = 0;
+    for prop in &mut pool {
+        if let Some(shape) = crate::world::authored::authored_prop(prop.kind) {
+            // The reach goes with the shape. It is what the planter spaces litter
+            // by, so an authored rock under an inherited reach would either
+            // overlap its neighbours or stand in a bare ring.
+            prop.reach = crate::world::authored::reach_of(&shape);
+            prop.mesh = shape;
+            taken += 1;
+        }
+    }
+    if taken > 0 {
+        info!("{taken} of the pool's {} props are authored", pool.len());
+    }
+    commands.insert_resource(PropPool(Arc::new(pool)));
 
     commands.insert_resource(PropMaterial(materials.add(shaded(StandardMaterial {
         // White, so the stone, bark, leaf and dead grass the crate baked into

@@ -214,6 +214,83 @@ fn one_mesh(
     meshes.get(&first.mesh).cloned()
 }
 
+// --------------------------------------------------------------------- the litter
+
+/// Which authored file, if any, belongs to a kind of litter.
+///
+/// The only list of these names on this side — there was a `KINDS` constant beside
+/// it and nothing but a test read it, which is one list too many for names that
+/// have to agree. `the_kinds_here_are_the_kinds_blender_builds` walks
+/// `Kind::ALL` through this instead.
+///
+/// Matched by KIND, never by position — the pool is grouped by kind, three
+/// variants apiece, and picking by position is the mistake that put a birch's
+/// chalk trunk under an oak's crown all over the world. Exhaustive, so adding a
+/// kind upstream stops this compiling until somebody decides whether it has a
+/// model.
+fn file_for_kind(kind: terrain_core::prop::Kind) -> Option<&'static str> {
+    use terrain_core::prop::Kind;
+    Some(match kind {
+        Kind::Boulder => "boulder",
+        Kind::Scree => "scree",
+        Kind::Bush => "bush",
+        Kind::Stump => "stump",
+        Kind::Log => "log",
+        Kind::Snag => "snag",
+        Kind::Cactus => "cactus",
+        Kind::Brush => "brush",
+    })
+}
+
+/// Reads the authored shape for a kind of litter, if there is one.
+///
+/// # Read here and now, not through the asset server
+///
+/// Litter is welded into one mesh per chunk on a background thread, and that
+/// starts the moment a chunk streams in. There is nothing to wait on and nowhere
+/// to put a late arrival — unlike a tree, whose mesh can be swapped under a
+/// standing instance. So the shapes are read synchronously while the pool is being
+/// built, exactly as the heightmap is read.
+///
+/// A missing or unreadable file is not a failure: the kind keeps the shape the
+/// world grows for it. A BROKEN one is worth a word in the log, because a rock
+/// silently reverting is the sort of thing nobody notices for a month.
+pub fn authored_prop(kind: terrain_core::prop::Kind) -> Option<terrain_core::Geometry> {
+    let stem = file_for_kind(kind)?;
+    let road = crate::asset_file("assets/models").join(format!("prop_{stem}.glb"));
+    if !road.is_file() {
+        return None;
+    }
+    let bytes = match std::fs::read(&road) {
+        Ok(bytes) => bytes,
+        Err(why) => {
+            warn!("prop_{stem}.glb will not read ({why}); keeping the grown shape");
+            return None;
+        }
+    };
+    match crate::models::read_geometry(&bytes, "prop") {
+        Ok(shape) => Some(shape),
+        Err(why) => {
+            warn!("prop_{stem}.glb: {why}; keeping the grown shape");
+            None
+        }
+    }
+}
+
+/// How far a shape reaches from its own middle, flat on the ground, in metres.
+///
+/// Recomputed rather than inherited. `reach` is what the planter uses to decide
+/// how far off the next thing should stand, so a shape swapped under an old reach
+/// either leaves rocks overlapping or leaves gaps around them — and both read as
+/// carelessness rather than as a bug.
+pub fn reach_of(shape: &terrain_core::Geometry) -> f32 {
+    shape
+        .places
+        .iter()
+        .map(|place| (place[0] * place[0] + place[2] * place[2]).sqrt())
+        .fold(0.0, f32::max)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -310,6 +387,73 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The kinds listed here are the kinds Blender actually builds.
+    #[test]
+    fn the_kinds_here_are_the_kinds_blender_builds() {
+        let script = std::fs::read_to_string("dev/art/props.py")
+            .expect("dev/art/props.py should be beside the crate");
+        let line = script
+            .lines()
+            .find(|line| line.starts_with("KINDS = "))
+            .expect("dev/art/props.py sets no KINDS");
+        let listed: Vec<String> = line
+            .trim_start_matches("KINDS = ")
+            .trim_matches(|c| c == '(' || c == ')')
+            .split(',')
+            .map(|part| part.trim().trim_matches('"').to_string())
+            .filter(|part| !part.is_empty())
+            .collect();
+        // What the game looks for, taken from the one place that decides it.
+        let wanted: Vec<String> = terrain_core::prop::Kind::ALL
+            .into_iter()
+            .filter_map(file_for_kind)
+            .map(str::to_string)
+            .collect();
+        assert_eq!(
+            listed, wanted,
+            "dev/art/props.py builds {listed:?} and the game looks for {wanted:?}"
+        );
+    }
+
+    /// Every kind of litter reads, carries its colour, and stands on the ground.
+    ///
+    /// Litter is welded into one mesh wearing one white material, so a prop with no
+    /// vertex colour draws pure white — a glowing boulder. That is the fault worth
+    /// guarding, and it is invisible in the file: the export option that controls
+    /// it defaults to a mode that would have dropped every colour here.
+    #[test]
+    fn every_kind_of_litter_reads_and_carries_its_own_colour() {
+        use terrain_core::prop::Kind;
+        let mut found = 0;
+        for kind in Kind::ALL {
+            let Some(shape) = authored_prop(kind) else {
+                println!("{kind:?} has no model yet; the grown shape stands");
+                continue;
+            };
+            found += 1;
+            assert!(!shape.places.is_empty(), "{kind:?} decoded to nothing");
+            assert_eq!(
+                shape.colours.len(),
+                shape.places.len(),
+                "{kind:?} carries no vertex colour, so it would draw pure white"
+            );
+            // Standing on the ground rather than sunk or floating.
+            let lowest = shape.places.iter().map(|at| at[1]).fold(f32::MAX, f32::min);
+            assert!(
+                lowest.abs() < 0.05,
+                "{kind:?} has its base at {lowest:.2} m rather than on the ground"
+            );
+            // And a reach that means something: the planter spaces litter by it.
+            let reach = reach_of(&shape);
+            assert!(
+                reach > 0.1 && reach < 12.0,
+                "{kind:?} reaches {reach:.2} m, which is not a thing lying about"
+            );
+        }
+        assert!(found > 0, "no authored litter was found at all");
+        println!("{found} kinds of litter read and carry their colour");
     }
 
     /// The species listed here are the species Blender actually builds.

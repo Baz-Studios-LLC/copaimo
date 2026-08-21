@@ -48,14 +48,13 @@ mod tools;
 #[cfg(feature = "tools")]
 mod hud;
 mod menu;
-// The gate that keeps a badly exported model out of the game — test-only, because
-// the RUNNING game does not read a GLB header: Bevy's own loader does that. Its
-// twin is `dev/model_export.py`, which asks the same questions at export time.
+// Reads model files: the gate that keeps a badly exported one out of the game, and
+// the reader that turns a GLB into geometry the world can weld into a chunk.
 //
-// Promoted out of `cfg(test)` once, on the assumption `authored` needed it at
-// runtime. It does not — only its tests do — and clippy said so immediately: five
-// dead-code warnings for a gate compiled into a player's build and never called.
-#[cfg(test)]
+// Trees do NOT come through here — they are drawn as objects and use Bevy's own
+// asynchronous loader (see `world::authored`). Rocks and ground cover do, because a
+// chunk's worth of them is welded into one mesh on a background thread with no
+// access to Bevy's assets, the moment the chunk streams in.
 mod models;
 mod player;
 mod save;

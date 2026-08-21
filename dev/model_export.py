@@ -131,6 +131,15 @@ def export_one(blend: str, target: str) -> str:
         export_format="GLB",
         export_yup=YUP,
         export_apply=APPLY_MODIFIERS,
+        # ACTIVE rather than the MATERIAL default, and it has to be one or the
+        # other for BOTH kinds of model. Litter carries its colour in its vertices
+        # because a chunk's worth of it is welded into one mesh, and MATERIAL only
+        # exports colour a material actually reads — so the rocks would have come
+        # out with none and drawn pure white. A tree has no colour attribute at
+        # all, so ACTIVE finds nothing on one and everything on the other, which
+        # is exactly the wanted behaviour from one setting.
+        export_vertex_color="ACTIVE",
+        export_all_vertex_colors=False,
     )
     size = [high[axis] - low[axis] for axis in range(3)]
     print(
