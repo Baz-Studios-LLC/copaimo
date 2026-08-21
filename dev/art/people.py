@@ -46,12 +46,29 @@ import mathutils
 
 TALL = 1.80
 
-# The head: big, because that is the whole of the cartoon read. Its middle sits
-# here in both builds, so a hairstyle authored once fits either.
-HEAD_AT = 1.52
-HEAD_HIGH = 0.385
-HEAD_WIDE = 0.325
-HEAD_DEEP = 0.305
+# The head: big, round, and the whole of the read. Its middle sits here in both
+# builds, so a hairstyle authored once fits either.
+#
+# # The proportions are a genre, and they are specific
+#
+# A chibi character — the JRPG convention this world belongs to — is about four and
+# a half heads tall, against seven and a half for a real adult. The eyes are the
+# other half of it: roughly a THIRD of the face's width, taller than they are wide,
+# set low, with a big iris and a dark pupil. There is no nose and no mouth.
+#
+# Everything before this was drifting toward a small-headed, small-eyed mannequin —
+# five and a bit heads with eyes a fifth of the face. Those are realistic
+# proportions worn by a stylised model, which is exactly what made it read as a
+# doll.
+HEAD_AT = 1.50
+HEAD_HIGH = 0.40
+HEAD_WIDE = 0.36
+HEAD_DEEP = 0.34
+
+# An eye, in metres. Found by building them in a live Blender and looking, which is
+# the only way to settle a number whose whole job is how it reads.
+EYE_WIDE = 0.100
+EYE_TALL = 0.132
 
 # Greys, all of them: every part is tinted by the game. A colour authored here
 # would fight the player's choice. The number is the SHADE — darker at the foot of
@@ -121,6 +138,34 @@ def rod(radius, length, at, tilt=None, sides=8):
     return obj
 
 
+# What subdivision leaves of a cage, as a fraction of its size.
+#
+# # Measured, not guessed, and it explains three separate faults
+#
+# Subdivision pulls a cage IN toward its limit surface, and by a lot: a cube at
+# level 2 comes out at 0.840 of its cage, an eight-sided loft at 0.821 to 0.837.
+# Measured in a live Blender rather than reasoned about, because the number is what
+# matters and it is not obvious.
+#
+# Everything in this file was written against the CAGE. So the head was 0.325 wide
+# in the numbers and 0.273 in the world, and the eyes — placed against the numbers —
+# sat about fifteen millimetres in FRONT of the real face. That is the "goggles"; the
+# long neck and the gap at the shoulder are the same arithmetic in two other places.
+#
+# So a cage is built DIVIDED by this, and what comes out matches what is written.
+# One constant, and every other number in the file becomes true.
+SUBSURF_KEEPS = 0.835
+
+# Vertically, a loft barely shrinks at all — 0.975 — because its end caps pin the
+# top and bottom rings. So only the radius is compensated.
+LOFT_KEEPS_TALL = 0.975
+
+
+def grow(size):
+    """A cage big enough that subdivision leaves the size actually wanted."""
+    return tuple(part / SUBSURF_KEEPS for part in size)
+
+
 # How many sides a lofted ring has. Eight: enough to round off under subdivision,
 # few enough that the cage is a shape somebody could have modelled by hand.
 RING = 8
@@ -146,6 +191,11 @@ def loft(rings, name="part", close_bottom=True, close_top=True):
     """
     places = []
     faces = []
+    # Radially compensated, so a ring written as 0.205 comes out 0.205.
+    rings = [
+        (up, half_wide / SUBSURF_KEEPS, half_deep / SUBSURF_KEEPS)
+        for up, half_wide, half_deep in rings
+    ]
     for up, half_wide, half_deep in rings:
         for step in range(RING):
             angle = step / RING * math.tau
@@ -208,18 +258,25 @@ def person(build: str):
     that is the difference between a person and a doll. Limbs run INTO the torso
     rather than up to it, so there is no seam at a shoulder or a hip.
     """
-    boot_top = 0.125
-    hip = 0.87 if build == "male" else 0.855
-    chest = 1.24 if build == "male" else 1.22
+    # Higher hips and a higher chest than a realistic figure: the body is SHORT
+    # because the head is big, and a chibi has almost no neck to speak of.
+    boot_top = 0.135
+    hip = 0.80 if build == "male" else 0.79
+    chest = 1.22 if build == "male" else 1.20
     neck_at = HEAD_AT - HEAD_HIGH * 0.5
 
     # Two presets, and this is all of the difference: a male tapers from a wide
     # shoulder to a narrow hip, a female the other way about and a little smaller.
-    shoulder = 0.205 if build == "male" else 0.170
-    waist = 0.145 if build == "male" else 0.135
-    seat = 0.155 if build == "male" else 0.175
-    deep = 0.105 if build == "male" else 0.098
-    arm_out = shoulder + 0.035
+    shoulder = 0.190 if build == "male" else 0.162
+    waist = 0.150 if build == "male" else 0.142
+    seat = 0.158 if build == "male" else 0.172
+    deep = 0.112 if build == "male" else 0.104
+    # Just OUTSIDE the real shoulder. Two mistakes were made here in turn: at
+    # shoulder + 0.035 the arms hung clear of the body as separate tubes, and at
+    # shoulder - 0.012 — with thicker chibi sleeves — they merged into it and the
+    # figure came out as one wide mass with no arms in it. A sleeve wants to touch
+    # the torso and still be a sleeve.
+    arm_out = shoulder + 0.022
     leg_out = seat * 0.52
 
     # --- the head, and a neck under it
@@ -233,7 +290,7 @@ def person(build: str):
     # A subdivided CUBE rather than a sphere: it rounds off to something with a
     # flatter face and a squarer crown, which is what a stylised head looks like,
     # and it keeps its poles out of the face where a sphere puts one.
-    head = box((HEAD_WIDE, HEAD_DEEP, HEAD_HIGH), (0.0, 0.0, HEAD_AT))
+    head = box(grow((HEAD_WIDE, HEAD_DEEP, HEAD_HIGH)), (0.0, 0.0, HEAD_AT))
     smooth_out(head, 2)
     neck = loft(
         [
@@ -243,12 +300,12 @@ def person(build: str):
         ],
         "neck",
     )
-    smooth_out(neck, 2)
+    smooth_out(neck, 1)
     skin = [head, neck]
     for hand in (-1, 1):
         ear = blob((0.040, 0.062, 0.088), (hand * (HEAD_WIDE * 0.5 - 0.005), 0.018, HEAD_AT + 0.005), subdiv=1)
         skin.append(smooth_out(ear, 1))
-        fist = blob((0.098, 0.092, 0.112), (hand * arm_out, 0.0, hip - 0.085))
+        fist = blob((0.098, 0.094, 0.104), (hand * arm_out, 0.0, hip - 0.072))
         skin.append(fist)
 
     # --- the tunic: one hull from the hem to the shoulder
@@ -262,16 +319,16 @@ def person(build: str):
         ],
         "torso",
     )
-    smooth_out(torso, 2)
+    smooth_out(torso, 1)
     clothes = [torso]
     for hand in (-1, 1):
         # A sleeve that starts INSIDE the shoulder and tapers to the wrist.
         arm = loft(
             [
-                (chest - 0.02, 0.062, 0.058),
-                (chest - 0.16, 0.055, 0.052),
-                ((chest + hip) * 0.5 - 0.06, 0.046, 0.044),
-                (hip - 0.06, 0.040, 0.039),
+                (chest - 0.02, 0.076, 0.072),
+                (chest - 0.14, 0.068, 0.065),
+                ((chest + hip) * 0.5 - 0.04, 0.058, 0.056),
+                (hip - 0.05, 0.052, 0.051),
             ],
             "arm",
         )
@@ -282,10 +339,10 @@ def person(build: str):
         # A leg from inside the hem down to the boot.
         leg = loft(
             [
-                (hip + 0.04, 0.072, 0.070),
-                (hip - 0.22, 0.062, 0.060),
-                ((hip + boot_top) * 0.5, 0.052, 0.051),
-                (boot_top - 0.02, 0.048, 0.047),
+                (hip + 0.04, 0.086, 0.084),
+                (hip - 0.20, 0.076, 0.074),
+                ((hip + boot_top) * 0.5, 0.064, 0.063),
+                (boot_top - 0.02, 0.058, 0.057),
             ],
             "leg",
         )
@@ -302,22 +359,40 @@ def person(build: str):
 
     # --- the eyes
     #
-    # Big, simple and set well apart: a cartoon face is two eyes and nothing else,
-    # and they have to carry the read from behind the follow camera.
+    # Three parts, because an eye needs three colours: a white, an iris the player
+    # chooses, and a pupil that is always dark. Two spheres was the earlier attempt
+    # and it read as goggles — a ball stuck on a face rather than an eye in it.
+    #
+    # Proud of the face by a few millimetres rather than sunk into it: sunk, they
+    # came out as pinholes. Flattened hard in depth so each is a DISC with a slight
+    # dome, which is what a stylised eye is.
     front = -HEAD_DEEP * 0.5
-    sclera, eyes = [], []
+    sclera, eyes, pupils = [], [], []
     for hand in (-1, 1):
-        # Set LOW on the head, not high: eyes sit about halfway down a face, and
-        # placed above the middle they read as a forehead with dots on it.
-        at = (hand * 0.070, front + 0.040, HEAD_AT - 0.010)
-        sclera.append(blob((0.098, 0.062, 0.082), at))
-        eyes.append(blob((0.055, 0.055, 0.058), (at[0], at[1] - 0.024, at[2] - 0.004)))
+        x = hand * 0.070
+        z = HEAD_AT - 0.030
+        sclera.append(blob((EYE_WIDE, 0.052, EYE_TALL), (x, front + 0.028, z)))
+        eyes.append(
+            blob(
+                (EYE_WIDE * 0.66, 0.044, EYE_TALL * 0.60),
+                (x, front + 0.014, z - EYE_TALL * 0.14),
+            )
+        )
+        pupils.append(
+            blob(
+                (EYE_WIDE * 0.30, 0.038, EYE_TALL * 0.28),
+                (x, front + 0.004, z - EYE_TALL * 0.16),
+            )
+        )
 
     return {
         "skin": (skin, 0.88, 1.0),
         "clothes": (clothes, 0.74, 1.0),
+        # The white, the iris and the pupil are each flat: they are small enough
+        # that a gradient across one is shading a dot.
         "sclera": (sclera, 1.0, 1.0),
-        "eyes": (eyes, 0.92, 1.0),
+        "eyes": (eyes, 1.0, 1.0),
+        "pupil": (pupils, 1.0, 1.0),
     }
 
 

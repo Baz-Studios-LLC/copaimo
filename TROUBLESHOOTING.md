@@ -836,6 +836,65 @@ a ramp anchored at the head.
 **Fix.** `obj.matrix_world @ point.co`. If a ramp is stated in world heights, measure
 in world heights.
 
+### Subdivision shrinks a cage, and everything measured off the cage is wrong
+
+**Symptom.** Eyes bulge off a face like goggles, the neck looks too long, and the
+arms hang clear of the shoulders — all at once, on a figure whose numbers look right
+in the script.
+
+**Cause.** Subdivision pulls a cage IN toward its limit surface, and by a lot.
+Measured in a live Blender rather than guessed: **a cube at level 2 keeps 0.840 of
+its cage; an eight-sided loft keeps 0.821 to 0.837.** So a head written as 0.325 wide
+is 0.273 in the world — and eyes placed at the *written* face front sat about
+fifteen millimetres in front of the real one.
+
+Three separate-looking faults, one cause. Anything positioned against a cage
+dimension is positioned against a number that no longer exists after the modifier
+runs.
+
+**Fix.** Build the cage DIVIDED by the factor, so what comes out matches what is
+written. One constant, and every other number in the file becomes true again.
+
+**Also measured:** for an eight-sided loft, subdivision **level 1 and level 2 are
+the same shape** (0.3432 against 0.3446) — an eight-gon is already near its limit
+surface. Level 2 was costing four times the triangles for nothing; a body went from
+6,336 triangles to 2,464.
+
+### A stylised figure keeps reading as a mannequin
+
+**Cause.** Realistic proportions worn by a stylised model. The figure was drifting
+toward five-and-a-bit heads tall with eyes a fifth of the face — those are *adult
+human* ratios, and no amount of smoothing makes them read as a character.
+
+**Fix.** The genre's conventions are specific and worth writing down: about **four
+and a half heads** tall, eyes roughly **a third of the face's width** and taller than
+wide, set low, with a big iris and a dark pupil; no nose, no mouth; short thick
+limbs and mitten hands.
+
+**And an eye is three parts, not two.** Two overlapping spheres reads as goggles —
+a ball stuck on a face. A white, an iris and a dark pupil, each flattened hard in
+depth so it is a disc with a slight dome, sitting a few millimetres proud of the
+face. Sunk into it they come out as pinholes.
+
+### Working out a shape in batch mode wastes the afternoon
+
+Assets belong in `dev/art/*.py` under `blender --background`: same script, same rock,
+every time. **Finding** a shape does not — four rebuild-and-render cycles went into
+one figure, each starting Blender from nothing and discarding the scene that would
+have answered the next question in a second.
+
+`dev/blender_live.py` talks to Blender's own MCP add-on over its socket
+(`localhost:9876`, null-byte-delimited JSON, `{"type": "execute", "code": …,
+"strict_json": true}`), so a shape can be nudged and looked at against one live
+scene. The numbers that come out of that get written back into `dev/art/` — live for
+finding, script for keeping.
+
+Notes on the add-on: it **sandboxes destructive operators** (`read_factory_settings`
+is refused because it resets user preferences — use `read_homefile`), `result` must
+be a **dict**, and `bpy.context.object` is unavailable, so work at the data level
+(`bmesh`, `mesh.from_pydata`, `evaluated_get(depsgraph).to_mesh()`) rather than
+through operators.
+
 ### A test that keeps needing its threshold moved is asserting the wrong thing
 
 Worth its own entry. The check for "this model still carries its baked shading" was
