@@ -908,9 +908,18 @@ guesswork. A branch is now given the point it must arrive at — the middle of t
 clump it holds up — and derives its own length and orientation, so it ends inside
 the foliage by construction and moving a clump moves its branch with it.
 
-Each species is 156 to 408 triangles, which leaves room to round the silhouettes
-further if they want it: a clump is an icosphere at subdivision 2, and going to 3
-quadruples its triangles.
+**Detail follows size.** A clump is an icosphere at subdivision 3 above 1.3 m of
+radius and 2 below it, and a cone's rim gets fourteen sides rather than eight or
+nine. One number for everything is the wrong shape of rule here: an oak's crown
+fills much of the screen when you walk under it and its outline wants to be round,
+while the three little balls that make a desert bush never read as anything but a
+bush and paying four times the triangles for them buys nothing.
+
+The rounding cost what it should and nowhere else. An oak went 408 → 1384
+triangles (3.4×), a spruce 196 → 356, and the scrub 260 → 268 — untouched, because
+every clump in it is under the threshold. All five species together are 2816
+triangles, and the worst single tree is under 1400, so a wood is still cheap in
+the place it matters: every caster is resubmitted per shadow cascade.
 
 A species with no file keeps the shape the world grew for it, so this is
 species-at-a-time and reversible — delete a `.glb` and the wood grows its own

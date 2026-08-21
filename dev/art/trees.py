@@ -39,7 +39,7 @@ def fresh() -> None:
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
 
-def trunk(radius, low, high, sides=8, lean=0.0, at=(0.0, 0.0)):
+def trunk(radius, low, high, sides=12, lean=0.0, at=(0.0, 0.0)):
     """A tapered stem. Real trees are thicker at the foot, and it reads."""
     deep = high - low
     bpy.ops.mesh.primitive_cone_add(
@@ -74,7 +74,7 @@ def branch_to(start, end, radius):
     if reach < 1.0e-4:
         raise ValueError("a branch has to go somewhere")
     bpy.ops.mesh.primitive_cone_add(
-        vertices=6,
+        vertices=6,  # coarse on purpose: this ends up inside the leaves
         radius1=radius,
         radius2=radius * 0.45,
         depth=reach,
@@ -90,7 +90,7 @@ def branch_to(start, end, radius):
     return limb
 
 
-def skirt(radius, deep, z, sides=9):
+def skirt(radius, deep, z, sides=14):
     """One layer of a conifer — a wide shallow cone."""
     bpy.ops.mesh.primitive_cone_add(
         vertices=sides, radius1=radius, radius2=radius * 0.18, depth=deep,
@@ -99,9 +99,22 @@ def skirt(radius, deep, z, sides=9):
     return bpy.context.object
 
 
+# A clump this big or bigger is worth the extra subdivision.
+#
+# Detail follows SIZE rather than being one number for everything. An oak's crown
+# fills a good part of the screen when you walk under it and its outline wants to
+# be round; the three little balls that make a desert bush never read as anything
+# but a bush, and paying four times the triangles for them buys nothing. The
+# threshold is in metres of radius, so it keeps deciding correctly as species are
+# added.
+ROUND_ABOVE = 1.3
+
+
 def clump(radius, at, squash=0.82):
-    """One mass of foliage: a coarse ball, flattened a little."""
-    bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=2, radius=radius, location=at)
+    """One mass of foliage: a ball, flattened a little, round in proportion."""
+    bpy.ops.mesh.primitive_ico_sphere_add(
+        subdivisions=3 if radius >= ROUND_ABOVE else 2, radius=radius, location=at
+    )
     ball = bpy.context.object
     ball.scale = (1.0, 1.0, squash)
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
@@ -120,7 +133,7 @@ def oak():
         ((-1.55, -0.70, 5.75), 1.62),
         ((0.30, 1.45, 7.35), 1.40),
     ]
-    wood = [trunk(0.44, 0.0, fork + 0.5, sides=8)]
+    wood = [trunk(0.44, 0.0, fork + 0.5, sides=12)]
     leaves = [clump(radius, at) for at, radius in crown]
     # A limb from the fork into the middle of every outlying mass. Into the
     # MIDDLE, so the end of the branch is swallowed by the foliage rather than
@@ -136,7 +149,7 @@ def pine():
     # Stopping BELOW the apex of the top layer. Run the stem to the tree's full
     # height and it stands proud of the crown as a bare spike, which is the one
     # thing that made these read as geometry rather than as trees.
-    wood = [trunk(0.34, 0.0, 12.2, sides=8)]
+    wood = [trunk(0.34, 0.0, 12.2, sides=12)]
     leaves = [
         skirt(3.30, 3.1, 5.4),
         skirt(2.70, 2.9, 7.7),
@@ -154,7 +167,7 @@ def birch():
         ((-0.70, 0.40, 7.9), 1.15),
         ((0.80, -0.50, 8.3), 1.00),
     ]
-    wood = [trunk(0.20, 0.0, fork + 0.6, sides=7, lean=math.radians(2.5))]
+    wood = [trunk(0.20, 0.0, fork + 0.6, sides=10, lean=math.radians(2.5))]
     leaves = [clump(radius, at, squash=0.9) for at, radius in crown]
     start = mathutils.Vector((0.0, 0.0, fork))
     for at, _ in crown[1:]:
@@ -165,8 +178,8 @@ def birch():
 def spruce():
     """The tallest thing in the wood, and the narrowest for its height."""
     # Again: under the apex of the topmost layer, never through it.
-    wood = [trunk(0.30, 0.0, 13.6, sides=8)]
-    leaves = [skirt(2.5 - i * 0.32, 2.5, 3.0 + i * 2.1, sides=8) for i in range(6)]
+    wood = [trunk(0.30, 0.0, 13.6, sides=12)]
+    leaves = [skirt(2.5 - i * 0.32, 2.5, 3.0 + i * 2.1, sides=14) for i in range(6)]
     return wood, leaves
 
 
@@ -177,7 +190,7 @@ def scrub():
         ((0.75, 0.35, 0.95), 0.80),
         ((-0.65, -0.45, 1.0), 0.72),
     ]
-    wood = [trunk(0.16, 0.0, 0.9, sides=6)]
+    wood = [trunk(0.16, 0.0, 0.9, sides=8)]
     leaves = [clump(radius, at, squash=0.62) for at, radius in crown]
     return wood, leaves
 
