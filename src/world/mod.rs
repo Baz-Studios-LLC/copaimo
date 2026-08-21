@@ -1,5 +1,6 @@
 //! The world: terrain generation, chunk streaming, and the sea.
 
+pub mod authored;
 pub mod biome;
 pub mod forest;
 pub mod chunk;
@@ -164,6 +165,8 @@ impl Plugin for WorldPlugin {
                     water::spawn_water.run_if(no_sea_yet),
                     stream::grow_the_grove.run_if(not(resource_exists::<stream::Grove>)),
                     prop::setup_props.run_if(not(resource_exists::<prop::PropPool>)),
+                    authored::ask_for_the_authored_woods
+                        .run_if(not(resource_exists::<authored::AuthoredWoods>)),
                 ),
             )
             .add_systems(OnExit(crate::states::AppState::Playing), clear_the_world);
@@ -181,9 +184,21 @@ impl Plugin for WorldPlugin {
                 water::spawn_water.run_if(no_sea_yet),
                 stream::grow_the_grove.run_if(not(resource_exists::<stream::Grove>)),
                 prop::setup_props.run_if(not(resource_exists::<prop::PropPool>)),
+                authored::ask_for_the_authored_woods
+                    .run_if(not(resource_exists::<authored::AuthoredWoods>)),
             ),
         )
         .add_systems(OnExit(crate::states::AppState::Editing), clear_the_world);
+
+        // Authored shapes drop into the grown pool as their files arrive, and this
+        // stops asking once every species is settled — see `authored`.
+        app.add_systems(
+            Update,
+            authored::take_the_authored_shapes
+                .run_if(resource_exists::<authored::AuthoredWoods>)
+                .run_if(resource_exists::<stream::Grove>)
+                .run_if(not(authored::the_woods_are_settled)),
+        );
 
         app.add_systems(
                 Update,

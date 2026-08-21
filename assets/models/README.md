@@ -41,3 +41,17 @@ It sets the export options once and refuses a model that breaks the conventions:
 
 `cargo test` checks every `.glb` in this folder against the same rules, so a model
 dropped in by hand is caught too. See `src/models.rs` and TROUBLESHOOTING.md.
+
+## Trees
+
+`tree_<species>.glb` replaces the shape the world grows for that species. The
+species the game looks for are in `src/world/authored.rs`; the files are built by
+`dev/art/trees.py`.
+
+A tree must be **exactly two meshes, named `wood` and `leaves`** — bark and
+foliage wear different materials and one mesh can only wear one. Anything else in
+the file is ignored, and a renamed half means the game quietly keeps the grown
+shape rather than failing. No vertex colours: a tree is tinted by the material its
+variety wears.
+
+A species with no file keeps the grown shape, so these can land one at a time.

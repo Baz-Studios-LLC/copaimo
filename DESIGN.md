@@ -869,7 +869,48 @@ This also makes the kiln optional rather than the only way to get a model: Blend
 is local, free, spends no credits, and a `.blend` in the repository can be
 re-derived, which an AI generation cannot.
 
+## Authored shapes take over the ones the world grows
+
+The world grows its own trees — `terrain_core::tree` builds a pool of varieties
+from a seed, and every tree in every chunk is an instance of one of them with its
+own place, turn and scale. A forest is tens of thousands of trees; a mesh apiece
+is not affordable, and the draw calls are the larger half of why.
+
+Authored models slot into that **without changing any of it**. A variety is two
+meshes, `wood` and `leaves`, because bark and foliage wear different materials and
+one mesh can only wear one — so an authored tree is exactly two objects under those
+names, and `dev/art/trees.py` builds five: oak, pine, birch, spruce, scrub. They
+carry no vertex colours on purpose, because a tree is tinted by the material its
+variety wears; that is how a wood comes out in twenty greens instead of one.
+
+**The grown pool is still built first, and this is the important part.** glTF
+loading is asynchronous and the pool is wanted the instant the first chunk streams
+in — waiting for a file would walk straight back into a bug this project has
+already had and fixed, where trees appeared slowly or not at all because the thing
+that plants them ran before the thing that grows them finished. So the grown pool
+is built at once as before, and each authored shape is dropped in over the top as
+its file arrives. What is replaced is the **mesh asset behind the pool's handle**,
+never the handle: a tree already standing in the world changes shape too, rather
+than only the ones planted afterwards.
+
+A species with no file keeps the shape the world grew for it, so this is
+species-at-a-time and reversible — delete a `.glb` and the wood grows its own
+again. Species repeat across the pool (five shapes over twenty varieties), which
+still gives twenty different greens.
+
+Two lists of species names exist, one in Python and one in Rust, and a test reads
+the Python from the Rust so they cannot drift apart. This is the same guard the
+model bounds have, for the same reason.
+
 ## Change log
+
+**2026-08-21** — **The woods can be authored.** Five tree species built in
+Blender (`dev/art/trees.py`) take over the grown pool as their files load, by
+replacing the mesh asset behind each variety's handle so standing trees change
+too. The grown pool is still built first, so nothing waits on a loader. Also
+corrected `facing_quat`, which pointed a model's +Z along the way it walked when
+Bevy's forward is -Z — invisible until now because the only thing it rotated was
+a front-to-back symmetric placeholder.
 
 **2026-08-21** — **A way in for models.** `dev/model_export.sh` exports `.blend`
 files to `assets/models/` with the conventions set once, and refuses a model that

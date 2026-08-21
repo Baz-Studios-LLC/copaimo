@@ -48,8 +48,13 @@ mod tools;
 #[cfg(feature = "tools")]
 mod hud;
 mod menu;
-// Test-only: the gate that keeps a badly exported model out of the game. Its twin
-// is `dev/model_export.py`, which asks the same questions at export time.
+// The gate that keeps a badly exported model out of the game — test-only, because
+// the RUNNING game does not read a GLB header: Bevy's own loader does that. Its
+// twin is `dev/model_export.py`, which asks the same questions at export time.
+//
+// Promoted out of `cfg(test)` once, on the assumption `authored` needed it at
+// runtime. It does not — only its tests do — and clippy said so immediately: five
+// dead-code warnings for a gate compiled into a player's build and never called.
 #[cfg(test)]
 mod models;
 mod player;

@@ -37,6 +37,13 @@ pub struct Model {
     pub low: [f32; 3],
     pub high: [f32; 3],
     pub triangles: usize,
+    /// Each mesh in the file, by name, with how many primitives it carries.
+    ///
+    /// Names matter: a tree is read out of its file by looking for the meshes
+    /// called `wood` and `leaves`, because bark and foliage wear different
+    /// materials. A renamed object is a silent failure — the game finds nothing
+    /// and quietly keeps the shape it grew for itself.
+    pub meshes: Vec<(String, usize)>,
 }
 
 impl Model {
@@ -97,10 +104,15 @@ pub fn inspect(bytes: &[u8]) -> Result<Model, String> {
     let mut high = [f32::MIN; 3];
     let mut triangles = 0;
     let mut seen = false;
+    let mut named = Vec::new();
     for mesh in meshes {
         let Some(parts) = mesh["primitives"].as_array() else {
             continue;
         };
+        named.push((
+            mesh["name"].as_str().unwrap_or_default().to_string(),
+            parts.len(),
+        ));
         for part in parts {
             let Some(which) = part["attributes"]["POSITION"].as_u64() else {
                 continue;
@@ -145,6 +157,7 @@ pub fn inspect(bytes: &[u8]) -> Result<Model, String> {
         low,
         high,
         triangles,
+        meshes: named,
     })
 }
 
@@ -214,7 +227,7 @@ mod tests {
                 r#""accessors":[{{"type":"VEC3","componentType":5126,"count":{count},"#,
                 r#""min":[{lx},{ly},{lz}],"max":[{hx},{hy},{hz}]}},"#,
                 r#"{{"type":"SCALAR","componentType":5125,"count":{count}}}],"#,
-                r#""meshes":[{{"primitives":[{{"attributes":{{"POSITION":0}},"#,
+                r#""meshes":[{{"name":"body","primitives":[{{"attributes":{{"POSITION":0}},"#,
                 r#""indices":1}}]}}]}}"#
             ),
             count = triangles * 3,
@@ -251,6 +264,7 @@ mod tests {
         let model = inspect(&bytes).expect("a hand-built GLB should read");
         assert_eq!(model.triangles, 400);
         assert!((model.high[1] - 1.8).abs() < 0.001, "the height read wrong");
+        assert_eq!(model.meshes, vec![("body".to_string(), 1)]);
         let faults = faults(&model);
         assert!(faults.is_empty(), "a good model was refused: {faults:?}");
     }

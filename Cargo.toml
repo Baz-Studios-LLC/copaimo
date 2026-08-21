@@ -61,6 +61,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # writes them with, so the two ends of `assets/buildings/*.json` are parsed by
 # the same code even though nothing is shared between the programs.
 serde = { version = "1", features = ["derive"] }
+# Also reads a GLB's glTF header, so a model can be checked against the game's
+# conventions before it reaches a release — see `models.rs`.
 serde_json = "1"
 
 # For the kiln: a picture out to a generation service, a model back.
@@ -98,10 +100,3 @@ opt-level = 3
 lto = "thin"
 codegen-units = 1
 
-# Test-only. `models.rs` reads a GLB's glTF header to check a model against the
-# game's conventions before it can reach a release; a dev-dependency is compiled
-# for `cargo test` and NOT for the shipped binary, which is exactly the split
-# wanted here. Already in the lockfile — bevy_gltf pulls it — so this costs
-# nothing to fetch.
-[dev-dependencies]
-serde_json = "1"

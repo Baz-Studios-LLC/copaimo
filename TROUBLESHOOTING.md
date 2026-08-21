@@ -617,6 +617,51 @@ happens to sit entirely above Y=0 is caught as "floating" instead, which is the
 right refusal for the wrong reason. "Tallest axis must be Y" cannot be the rule —
 a fence rail and a carpet are legitimately not tallest in Y.
 
+### A Blender script fails and the build says everything is fine
+
+**Symptom.** `dev/art/build.sh` reports no error and then the exporter says "no
+.blend files found".
+
+**Cause.** **Blender exits 0 even when the script it ran died on a traceback.** The
+traceback goes to stderr and the exit status says success, so a shell with
+`set -e` sails straight past it.
+
+**Fix.** `blender --background --python-exit-code 1 --python script.py`. Without
+that flag every generator in this project can fail silently.
+
+### A headless glTF load never finishes
+
+**Symptom.** A test that loads a `.glb` through `AssetServer` sits at
+`LoadState::Loading` forever and the test times out or asserts.
+
+**Cause, as far as it was chased.** A hand-assembled plugin set — `TaskPoolPlugin`,
+`AssetPlugin`, `ScenePlugin`, `GltfPlugin`, assets registered by hand — does not
+complete a glTF load. It is not a timing problem: it was given several seconds of
+real `thread::sleep` between updates and every file stayed `Loading`. Tight
+`app.update()` loops with no sleep are *also* wrong for this (six hundred of them
+finish in forty milliseconds), so check that first, but sleeping does not fix it.
+
+**What was done instead.** The loading is Bevy's and is left to Bevy. What is
+tested here is the part written here — see
+`a_species_claims_its_own_varieties_and_replaces_what_they_draw` — plus the file
+contract, read straight out of the GLB's own JSON: two meshes, named `wood` and
+`leaves`, one primitive each.
+
+**Do not spend another afternoon on it** without a reason to think the plugin set
+is the problem.
+
+### An authored model replaces nothing, and the world looks normal
+
+**Cause.** Swapping the HANDLE in a pool instead of the ASSET the handle points
+at. Everything planted before the swap keeps its old handle, and for a chunk that
+has already streamed in, nothing ever replants it — so the new shape only appears
+in places nobody has been yet.
+
+**Fix.** `Assets::insert(&existing_handle, new_mesh)`, which changes what every
+instance draws at once. Pinned by a test that reads back through the handle a
+planted tree would be holding, and confirmed by mutating the code to do it the
+wrong way and watching the test fail.
+
 ## Keeping this honest
 
 Add an entry when a bug took **more than one attempt** to fix, or when the symptom
