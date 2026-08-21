@@ -443,3 +443,49 @@ mod tests {
         assert_eq!(standing.nearest(Vec2::new(2_000.0, 0.0), 50.0), None);
     }
 }
+
+#[cfg(test)]
+mod sheet {
+    use super::*;
+
+    /// Everything the world places has a model to place.
+    ///
+    /// A sheet entry names a `kind`, and a kind resolves either to a building the
+    /// bench made or to `assets/models/<kind>.glb`. Misspell one and nothing
+    /// happens: the thing is simply not there, the log mentions it once at startup,
+    /// and the yard has a hole in it that looks like a layout decision.
+    ///
+    /// So the sheet the game actually ships with is checked against the models it
+    /// actually ships with.
+    #[test]
+    fn everything_placed_has_something_to_draw() {
+        let Ok(json) = std::fs::read_to_string("assets/world/placed.json") else {
+            println!("nothing is placed yet");
+            return;
+        };
+        let standing = read(&json).expect("the shipped sheet should read");
+        let mut checked = 0;
+        for thing in standing.all() {
+            let model = std::path::Path::new("assets/models").join(format!("{}.glb", thing.kind));
+            let built = std::path::Path::new("assets/buildings")
+                .join(format!("{}.json", thing.kind))
+                .exists();
+            assert!(
+                model.exists() || built,
+                "{} is placed at {:.0}, {:.0} and there is no {}.glb and no building                  by that name — it will simply not be there",
+                thing.kind,
+                thing.at.x,
+                thing.at.y,
+                thing.kind
+            );
+            assert!(
+                thing.scale > 0.0 && thing.scale.is_finite(),
+                "{} has a scale of {}",
+                thing.kind,
+                thing.scale
+            );
+            checked += 1;
+        }
+        println!("{checked} placed things all have something to draw");
+    }
+}

@@ -1118,6 +1118,32 @@ comparable, which is exactly where a step must not be.
 This is the third time this shape has come up — the biome boundary and the painted
 country were the others. **A thing that flips cannot be the thing that varies.**
 
+## The ranch
+
+Where the game starts, and until there are monsters to raise it is the only PLACE
+in the world rather than scenery. A house with a chimney, a barn big enough to
+stable something, a feed silo, water troughs, a fenced paddock, and a gate you
+arrive through.
+
+**The pieces and the layout are separate files, on purpose.** `dev/art/ranch.py`
+builds six models; `dev/ranch_plan.py` writes `assets/world/placed.json` — a short
+list of *this thing, here, turned this way*. That split is what the placement sheet
+is for: the yard can be rearranged, a fence moved, a second trough added, without
+rebuilding a model. The layout is a script rather than hand-written JSON because a
+paddock is thirty-odd fence sections, and because offsets from the middle of the
+ranch say what they mean where world coordinates would not.
+
+Sizes are against a 1.8 m warden: a door is 2.1 m, the house ridge 5.4 m, and the
+barn 11 m across and 7.5 m to the ridge — deliberately bigger, because a barn that
+does not dwarf a house is a shed.
+
+Buildings carry their colour in their vertices like the litter does, so the whole
+ranch wears one material and can be recoloured from one table.
+
+`everything_placed_has_something_to_draw` checks the shipped sheet against the
+shipped models. A misspelt kind is otherwise silent: the thing is simply not there,
+and a hole in the yard looks like a layout decision.
+
 ## Change log
 
 **2026-08-21** — **The woods can be authored.** Five tree species built in

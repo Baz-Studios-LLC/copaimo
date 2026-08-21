@@ -8,7 +8,7 @@ name = "copaimo"
 # happens in a session is a minor version: a release that adds forests, the
 # terrain tool and a building reader is still 0.1.x. Save the bigger numbers for
 # when the game is a different game.
-version = "0.1.11"
+version = "0.1.12"
 edition = "2021"
 
 [features]

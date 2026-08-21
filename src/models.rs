@@ -600,11 +600,19 @@ mod tests {
                     // And it is not one flat colour: these are painted with the
                     // light baked in, darker at the foot, which is most of what
                     // makes an untextured rock read as a rock.
+                    //
+                    // Measured as a RATIO, not a difference. The first cut wanted
+                    // 0.02 of absolute spread in the red channel and a fence failed
+                    // it — dark brown timber with a gentle ramp spans 0.059 to
+                    // 0.080 in linear light, which is a perfectly good gradient and
+                    // two hundredths of nothing. A dark thing's absolute range is
+                    // small because it is dark; what matters is that the foot is
+                    // meaningfully darker than the top.
                     let lightest = shape.colours.iter().map(|c| c[0]).fold(f32::MIN, f32::max);
                     let darkest = shape.colours.iter().map(|c| c[0]).fold(f32::MAX, f32::min);
                     assert!(
-                        lightest - darkest > 0.02,
-                        "{name} `{mesh}` is one flat colour — the baked shading is gone"
+                        lightest > darkest * 1.08,
+                        "{name} `{mesh}` runs {darkest:.4} to {lightest:.4} — that is                          one flat colour, and the baked shading is gone"
                     );
                 }
                 checked += 1;

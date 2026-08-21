@@ -1,124 +1,81 @@
 ## Copaimo: The Wardens Guild
 
-### This release: the packaged build finds its own world
-
-A fix, and a quiet one worth naming. The world's layers — the map, the sculpting,
-the woods, the surfacing, the countries, whatever is placed — were read against the
-**working directory**. Run from the repository that is the crate root and all of it
-is found; but macOS launches a `.app` from `/`, which is how the studio launcher
-starts it, and from there every one of those paths missed. Nothing errored: the map
-fell back to procedural and each missing layer looked like an unpainted world, so
-the packaged mac build drew a world nobody had made and looked fine doing it.
-
-Assets are now found beside the binary when the working directory has none. Bevy's
-own asset server and the window icon each already did this; the files read by hand
-were the set that did not.
-
-Everything below shipped in v0.1.10 and is unchanged.
-
----
-
 Still a world to walk and nothing yet to do in it — no monsters, no battles, no
-guild exams. This release is about the **road east**, the workbench that furnishes
-the world, and a long list of things that used to look wrong.
+guild exams. This release is about **what the world is made of**: the trees, the
+rocks, the grass and the flowers are now authored shapes rather than shapes the
+code guessed at, and three things that were quietly wrong with the ground are not
+any more.
 
-### The canyon gates the road east
+### The world is modelled now
 
-The way from the desert to the green country is now **one winding slot canyon**
-through a flat-topped massif. The top is a mesa, above the treeline and too high
-to walk over. The walls are sheer — a hundred and seventy metres of rise over
-fifty-five of run — and jagged, so the skyline is crags and buttresses rather than
-a drawn line. The way through swings two hundred metres side to side, so no
-straight line crosses it and no sightline reaches the far country: you cannot see
-what is on the other side until you have walked it.
+Everything the game drew used to be built from primitives in code. There is a way
+in for real models now — a Blender pipeline with the conventions set once in a
+script, and a gate on both sides of it that refuses a model which breaks them.
 
-It **braids**, the way a real slot canyon does. A fork leaves the main way and
-rejoins it a quarter-kilometre later around an island of true rock — both ways go
-through, and neither is signposted. Two spurs open off the route and pinch shut at
-a headwall, so a junction is a choice with a wrong answer, and the world has
-alcoves to hide things in later. The floor is fifty-two metres wall to wall,
-opening to ninety at the junctions: room for a party, oncoming traffic, and a
-camera swinging behind them.
+* **Five kinds of tree.** Oak, birch, spruce, pine and acacia, each built for its
+  silhouette, because a silhouette is all you see of a tree at the distance the
+  game draws it. Broad and round, slim and pale, tall and layered, and the acacia
+  flat-topped and wider than it is tall — which is what says dry country from a
+  long way off. Palm and willow still grow their own shapes.
+* **Eight kinds of litter.** Boulders, scree, bushes, stumps, fallen logs, standing
+  dead snags, cacti and dead brush.
+* **Grass and flowers.** The blade and the flower head are authored; the *tuft* is
+  still composed by the world — how many blades it carries, how far round they fan,
+  which way the clump leans, how deep a green it is. That composition is the whole
+  reason a meadow does not read as wallpaper, so it stayed exactly where it was.
 
-The whole massif is desert, floor included. The handover to the green world happens
-on the plain past the eastern mouth, not halfway down the canyon.
+Trees and rocks are opposites, and it decided the whole design. A tree is planted
+as an object and tinted by the material its variety wears, so twenty trees can be
+twenty greens. Litter is welded into ONE mesh per chunk — fifty separate little
+objects would be fifty draw calls, paid for again in every shadow cascade — and one
+mesh wears one material, so every colour a rock has lives in its vertices.
 
-**And the walls are walls now.** Terrain is this game's only geometry, so a walker
-could stroll straight up a seventy-degree face — the canyon gated nothing. A step
-that climbs more than 1.4 m per metre travelled is refused; only the step *up*, so
-no slope is ever a trap, and a refused step retries along each axis so brushing a
-wall slides along it instead of sticking.
+Detail follows size rather than being one number. An oak's crown fills the screen
+when you walk under it and its outline wants to be round; the three little balls
+that make a desert bush never read as anything but a bush, and paying four times
+the triangles for them buys nothing.
 
-### A tunnel was built here first, and it was the wrong idea
+### The ground: three things that were wrong
 
-Worth saying plainly, because it is most of what happened this cycle. The road east
-was going to be a tunnel: a bore tool, a cave mesh, two-level walking, a carve that
-opened the surface at each mouth, holes cut out of the terrain, and a stone
-doorframe to make the holes findable. All of it worked, and it still read wrong on
-screen five times running.
+**A raised shelf that would not smooth away.** Towns stand on level ground and
+roads are graded between them, and where two of those claims crossed, the ground
+*stepped* — 8.6 m between vertices two metres apart. No brush could have taken it
+out: the sculpting layer works in four-metre cells and cannot express the inverse
+of a step that sharp, and the generator was re-applying it underneath anyway. Now
+the strongest claim decides how much the ground moves and all of them decide where
+it moves to, so a road running into a town still arrives at the town's level with
+no lip where they meet.
 
-The reason is one fact the whole world is built on: **a heightfield has exactly one
-height at every point**. Anything under the ground needs a parallel world beside
-it, and each patch bought another. So the tunnel was removed — every line of it —
-and replaced by a gate the terrain is actually good at: walls that go up, a floor
-that stays down, sky overhead. The whole story is written down in
-`TROUBLESHOOTING.md` so nobody re-derives it.
+**Debris standing out of cliffs.** Steep ground reads as rock, which carries more
+litter than anywhere else and the right kinds for a mountainside — and a canyon
+wall is seventy degrees of exactly that, so the walls came out studded with boulders
+and dead sticks poking sideways. Litter now stops where a *walker* stops.
 
-### The workbench builds things you can stand in the world
+**A comb along the canyon rims.** The tops and bottoms of the walls were a row of
+teeth. It is arithmetic rather than a bug: moving a rim sideways by a metre moves
+the ground by the wall's own gradient, about 4.6 m per metre on a seventy-degree
+wall — so a rim wandering half a metre between two vertices steps the ground by
+two, and vertices are two metres apart. The rims wander gently now, and the
+canyon's shape comes from the way through winding two hundred metres side to side,
+which was always doing that work.
 
-The bench was a wall of text over a grey grid. It now has a camera you can fly, a
-shelf of parts you click, colour swatches you click, and a floor that ends where
-the work is.
+### And the trees are the right colour
 
-* **Floors read as wood** — planks with grain and no gaps between them, and
-  stretching across the grain adds *more planks* instead of stretching the ones
-  there.
-* **New parts**: stone foundations, dark-brown stairs, and beds.
-* **Walls sit on the floor** rather than clipping through it, and they snap to a
-  stretched floor's real edge.
-* **What you select stays selected** until you pick something else, with a glow on
-  its border — so reaching for a floor under a wall no longer loses it to whatever
-  the handles were over.
-* **Work can be named**, which is the whole pipeline from bench to world.
+A wood of chalk-pale trunks was two faults wearing each other's clothes. Authored
+shapes were being matched to the tree pool by position rather than by species, so a
+variety wore one species' crown over another's bark — and a birch's trunk is chalk
+pale by design. The palette needed work too: the ramp from bark-brown to birch-white
+ended so near white that even a fifth of the way along read washed out, and pine was
+painting the colour of concrete. Spruce, oak, pine and acacia read brown now, and
+only a birch goes pale.
 
-In the world itself, placed buildings can now be **turned** and **moved** after
-they are put down. Not everything has to face north.
+### Anything with a front now faces the way it walks
 
-### The world looks like itself
-
-* **Biome edges blend.** Desert into grass and grass into snow were stepped bands;
-  they are gradients now. Three separate faults were stacked there, and the worst
-  colour jump across a boundary went from 0.81 to under 0.06.
-* **The ground is not one flat colour** — mottled at two scales, and the grass is
-  broken up without touching the tufts you walk through.
-* **No more faint streaks over everything**, worst at night: shadow acne at
-  grazing light, which needs a bias that grows as the light drops.
-* **Cloud shadows keep off the water.** They were physically right and read as
-  stains on a flat blue sea.
-* **Rocks sit on the ground** instead of hovering, and the world stops popping as
-  you cross it.
-
-### It runs better
-
-The frame was mostly shadow work: every tree in a 254-chunk disc was resubmitted to
-three shadow cascades every frame. Trees stop casting past a two-chunk ring, the
-sea's 26,000 vertices moved to the GPU instead of being rewritten and re-uploaded
-each frame, barren chunks stop being re-dressed forever, and the hidden debug
-overlay stops sampling terrain while nobody is looking at it.
-
-### The maker's tools
-
-The terrain tool's panel is clickable throughout — every action has a row, each row
-prints its own key, and no key means two things any more (`B` was the biome brush
-*and* the tunnel bore). The mouse looks around with nothing held; **ALT** frees the
-pointer to reach the panel. The brush ring lands where the cursor is, panels scroll,
-and sliders and the minimap click in the right place on a scaled display.
-
-There is also a **`TROUBLESHOOTING.md`** now: forty-odd faults from this project
-arranged by *symptom*, with the shape each one turned out to take. Six shapes cover
-most of them — one question with two answers, written but never registered, a proxy
-that stopped being true, tests asserting the old semantics, invisible by design, and
-granularity mismatches.
+A model's forward was aimed a half-turn from where it should be. Nothing caught it
+because the only thing being turned was the blocky placeholder warden, which is
+symmetric front to back — a box under a round hat looks the same either way, so a
+warden walking backwards looked exactly like one walking forwards. The first model
+with a face on it would have walked backwards across the whole world.
 
 ### None of it ships
 

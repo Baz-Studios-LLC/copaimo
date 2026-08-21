@@ -1,4 +1,401 @@
 {
   "format": 1,
-  "placed": []
+  "placed": [
+    {
+      "id": 1,
+      "kind": "ranch_gate",
+      "at": [
+        -3064.0,
+        685.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 2,
+      "kind": "ranch_house",
+      "at": [
+        -3076.0,
+        666.0
+      ],
+      "lift": 0.0,
+      "turn": 3.141593,
+      "scale": 1.0
+    },
+    {
+      "id": 3,
+      "kind": "ranch_barn",
+      "at": [
+        -3051.0,
+        660.0
+      ],
+      "lift": 0.0,
+      "turn": 3.141593,
+      "scale": 1.0
+    },
+    {
+      "id": 4,
+      "kind": "ranch_silo",
+      "at": [
+        -3041.0,
+        651.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 5,
+      "kind": "ranch_trough",
+      "at": [
+        -3063.0,
+        673.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 6,
+      "kind": "ranch_trough",
+      "at": [
+        -3084.0,
+        654.0
+      ],
+      "lift": 0.0,
+      "turn": 1.570796,
+      "scale": 1.0
+    },
+    {
+      "id": 7,
+      "kind": "ranch_fence",
+      "at": [
+        -3110.0,
+        629.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 8,
+      "kind": "ranch_fence",
+      "at": [
+        -3106.0,
+        629.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 9,
+      "kind": "ranch_fence",
+      "at": [
+        -3102.0,
+        629.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 10,
+      "kind": "ranch_fence",
+      "at": [
+        -3098.0,
+        629.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 11,
+      "kind": "ranch_fence",
+      "at": [
+        -3094.0,
+        629.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 12,
+      "kind": "ranch_fence",
+      "at": [
+        -3090.0,
+        629.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 13,
+      "kind": "ranch_fence",
+      "at": [
+        -3086.0,
+        629.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 14,
+      "kind": "ranch_fence",
+      "at": [
+        -3082.0,
+        629.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 15,
+      "kind": "ranch_fence",
+      "at": [
+        -3078.0,
+        629.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 16,
+      "kind": "ranch_fence",
+      "at": [
+        -3110.0,
+        659.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 17,
+      "kind": "ranch_fence",
+      "at": [
+        -3106.0,
+        659.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 18,
+      "kind": "ranch_fence",
+      "at": [
+        -3102.0,
+        659.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 19,
+      "kind": "ranch_fence",
+      "at": [
+        -3098.0,
+        659.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 20,
+      "kind": "ranch_fence",
+      "at": [
+        -3094.0,
+        659.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 21,
+      "kind": "ranch_fence",
+      "at": [
+        -3090.0,
+        659.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 22,
+      "kind": "ranch_fence",
+      "at": [
+        -3078.0,
+        659.0
+      ],
+      "lift": 0.0,
+      "turn": 0.0,
+      "scale": 1.0
+    },
+    {
+      "id": 23,
+      "kind": "ranch_fence",
+      "at": [
+        -3112.0,
+        631.0
+      ],
+      "lift": 0.0,
+      "turn": 1.570796,
+      "scale": 1.0
+    },
+    {
+      "id": 24,
+      "kind": "ranch_fence",
+      "at": [
+        -3112.0,
+        635.0
+      ],
+      "lift": 0.0,
+      "turn": 1.570796,
+      "scale": 1.0
+    },
+    {
+      "id": 25,
+      "kind": "ranch_fence",
+      "at": [
+        -3112.0,
+        639.0
+      ],
+      "lift": 0.0,
+      "turn": 1.570796,
+      "scale": 1.0
+    },
+    {
+      "id": 26,
+      "kind": "ranch_fence",
+      "at": [
+        -3112.0,
+        643.0
+      ],
+      "lift": 0.0,
+      "turn": 1.570796,
+      "scale": 1.0
+    },
+    {
+      "id": 27,
+      "kind": "ranch_fence",
+      "at": [
+        -3112.0,
+        647.0
+      ],
+      "lift": 0.0,
+      "turn": 1.570796,
+      "scale": 1.0
+    },
+    {
+      "id": 28,
+      "kind": "ranch_fence",
+      "at": [
+        -3112.0,
+        651.0
+      ],
+      "lift": 0.0,
+      "turn": 1.570796,
+      "scale": 1.0
+    },
+    {
+      "id": 29,
+      "kind": "ranch_fence",
+      "at": [
+        -3112.0,
+        655.0
+      ],
+      "lift": 0.0,
+      "turn": 1.570796,
+      "scale": 1.0
+    },
+    {
+      "id": 30,
+      "kind": "ranch_fence",
+      "at": [
+        -3076.0,
+        631.0
+      ],
+      "lift": 0.0,
+      "turn": 1.570796,
+      "scale": 1.0
+    },
+    {
+      "id": 31,
+      "kind": "ranch_fence",
+      "at": [
+        -3076.0,
+        635.0
+      ],
+      "lift": 0.0,
+      "turn": 1.570796,
+      "scale": 1.0
+    },
+    {
+      "id": 32,
+      "kind": "ranch_fence",
+      "at": [
+        -3076.0,
+        639.0
+      ],
+      "lift": 0.0,
+      "turn": 1.570796,
+      "scale": 1.0
+    },
+    {
+      "id": 33,
+      "kind": "ranch_fence",
+      "at": [
+        -3076.0,
+        643.0
+      ],
+      "lift": 0.0,
+      "turn": 1.570796,
+      "scale": 1.0
+    },
+    {
+      "id": 34,
+      "kind": "ranch_fence",
+      "at": [
+        -3076.0,
+        647.0
+      ],
+      "lift": 0.0,
+      "turn": 1.570796,
+      "scale": 1.0
+    },
+    {
+      "id": 35,
+      "kind": "ranch_fence",
+      "at": [
+        -3076.0,
+        651.0
+      ],
+      "lift": 0.0,
+      "turn": 1.570796,
+      "scale": 1.0
+    },
+    {
+      "id": 36,
+      "kind": "ranch_fence",
+      "at": [
+        -3076.0,
+        655.0
+      ],
+      "lift": 0.0,
+      "turn": 1.570796,
+      "scale": 1.0
+    }
+  ]
 }
