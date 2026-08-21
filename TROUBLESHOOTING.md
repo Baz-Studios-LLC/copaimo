@@ -790,6 +790,37 @@ hillside legitimately grades two metres over two. At a quarter of a metre a ramp
 shrinks in proportion and a discontinuity does not. The same measurement reads
 0.26 m now and 4.45 m with the old code put back.
 
+### An authored clip comes out as the splits
+
+**Symptom.** A run where the legs reach nearly 90 degrees apart, the knees stay
+straight, no foot is ever planted, and the torso is pitched back.
+
+**Three causes, and only one of them was tuning.**
+
+1. **Keyframing a bone that was never posed.** The clip that came with the rig
+   leaves the armature posed. A bone keyed WITHOUT being set first records whatever
+   it was holding — so the torso came out pitched back and the arms hung across the
+   body, and none of that was in the keyframes written. **Reset every bone to rest
+   before authoring**, not just the ones being driven: a bone left posed and never
+   keyed holds that pose for the whole clip.
+2. **A bone in the keyed list and not in the posing code.** `Waist` was keyed and
+   never set. Same fault as above, one line away from being noticed.
+3. **The stride was simply too big.** 42 degrees each way is 84 between the legs,
+   which with straight knees is the splits. A stylised run wants a modest stride and
+   a lot of KNEE — 28 and 62 here.
+
+**And the real failure was not looking.** The clips were written, exported, and
+handed over without a single frame being rendered — while saying out loud that the
+tuning was unverified. `dev/art/gait_look.py` renders five frames of a named clip
+into a strip; it takes seconds and would have shown all three faults at once.
+
+### A figure that seems to drift across a render strip
+
+Measure before believing it. A walk strip looked like the character was sliding
+rightward frame by frame. The hip's world position was constant to four decimals in
+X and Y across the whole cycle — only Z moved, which is the bob. Swinging limbs move
+a figure's visual centre, and the eye reads that as translation.
+
 ## Fixing a generated texture
 
 ### White lines under a character's eyes

@@ -41,20 +41,23 @@ import mathutils
 # How far a thigh reaches at full stride, in degrees, and how far an arm answers it.
 WALK_STRIDE = 26.0
 WALK_ARM = 20.0
-RUN_STRIDE = 42.0
-RUN_ARM = 42.0
+# 28, not 42. Rendered and looked at: 42 degrees each way is 84 between the legs,
+# and with the knees straight it read as the splits — mid-air, no foot ever planted.
+# A stylised run wants a modest stride and a lot of KNEE.
+RUN_STRIDE = 28.0
+RUN_ARM = 26.0
 
 # How much a knee bends as the leg passes under the body.
 WALK_KNEE = 38.0
-RUN_KNEE = 74.0
+RUN_KNEE = 62.0
 
 # How far the hips rise and fall, in the model's own units — it stands one unit
 # tall, so this is a share of its height rather than metres.
 WALK_BOB = 0.014
-RUN_BOB = 0.030
+RUN_BOB = 0.020
 
 # How far the body leans into a run, and how much the spine counter-twists.
-RUN_LEAN = 9.0
+RUN_LEAN = 6.0
 SPINE_TWIST = 4.0
 
 
@@ -78,6 +81,26 @@ def shift(rig, bone: str, along: float, axis=(0.0, 0.0, 1.0)):
         return
     rest = posed.bone.matrix_local.to_3x3()
     posed.location = rest.inverted() @ (mathutils.Vector(axis) * along)
+
+
+def rest(rig) -> None:
+    """Puts every bone back to its rest pose.
+
+    # Keys were baking in the idle's pose
+
+    Nothing did this, and it showed. The clip that came with the rig leaves the
+    armature posed, and a bone that is keyframed WITHOUT being set first records
+    whatever it happened to be holding — so the torso came out pitched back and the
+    arms hung across the body, and none of it was in the keyframes I wrote.
+
+    Every bone, not just the driven ones: a bone left posed by the idle and never
+    keyed here holds that pose for the whole clip.
+    """
+    for posed in rig.pose.bones:
+        posed.rotation_mode = "QUATERNION"
+        posed.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+        posed.location = (0.0, 0.0, 0.0)
+        posed.scale = (1.0, 1.0, 1.0)
 
 
 def key(rig, frame: int, bones):
@@ -121,6 +144,7 @@ def gait(rig, name: str, stride: float, arm: float, knee: float, bob: float, lea
     """
     action = bpy.data.actions.new(name)
     rig.animation_data.action = action
+    rest(rig)
     quarter = span // 4
 
     for step in range(5):
@@ -151,7 +175,10 @@ def gait(rig, name: str, stride: float, arm: float, knee: float, bob: float, lea
             # A held bend, so the arms are not two planks.
             swing(rig, f"{side}_Forearm", 18.0 if name == "walk" else 62.0)
 
-        # The spine counter-twists against the hips, and leans into a run.
+        # The spine counter-twists against the hips, and leans into a run. The
+        # WAIST is set too — it was in the keyed list and never posed, so every
+        # frame recorded whatever the idle had left in it.
+        swing(rig, "Waist", lean * 0.3, axis=(0.0, 1.0, 0.0))
         swing(rig, "Spine01", lean * 0.4, axis=(0.0, 1.0, 0.0))
         swing(rig, "Spine02", SPINE_TWIST * (lead if not passing else 0.0), axis=(0.0, 0.0, 1.0))
         # Lowest at each contact, highest over the standing leg.
