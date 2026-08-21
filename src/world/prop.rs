@@ -265,6 +265,14 @@ pub fn litter(terrain: &Terrain, pool: &[Prop], low: Vec2) -> Geometry {
 
             // Nothing stands under a mountain either.
             let ground = terrain.ground_at(at.x, at.y);
+            // Nor on a cliff. Steep ground reads as `Biome::Rock`, which carries the
+            // most litter of any country and the right kinds for a mountainside —
+            // and the canyon's walls are seventy degrees of exactly that, so they
+            // came out studded with boulders and dead sticks poking sideways out of
+            // the rock face.
+            if ground.slope > LIES_UPTO {
+                continue;
+            }
             let biome = Biome::of(ground, &terrain.climate());
 
             let thickness = prop::density(biome);
@@ -326,6 +334,22 @@ pub fn litter(terrain: &Terrain, pool: &[Prop], low: Vec2) -> Geometry {
 /// wins, then it is pressed a little further in. A boulder is half-buried and a
 /// bush grows out of the soil; nothing in a landscape balances on the one point
 /// directly beneath its middle.
+/// The steepest ground litter will lie on, as `1 - normal.y`.
+///
+/// # If nothing can stand there, nothing lies there
+///
+/// Taken from what a WALKER can climb rather than picked: `player::CLIMB_LIMIT` is
+/// 1.4 metres of rise per metre travelled, which is a normal with `y` of
+/// `1/sqrt(1 + 1.4²)` = 0.581, which is a slope of 0.419. So litter stops exactly
+/// where the warden does, and the two cannot drift apart —
+/// `litter_lies_where_a_walker_could_stand` checks the arithmetic.
+///
+/// Ground cover never needed this because the biome does it for cover: nothing
+/// grows on sheer rock. Litter is the opposite case — `Biome::Rock` carries MORE
+/// litter than anywhere else, because a mountainside strewn with scree is right.
+/// A cliff face studded with it is not.
+const LIES_UPTO: f32 = 0.419;
+
 /// What share of a kind of litter a country keeps, nought to one.
 ///
 /// # A second thinning, on top of the density
@@ -500,6 +524,31 @@ mod affordable {
                 mesh.vertices()
             );
         }
+    }
+
+    /// Litter lies where a walker could stand, and nowhere steeper.
+    ///
+    /// Two numbers describing one idea — the steepest ground a thing rests on and
+    /// the steepest a warden climbs — so the arithmetic between them is checked
+    /// rather than trusted. Change the climb limit and this fails.
+    #[test]
+    fn litter_lies_where_a_walker_could_stand() {
+        let rise = crate::player::CLIMB_LIMIT;
+        // A plane of gradient `rise` has this normal, and slope is 1 - normal.y.
+        let upright = 1.0 / (1.0 + rise * rise).sqrt();
+        let matching = 1.0 - upright;
+        assert!(
+            (LIES_UPTO - matching).abs() < 0.005,
+            "litter lies up to {LIES_UPTO} and a walker climbs to {matching:.3} — \
+             the two rules have drifted apart"
+        );
+        // And it really does refuse a cliff: the canyon's walls are about seventy
+        // degrees, which is a slope of roughly 0.66.
+        let cliff = 1.0 - (70.0_f32.to_radians()).cos();
+        assert!(
+            cliff > LIES_UPTO,
+            "a seventy-degree wall is slope {cliff:.2}, which this would still litter"
+        );
     }
 
     /// The thinning says what it means, and only where it means it.

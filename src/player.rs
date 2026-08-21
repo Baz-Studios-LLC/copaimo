@@ -38,7 +38,7 @@ const LEG_HEIGHT: f32 = 0.9;
 /// without a refusal here the warden strolls up them and the canyon gates
 /// nothing. Only the step UP is refused — any slope can be walked back down —
 /// so nowhere is a trap.
-const CLIMB_LIMIT: f32 = 1.4;
+pub const CLIMB_LIMIT: f32 = 1.4;
 
 /// How deep the warden may wade, in metres below sea level.
 ///

@@ -662,6 +662,84 @@ instance draws at once. Pinned by a test that reads back through the handle a
 planted tree would be holding, and confirmed by mutating the code to do it the
 wrong way and watching the test fail.
 
+## Litter, cover and steep ground
+
+### Rocks and dead sticks poke sideways out of a cliff face
+
+**Symptom.** The canyon walls are studded with scree, boulders and snags standing
+out of near-vertical rock.
+
+**Cause.** Steep ground reads as `Biome::Rock`, which carries the MOST litter of
+any country and the right kinds for a mountainside — and a seventy-degree wall is
+steep ground. Ground cover never had this problem because the biome does the work
+for cover: nothing grows on sheer rock. Litter is the opposite case, so nothing was
+stopping it.
+
+**Fix.** `LIES_UPTO` in `prop.rs`: litter stops where a WALKER stops. Taken from
+`player::CLIMB_LIMIT` rather than picked, and
+`litter_lies_where_a_walker_could_stand` checks the arithmetic between the two so
+they cannot drift.
+
+### The world feels too busy, and one biome worse than the rest
+
+**Cause.** `prop::density` says how much litter a biome carries and `belongs` says
+which kinds may stand in it — and between them they cannot say "plenty of cactus
+but few boulders", because a biome's kinds are picked EVENLY. Three kinds at 0.30
+density means a third of the desert is boulders.
+
+**Fix.** `keeps(biome, kind)` in `prop.rs`, thinning by kind in the game rather
+than in the shared crate, where the density and the belonging are other worlds'
+business too. Measured per chunk before and after, per kind, so a cut aimed at
+boulders can be seen not to have taken the cacti with it.
+
+---
+
+## Steep terrain in a heightfield
+
+### A fine comb along the top and bottom edge of a wall
+
+**Symptom.** The rim of a sheer wall is a row of vertical teeth, and the faces
+below them are streaked.
+
+**Cause, and it is arithmetic rather than a bug.** The rim's position is displaced
+by noise. Moving the rim sideways by a metre moves the ground up or down by the
+WALL'S OWN GRADIENT — about 4.6 m per metre for a seventy-degree wall — so a rim
+that wanders half a metre between two vertices steps the ground by two. Vertices
+are two metres apart. The old fine octave wandered nearly two metres per metre,
+which is seventeen metres of step between neighbours.
+
+**Fix.** A wander of A metres over L needs **L greater than about 26·A** to keep a
+step under a metre. `JAG_BROAD` went 22 m over 90 to 7 over 380; `JAG_FINE` 7 over
+24 to 1.5 over 130; the slot's chip 8 over 50 to 3.5 over 150.
+
+**The trade, stated.** Sheer, jagged, and a heightfield: pick two. The walls stay
+sheer, so the rim line has to be gentle, and the canyon's shape comes from the way
+through winding two hundred metres side to side instead. This is the same family as
+the tunnel: the heightfield has limits, and arguing with them costs days.
+
+### Smoothing a wall shortens it
+
+Gentling the rim's wander cost the massif about twenty metres at each end — the old
+wander had been pushing the rim outward there, and the gate test caught it (a
+straight crossing climbing 101 m against a threshold of 102). `WALL_LONG` was
+lengthened to give it back. Worth expecting whenever a rim's roughness is reduced.
+
+### A measurement reports the same number after the fix
+
+**Symptom.** A probe said 41.5 m of step before a roughness fix and 40.7 m after,
+which reads as "the fix did nothing".
+
+**Cause.** The probe was wrong. It walked a fixed offset from a FIXED centreline
+while the canyon's real centreline swings up to nearly three metres for every metre
+travelled — so it was cutting ACROSS the wall, and a wall is meant to change height
+when you cross it. The measurement was dominated by the thing it was supposed to
+hold constant.
+
+**Fix.** Follow the wander. Corrected, the same probe reported the average step
+falling from 3.01 m to 1.60 m high on the wall and 2.53 m to 0.70 m low on it —
+which is the comb going away. **When a fix changes nothing, suspect the ruler**
+before suspecting the fix.
+
 ## Keeping this honest
 
 Add an entry when a bug took **more than one attempt** to fix, or when the symptom

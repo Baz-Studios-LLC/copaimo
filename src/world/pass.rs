@@ -62,7 +62,12 @@ const TOP: f32 = 170.0;
 /// extra word.** They were `ALONG` and `ACROSS` once, which read naturally and
 /// meant the opposite of what `local` returns — so the massif was built long in
 /// the direction you travel and thin in the direction it was supposed to block.
-const WALL_LONG: f32 = 900.0;
+// Lengthened from 900 when the rim's wander was gentled. The old wander pushed the
+// rim out by up to 29 m in places, and the massif's ENDS were relying on it: with a
+// tamer rim the last thirty metres fell into the taper, and a straight crossing
+// there climbed only 101 m against a gate that wants 102. Smoothing a wall shortens
+// it, so the wall gets the length back.
+const WALL_LONG: f32 = 940.0;
 const WALL_THICK: f32 = 520.0;
 
 /// How far the walls take to rise from the plain to the top, in metres.
@@ -88,10 +93,36 @@ const GAP_HALF: f32 = 26.0;
 /// feel close overhead-tall, and a gentler flare would read as a valley.
 const GAP_RUN: f32 = 34.0;
 
-/// How far the rims wander from their drawn line, in metres: the big warp that
-/// makes buttresses, and the small one that chips the edges.
-const JAG_BROAD: f32 = 22.0;
-const JAG_FINE: f32 = 7.0;
+/// How far the rims wander from their drawn line, in metres, and over what
+/// distance each wander plays out.
+///
+/// # A heightfield cannot hold a jagged cliff
+///
+/// These were 22 m over 90 and 7 m over 24, and the walls came out with a fine
+/// COMB along their top and bottom edges. The arithmetic says why, and it is not
+/// subtle: moving the rim sideways by a metre moves the ground up or down by the
+/// wall's own gradient, which here is about four and a half metres per metre. So a
+/// rim that wanders even half a metre between two vertices — and they are two
+/// metres apart — steps the ground by two. The old fine octave wandered nearly two
+/// metres per metre, which is seventeen metres of step between neighbours, and the
+/// two octaves together measured forty-one.
+///
+/// Sheer, jagged, and a heightfield: pick two. The walls stay sheer, so the rim
+/// line has to be gentle — a wander of A metres over L needs L greater than about
+/// twenty-six times A to keep a step under a metre. What gives the canyon its
+/// shape instead is the thing that was always doing the work: the way through
+/// winds two hundred metres side to side, and it forks and spurs.
+const JAG_BROAD: f32 = 7.0;
+const JAG_BROAD_OVER: f32 = 380.0;
+const JAG_FINE: f32 = 1.5;
+const JAG_FINE_OVER: f32 = 130.0;
+
+/// The same, for the edge of the slot itself: how far it wanders, over what.
+///
+/// Steeper than the outer walls — 170 m of fall over `GAP_RUN` — so it needs to
+/// wander even more gently for the same smoothness.
+const CHIP: f32 = 3.5;
+const CHIP_OVER: f32 = 150.0;
 
 /// The fork: a second true way through, leaving the main slot and rejoining it.
 ///
@@ -178,8 +209,8 @@ fn stands(at: Vec2) -> (f32, f32, f32) {
     // The rim warp, in the massif's own frame so it turns with it. One broad
     // octave for buttresses, one fine octave to chip the edge.
     let frame = Vec2::new(across, along);
-    let jag = (2.0 * terrain_core::forest::field(frame / 90.0, 83) - 1.0) * JAG_BROAD
-        + (2.0 * terrain_core::forest::field(frame / 24.0, 84) - 1.0) * JAG_FINE;
+    let jag = (2.0 * terrain_core::forest::field(frame / JAG_BROAD_OVER, 83) - 1.0) * JAG_BROAD
+        + (2.0 * terrain_core::forest::field(frame / JAG_FINE_OVER, 84) - 1.0) * JAG_FINE;
 
     // A mesa in both directions: flat inside, a sheer warped wall at the edge.
     let rim = |d: f32, half: f32| crate::util::smoothstep(half, half - WALL_RUN, d + jag);
@@ -191,7 +222,7 @@ fn stands(at: Vec2) -> (f32, f32, f32) {
     // The ways through and into the rock: the main slot, the fork, the spurs.
     // Rock stands only where every one of them says rock, so a junction is just
     // two answers agreeing that the ground is open.
-    let chip = (2.0 * terrain_core::forest::field(frame / 50.0, 85) - 1.0) * 8.0;
+    let chip = (2.0 * terrain_core::forest::field(frame / CHIP_OVER, 85) - 1.0) * CHIP;
     let open = |stray: f32, half: f32| {
         crate::util::smoothstep(half, half + GAP_RUN, stray + chip)
     };
@@ -414,6 +445,73 @@ mod tests {
             furthest - nearest > 8.0,
             "the wall stands {nearest:.0}–{furthest:.0} m out — a drawn line, not crags"
         );
+    }
+
+    /// How rough the walls are ALONG their own line, on the terrain's own grid.
+    ///
+    ///     cargo test how_toothed_the_walls_are -- --ignored --nocapture
+    ///
+    /// Reported as jaggedness at the top and bottom of the canyon walls. Across a
+    /// wall the ground legitimately climbs three metres for every two of travel —
+    /// that is what a seventy-degree wall IS. Along it, it should barely change, and
+    /// that is where teeth show: each column of the heightfield crosses the rim at
+    /// its own distance, so a rim that wanders quickly comes out as a comb.
+    #[test]
+    #[ignore = "a measurement"]
+    fn how_toothed_the_walls_are() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let (along, across) = axes();
+        // The terrain's own vertex spacing: teeth finer than this cannot be drawn,
+        // and teeth at exactly this are what is being looked for.
+        let step = crate::config::CHUNK_SIZE / crate::config::CHUNK_QUADS as f32;
+
+        for (name, band) in [("high on the wall", 0.72), ("low on the wall", 0.22)] {
+            let mut worst = 0.0_f32;
+            let mut worst_at = 0.0;
+            let mut total = 0.0;
+            let mut counted = 0;
+            for lane in -3..=3 {
+                let l = lane as f32 * 60.0;
+                let centre = wander(l);
+                // Out from the centreline until the wall reaches this share of TOP.
+                let mut stray = GAP_HALF;
+                while stray < 200.0 {
+                    let at = AT + along * l + across * (centre - stray);
+                    if lift(at) > TOP * band {
+                        break;
+                    }
+                    stray += 1.0;
+                }
+                // Then walk ALONG the wall at that distance, on the grid.
+                let mut last: Option<f32> = None;
+                for tick in -40..=40 {
+                    let onward = l + tick as f32 * step;
+                    // FOLLOWING the canyon, not a straight line beside it. The
+                    // centreline itself swings up to nearly three metres for every
+                    // metre travelled, so a fixed offset walks ACROSS the wall — and
+                    // a wall is meant to change height when you cross it. Measured
+                    // that way, this reported forty metres of step and reported it
+                    // just the same after the roughness had been taken out, which is
+                    // how the mistake showed.
+                    let at = AT + along * onward + across * (wander(onward) - stray);
+                    let here = terrain.height(at.x, at.y);
+                    if let Some(before) = last {
+                        let jump: f32 = (here - before).abs();
+                        total += jump;
+                        counted += 1;
+                        if jump > worst {
+                            worst = jump;
+                            worst_at = l;
+                        }
+                    }
+                    last = Some(here);
+                }
+            }
+            println!(
+                "{name}: worst step {worst:.1} m (at {worst_at:.0} m along),                  average {:.2} m over {counted} samples",
+                total / counted as f32
+            );
+        }
     }
 
     /// The floor is wide enough for a party AND oncoming traffic.
