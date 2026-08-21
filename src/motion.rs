@@ -26,6 +26,20 @@ use bevy::prelude::*;
 
 use crate::player::{Player, Striding};
 
+/// Above this, in metres a second, the warden is running rather than walking.
+///
+/// Between the walk's own comfortable pace and the sprint: a warden pushing along
+/// at the top of a walk should already be running, because a walk cycle played fast
+/// enough to keep up with a sprint reads as a cartoon scurry.
+const BREAKS_INTO_A_RUN: f32 = 6.5;
+
+/// How far one stride of the `run` clip carries the warden, in metres.
+///
+/// Longer than a walk's, because a run's legs reach further: 42 degrees either side
+/// of the hip against a walk's 26. Measured the same way — twice the leg's length
+/// times the sine of the stride angle.
+const RUN_COVERS: f32 = 1.14;
+
 /// How far one stride of the `walk` clip carries the warden, in metres.
 ///
 /// Measured from the clip: the legs swing `STRIDE` degrees either side of the hip,
@@ -45,6 +59,8 @@ pub struct Motions {
     graph: Handle<AnimationGraph>,
     walk: AnimationNodeIndex,
     idle: AnimationNodeIndex,
+    /// A run, if the body has one.
+    run: Option<AnimationNodeIndex>,
 }
 
 /// The body's own glTF, held while its clips are being waited for.
@@ -74,24 +90,47 @@ pub fn find_the_clips(
     let Some(file) = files.get(&waiting.0) else {
         return;
     };
-    let (Some(walk), Some(idle)) = (
-        file.named_animations.get("walk"),
-        file.named_animations.get("idle"),
-    ) else {
+    // # Found by the word in the name, not by the whole of it
+    //
+    // A clip authored here is called `walk`. A clip that came with a generated rig
+    // is called `preset:biped:idle`. Insisting on an exact name meant the made
+    // warden had no idle at all as far as the game was concerned — it warned that
+    // the body carried nothing it recognised and let him slide, while the clip sat
+    // right there under a longer name.
+    //
+    // So a clip is matched on CONTAINING its gait's word, case-insensitively. That
+    // reads every convention anybody is likely to export under, and the exact name
+    // is still preferred when both are present.
+    let named = |gait: &str| -> Option<&Handle<AnimationClip>> {
+        file.named_animations.get(gait).or_else(|| {
+            file.named_animations
+                .iter()
+                .find(|(name, _)| name.to_lowercase().contains(gait))
+                .map(|(_, clip)| clip)
+        })
+    };
+    let (Some(walk), Some(idle)) = (named("walk"), named("idle")) else {
         warn!(
-            "the body has no `walk` and `idle` — it carries {:?}, so the warden will slide",
+            "the body has no walk and idle — it carries {:?}, so the warden will slide",
             file.named_animations.keys().collect::<Vec<_>>()
         );
         commands.remove_resource::<Waiting>();
         return;
     };
     let mut graph = AnimationGraph::new();
-    let walk = graph.add_clip(walk.clone(), 1.0, graph.root);
-    let idle = graph.add_clip(idle.clone(), 1.0, graph.root);
+    let walking = graph.add_clip(walk.clone(), 1.0, graph.root);
+    let standing = graph.add_clip(idle.clone(), 1.0, graph.root);
+    // A run is optional: a body with only a walk sprints by walking faster, which
+    // is wrong but is not broken, and is better than refusing to animate at all.
+    let running = named("run").map(|run| graph.add_clip(run.clone(), 1.0, graph.root));
+    if running.is_none() {
+        info!("the body has no run clip; sprinting will play the walk quicker");
+    }
     commands.insert_resource(Motions {
         graph: graphs.add(graph),
-        walk,
-        idle,
+        walk: walking,
+        idle: standing,
+        run: running,
     });
     commands.remove_resource::<Waiting>();
 }
@@ -126,20 +165,28 @@ pub fn match_the_clip_to_the_walking(
     };
     // Below this a warden is standing: a hair of drift from a clamped step should
     // not start the feet going.
-    let walking = pace.speed > 0.05;
+    let moving = pace.speed > 0.05;
+    let running = moving && pace.speed > BREAKS_INTO_A_RUN && motions.run.is_some();
 
     for (mut player, mut moves) in &mut players {
-        let wanted = if walking { motions.walk } else { motions.idle };
+        let (wanted, covers) = if running {
+            (motions.run.expect("checked"), RUN_COVERS)
+        } else if moving {
+            (motions.walk, STRIDE_COVERS)
+        } else {
+            (motions.idle, 0.0)
+        };
         if !player.is_playing_animation(wanted) {
             moves
                 .play(&mut player, wanted, std::time::Duration::from_secs_f32(BLEND))
                 .repeat();
         }
-        if walking {
-            // Strides a second, which is what stops the feet skating: the clip is
-            // one stride long, so its speed IS how many of them the warden needs.
-            if let Some(active) = player.animation_mut(motions.walk) {
-                active.set_speed(pace.speed / STRIDE_COVERS);
+        if moving {
+            // Strides a second, which is what stops the feet skating: a clip is one
+            // stride long, so its speed IS how many of them the warden needs. Each
+            // gait carries a different distance, so each is divided by its own.
+            if let Some(active) = player.animation_mut(wanted) {
+                active.set_speed(pace.speed / covers);
             }
         }
     }

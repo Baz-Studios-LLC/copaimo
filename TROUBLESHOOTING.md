@@ -790,6 +790,53 @@ hillside legitimately grades two metres over two. At a quarter of a metre a ramp
 shrinks in proportion and a discontinuity does not. The same measurement reads
 0.26 m now and 4.45 m with the old code put back.
 
+## Fixing a generated texture
+
+### White lines under a character's eyes
+
+**Symptom.** Bright lines under the eyes on a face at walking distance.
+
+**Cause.** Not the rig, not the sampler, not UV bleed. It is PAINTED IN: the
+generated base-colour map gives the eye a wide sclera, and the crescent of it below
+the iris reads as a line. Rows through the eye measure 251–255 against skin at
+75–120.
+
+**Fix.** Bring the sclera down to about 168 as a step in the asset pipeline, so
+re-running the build cannot undo it.
+
+### Editing a texture inside Blender can report success and change nothing
+
+`image.pixels` was edited and `pack()` called. It printed a cheerful count and
+exported the ORIGINAL bytes — peak luminance through the eye read 254 before and 254
+after. Blender keeps the packed file it already has.
+
+**Fix.** Do pixel work in a tool where the result can be read back and MEASURED —
+here, numpy and pillow writing a PNG — then give Blender one job it cannot get wrong:
+use this file. The pipeline now prints the peak luminance of what it actually wrote.
+
+### Four heuristics that could not find an eye, and what worked
+
+Worth the space, because each one looked reasonable:
+
+1. **White near black.** 18,937 pixels — the white shirt against the black vest.
+2. **Plus skin nearby**, which a shirt has none of. Down to 1,647, but only the
+   crescent hugging the pupil; the rest of the sclera is further from the iris.
+3. **Widen the reach** to cover the whole sclera. Thirty-five clusters along the
+   atlas edge.
+4. **By connected component** — a sclera is a small region, wardrobe whites are
+   large ones. Found exactly two, and they were only PART of each eye: the sclera is
+   painted in TWO tones, a pure white beside the pupil and a warm cream over the
+   rest, and the cream is a separate region below the threshold.
+
+What was wrong throughout: an eye in a generator's atlas is not one shape in one
+colour, so no single rule describes it. The location is written down instead, as a
+fact about one file — the same treatment the model's height and facing already get —
+with the source's byte count as a guard, so a regenerated asset refuses rather than
+dimming somebody's cheek.
+
+**The lesson.** When the third heuristic fails, stop writing heuristics. Measure the
+thing, write the measurement down, and guard it.
+
 ## Modelling people in a script
 
 ### A figure reads as a jointed doll, however the numbers are tuned
