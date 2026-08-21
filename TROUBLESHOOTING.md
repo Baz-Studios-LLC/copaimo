@@ -740,6 +740,56 @@ falling from 3.01 m to 1.60 m high on the wall and 2.53 m to 0.70 m low on it �
 which is the comb going away. **When a fix changes nothing, suspect the ruler**
 before suspecting the fix.
 
+## Towns, roads and levelled ground
+
+### A raised section the brush cannot fully smooth out
+
+**Symptom.** A lip or raised shelf in the ground. The smooth brush takes some of it
+and never all of it, however many passes.
+
+**Cause.** `Settlements::level` returned the strongest claim's TARGET as well as its
+strength. Where two claims cross — a road running into a town, two roads meeting —
+the pulls are equal and the targets are not, so the winning height snapped from one
+to the other between two vertices while the pull carried on smoothly. Measured at
+**8.6 m of step between neighbours two metres apart**: a pull of 0.47 times about
+eighteen metres of disagreement.
+
+The brush could not fix it for two reasons at once. The sculpt layer is **four-metre
+cells**, so it cannot express the inverse of a step that sharp; and the generator
+re-applies the step underneath every frame regardless of what is painted over it.
+
+**Fix.** The strongest claim decides HOW MUCH; all of them decide WHAT. The height
+is blended across every claim weighted by the **cube** of each pull, and only the
+strength is the strongest claim. Cubed because the original note was right that a
+road meeting a town should join the town's level rather than splitting the
+difference — at any real distance the dominant claim is overwhelming, and the blend
+only shows in the narrow band where two pulls are comparable, which is exactly where
+a step must not be. Levelling roughness at the reported spot went 8.58 m → 0.22 m.
+
+**Third time for this shape.** The biome boundary did it — the category flipped at
+the threshold while the strength carried on — and so did the painted country. **A
+thing that flips cannot be the thing that varies.**
+
+**Why no test caught it.** Every road and town test passed throughout. They ask
+about gradients ALONG a road and about the width of its cutting — real questions,
+none of which walks across the seam BETWEEN two features, which is the only place
+this shows.
+
+### Measuring it: two mistakes worth not repeating
+
+**Measure what the layer ADDS, not what the ground ends up as.** The first version
+of the regression test bounded the total height step near a town, and failed on a
+mountainside 240 m away where no settlement had any claim at all — ordinary terrain
+is allowed to be a cliff. What must not have a step in it is `(target - dry) * pull`,
+which is zero where nothing claims the ground and cannot be confounded by whatever
+the ground was doing already.
+
+**Sample finer than the thing you are trying to rule out.** At the terrain's own
+two-metre spacing a step and a steep ramp look identical, and a road cut into a
+hillside legitimately grades two metres over two. At a quarter of a metre a ramp
+shrinks in proportion and a discontinuity does not. The same measurement reads
+0.26 m now and 4.45 m with the old code put back.
+
 ## Keeping this honest
 
 Add an entry when a bug took **more than one attempt** to fix, or when the symptom

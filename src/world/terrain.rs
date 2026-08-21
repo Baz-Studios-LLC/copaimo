@@ -386,6 +386,13 @@ impl Terrain {
     }
 
     /// Where the towns are: level ground waiting for a settlement.
+    /// The settlement plan itself. Test-only, alongside `Settlements::ways`: the
+    /// running game asks `height`, and only a probe asks who claimed a place.
+    #[cfg(test)]
+    pub fn plan(&self) -> &Settlements {
+        &self.settlements
+    }
+
     pub fn sites(&self) -> &[Site] {
         self.settlements.sites()
     }
@@ -1133,6 +1140,69 @@ mod tests {
     /// Run with `cargo test -- --nocapture` to see the map. This is the fastest
     /// way to tell whether a new map image or a tuning change did what you
     /// expected, without waiting on a window.
+    /// Pulls a place apart, layer by layer, to find what is making a shape there.
+    ///
+    ///     cargo test what_is_at -- --ignored --nocapture
+    ///
+    /// Reported as "a raised section I can't fully smooth out with the brush" at
+    /// 2159, -654. The brush is purely additive over `base_height`, so anything it
+    /// cannot cancel is either finer than the sculpt grid can express or is being
+    /// re-applied under it. This says which layer the shape is in.
+    #[test]
+    #[ignore = "a measurement"]
+    fn what_is_at() {
+        let terrain = Terrain::new();
+        let spot = Vec2::new(2159.0, -654.0);
+        let step = crate::config::CHUNK_SIZE / crate::config::CHUNK_QUADS as f32;
+
+        println!("at {:.0}, {:.0}", spot.x, spot.y);
+        let raw = terrain.raw_height(spot.x, spot.y);
+        let cut = terrain.rivers.cut_at(spot.x, spot.y);
+        let dry = terrain.dry_height(spot.x, spot.y);
+        let base = terrain.base_height(spot.x, spot.y);
+        let full = terrain.height(spot.x, spot.y);
+        let levelled = terrain.settlements.level(spot);
+        println!("  raw noise      {raw:8.2}");
+        println!("  river cut     -{cut:8.2}");
+        println!("  massif adds    {:8.2}", dry - (raw - cut));
+        println!("  dry height     {dry:8.2}");
+        println!("  levelling      {:8.2}  {levelled:?}", base - dry);
+        println!("  edit layer     {:8.2}", full - base);
+        println!("  drawn          {full:8.2}");
+
+        // How rough it is here, on the terrain's own grid, and which layer carries
+        // the roughness.
+        for (name, sample) in [
+            ("raw noise", &(|at: Vec2| terrain.raw_height(at.x, at.y)) as &dyn Fn(Vec2) -> f32),
+            ("river cut", &|at: Vec2| terrain.rivers.cut_at(at.x, at.y)),
+            ("dry height", &|at: Vec2| terrain.dry_height(at.x, at.y)),
+            ("levelling", &|at: Vec2| {
+                terrain.settlements.level(at).map_or(0.0, |(target, pull)| {
+                    (target - terrain.dry_height(at.x, at.y)) * pull
+                })
+            }),
+            ("base (levelled)", &|at: Vec2| terrain.base_height(at.x, at.y)),
+            ("edit layer", &|at: Vec2| {
+                terrain.height(at.x, at.y) - terrain.base_height(at.x, at.y)
+            }),
+            ("drawn", &|at: Vec2| terrain.height(at.x, at.y)),
+        ] {
+            let mut worst = 0.0_f32;
+            for row in -12..=12 {
+                let mut last: Option<f32> = None;
+                for column in -12..=12 {
+                    let at = spot + Vec2::new(column as f32 * step, row as f32 * step);
+                    let here = sample(at);
+                    if let Some(before) = last {
+                        worst = worst.max((here - before).abs());
+                    }
+                    last = Some(here);
+                }
+            }
+            println!("  roughness of {name:11} worst {worst:6.2} m between neighbours");
+        }
+    }
+
     #[test]
     fn the_summit_is_a_tournament_ground_on_a_mountain() {
         // The endgame tournament is held on top of the great mountain, which asks

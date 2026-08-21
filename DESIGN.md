@@ -1096,6 +1096,28 @@ Two lists of species names exist, one in Python and one in Rust, and a test read
 the Python from the Rust so they cannot drift apart. This is the same guard the
 model bounds have, for the same reason.
 
+## Levelling: the strongest claim decides how much, all of them decide what
+
+Towns stand on level ground and roads are graded between them, so both pull the
+ground toward a target over a skirt. Where two claims overlap, the **strength** is
+the strongest of them and the **height** is a blend of all of them, weighted by the
+cube of each pull.
+
+That split is the whole of it. Taking the strongest claim's target as well as its
+strength leaves a step wherever two claims cross: the pulls are equal there and the
+targets are not, so the height snaps between vertices while the pull carries on
+smoothly. It came out as a raised shelf a maker could not smooth away — and could
+not, because the sculpt layer is four-metre cells and cannot express the inverse of
+a sharp step, and the generator re-applies it underneath anyway.
+
+Cubed rather than averaged because a road meeting a town should join the town's
+level, not split the difference. At any real distance the dominant claim is
+overwhelming; the blend only shows in the narrow band where two pulls are
+comparable, which is exactly where a step must not be.
+
+This is the third time this shape has come up — the biome boundary and the painted
+country were the others. **A thing that flips cannot be the thing that varies.**
+
 ## Change log
 
 **2026-08-21** — **The woods can be authored.** Five tree species built in

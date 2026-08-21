@@ -96,6 +96,13 @@ impl Settlements {
         }
     }
 
+    /// The roads themselves. Test-only: nothing in the running game asks about
+    /// the network, and the probe that pulls a lip apart does.
+    #[cfg(test)]
+    pub fn ways(&self) -> &[Road] {
+        &self.roads
+    }
+
     pub fn sites(&self) -> &[Site] {
         &self.sites
     }
@@ -276,7 +283,30 @@ impl Settlements {
             return None;
         }
 
-        let mut target = 0.0;
+        // # The strongest claim decides HOW MUCH, and all of them decide WHAT
+        //
+        // This took the strongest claim outright, target and all — and that leaves
+        // a step wherever two claims cross. At a crossover the two pulls are equal
+        // and the two targets are not, so the winner switches from one height to
+        // the other in the space of one vertex while the pull carries on smoothly.
+        // Reported as a raised section that could not be smoothed out with the
+        // brush; measured at 8.6 m of step between neighbours two metres apart,
+        // which is a pull of 0.47 times about eighteen metres of disagreement.
+        //
+        // It is the third time this shape has come up here. The biome boundary did
+        // it (the category flipped at the threshold while the strength carried on)
+        // and so did the painted country. The answer is the same each time: a thing
+        // that flips cannot be the thing that varies.
+        //
+        // So the HEIGHT is now blended across every claim, weighted by the cube of
+        // each pull, and only the STRENGTH is the strongest claim. Cubed, because
+        // the original note is right that a road meeting a town should join the
+        // town's level rather than splitting the difference — at any real distance
+        // the dominant claim is overwhelming, and the blend only shows in the narrow
+        // band where two pulls are genuinely comparable. Which is precisely where a
+        // step must not be.
+        let mut wanted = 0.0;
+        let mut wanting = 0.0f32;
         let mut weight = 0.0f32;
         let sites = self.sites.len() as u16;
 
@@ -306,17 +336,16 @@ impl Settlements {
                 let skirt = road_skirt(road.cut_at(along));
                 (height, smoothstep(ROAD_WIDTH + skirt, ROAD_WIDTH, away))
             };
-            if pull <= weight {
+            if pull <= 0.0 {
                 continue;
             }
-            // The strongest claim wins outright rather than averaging: a road
-            // meeting a town should join its level, not split the difference and
-            // leave a lip where they meet.
-            target = height;
-            weight = pull;
+            let say = pull * pull * pull;
+            wanted += height * say;
+            wanting += say;
+            weight = weight.max(pull);
         }
 
-        (weight > 0.0).then_some((target, weight))
+        (weight > 0.0 && wanting > 0.0).then(|| (wanted / wanting, weight))
     }
 }
 
@@ -633,5 +662,156 @@ mod roads {
                 height - natural
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod levelling {
+    use super::*;
+
+    /// Levelling never puts a step in the ground.
+    ///
+    /// # What went wrong, and why nothing caught it
+    ///
+    /// `level` returned the strongest claim's TARGET as well as its strength. Two
+    /// claims that cross — a road running into a town, two roads meeting — have
+    /// equal pull and unequal target at the crossover, so the height snapped from
+    /// one to the other between two vertices while the pull carried on smoothly.
+    /// Found as a raised section a maker could not smooth out with the brush, and
+    /// they could not: the sculpt layer is four-metre cells and cannot express the
+    /// inverse of a step that sharp, and the generator was re-applying it underneath
+    /// regardless. Measured at 8.6 m of step between neighbours two metres apart.
+    ///
+    /// Every road and town test passed throughout. They ask about gradients ALONG a
+    /// road and about the width of its cutting — real questions, none of which walks
+    /// across the seam BETWEEN two features, which is the only place this showed.
+    ///
+    /// # It measures the levelling, not the ground
+    ///
+    /// The first cut of this test bounded the total height step near a town, and it
+    /// failed on a mountainside 240 m away where no settlement had any claim at all
+    /// — ordinary terrain is allowed to be a cliff. What must not have a step in it
+    /// is what LEVELLING ADDS, so that is what is measured: `(target - dry) * pull`,
+    /// which is zero where nothing claims the ground and cannot be confounded by
+    /// whatever the ground was doing already.
+    #[test]
+    fn levelling_never_puts_a_step_in_the_ground() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        // MUCH finer than the terrain's own two-metre vertices, and that is the
+        // instrument. At two metres a step and a steep ramp look alike — a road
+        // cut into a hillside legitimately grades a couple of metres over two. At a
+        // quarter of a metre a ramp shrinks in proportion and a discontinuity does
+        // not, so what is left above the bound can only be a jump.
+        let step = crate::config::CHUNK_SIZE / crate::config::CHUNK_QUADS as f32 / 8.0;
+
+        // What levelling does to this point, and nothing else.
+        let moved = |at: Vec2| {
+            plan.level(at).map_or(0.0, |(target, pull)| {
+                (target - terrain.dry_height(at.x, at.y)) * pull
+            })
+        };
+
+        let mut worst = 0.0_f32;
+        let mut worst_at = Vec2::ZERO;
+        let mut looked = 0;
+        for site in terrain.sites() {
+            let reach = site.radius + SITE_SKIRT + 40.0;
+            let ticks = (reach * 2.0 / step) as i32;
+            for lane in -4..=4 {
+                let offset = lane as f32 * reach / 4.0;
+                for tick in 0..ticks {
+                    let along = -reach + tick as f32 * step;
+                    for at in [
+                        site.at + Vec2::new(along, offset),
+                        site.at + Vec2::new(offset, along),
+                    ] {
+                        let jump = (moved(at + Vec2::new(step, 0.0)) - moved(at)).abs();
+                        looked += 1;
+                        if jump > worst {
+                            worst = jump;
+                            worst_at = at;
+                        }
+                    }
+                }
+            }
+        }
+
+        assert!(looked > 1000, "only {looked} places were looked at");
+        // Levelling is allowed to grade the ground steeply — a road cut into a
+        // hillside is a cut. What it may not do is JUMP. Two metres of travel may
+        // move the ground a metre and not eight.
+        assert!(
+            worst < 0.6,
+            "levelling steps the ground {worst:.2} m over a quarter-metre at \
+             {:.0}, {:.0} — that is a lip, and no brush can take it out",
+            worst_at.x,
+            worst_at.y
+        );
+        println!("worst levelling step {worst:.2} m over {looked} places");
+    }
+
+    /// Prints every claim on a place, either side of a step.
+    ///
+    ///     cargo test what_claims -- --ignored --nocapture
+    #[test]
+    #[ignore = "a measurement"]
+    fn what_claims() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        for spot in [Vec2::new(2288.0, -352.0), Vec2::new(2290.0, -352.0), Vec2::new(2292.0, -352.0)] {
+            let dry = terrain.dry_height(spot.x, spot.y);
+            let level = plan.level(spot);
+            println!(
+                "at {:.0}, {:.0}: dry {dry:.2}, level {:?}, drawn {:.2}",
+                spot.x, spot.y, level, terrain.base_height(spot.x, spot.y)
+            );
+            for (which, site) in plan.sites().iter().enumerate() {
+                let away = site.at.distance(spot);
+                if away < site.radius + SITE_SKIRT + 40.0 {
+                    println!(
+                        "    site {which}: away {away:.1}, radius {:.1}, height {:.2}, pull {:.3}",
+                        site.radius,
+                        site.height,
+                        crate::util::smoothstep(site.radius + SITE_SKIRT, site.radius, away)
+                    );
+                }
+            }
+            for (which, road) in plan.ways().iter().enumerate() {
+                let (away, along) = road.nearest(spot);
+                if away < ROAD_WIDTH + ROAD_MAX_SKIRT + 40.0 {
+                    let skirt = road_skirt(road.cut_at(along));
+                    println!(
+                        "    road {which}: away {away:.1}, along {along:.3}, height {:.2},                          cut {:.2}, skirt {skirt:.1}, pull {:.3}",
+                        road.height_at(along),
+                        road.cut_at(along),
+                        crate::util::smoothstep(ROAD_WIDTH + skirt, ROAD_WIDTH, away)
+                    );
+                }
+            }
+        }
+    }
+
+    /// A road running into a town still arrives at the town's own level.
+    ///
+    /// The guard on the fix. Blending the targets is what removes the step, and
+    /// blending them EVENLY would undo what winner-takes-all was for: a road would
+    /// approach a town and stop short of its height, leaving a ramp nobody asked
+    /// for. Cubing the weights keeps the dominant claim dominant.
+    #[test]
+    fn a_road_arriving_at_a_town_takes_the_towns_level() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let mut checked = 0;
+        for site in terrain.sites() {
+            // Well inside the town, where nothing else has any real claim.
+            let inside = terrain.base_height(site.at.x, site.at.y);
+            assert!(
+                (inside - site.height).abs() < 1.0,
+                "the middle of a town sits at {inside:.1} m and it was graded to {:.1}",
+                site.height
+            );
+            checked += 1;
+        }
+        assert!(checked > 0, "the world has no towns to check");
     }
 }
