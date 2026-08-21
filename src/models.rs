@@ -591,6 +591,27 @@ fn whole_numbers(tree: &serde_json::Value, bin: &[u8], which: u64) -> Result<Vec
     Ok(out)
 }
 
+/// The mime types of every image embedded in a GLB.
+///
+/// Test-only. The engine has to be able to decode these, and which formats it can
+/// decode is a build-time choice — see
+/// `the_engine_can_decode_every_texture_the_models_use`.
+#[cfg(test)]
+fn image_kinds(bytes: &[u8]) -> Vec<String> {
+    let Ok((tree, _)) = split(bytes) else {
+        return Vec::new();
+    };
+    tree["images"]
+        .as_array()
+        .map(|images| {
+            images
+                .iter()
+                .filter_map(|image| image["mimeType"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -826,6 +847,95 @@ mod tests {
                     })
                 })
         })
+    }
+
+    /// The engine can decode every image the models actually use.
+    ///
+    /// # A missing feature is silent, and the symptom is nowhere near the cause
+    ///
+    /// Bevy decodes PNG by default and **not JPEG**. The warden's textures are JPEG,
+    /// so its glTF load failed outright and the character did not appear — with no
+    /// error mentioning the character, because the failure is in an image three
+    /// levels down. From the outside it looked like the model was wrong.
+    ///
+    /// So the models decide what the manifest must enable, rather than somebody
+    /// remembering: this reads the `mimeType` of every image in every model in the
+    /// game and checks the matching Bevy feature is declared. Drop in a model with a
+    /// WebP texture and this fails naming the feature to add, instead of the thing
+    /// quietly not being there.
+    #[test]
+    fn the_engine_can_decode_every_texture_the_models_use() {
+        let manifest = std::fs::read_to_string("Cargo.toml").expect("Cargo.toml");
+        let Ok(entries) = std::fs::read_dir("assets/models") else {
+            println!("no assets/models folder yet");
+            return;
+        };
+
+        let mut wanted: Vec<(String, String, &str)> = Vec::new();
+        for entry in entries.flatten() {
+            let road = entry.path();
+            if road.extension().and_then(|end| end.to_str()) != Some("glb") {
+                continue;
+            }
+            let name = road.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let bytes = std::fs::read(&road).expect("a model that is there should read");
+            for kind in image_kinds(&bytes) {
+                // Bevy's feature names, against the mime types glTF writes.
+                let feature = match kind.as_str() {
+                    "image/png" => "png",
+                    "image/jpeg" => "jpeg",
+                    "image/webp" => "webp",
+                    "image/ktx2" => "ktx2",
+                    other => panic!("{name} carries a {other} texture, which nothing here reads"),
+                };
+                wanted.push((name.clone(), kind, feature));
+            }
+        }
+
+        // PNG is on by default; everything else has to be asked for.
+        for (name, kind, feature) in &wanted {
+            if *feature == "png" {
+                continue;
+            }
+            assert!(
+                manifest.contains(&format!("\"{feature}\"")),
+                "{name} has a {kind} texture and Cargo.toml does not enable Bevy's \
+                 `{feature}` feature — the model will fail to load and the failure \
+                 will not mention the model"
+            );
+        }
+        println!("{} textures across the models, all decodable", wanted.len());
+    }
+
+    /// Anything rigged needs an animation player compiled in.
+    ///
+    /// `bevy_animation` is NOT a default feature. Without it a skinned mesh still
+    /// draws — in its rest pose, for ever — so a rigged warden slides about instead
+    /// of walking and it reads exactly like a broken rig. It cost a while.
+    #[test]
+    fn a_rigged_model_has_something_to_play_it() {
+        let manifest = std::fs::read_to_string("Cargo.toml").expect("Cargo.toml");
+        let Ok(entries) = std::fs::read_dir("assets/models") else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let road = entry.path();
+            if road.extension().and_then(|end| end.to_str()) != Some("glb") {
+                continue;
+            }
+            let bytes = std::fs::read(&road).expect("reads");
+            let Ok(model) = inspect(&bytes) else { continue };
+            if model.joints == 0 {
+                continue;
+            }
+            let name = road.file_name().unwrap_or_default().to_string_lossy().to_string();
+            assert!(
+                manifest.contains("\"bevy_animation\""),
+                "{name} is rigged with {} joints and Cargo.toml does not enable \
+                 `bevy_animation` — it would stand in its rest pose and slide",
+                model.joints
+            );
+        }
     }
 
     /// A GLB carrying nothing but the numbers this checks.

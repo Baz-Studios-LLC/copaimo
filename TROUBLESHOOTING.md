@@ -825,6 +825,38 @@ every piece placed back and up from the head's middle, the cap stopping short of
 front of the head. That has no failure mode; it is the same arithmetic that places an
 ear.
 
+### A model does not appear at all, and nothing in the log mentions it
+
+**Symptom.** The world draws, the camera follows the warden, and there is no warden.
+No error about the character anywhere.
+
+**Cause.** **Bevy decodes PNG by default and NOT JPEG.** The model's textures were
+JPEG, so the image load failed, so the glTF load failed, so the scene never
+instanced. The failure is three levels below the thing that is missing, and reads
+from the outside as a bad model.
+
+**Fix.** `bevy = { features = ["jpeg"] }`. And a test that makes the MODELS decide
+what the manifest must enable — it reads the `mimeType` of every image in every
+`.glb` in the game and checks the matching feature is declared, so a WebP texture
+dropped in later fails naming the feature to add.
+
+### A rigged character slides instead of walking
+
+**Cause, and it is not the rig.** `bevy_animation` is **not a default feature**.
+Without it a skinned mesh still draws — in its rest pose, for ever — so a rigged
+figure glides about and it looks exactly like broken weights or a broken skeleton.
+A whole pass went into re-measuring joint axes and rewriting a walk cycle before
+this turned up. The keyframes were genuinely wrong as well, which is what made the
+wrong explanation so convincing.
+
+**Fix.** `bevy = { features = ["bevy_animation"] }`, plus a test: any model in
+`assets/models` with joints asserts the feature is enabled.
+
+**The general lesson.** Two of this project's worst afternoons have now gone on
+BUILD-TIME features whose absence is silent at runtime. When something that should
+obviously work does not, and the log says nothing, check what the engine was
+actually compiled with before doubting the asset.
+
 ### A whole mesh comes out one flat colour after a join
 
 **Cause.** A shading ramp given in world heights — a foot and a crown — but read

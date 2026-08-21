@@ -36,7 +36,17 @@ winresource = "0.1"
 # Pinned to 0.16 on purpose: this code is written against 0.16's exact API
 # (required components, Msaa-as-component, DistanceFog). Bevy churns its API
 # between releases — do NOT bump without updating the code to match.
-bevy = "0.16"
+# Two features beyond the defaults, and both were found the hard way.
+#
+# `jpeg`: Bevy decodes PNG out of the box and NOT jpeg. The warden's textures are
+# jpeg, so the glTF load failed outright and the character simply did not appear —
+# no error anywhere near the character, because the failure is in an image.
+#
+# `bevy_animation`: not a default either, and without it nothing in the game can
+# play a clip. This is the real reason a rigged warden slid about instead of
+# walking; the keyframes were also wrong, which made it look like a rigging problem
+# and cost a while.
+bevy = { version = "0.16", features = ["jpeg", "bevy_animation"] }
 # Perlin/fBm/ridged-multifractal generators for the terrain heightfield.
 noise = "0.9"
 # Decodes the source map image on the CPU at startup. We read it directly
