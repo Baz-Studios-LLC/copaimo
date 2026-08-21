@@ -107,6 +107,11 @@ impl Plugin for PlayerPlugin {
                     // The clips: asked for on the way in, found when the file
                     // arrives, handed to each player the scene brings in.
                     crate::motion::find_the_clips.run_if(crate::motion::still_waiting),
+                    // BEFORE anything is played: the offset a worn thing gets is
+                    // taken from the skeleton's rest pose, and a pose baked in at
+                    // attachment stays baked in.
+                    crate::look::hang_things_on_the_head
+                        .before(crate::motion::hand_the_clips_over),
                     crate::motion::hand_the_clips_over
                         .run_if(crate::motion::the_clips_are_ready),
                     crate::motion::match_the_clip_to_the_walking
@@ -235,11 +240,21 @@ fn raise_the_warden(
             if let Some(style) = look.hair.model() {
                 let hair: Handle<Scene> =
                     assets.load(GltfAssetLabel::Scene(0).from_asset(style));
-                parent.spawn((SceneRoot(hair), Transform::default(), Visibility::default()));
+                parent.spawn((
+                    SceneRoot(hair),
+                    crate::look::WornOnTheHead,
+                    Transform::default(),
+                    Visibility::default(),
+                ));
             }
             if let Some(worn) = look.hat.model() {
                 let hat: Handle<Scene> = assets.load(GltfAssetLabel::Scene(0).from_asset(worn));
-                parent.spawn((SceneRoot(hat), Transform::default(), Visibility::default()));
+                parent.spawn((
+                    SceneRoot(hat),
+                    crate::look::WornOnTheHead,
+                    Transform::default(),
+                    Visibility::default(),
+                ));
             }
         });
 }

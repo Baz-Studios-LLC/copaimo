@@ -575,42 +575,56 @@ def keyed_at(rig, bone: str, frame: int, up: float) -> None:
     posed.keyframe_insert(data_path="location", frame=frame)
 
 
-def walk_cycle(rig) -> None:
+def walk_cycle(rig):
     """A walk: two strides, opposite limbs, and a bob at each footfall.
 
-    The bob is what sells it. Without a body that rises and falls, a walk reads as
-    a figure whose legs move while it glides — which is most of the way back to
-    sliding. It falls TWICE per cycle, once on each foot, so it is at twice the
-    frequency of the legs.
+    # Which way a joint bends
+
+    Measured rather than assumed, by posing one leg and one arm at +30 degrees and
+    looking: **a positive rotation about a bone's local X swings it FORWARD.** So
+
+    * a **knee** flexes NEGATIVE — the shin swings back, heel toward the buttock.
+      Positive hyperextends it, and the first cut of this had every knee bending
+      backwards like a bird's.
+    * an **elbow** flexes POSITIVE — for an arm hanging down, the forearm comes
+      forward. Negative hyperextends it, which is what made the arms read as a
+      zombie's.
+
+    The bob is what sells the rest. Without a body that rises and falls, a walk is a
+    figure whose legs move while it glides, which is most of the way back to sliding.
+    It falls twice per cycle, once on each foot, so it runs at twice the frequency of
+    the legs.
     """
     action = bpy.data.actions.new("walk")
     rig.animation_data_create()
     rig.animation_data.action = action
 
-    # (frame, which leg is forward)
+    # Contact: one leg reaching out ahead, the other trailing and pushing off.
     for frame, lead in ((1, 1), (13, -1), (25, 1)):
         for side_of, hand in (("l", 1), ("r", -1)):
             forward = lead * hand
-            # Contact: one leg reaching out, the other trailing behind.
-            keyed(rig, f"thigh.{side_of}", frame, pitch=-STRIDE * forward)
-            keyed(rig, f"shin.{side_of}", frame, pitch=KNEE_BEND * 0.30 * (1 - forward) * 0.5)
+            keyed(rig, f"thigh.{side_of}", frame, pitch=STRIDE * forward)
+            # The reaching leg is nearly straight; the trailing one keeps a bend.
+            keyed(rig, f"shin.{side_of}", frame, pitch=-6.0 if forward > 0 else -20.0)
+            # The foot flattens as it lands and points as it leaves.
+            keyed(rig, f"foot.{side_of}", frame, pitch=-8.0 if forward > 0 else 14.0)
             # Arms go with the OPPOSITE leg, which is what stops a walk looking
             # like a wind-up toy.
-            keyed(rig, f"arm.{side_of}", frame, pitch=ARM_SWING * forward)
-            keyed(rig, f"forearm.{side_of}", frame, pitch=-ELBOW_BEND * 0.6)
+            keyed(rig, f"arm.{side_of}", frame, pitch=-ARM_SWING * forward)
+            keyed(rig, f"forearm.{side_of}", frame, pitch=ELBOW_BEND * 0.7)
         keyed(rig, "spine", frame, pitch=2.0)
         keyed_at(rig, "hips", frame, 0.0)
 
-    # (frame, which leg is passing under the body)
+    # Passing: the swinging leg comes under the body with the knee well bent, the
+    # standing one straight and carrying the weight.
     for frame, lead in ((7, 1), (19, -1)):
         for side_of, hand in (("l", 1), ("r", -1)):
-            passing = lead * hand
-            # Passing: the swinging leg is under the hips with a bent knee, the
-            # standing one straight and taking the weight.
-            keyed(rig, f"thigh.{side_of}", frame, pitch=STRIDE * 0.35 * passing)
-            keyed(rig, f"shin.{side_of}", frame, pitch=KNEE_BEND * max(0.0, passing))
-            keyed(rig, f"arm.{side_of}", frame, pitch=-ARM_SWING * 0.30 * passing)
-            keyed(rig, f"forearm.{side_of}", frame, pitch=-ELBOW_BEND)
+            swinging = lead * hand > 0
+            keyed(rig, f"thigh.{side_of}", frame, pitch=-8.0 if swinging else 12.0)
+            keyed(rig, f"shin.{side_of}", frame, pitch=-KNEE_BEND if swinging else -4.0)
+            keyed(rig, f"foot.{side_of}", frame, pitch=10.0 if swinging else -4.0)
+            keyed(rig, f"arm.{side_of}", frame, pitch=0.0)
+            keyed(rig, f"forearm.{side_of}", frame, pitch=ELBOW_BEND)
         keyed(rig, "spine", frame, pitch=3.5)
         # Highest as the body passes over the standing leg.
         keyed_at(rig, "hips", frame, 0.022)

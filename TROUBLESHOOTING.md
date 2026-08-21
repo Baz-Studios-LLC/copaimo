@@ -974,6 +974,41 @@ The **eyes are the instrument** for a test: they are the one part of a body that
 only ever on the front, so a body whose eyes are not at negative Z is back to front,
 however plausible it looks standing still.
 
+### A joint bends the wrong way
+
+**Symptom.** Knees bend backwards like a bird's; elbows hyperextend, so the arms
+read as a zombie's.
+
+**Cause.** Guessed rotation signs. Which way a bone turns depends on its rest
+orientation, and for a downward-pointing bone it is not obvious.
+
+**Measured, not assumed.** Pose one leg and one arm at **+30 degrees** about the
+bone's local X and render from the side: **positive swings a limb FORWARD.**
+Therefore
+
+* a **knee flexes NEGATIVE** — the shin swings back, heel toward the buttock
+* an **elbow flexes POSITIVE** — for an arm hanging down, the forearm comes forward
+
+Two signs, one render, and it settles a class of bug that is otherwise argued about.
+
+### A hat slides across the head as the character moves
+
+**Cause.** Hair and hats were children of the CHARACTER, so they followed the body
+and not the head. The moment a walk started bobbing and turning the head, the hat
+stayed where the body was.
+
+**Fix.** A worn thing belongs to the head BONE. The skeleton arrives as entities
+named after their bones, so find the one called `head` and re-parent to it.
+
+The offset has to be **worked out, not written**: a wig is authored in the body's
+coordinates, so as a child of a bone its transform must be whatever maps body space
+into that bone's space — `bone_global.inverse() * body_global`, taken at the moment
+of attachment.
+
+**And attach before anything plays.** That transform is captured from the skeleton's
+rest pose. Attach mid-stride and the pose of that instant is baked into the offset
+for good, so the hat sits wrong forever afterwards.
+
 ### A gate that refuses a model silently leaves the game with the old one
 
 The worst shape of failure here so far, because it presents as something else

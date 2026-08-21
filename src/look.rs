@@ -216,6 +216,73 @@ pub fn paint_the_warden(
     }
 }
 
+/// Marks a hat or a wig, which belongs on the HEAD rather than on the warden.
+#[derive(Component)]
+pub struct WornOnTheHead;
+
+/// Already hung on the head bone, so it is not looked at again.
+#[derive(Component)]
+pub struct Hung;
+
+/// Hangs hats and wigs on the head bone, once the skeleton has arrived.
+///
+/// # A hat parented to the warden slides about
+///
+/// Hair and hats were children of the warden's own entity, which means they follow
+/// the warden and NOT the head — so the moment the walk started bobbing and turning
+/// the head, the hat stayed where the body was and appeared to slide across it.
+///
+/// A worn thing belongs to the head BONE. The body's skeleton arrives as entities
+/// named after their bones, so this finds the one called `head` and re-parents to
+/// it.
+///
+/// The offset is worked out rather than written down: a wig is authored in the
+/// BODY's coordinates, so becoming a child of a bone means its transform has to be
+/// whatever maps the body's space into that bone's. Taken from the two global
+/// transforms at the moment of attachment — which is why this runs before anything
+/// is played, while the skeleton is still in its rest pose. Attach it mid-stride and
+/// the pose of that instant is baked into the offset for good.
+pub fn hang_things_on_the_head(
+    mut commands: Commands,
+    worn: Query<Entity, (With<WornOnTheHead>, Without<Hung>)>,
+    named: Query<(Entity, &Name, &GlobalTransform)>,
+    wardens: Query<(Entity, &GlobalTransform), With<Dressing>>,
+    ancestors: Query<&ChildOf>,
+) {
+    let Ok((warden, standing)) = wardens.single() else {
+        return;
+    };
+    // The head bone, which has to be one of this warden's own: another figure's
+    // skeleton would put the hat on somebody else.
+    let head = named.iter().find(|(entity, name, _)| {
+        if name.as_str() != "head" {
+            return false;
+        }
+        let mut at = *entity;
+        loop {
+            if at == warden {
+                return true;
+            }
+            match ancestors.get(at) {
+                Ok(parent) => at = parent.parent(),
+                Err(_) => return false,
+            }
+        }
+    });
+    let Some((bone, _, resting)) = head else {
+        return;
+    };
+
+    // Body space into bone space. The wig's vertices are in body space, so this is
+    // exactly the transform that leaves them where they were.
+    let into_bone = resting.affine().inverse() * standing.affine();
+    for thing in &worn {
+        commands
+            .entity(thing)
+            .insert((ChildOf(bone), Transform::from_matrix(into_bone.into()), Hung));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
