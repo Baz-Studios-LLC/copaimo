@@ -192,15 +192,27 @@ def loft(rings, name="part", close_bottom=True, close_top=True):
     places = []
     faces = []
     # Radially compensated, so a ring written as 0.205 comes out 0.205.
+    # A ring is `(height, half_wide, half_deep)`, or the same with a fourth number:
+    # how far FORWARD it sits. A stack of concentric rings can only ever be a tube,
+    # and a foot is the one part of a body that is obviously longer than it is wide.
     rings = [
-        (up, half_wide / SUBSURF_KEEPS, half_deep / SUBSURF_KEEPS)
-        for up, half_wide, half_deep in rings
+        (
+            ring[0],
+            ring[1] / SUBSURF_KEEPS,
+            ring[2] / SUBSURF_KEEPS,
+            ring[3] if len(ring) > 3 else 0.0,
+        )
+        for ring in rings
     ]
-    for up, half_wide, half_deep in rings:
+    for up, half_wide, half_deep, ahead in rings:
         for step in range(RING):
             angle = step / RING * math.tau
             places.append(
-                (math.cos(angle) * half_wide, math.sin(angle) * half_deep, up)
+                (
+                    math.cos(angle) * half_wide,
+                    math.sin(angle) * half_deep + ahead,
+                    up,
+                )
             )
     for level in range(len(rings) - 1):
         low = level * RING
@@ -246,6 +258,69 @@ def weld(parts, name):
     whole.name = name
     whole.data.name = name
     return whole
+
+
+def boot(at_x: float, tall: float):
+    """A boot: a sole, an upper with a toe, and an ankle.
+
+    # A block is not a foot
+
+    These were two boxes — a slab and a smaller slab for a toe — and from the game
+    camera the figure walked about on bricks. A foot is obviously LONGER than it is
+    wide, fatter at the toe than at the heel, and has a sole under it. None of those
+    survive being a cube.
+
+    Lofted up its height with each ring shifted forward, so the sole reaches out past
+    the ankle into a toe and the upper narrows back over it.
+    """
+    stack = loft(
+        [
+            # (height, half-width, half-length, how far forward)
+            (0.000, 0.058, 0.100, -0.020),
+            (0.030, 0.063, 0.110, -0.022),
+            (tall * 0.55, 0.057, 0.090, -0.006),
+            (tall * 1.00, 0.058, 0.064, 0.012),
+            # A CUFF, wider than the leg above it and reaching up past the ankle.
+            # Narrower than the leg, the boot let the shin taper into a spike and
+            # there was a visible pinch at every ankle.
+            (tall * 1.42, 0.064, 0.062, 0.014),
+        ],
+        "boot",
+    )
+    for point in stack.data.vertices:
+        point.co.x += at_x
+    return smooth_out(stack, 1)
+
+
+def mitt(hand: int, at_x: float, at_z: float):
+    """A hand: a flattened mitten with a thumb, not a ball.
+
+    A sphere on the end of a sleeve reads as a ball, because that is what it is. A
+    hand is FLAT — much wider than deep — it widens at the knuckles and comes back in
+    at the fingertips, and it has a thumb on the inside. Four rings and one lump
+    carries all of that at the size it is drawn.
+    """
+    stack = loft(
+        [
+            (at_z - 0.120, 0.036, 0.019),
+            (at_z - 0.086, 0.052, 0.024),
+            (at_z - 0.040, 0.055, 0.026),
+            (at_z + 0.010, 0.044, 0.024),
+        ],
+        "hand",
+    )
+    # Forward of the palm as well as inside of it, and big enough to see: a thumb
+    # tucked against the side is a bump nobody reads.
+    thumb = blob(
+        (0.032, 0.030, 0.058),
+        (-hand * 0.046, -0.020, at_z - 0.048),
+        subdiv=1,
+    )
+    for part in (stack, thumb):
+        for point in part.data.vertices:
+            point.co.x += at_x
+    smooth_out(stack, 1)
+    return weld([stack, thumb], "hand")
 
 
 # ------------------------------------------------------------------- the body
@@ -305,7 +380,7 @@ def person(build: str):
     for hand in (-1, 1):
         ear = blob((0.040, 0.062, 0.088), (hand * (HEAD_WIDE * 0.5 - 0.005), 0.018, HEAD_AT + 0.005), subdiv=1)
         skin.append(smooth_out(ear, 1))
-        fist = blob((0.098, 0.094, 0.104), (hand * arm_out, 0.0, hip - 0.072))
+        fist = mitt(hand, hand * arm_out, hip - 0.045)
         skin.append(fist)
 
     # --- the tunic: one hull from the hem to the shoulder
@@ -328,7 +403,9 @@ def person(build: str):
                 (chest - 0.02, 0.076, 0.072),
                 (chest - 0.14, 0.068, 0.065),
                 ((chest + hip) * 0.5 - 0.04, 0.058, 0.056),
-                (hip - 0.05, 0.052, 0.051),
+                # Into the HAND, not down to it: a closed cap pulls inward
+                # under subdivision and showed as a spike above every wrist.
+                (hip - 0.105, 0.048, 0.047),
             ],
             "arm",
         )
@@ -342,7 +419,12 @@ def person(build: str):
                 (hip + 0.04, 0.086, 0.084),
                 (hip - 0.20, 0.076, 0.074),
                 ((hip + boot_top) * 0.5, 0.064, 0.063),
-                (boot_top - 0.02, 0.058, 0.057),
+                # DEEP inside the boot, not at its rim. Subdivision pulls a closed
+            # cap inward along the loft's axis as well as radially, so a leg whose
+            # last ring sat level with the boot's top lifted clear of it and the
+            # tapered cap showed as a spike above the ankle. Same arithmetic as the
+            # radial shrink, in the direction nobody thinks about.
+            (boot_top * 0.35, 0.052, 0.051),
             ],
             "leg",
         )
@@ -354,8 +436,7 @@ def person(build: str):
         # ball, and the figures walked about on two spheres. A boot is the one stiff
         # thing on a soft body, so it keeps its corners — and it gets a toe, because
         # a foot that is as deep at the heel as at the toe reads as a brick.
-        clothes.append(box((0.125, 0.20, boot_top), (hand * leg_out, -0.015, boot_top * 0.55)))
-        clothes.append(box((0.115, 0.085, boot_top * 0.72), (hand * leg_out, -0.135, boot_top * 0.42)))
+        clothes.append(boot(hand * leg_out, boot_top))
 
     # --- the eyes
     #
