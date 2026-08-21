@@ -10,3 +10,9 @@
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Scripted figures build their own .blend from dev/art/*.py, so the .blend is
+# an intermediate. Once one is taken over by hand in Blender, commit it and
+# delete the script that made it — a generator and a hand-edited file cannot
+# both be the source of truth.
+/dev/art/*.blend
