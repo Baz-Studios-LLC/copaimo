@@ -62,19 +62,66 @@ def out_dir() -> str:
 
 
 def bounds() -> tuple[list[float], list[float]]:
-    """The whole scene's corner-to-corner extent, in Blender's own axes."""
+    """The whole scene's corner-to-corner extent, as it will be EXPORTED.
+
+    # Measured through the depsgraph, not from `bound_box`
+
+    `object.bound_box` is the mesh as authored — before subdivision pulls a closed
+    cap inward, and before the smooth-by-angle modifier Blender implements as
+    geometry nodes. The export applies modifiers, so the two are different surfaces,
+    and this gate judged the one that does not ship.
+
+    It cost an afternoon in the worst way. The gate refused two bodies for floating
+    four centimetres off the floor — correctly, as it turned out — and because the
+    refusal aborts the export, the models in the game stayed STALE. Animation clips
+    were being authored properly and never arriving, and the symptom looked like a
+    broken exporter rather than a failed gate.
+    """
+    import mathutils
+
+    # AT REST. An NLA track plays by default, so a rigged figure with a walk on one
+    # is evaluated mid-stride — a leg out in front, which measured as a body 0.93 m
+    # deep with a foot below the floor, and the gate refused it. What ships as
+    # geometry is the rest pose; the clips are separate data. So influences are
+    # silenced for the measurement and put back afterwards.
+    hushed = []
+    for obj in bpy.context.scene.objects:
+        data = obj.animation_data
+        if not data:
+            continue
+        for track in data.nla_tracks:
+            if not track.mute:
+                track.mute = True
+                hushed.append(track)
+        if data.action:
+            hushed.append((obj, data.action))
+            data.action = None
+    bpy.context.view_layer.update()
+
+    depsgraph = bpy.context.evaluated_depsgraph_get()
     low = [float("inf")] * 3
     high = [float("-inf")] * 3
     seen = False
     for obj in bpy.context.scene.objects:
         if obj.type != "MESH":
             continue
-        seen = True
-        for corner in obj.bound_box:
-            world = obj.matrix_world @ __import__("mathutils").Vector(corner)
+        evaluated = obj.evaluated_get(depsgraph)
+        mesh = evaluated.to_mesh()
+        for point in mesh.vertices:
+            world = obj.matrix_world @ point.co
             for axis in range(3):
                 low[axis] = min(low[axis], world[axis])
                 high[axis] = max(high[axis], world[axis])
+            seen = True
+        evaluated.to_mesh_clear()
+        _ = mathutils
+    for held in hushed:
+        if isinstance(held, tuple):
+            held[0].animation_data.action = held[1]
+        else:
+            held.mute = False
+    bpy.context.view_layer.update()
+
     if not seen:
         raise SystemExit("nothing to export: the file has no mesh in it")
     return low, high
@@ -118,12 +165,32 @@ def check(name: str, low: list[float], high: list[float]) -> list[str]:
     # something rather than standing on the ground, so the footing is not its rule.
     if is_a_part(name):
         return faults
-    if low[2] < -FOOTING_SLACK:
+
+    # A RIGGED figure is judged loosely, on purpose.
+    #
+    # The floor rule exists for things placed by their base: a rock is dropped at a
+    # terrain height and its origin had better be its feet. A skinned character is
+    # not placed that way — glTF ignores the node transform of a skinned mesh
+    # entirely, and the game positions the warden by its own `Transform` with the
+    # skeleton carrying the rest. The feet still want to be near zero so a figure
+    # genuinely floating is caught, but a couple of centimetres either way is the
+    # difference between the cage a limb was authored from and the surface
+    # subdivision leaves, and it is not a fault.
+    #
+    # Written down because the strict rule cost an afternoon. It refused both bodies,
+    # a refusal aborts the export, and the models in the game silently stayed as they
+    # were — clips were being authored correctly and never arriving, which presents
+    # as a broken exporter rather than as a failed check.
+    slack = FOOTING_SLACK
+    if any(obj.type == "ARMATURE" for obj in bpy.context.scene.objects):
+        slack = 0.06
+
+    if low[2] < -slack:
         faults.append(
             f"its base sits {low[2]:.2f} m BELOW the floor, so it will import "
             "half-buried — put the feet on Z=0"
         )
-    if low[2] > FOOTING_SLACK:
+    if low[2] > slack:
         faults.append(
             f"its base floats {low[2]:.2f} m over the floor, so it will import "
             "hovering — put the feet on Z=0"

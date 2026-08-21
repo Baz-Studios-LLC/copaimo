@@ -50,7 +50,10 @@ impl Build {
 /// A hairstyle. The names are the files in `assets/models/part_hair_*.glb`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Hair {
+    /// No wig at all. The default while the cap is a staple of the outfit — hair
+    /// under a hat is geometry nobody sees, and the creator can offer it later.
     #[default]
+    None,
     Crop,
     Bob,
     Tail,
@@ -59,14 +62,16 @@ pub enum Hair {
 }
 
 impl Hair {
-    pub fn model(self) -> &'static str {
-        match self {
+    /// The file this style lives in, or `None` for a bare head.
+    pub fn model(self) -> Option<&'static str> {
+        Some(match self {
+            Hair::None => return None,
             Hair::Crop => "models/part_hair_crop.glb",
             Hair::Bob => "models/part_hair_bob.glb",
             Hair::Tail => "models/part_hair_tail.glb",
             Hair::Braids => "models/part_hair_braids.glb",
             Hair::Curls => "models/part_hair_curls.glb",
-        }
+        })
     }
 }
 
@@ -105,6 +110,7 @@ pub struct Look {
     pub hair_colour: Color,
     pub eyes: Color,
     pub clothes: Color,
+    pub hat_colour: Color,
 }
 
 impl Default for Look {
@@ -116,12 +122,14 @@ impl Default for Look {
     fn default() -> Self {
         Self {
             build: Build::Male,
-            hair: Hair::Crop,
+            hair: Hair::None,
             hat: Hat::Cap,
             skin: Srgba::rgb(0.86, 0.68, 0.55).into(),
             hair_colour: Srgba::rgb(0.24, 0.16, 0.11).into(),
             eyes: Srgba::rgb(0.30, 0.48, 0.62).into(),
             clothes: Srgba::rgb(0.24, 0.33, 0.27).into(),
+            // Guild green, the same family as the coat.
+            hat_colour: Srgba::rgb(0.20, 0.38, 0.24).into(),
         }
     }
 }
@@ -141,7 +149,7 @@ impl Look {
             // A pupil is a pupil.
             "pupil" => Srgba::rgb(0.06, 0.05, 0.06).into(),
             "hair" => self.hair_colour,
-            "hat" => Srgba::rgb(0.58, 0.22, 0.20).into(),
+            "hat" => self.hat_colour,
             _ => return None,
         })
     }
@@ -264,8 +272,19 @@ mod tests {
             }
         }
 
-        for hair in [Hair::Crop, Hair::Bob, Hair::Tail, Hair::Braids, Hair::Curls] {
-            let model = check(hair.model());
+        for hair in [
+            Hair::None,
+            Hair::Crop,
+            Hair::Bob,
+            Hair::Tail,
+            Hair::Braids,
+            Hair::Curls,
+        ] {
+            // A bare head names no file, which is a real choice and not a gap.
+            let Some(road) = hair.model() else {
+                continue;
+            };
+            let model = check(road);
             assert!(
                 model.meshes.iter().any(|(name, _)| name == "hair"),
                 "{hair:?} has no mesh called `hair`"
@@ -282,6 +301,62 @@ mod tests {
             }
         }
         assert!(looked >= 8, "only {looked} models were checked");
+    }
+
+    /// A warden faces the way the game means by forward.
+    ///
+    /// # It walked backwards
+    ///
+    /// Everything in `dev/art/people.py` is modelled toward -Y, because that is
+    /// where Blender's own front view looks from. The glTF Y-up conversion turns
+    /// Blender -Y into +Z, and the game's forward is -Z — so every figure came out
+    /// walking backwards, and nothing said so until somebody watched one walk.
+    ///
+    /// The eyes are the instrument: they are the one part of a body that is only ever
+    /// on the front. If their middle is not at negative Z, the figure is back to
+    /// front however plausible it looks standing still.
+    #[test]
+    fn a_warden_faces_forward() {
+        let folder = std::path::Path::new("assets/models");
+        for build in [Build::Male, Build::Female] {
+            let file = folder.join(build.model().trim_start_matches("models/"));
+            let Ok(bytes) = std::fs::read(&file) else {
+                continue;
+            };
+            let model = crate::models::inspect(&bytes).expect("a body should read");
+            let eyes = model
+                .part("eyes")
+                .unwrap_or_else(|| panic!("{build:?} has no eyes to tell its front by"));
+            let middle = (eyes.0[2] + eyes.1[2]) * 0.5;
+            assert!(
+                middle < -0.02,
+                "{build:?} has its eyes at z {middle:+.3}, so it is facing +Z —                  the game's forward is -Z and it would walk backwards"
+            );
+        }
+    }
+
+    /// And so does anything worn on the head, or the peak points behind them.
+    #[test]
+    fn a_hat_faces_the_same_way_as_the_face_under_it() {
+        let folder = std::path::Path::new("assets/models");
+        for hat in [Hat::Cap] {
+            let Some(road) = hat.model() else {
+                continue;
+            };
+            let file = folder.join(road.trim_start_matches("models/"));
+            let Ok(bytes) = std::fs::read(&file) else {
+                continue;
+            };
+            let model = crate::models::inspect(&bytes).expect("a hat should read");
+            let worn = model.part("hat").expect("a hat has a mesh called `hat`");
+            // A cap reaches further forward than back: that is its peak.
+            let forward = -worn.0[2];
+            let behind = worn.1[2];
+            assert!(
+                forward > behind,
+                "{hat:?} reaches {behind:.3} m back and {forward:.3} m forward —                  its peak is pointing the wrong way"
+            );
+        }
     }
 
     /// Every part of the model has a colour, and nothing else does.

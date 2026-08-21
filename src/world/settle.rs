@@ -38,8 +38,11 @@ pub struct Site {
 }
 
 /// A graded run of ground between two sites.
+///
+/// Public because `Settlements::ways` hands them out to a test probe; nothing
+/// outside this file reads their fields.
 #[derive(Clone)]
-struct Road {
+pub struct Road {
     from: Vec2,
     to: Vec2,
     /// The height the road holds, sampled along its length and then graded.

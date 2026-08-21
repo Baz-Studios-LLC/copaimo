@@ -61,10 +61,20 @@ pub struct Model {
     /// tries to bend it, which is a long way downstream. So the count is read out
     /// and asserted on.
     pub joints: usize,
+    /// Each mesh's own corner-to-corner extent, by name.
+    pub bounds: Vec<(String, [f32; 3], [f32; 3])>,
 }
 
 #[cfg(test)]
 impl Model {
+    /// One named mesh's own corner-to-corner extent, if the file has it.
+    ///
+    /// The whole model's bounds cannot answer "which way is this facing" — a body is
+    /// symmetric front to back. One part can: the eyes are only ever on the front.
+    pub fn part(&self, want: &str) -> Option<([f32; 3], [f32; 3])> {
+        self.bounds.iter().find(|(name, _, _)| name == want).map(|(_, low, high)| (*low, *high))
+    }
+
     fn size(&self) -> [f32; 3] {
         [
             self.high[0] - self.low[0],
@@ -124,14 +134,17 @@ pub fn inspect(bytes: &[u8]) -> Result<Model, String> {
     let mut triangles = 0;
     let mut seen = false;
     let mut named = Vec::new();
+    let mut spans: Vec<(String, [f32; 3], [f32; 3])> = Vec::new();
     for mesh in meshes {
         let Some(parts) = mesh["primitives"].as_array() else {
             continue;
         };
-        named.push((
-            mesh["name"].as_str().unwrap_or_default().to_string(),
-            parts.len(),
-        ));
+        let title = mesh["name"].as_str().unwrap_or_default().to_string();
+        named.push((title.clone(), parts.len()));
+        // This mesh's own extent, kept apart from the file's. The whole model
+        // cannot answer which way a figure faces — a body is symmetric front to
+        // back — but one part can, because eyes are only ever on the front.
+        let mut mine = ([f32::MAX; 3], [f32::MIN; 3]);
         for part in parts {
             let Some(which) = part["attributes"]["POSITION"].as_u64() else {
                 continue;
@@ -156,6 +169,8 @@ pub fn inspect(bytes: &[u8]) -> Result<Model, String> {
                 }
                 low[axis] = low[axis].min(least[axis]);
                 high[axis] = high[axis].max(most[axis]);
+                mine.0[axis] = mine.0[axis].min(least[axis]);
+                mine.1[axis] = mine.1[axis].max(most[axis]);
             }
             seen = true;
             // Indexed or not: the count is of indices when there are any and of
@@ -167,6 +182,9 @@ pub fn inspect(bytes: &[u8]) -> Result<Model, String> {
                 .and_then(|it| it["count"].as_u64())
                 .unwrap_or(0);
             triangles += (count / 3) as usize;
+        }
+        if mine.0[0] <= mine.1[0] {
+            spans.push((title, mine.0, mine.1));
         }
     }
     if !seen {
@@ -187,6 +205,7 @@ pub fn inspect(bytes: &[u8]) -> Result<Model, String> {
     Ok(Model {
         low,
         high,
+        bounds: spans,
         triangles,
         meshes: named,
         joints,
@@ -508,8 +527,13 @@ fn floats<const N: usize>(
     let mut out = Vec::with_capacity(run.count);
     for step in 0..run.count {
         let mut one = [fill; N];
-        for lane in 0..wide.min(N) {
-            one[lane] = component(bin, run.from + step * run.stride + lane * size, run.kind, run.normalised)?;
+        for (lane, slot) in one.iter_mut().enumerate().take(wide.min(N)) {
+            *slot = component(
+                bin,
+                run.from + step * run.stride + lane * size,
+                run.kind,
+                run.normalised,
+            )?;
         }
         out.push(one);
     }
@@ -611,7 +635,7 @@ mod tests {
                     "{name} `{mesh}`: a normal per vertex or none at all"
                 );
                 assert!(
-                    shape.indices.len() % 3 == 0,
+                    shape.indices.len().is_multiple_of(3),
                     "{name} `{mesh}` has {} indices, which is not whole triangles",
                     shape.indices.len()
                 );

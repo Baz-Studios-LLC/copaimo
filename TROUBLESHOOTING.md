@@ -940,6 +940,83 @@ that has to agree.
 `TypeError: 'float' object is not callable`, which reads like a much stranger problem
 than it is.
 
+### Limbs look translucent, or a shell looks lit from inside
+
+**Symptom.** A limb reads as see-through against the body: darker than the torso,
+with the torso's silhouette showing through it.
+
+**Cause.** The hull is inside out, so backface culling hides the near wall and shows
+the lit interior of the far one. `loft` winds its side quads on the assumption that
+each ring is ABOVE the last — and an arm is naturally described from the shoulder
+DOWN, so the arm and leg lists descended and their winding reversed.
+
+**Fix.** `loft` sorts its rings by height, so the order cannot matter. Describing a
+limb downward is the natural way to describe a limb.
+
+**How to see it.** Not from a screenshot of the finished figure — the vertex colours
+and the sun hide it. Render with ONE plain material and backface culling forced on:
+inside-out parts come out obviously dark against correct ones. A signed-volume test
+on one loft in isolation had passed, because the list written for the test happened
+to ascend.
+
+### The model faces the wrong way, so the character walks backwards
+
+Everything is modelled toward -Y, because that is where Blender's front view looks
+from. The Y-up conversion turns Blender -Y into **+Z**, and the game's forward is
+**-Z**. So a figure modelled the natural way walks backwards, and nothing says so
+until somebody watches it move.
+
+Turned half a circle at the end of the build rather than at spawn, so the rule stays
+in one place. Turning about the up axis also carries +X to -X, so the `.l`/`.r`
+naming has to flip with it or every bone lies about which side it is on.
+
+The **eyes are the instrument** for a test: they are the one part of a body that is
+only ever on the front, so a body whose eyes are not at negative Z is back to front,
+however plausible it looks standing still.
+
+### A gate that refuses a model silently leaves the game with the old one
+
+The worst shape of failure here so far, because it presents as something else
+entirely. The export gate refused both bodies for floating 4 cm off the floor. A
+refusal aborts the export. So `assets/models/` kept the PREVIOUS models — and
+animation clips were being authored correctly, exported correctly, and never
+arriving. It read as a broken exporter for a long time.
+
+Three separate measurement mistakes underneath it:
+
+* **`object.bound_box` ignores modifiers.** It is the mesh as authored, before
+  subdivision pulls a closed cap inward and before Blender's smooth-by-angle
+  geometry-nodes modifier. The export applies modifiers, so the gate was judging a
+  surface that does not ship. Measure through the depsgraph.
+* **An NLA track plays by default.** Once a walk was on one, the evaluated mesh was
+  posed mid-stride — a leg out front, measuring as a body 0.93 m deep with a foot
+  below the floor. Silence the tracks for the measurement, or measure before the
+  clips exist.
+* **A skinned mesh's node transform is IGNORED by glTF.** Seating the figure by
+  moving the armature object looked right in Blender, exported faithfully, and did
+  nothing in the game — such a mesh is placed entirely by its joints and their
+  inverse bind matrices. The offset has to go into the vertices and the bone rest
+  positions.
+
+And the rule itself was wrong for a character: the floor rule exists for things
+placed by their base, and a warden is placed by their root bone. A rigged figure now
+gets a looser slack, which still catches one genuinely floating.
+
+### Authoring a clip leaves the rig posed
+
+`keyframe_insert` sets the value as well as recording it, so after writing a walk the
+armature stands in whatever its last keyframe said. Saved that way, the mesh
+evaluates deformed. Clear the pose after authoring — and know that clearing it does
+not re-evaluate anything, so a measurement taken straight afterwards still sees the
+old pose unless the view layer is updated.
+
+### Blender 5 moved the Action API
+
+`action.fcurves` is gone: curves live under layers, strips and channelbags. Reaching
+for the old attribute is an `AttributeError`, which reads as a broken script rather
+than a moved API. And `Vector.length_squared` is a property — calling it gives
+`TypeError: 'float' object is not callable`.
+
 ### A test that keeps needing its threshold moved is asserting the wrong thing
 
 Worth its own entry. The check for "this model still carries its baked shading" was

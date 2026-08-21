@@ -70,6 +70,17 @@ fn may_step(terrain: &crate::world::terrain::Terrain, from: Vec3, to: Vec3) -> b
 #[derive(Component)]
 pub struct Player;
 
+/// How fast the warden is actually travelling, in metres a second.
+///
+/// The ASKED speed is not it: a step into deep water or up a cliff is refused, and
+/// a warden pressed against a canyon wall is not walking however hard the key is
+/// held. So this is measured from where they ended up, which is what a walk cycle
+/// has to match or the feet skate.
+#[derive(Component, Default)]
+pub struct Striding {
+    pub speed: f32,
+}
+
 pub struct PlayerPlugin;
 
 impl Plugin for PlayerPlugin {
@@ -86,9 +97,20 @@ impl Plugin for PlayerPlugin {
             // keys fly the camera, and in the menu nothing should move at all.
             .init_resource::<crate::look::Look>()
             .add_systems(
+                OnEnter(AppState::Playing),
+                crate::motion::ask_for_the_clips,
+            )
+            .add_systems(
                 Update,
                 (
                     move_player,
+                    // The clips: asked for on the way in, found when the file
+                    // arrives, handed to each player the scene brings in.
+                    crate::motion::find_the_clips.run_if(crate::motion::still_waiting),
+                    crate::motion::hand_the_clips_over
+                        .run_if(crate::motion::the_clips_are_ready),
+                    crate::motion::match_the_clip_to_the_walking
+                        .run_if(crate::motion::the_clips_are_ready),
                     // Every frame while the world is open: a scene arrives over
                     // several frames and a part cannot be painted before it exists.
                     crate::look::paint_the_warden,
@@ -193,8 +215,6 @@ fn raise_the_warden(
     // they travel and turn with them without anything having to keep them in step.
     let body: Handle<Scene> =
         assets.load(GltfAssetLabel::Scene(0).from_asset(look.build.model()));
-    let hair: Handle<Scene> =
-        assets.load(GltfAssetLabel::Scene(0).from_asset(look.hair.model()));
 
     commands
         .spawn((
@@ -206,12 +226,17 @@ fn raise_the_warden(
             // `look::paint_the_warden`. Nothing can be painted at spawn: a glTF
             // scene is instanced asynchronously and none of it exists yet.
             crate::look::Dressing,
+            Striding::default(),
             SceneRoot(body),
             Transform::from_translation(spawn).with_rotation(Quat::from_rotation_y(facing)),
             Visibility::default(),
         ))
         .with_children(|parent| {
-            parent.spawn((SceneRoot(hair), Transform::default(), Visibility::default()));
+            if let Some(style) = look.hair.model() {
+                let hair: Handle<Scene> =
+                    assets.load(GltfAssetLabel::Scene(0).from_asset(style));
+                parent.spawn((SceneRoot(hair), Transform::default(), Visibility::default()));
+            }
             if let Some(worn) = look.hat.model() {
                 let hat: Handle<Scene> = assets.load(GltfAssetLabel::Scene(0).from_asset(worn));
                 parent.spawn((SceneRoot(hat), Transform::default(), Visibility::default()));
@@ -226,13 +251,14 @@ pub fn move_player(
     terrain: Res<TerrainSource>,
     bounds: Res<WorldBounds>,
     cameras: Query<&Transform, (With<MainCamera>, Without<Player>)>,
-    mut players: Query<&mut Transform, With<Player>>,
+    mut players: Query<(&mut Transform, &mut Striding), With<Player>>,
 ) {
     // In free-fly the same keys drive the camera instead.
     if *mode == CameraMode::Fly {
         return;
     }
-    let (Some(camera), Ok(mut transform)) = (cameras.iter().next(), players.single_mut()) else {
+    let (Some(camera), Ok((mut transform, mut pace))) = (cameras.iter().next(), players.single_mut())
+    else {
         return;
     };
 
@@ -257,6 +283,9 @@ pub fn move_player(
     }
 
     let direction = input.normalize_or_zero();
+    if direction == Vec3::ZERO {
+        pace.speed = 0.0;
+    }
     if direction != Vec3::ZERO {
         let speed = if keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]) {
             SPRINT_SPEED
@@ -277,9 +306,17 @@ pub fn move_player(
         ]
         .into_iter()
         .find(|to| *to != from && may_step(&terrain.0, from, *to));
+        let before = transform.translation;
         if let Some(to) = step {
             transform.translation = to;
         }
+        // From what actually happened, not from what was asked.
+        let went = transform.translation.distance(before);
+        pace.speed = if time.delta_secs() > 0.0 {
+            went / time.delta_secs()
+        } else {
+            0.0
+        };
 
         // Ease into the new facing instead of snapping, so quick direction
         // changes read as a turn rather than a teleport.

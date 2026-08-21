@@ -192,6 +192,22 @@ def loft(rings, name="part", close_bottom=True, close_top=True):
     places = []
     faces = []
     # Radially compensated, so a ring written as 0.205 comes out 0.205.
+    # SORTED BY HEIGHT, and that is load-bearing.
+    #
+    # The side quads are wound on the assumption that each ring is above the last.
+    # Hand the rings over top-to-bottom — which is the natural way to describe an
+    # arm, from the shoulder down — and every quad is wound the other way, so the
+    # whole hull is inside out. Backface culling then hides the near wall and shows
+    # the lit interior of the far one, and the limb reads as TRANSLUCENT.
+    #
+    # It took a plain-white render with culling forced on to see it: the arms and
+    # legs came out dark against a bright torso, which is the interior of a shell.
+    # A test on one loft in isolation had passed, because the list I wrote for the
+    # test happened to ascend.
+    #
+    # So the order stops mattering. Describing an arm downward is the natural way to
+    # describe an arm.
+    rings = sorted(rings, key=lambda ring: ring[0])
     # A ring is `(height, half_wide, half_deep)`, or the same with a fourth number:
     # how far FORWARD it sits. A stack of concentric rings can only ever be a tube,
     # and a foot is the one part of a body that is obviously longer than it is wide.
@@ -477,8 +493,12 @@ def rig(parts, build: str, lift: float):
     made = {}
     for name, parent, head, tail in bone_plan(build):
         bone = frame.edit_bones.new(name)
-        bone.head = (head[0], head[1], head[2] + lift)
-        bone.tail = (tail[0], tail[1], tail[2] + lift)
+        # The same half circle `face_forward` gives the meshes: about the up axis,
+        # so x and y both negate. Done here rather than by transforming the armature
+        # afterwards, because a bone's rest pose is what the weights were computed
+        # against and moving it later would shear the whole figure.
+        bone.head = (-head[0], -head[1], head[2] + lift)
+        bone.tail = (-tail[0], -tail[1], tail[2] + lift)
         if parent:
             bone.parent = made[parent]
         made[name] = bone
@@ -489,6 +509,158 @@ def rig(parts, build: str, lift: float):
         skin = obj.modifiers.new(name="skin", type="ARMATURE")
         skin.object = rigged
     return rigged
+
+
+# ------------------------------------------------------------------ the motions
+#
+# # A rig with no clip is a figure that slides
+#
+# The skeleton was built and nothing moved it, so the warden slid about the world
+# like a chess piece. These are the clips that fix that, authored here for the same
+# reason the shapes are: a walk is a set of numbers, and numbers belong in a file
+# that can be read and diffed.
+#
+# Twenty-four frames to a cycle at twenty-four a second, so one stride is one
+# second and the maths stays legible. Four keys: contact, passing, contact,
+# passing — the shape of every walk ever animated. Bevy plays the clip and scales
+# its speed by how fast the warden is actually going, so the feet keep up.
+
+# How far a limb swings, in degrees.
+STRIDE = 26.0
+KNEE_BEND = 34.0
+ARM_SWING = 20.0
+ELBOW_BEND = 22.0
+
+
+def curves_of(action):
+    """Every F-curve in an action, whichever Action system Blender is using.
+
+    Blender 4.4 replaced `action.fcurves` with layers, strips and channelbags, and
+    5.x has only the new one — so reaching for `fcurves` is an AttributeError rather
+    than an empty list, which reads as a broken script rather than a moved API.
+    """
+    if hasattr(action, "fcurves"):
+        return list(action.fcurves)
+    found = []
+    for layer in action.layers:
+        for strip in layer.strips:
+            for bag in getattr(strip, "channelbags", []):
+                found.extend(bag.fcurves)
+    return found
+
+
+def ease(action) -> None:
+    """Smooths every key in an action, so a walk is not a set of lurches."""
+    for curve in curves_of(action):
+        for point in curve.keyframe_points:
+            point.interpolation = "BEZIER"
+
+
+def keyed(rig, bone: str, frame: int, pitch=0.0, roll=0.0, yaw=0.0) -> None:
+    """Sets one bone's rotation on one frame."""
+    posed = rig.pose.bones[bone]
+    posed.rotation_mode = "XYZ"
+    posed.rotation_euler = (
+        math.radians(pitch),
+        math.radians(roll),
+        math.radians(yaw),
+    )
+    posed.keyframe_insert(data_path="rotation_euler", frame=frame)
+
+
+def keyed_at(rig, bone: str, frame: int, up: float) -> None:
+    """Sets one bone's position on one frame, for the body's own bob."""
+    posed = rig.pose.bones[bone]
+    posed.location = (0.0, 0.0, up)
+    posed.keyframe_insert(data_path="location", frame=frame)
+
+
+def walk_cycle(rig) -> None:
+    """A walk: two strides, opposite limbs, and a bob at each footfall.
+
+    The bob is what sells it. Without a body that rises and falls, a walk reads as
+    a figure whose legs move while it glides — which is most of the way back to
+    sliding. It falls TWICE per cycle, once on each foot, so it is at twice the
+    frequency of the legs.
+    """
+    action = bpy.data.actions.new("walk")
+    rig.animation_data_create()
+    rig.animation_data.action = action
+
+    # (frame, which leg is forward)
+    for frame, lead in ((1, 1), (13, -1), (25, 1)):
+        for side_of, hand in (("l", 1), ("r", -1)):
+            forward = lead * hand
+            # Contact: one leg reaching out, the other trailing behind.
+            keyed(rig, f"thigh.{side_of}", frame, pitch=-STRIDE * forward)
+            keyed(rig, f"shin.{side_of}", frame, pitch=KNEE_BEND * 0.30 * (1 - forward) * 0.5)
+            # Arms go with the OPPOSITE leg, which is what stops a walk looking
+            # like a wind-up toy.
+            keyed(rig, f"arm.{side_of}", frame, pitch=ARM_SWING * forward)
+            keyed(rig, f"forearm.{side_of}", frame, pitch=-ELBOW_BEND * 0.6)
+        keyed(rig, "spine", frame, pitch=2.0)
+        keyed_at(rig, "hips", frame, 0.0)
+
+    # (frame, which leg is passing under the body)
+    for frame, lead in ((7, 1), (19, -1)):
+        for side_of, hand in (("l", 1), ("r", -1)):
+            passing = lead * hand
+            # Passing: the swinging leg is under the hips with a bent knee, the
+            # standing one straight and taking the weight.
+            keyed(rig, f"thigh.{side_of}", frame, pitch=STRIDE * 0.35 * passing)
+            keyed(rig, f"shin.{side_of}", frame, pitch=KNEE_BEND * max(0.0, passing))
+            keyed(rig, f"arm.{side_of}", frame, pitch=-ARM_SWING * 0.30 * passing)
+            keyed(rig, f"forearm.{side_of}", frame, pitch=-ELBOW_BEND)
+        keyed(rig, "spine", frame, pitch=3.5)
+        # Highest as the body passes over the standing leg.
+        keyed_at(rig, "hips", frame, 0.022)
+
+    ease(action)
+    return action
+
+
+def idle_cycle(rig) -> None:
+    """Standing: a slow breath, so a stopped warden is not a statue."""
+    action = bpy.data.actions.new("idle")
+    rig.animation_data.action = action
+    for frame, rise in ((1, 0.0), (36, 0.006), (72, 0.0)):
+        keyed_at(rig, "hips", frame, rise)
+        keyed(rig, "spine", frame, pitch=1.0 + rise * 90.0)
+        keyed(rig, "head", frame, pitch=-rise * 60.0)
+    ease(action)
+    return action
+
+
+def animate(rig) -> None:
+    """Puts every clip on the rig, and leaves it holding the walk.
+
+    Both actions are stashed in an NLA track apiece: the glTF exporter writes ONE
+    clip per track, and an action that is merely present in the file — not on a
+    track and not assigned — is not exported at all. That is the whole trick, and
+    it is the sort of thing that looks like a broken exporter.
+    """
+    for make in (walk_cycle, idle_cycle):
+        action = make(rig)
+        track = rig.animation_data.nla_tracks.new()
+        track.name = action.name
+        track.strips.new(action.name, 1, action)
+        rig.animation_data.action = None
+
+    # BACK TO REST, and this is not tidiness.
+    #
+    # `keyframe_insert` sets the value as well as recording it, so authoring a clip
+    # leaves the rig standing in whatever its last keyframe said — hips lifted, spine
+    # pitched. The .blend is saved in that pose and the mesh evaluates deformed, so
+    # the export gate refused both bodies for floating four centimetres off the
+    # floor. It was right to: a figure that hovers in the file hovers in the game.
+    #
+    # And the refusal is why the GLBs were stale rather than animated — the clips
+    # were being written correctly the whole time and never reaching the game.
+    for posed in rig.pose.bones:
+        posed.location = (0.0, 0.0, 0.0)
+        posed.rotation_euler = (0.0, 0.0, 0.0)
+        posed.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+        posed.scale = (1.0, 1.0, 1.0)
 
 
 # ------------------------------------------------------------------- the body
@@ -540,8 +712,21 @@ def body_marks(build: str) -> dict:
 
 
 def side(hand: int) -> str:
-    """Which side of the body a `hand` of 1 or -1 belongs to. Left is +X."""
-    return "l" if hand > 0 else "r"
+    """Which side of the body a `hand` of 1 or -1 belongs to.
+
+    # Why +X is the RIGHT side here
+
+    Everything in this file builds its front on -Y, because that is the direction
+    Blender's own front view looks from and it is what feels natural to model
+    toward. The glTF Y-up conversion turns Blender -Y into +Z, and the game's
+    forward is -Z — so every figure came out walking backwards.
+
+    So the finished figure is turned half a circle about its up axis (see
+    `face_forward`), which also carries +X round to -X. A part built at +X therefore
+    ends up on the model's own LEFT once it is turned, and the name has to say so
+    here rather than lie about it downstream.
+    """
+    return "r" if hand > 0 else "l"
 
 
 def person(build: str):
@@ -875,6 +1060,76 @@ HATS = {"cap": baseball_cap}
 SHARP_ABOVE = math.radians(62.0)
 
 
+def seat_on_floor(objects) -> float:
+    """Drops everything so the lowest EVALUATED vertex is at Z=0.
+
+    # bound_box does not know about modifiers
+
+    Seating used `object.bound_box`, which is the mesh as authored — before the
+    subdivision that pulls a closed cap inward, and before the smooth-by-angle
+    modifier Blender 5 implements as geometry nodes. So the figure was seated against
+    a surface that is not the one that gets drawn, and the export gate refused both
+    bodies for floating four centimetres. The gate was right, and its refusal is why
+    the animated models never reached the game: the export had been failing all along
+    while the clips were being written correctly.
+
+    Measured through the depsgraph instead, which is the geometry as it will actually
+    be exported — and done LAST, with the armature moved by the same amount, because
+    a pure translation of bones and mesh together is safe for a rig.
+    """
+    # The graph is flushed FIRST. Authoring the clips left the rig posed and the
+    # pose was then cleared, but the depsgraph still held the deformed figure — so
+    # this measured a lowered foot and over-corrected, burying the warden four
+    # centimetres. Clearing a pose does not re-evaluate anything on its own.
+    bpy.context.view_layer.update()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    lowest = None
+    for obj in objects:
+        if obj.type != "MESH":
+            continue
+        evaluated = obj.evaluated_get(depsgraph)
+        mesh = evaluated.to_mesh()
+        for point in mesh.vertices:
+            up = (obj.matrix_world @ point.co).z
+            lowest = up if lowest is None else min(lowest, up)
+        evaluated.to_mesh_clear()
+    if lowest is None or abs(lowest) < 1.0e-5:
+        return 0.0
+    # Into the GEOMETRY, and the caller puts the same shift into the bones.
+    #
+    # Moving the armature OBJECT instead looks like it works and does not: the glTF
+    # spec says the node transform of a skinned mesh is IGNORED, because such a mesh
+    # is placed entirely by its joints and their inverse bind matrices. So the
+    # skeleton node carried a -0.038 translation, Blender honoured it, the exporter
+    # wrote it out faithfully, and the game ignored it exactly as it should — leaving
+    # the warden buried to the ankles.
+    for obj in objects:
+        if obj.type != "MESH" or obj.parent is not None:
+            continue
+        for point in obj.data.vertices:
+            point.co.z -= lowest
+    return lowest
+
+
+def face_forward(objects) -> None:
+    """Turns a finished figure half a circle, so its front is the game's forward.
+
+    Blender -Y becomes glTF +Z and the game's forward is -Z, so a figure modelled
+    toward the front view faces backwards in the world. Turning it here rather than
+    at spawn keeps the rule in one place: a model faces -Z, full stop, and nothing
+    downstream needs to know which way it was authored.
+    """
+    turn = mathutils.Matrix.Rotation(math.pi, 4, "Z")
+    for obj in objects:
+        obj.matrix_world = turn @ obj.matrix_world
+    bpy.ops.object.select_all(action="DESELECT")
+    for obj in objects:
+        obj.select_set(True)
+    if objects:
+        bpy.context.view_layer.objects.active = objects[0]
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=False)
+
+
 def build_body(build: str) -> None:
     fresh()
     made = person(build)
@@ -895,19 +1150,29 @@ def build_body(build: str) -> None:
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.shade_auto_smooth(angle=SHARP_ABOVE)
 
-    # Standing on the floor, and standing exactly TALL.
-    lowest = min(
-        (obj.matrix_world @ mathutils.Vector(c)).z for obj in welded for c in obj.bound_box
-    )
-    for obj in welded:
-        obj.location.z -= lowest
-    bpy.ops.object.select_all(action="SELECT")
-    bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
+    # Nothing is seated yet: that happens once the rig exists, so the bones can be
+    # moved with the body. See `seat_on_floor`.
+    lowest = 0.0
 
     # The skeleton LAST — after the figure has been dropped onto the floor. Bones
     # are written in world metres, and a body moved after rigging leaves its
     # skeleton standing where it used to be.
-    rig(welded, build, -lowest)
+    # Turned BEFORE the rig, while the meshes are still unparented: once they are
+    # children of an armature, applying a transform to one does nothing. The bones
+    # are turned by the same half circle inside `rig`.
+    # Seated while the meshes are still unparented, so the offset can go into their
+    # vertices — and the same offset goes into the bones.
+    lowest = seat_on_floor(welded)
+    face_forward(welded)
+    skeleton = rig(welded, build, -lowest)
+    # And the clips, so the figure walks rather than slides.
+    # SEATED BEFORE THE CLIPS EXIST, and that ordering is the fix.
+    #
+    # An NLA track plays by default, so once the walk was on one the evaluated mesh
+    # was posed mid-stride — a leg out front, which read as a figure 0.93 m deep and
+    # a foot 0.037 m below the floor. Muting tracks to measure would work; not having
+    # any yet is simpler and cannot be forgotten.
+    animate(skeleton)
 
     here = os.path.dirname(os.path.abspath(__file__))
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(here, f"person_{build}.blend"))
@@ -932,6 +1197,7 @@ def build_hat(style: str) -> None:
     whole.select_set(True)
     bpy.context.view_layer.objects.active = whole
     bpy.ops.object.shade_auto_smooth(angle=SHARP_ABOVE)
+    face_forward([whole])
 
     here = os.path.dirname(os.path.abspath(__file__))
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(here, f"part_hat_{style}.blend"))
@@ -954,6 +1220,7 @@ def build_hair(style: str) -> None:
     whole.select_set(True)
     bpy.context.view_layer.objects.active = whole
     bpy.ops.object.shade_auto_smooth(angle=SHARP_ABOVE)
+    face_forward([whole])
 
     here = os.path.dirname(os.path.abspath(__file__))
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(here, f"part_hair_{style}.blend"))

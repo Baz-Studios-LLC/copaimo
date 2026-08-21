@@ -48,6 +48,8 @@ mod hud;
 /// How a warden looks, and painting it onto the model.
 mod look;
 mod menu;
+/// Playing the warden's clips, so walking looks like walking.
+mod motion;
 // Reads model files: the gate that keeps a badly exported one out of the game, and
 // the reader that turns a GLB into geometry the world can weld into a chunk.
 //
@@ -187,40 +189,6 @@ fn which_asset_file(
     }
 }
 
-#[cfg(test)]
-mod assets {
-    use super::*;
-    use std::path::Path;
-
-    #[test]
-    fn an_asset_is_found_beside_the_binary_when_the_working_directory_has_none() {
-        // Run from the repository: the working directory is the answer, because
-        // that is where a maker's own sculpting lives.
-        assert_eq!(
-            which_asset_file("assets/world/edits.bin", true, Some(Path::new("/somewhere/else"))),
-            Path::new("assets/world/edits.bin")
-        );
-
-        // Launched from a bundle: `/` has no assets folder, so the one beside the
-        // binary is the world this build shipped with. Asserted as "under the
-        // binary's own folder" rather than against a literal — a POSIX-looking
-        // path is not absolute on Windows, and the first draft of this test failed
-        // on that rather than on anything about the rule.
-        let folder = std::env::temp_dir().join("Copaimo.app/Contents/MacOS");
-        let beside = which_asset_file("assets/world/edits.bin", false, Some(&folder));
-        assert_eq!(beside, folder.join("assets/world/edits.bin"));
-        assert!(
-            beside.starts_with(&folder),
-            "a bundled path has to sit under the binary's own folder"
-        );
-
-        // And with nothing to go on, the plain name — an ordinary "not found".
-        assert_eq!(
-            which_asset_file("assets/world/edits.bin", false, None),
-            Path::new("assets/world/edits.bin")
-        );
-    }
-}
 
 fn main() {
     let mut app = App::new();
@@ -288,4 +256,39 @@ fn main() {
     app.add_plugins((editor::EditorPlugin, bench::BenchPlugin, hud::HudPlugin));
 
     app.run();
+}
+
+#[cfg(test)]
+mod assets {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn an_asset_is_found_beside_the_binary_when_the_working_directory_has_none() {
+        // Run from the repository: the working directory is the answer, because
+        // that is where a maker's own sculpting lives.
+        assert_eq!(
+            which_asset_file("assets/world/edits.bin", true, Some(Path::new("/somewhere/else"))),
+            Path::new("assets/world/edits.bin")
+        );
+
+        // Launched from a bundle: `/` has no assets folder, so the one beside the
+        // binary is the world this build shipped with. Asserted as "under the
+        // binary's own folder" rather than against a literal — a POSIX-looking
+        // path is not absolute on Windows, and the first draft of this test failed
+        // on that rather than on anything about the rule.
+        let folder = std::env::temp_dir().join("Copaimo.app/Contents/MacOS");
+        let beside = which_asset_file("assets/world/edits.bin", false, Some(&folder));
+        assert_eq!(beside, folder.join("assets/world/edits.bin"));
+        assert!(
+            beside.starts_with(&folder),
+            "a bundled path has to sit under the binary's own folder"
+        );
+
+        // And with nothing to go on, the plain name — an ordinary "not found".
+        assert_eq!(
+            which_asset_file("assets/world/edits.bin", false, None),
+            Path::new("assets/world/edits.bin")
+        );
+    }
 }
