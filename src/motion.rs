@@ -66,7 +66,7 @@ const BREAKS_INTO_A_RUN: f32 = 3.4;
 /// 1.935 and 2.282, and the cadences that follow are believable without help: 112
 /// steps a minute walking at 1.8 m/s and 189 running at 3.6, against 95-140 and
 /// 150-200 for real people. That headroom is what let the speeds go up.
-const STRIDE_COVERS: f32 = 1.935;
+const WALK_COVERS: f32 = 1.935;
 const RUN_COVERS: f32 = 2.282;
 
 /// The moving gaits, slowest first: the word in the clip's name, how far one cycle
@@ -86,12 +86,57 @@ const RUN_COVERS: f32 = 2.282;
 ///
 /// `covers` is measured, never derived: `dev/art/stride_measure.py` fits a line to the
 /// planted foot's travel to get the stance fraction, and a cycle carries `foot travel
-/// / stance fraction`. See `STRIDE_COVERS` for why the obvious `2 x foot swing` is
+/// / stance fraction`. See `WALK_COVERS` for why the obvious `2 x foot swing` is
 /// wrong by 45% on anything with a flight phase.
 const GAITS: &[(&str, f32, f32)] = &[
-    ("walk", STRIDE_COVERS, BREAKS_INTO_A_RUN),
-    ("run", RUN_COVERS, f32::INFINITY),
+    ("walk", WALK_COVERS, hands_over_above(WALK_COVERS, WALK_FRAMES)),
+    ("run", RUN_COVERS, hands_over_above(RUN_COVERS, RUN_FRAMES)),
+    // A sprint clip does not exist yet. The row is here because a missing gait is
+    // skipped with a warning and the fastest one present inherits everything above
+    // it, so declaring the intended set costs nothing and the day the clip lands it
+    // is picked up without touching any code.
+    ("sprint", SPRINT_COVERS, f32::INFINITY),
 ];
+
+/// How many frames each clip is authored over, and at what rate Blender wrote them.
+///
+/// These are here so a clip's NATIVE speed can be stated rather than guessed: a clip
+/// authored over `frames` at `FPS` runs one cycle in `frames / FPS` seconds, so at its
+/// own natural rate it carries `covers x FPS / frames` metres a second. That is the one
+/// speed at which its feet do not slide.
+const FPS: f32 = 24.0;
+const WALK_FRAMES: f32 = 24.0;
+const RUN_FRAMES: f32 = 16.0;
+const SPRINT_FRAMES: f32 = 14.0;
+
+/// The fastest a clip should be stretched past its own native speed.
+///
+/// A clip has exactly ONE speed at which its feet do not slide, and playback rate buys
+/// speed by raising cadence only. The reference brief puts the usable correction at
+/// ±25% around a clip authored at the right speed — beyond that the cadence leaves the
+/// believable band, which is the churn. So this is what decides where one tier hands
+/// over to the next, rather than a threshold picked by feel.
+const STRETCHES_TO: f32 = 1.25;
+
+/// What a clip carries at its own natural rate, in metres a second.
+const fn natively_carries(covers: f32, frames: f32) -> f32 {
+    covers * FPS / frames
+}
+
+/// The speed above which a clip should give way to the next tier up.
+const fn hands_over_above(covers: f32, frames: f32) -> f32 {
+    natively_carries(covers, frames) * STRETCHES_TO
+}
+
+/// What a sprint cycle will carry once there is a sprint clip, in metres.
+///
+/// 3.50 m over fourteen frames is 6.0 m/s natively, at 206 steps a minute — and it is
+/// reachable, because planted-foot travel stays near one leg length at every speed
+/// (measured at 0.99 ± 0.08 m from 6.2 to 11.1 m/s) and stride is that contact length
+/// divided by the stance fraction. The extra stride is therefore bought by spending
+/// LESS of the cycle on the ground, not by reaching further. Trying to reach further is
+/// why 42 degrees of thigh swing once read as the splits.
+const SPRINT_COVERS: f32 = 3.50;
 
 /// What to hand `set_speed` so a clip plays at the right cadence.
 ///
@@ -388,7 +433,7 @@ mod pacing {
         // In steps a minute, because that is the unit the evidence is in and
         // "cycles a second" hid how bad the run was. Two steps to a cycle.
         let steps = |cycles: f32| cycles * 2.0 * 60.0;
-        let walking = steps(plays_at(crate::player::WALK_SPEED, STRIDE_COVERS, "walk"));
+        let walking = steps(plays_at(crate::player::WALK_SPEED, WALK_COVERS, "walk"));
         let running = steps(plays_at(crate::player::SPRINT_SPEED, RUN_COVERS, "run"));
 
         // Walking sits at 100 to 115 steps a minute, and 140 is itself the
@@ -485,7 +530,7 @@ mod pacing {
     /// vary the duration and demand the answer stay put.
     #[test]
     fn the_cadence_does_not_care_how_long_the_clip_is() {
-        let covers = STRIDE_COVERS;
+        let covers = WALK_COVERS;
         let speed = crate::player::WALK_SPEED;
         let wanted = speed / covers;
         for lasts in [0.25, 0.5, 0.708, 1.0, 1.042, 2.0, 7.5] {
@@ -509,7 +554,7 @@ mod pacing {
             .expect("the ranger's own file, which the game loads");
         let model = crate::models::inspect(&file).expect("a readable GLB");
         for (gait, speed, covers) in [
-            ("walk", crate::player::WALK_SPEED, STRIDE_COVERS),
+            ("walk", crate::player::WALK_SPEED, WALK_COVERS),
             ("run", crate::player::SPRINT_SPEED, RUN_COVERS),
         ] {
             let lasts = model

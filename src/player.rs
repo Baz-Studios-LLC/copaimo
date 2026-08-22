@@ -20,45 +20,58 @@ use crate::util::facing_quat;
 use crate::world::terrain::TerrainSource;
 use crate::world::WorldBounds;
 
-/// A brisk walk, in metres a second.
+/// A deliberate slow walk, in metres a second. Held on Ctrl.
 ///
 /// # Seven was not a walk, it was a world record
 ///
-/// This was 7.0 and the sprint 15.0, on a figure 1.7 m tall. A real walk is about
-/// 1.4 m/s; 7 m/s is a 2:23 kilometre, faster than anybody has run one, and 15 m/s
-/// beats Usain Bolt's peak. Reported simply as "movement is extremely fast", which it
-/// was by a factor of five.
+/// This was 7.0 and the sprint 15.0, on a figure 1.7 m tall. Reported simply as
+/// "movement is extremely fast", which it was by a factor of five. It also meant the
+/// WALK CLIP NEVER PLAYED, because the run threshold sat BELOW the walking speed:
+/// every step the warden had ever taken ran the run clip at five cycles a second, so
+/// every judgement anyone had made about how the gaits looked was a judgement about
+/// the run played at five times its cadence. **When a whole family of opinions is
+/// wrong at once, check whether they were all formed about the same mistake.**
 ///
-/// It also meant the WALK CLIP NEVER PLAYED, because the run threshold sat BELOW the
-/// walking speed. Every step the warden had ever taken ran the run clip at five cycles
-/// a second, so every judgement anyone had made about how the gaits looked was a
-/// judgement about the run played at five times its cadence. **When a whole family of
-/// opinions is wrong at once, check whether they were all formed about the same
-/// mistake.**
+/// # And then it went too slow, for a reason worth writing down
 ///
-/// # And why this number is a ceiling rather than a preference
+/// The correction put the DEFAULT pace at a walk, which is not what the games this one
+/// is measured against do. In Palworld, Skyrim, WoW and Unity's own third-person
+/// template the default is a JOG and walking is a deliberate slow mode that keyboard
+/// players almost never choose. "Movement is still too slow" was not asking for a
+/// faster walk; it was asking to stop walking everywhere.
 ///
-/// `speed = cadence x stride length` is exact. The walk clip carries 1.935 m per
-/// cycle — measured, see `motion::STRIDE_COVERS` — so 2.25 m/s already asks for 140
-/// steps a minute, the top of a real walking cadence. Past that it is a jog, and
-/// `neither_gait_plays_at_a_blur` refuses it.
+/// The physics agreed. At 2.25 m/s a 1.7 m person has a Froude number of 0.57
+/// (v²/gL, leg 0.90 m), and the walk-to-run transition sits at Fr ≈ 0.5 — so a real
+/// human at the old "walk" speed would already have broken into a run.
 ///
-/// So raising this needs a LONGER STRIDE or a separate jog clip, not a bigger number.
-/// Raising the number alone buys a faster churn.
-pub const WALK_SPEED: f32 = 2.25;
+/// 1.9 is what the walk CLIP natively carries: 1.935 m a cycle at 115 steps a minute.
+/// Played at its own rate, so nothing stretches and nothing skates.
+pub const WALK_SPEED: f32 = 1.9;
 
-/// A run, in metres a second.
+/// The default pace, in metres a second. A jog.
 ///
-/// Held to what the CLIP can carry, by the same identity as `WALK_SPEED`. The run
-/// cycle covers 2.282 m — see `motion::RUN_COVERS`, and note it was long believed to
-/// be 1.610, understated by 45% because the stride was measured as twice one foot's
-/// swing rather than by the stance fraction. Correcting that measurement is what let
-/// this go from 3.6 to 4.6 without the feet churning any faster.
+/// The clip called `run` is really a jog — 2.282 m a cycle at 180 steps a minute is
+/// 3.42 m/s — and this plays it at very nearly its native rate. Comparable figures:
+/// Palworld's default is 3.50, Unity's third-person sprint 5.34, Epic's own authored
+/// run 5.00.
+pub const JOG_SPEED: f32 = 3.4;
+
+/// A sprint, in metres a second. Held on Shift.
 ///
-/// The map is 8 km across, so crossing it at a run is about twenty-nine minutes. That
-/// is the honest consequence of believable speeds, and it is a design question rather
-/// than a bug: mounts, roads, or fast travel between towns.
-pub const SPRINT_SPEED: f32 = 4.6;
+/// # Capped by the clip, and the cap is the next piece of work
+///
+/// There is no sprint clip yet, so this stretches the jog. The reference brief puts
+/// the acceptable stretch at ±25% around a clip's native speed, and 3.42 × 1.25 =
+/// 4.28 — past that the cadence leaves the believable band and the legs churn, which
+/// is what 4.6 was doing at 242 steps a minute.
+///
+/// **A real 6 m/s sprint needs 3.50 m a cycle, and the way to get it is AIRTIME, not
+/// reach.** Planted-foot travel is about one leg length in every clip, from a jog to
+/// a world-class sprint — Weyand measures 0.99 ± 0.08 m across 6.2 to 11.1 m/s — and
+/// stride is that contact length divided by the stance fraction. So a longer stride
+/// comes from spending less of the cycle on the ground, and trying to buy it with a
+/// bigger leg angle is why 42 degrees of thigh swing once read as the splits.
+pub const SPRINT_SPEED: f32 = 4.25;
 
 /// How fast the warden swivels to face the way they're heading, in radians/sec.
 const TURN_RATE: f32 = 12.0;
@@ -352,10 +365,15 @@ pub fn move_player(
         pace.speed = 0.0;
     }
     if direction != Vec3::ZERO {
+        // Jogging is the DEFAULT and walking is the deliberate choice, which is the
+        // way round every game this one is measured against does it. Shift sprints,
+        // Ctrl slows to a walk.
         let speed = if keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]) {
             SPRINT_SPEED
-        } else {
+        } else if keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]) {
             WALK_SPEED
+        } else {
+            JOG_SPEED
         };
         let next = transform.translation + direction * speed * time.delta_secs();
         let next = bounds.clamp(next, 2.0);
