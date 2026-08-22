@@ -46,7 +46,7 @@ use crate::world::WorldBounds;
 ///
 /// 1.9 is what the walk CLIP natively carries: 1.935 m a cycle at 115 steps a minute.
 /// Played at its own rate, so nothing stretches and nothing skates.
-pub const WALK_SPEED: f32 = 1.26;
+pub const WALK_SPEED: f32 = 1.28;
 
 /// The default pace, in metres a second. A jog.
 ///
@@ -54,7 +54,7 @@ pub const WALK_SPEED: f32 = 1.26;
 /// 3.42 m/s — and this plays it at very nearly its native rate. Comparable figures:
 /// Palworld's default is 3.50, Unity's third-person sprint 5.34, Epic's own authored
 /// run 5.00.
-pub const JOG_SPEED: f32 = 2.95;
+pub const JOG_SPEED: f32 = 3.48;
 
 /// A sprint, in metres a second. Held on Shift.
 ///
@@ -71,7 +71,7 @@ pub const JOG_SPEED: f32 = 2.95;
 /// stride is that contact length divided by the stance fraction. So a longer stride
 /// comes from spending less of the cycle on the ground, and trying to buy it with a
 /// bigger leg angle is why 42 degrees of thigh swing once read as the splits.
-pub const SPRINT_SPEED: f32 = 4.63;
+pub const SPRINT_SPEED: f32 = 5.21;
 
 /// How fast the warden swivels to face the way they're heading, in radians/sec.
 const TURN_RATE: f32 = 12.0;

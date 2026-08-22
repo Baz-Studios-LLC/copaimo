@@ -317,17 +317,25 @@ def main() -> None:
         # with its legs on the strength of a left-hand lead of +0.015 - which is
         # noise, because mid-flight is exactly where the arms cross.
         #
-        # Contact is when a foot is DOWN — but so is toe-off, and the two are
-        # opposite poses. What separates them is WHERE the foot is: a foot landing is
-        # ahead of the hips, a foot pushing off is behind them. So among the frames
-        # where a foot is as low as it gets, the contact is the one where that foot is
-        # furthest FORWARD.
-        def lands(side):
-            floor = min(f["sole"][side] for f in frames)
-            down = [f for f in frames if f["sole"][side] <= floor + STILL_DOWN]
-            return max(down, key=lambda f: f["along"][side])
-
-        landing = {side: lands(side) for side in "LR"}
+        # Contact is the frame the clip was AUTHORED to land on, stated by the caller
+        # rather than inferred from the geometry.
+        #
+        # # Three attempts at inferring it, and why the third failed too
+        #
+        # First the widest leg split (above). Then the lowest sole, which found
+        # TOE-OFF instead, because a plantarflexed toe reaches lower than a flat foot.
+        # Then the lowest sole that is also furthest forward - right in principle and
+        # still the wrong frame, because a keyed FK leg has nothing holding its foot up
+        # BETWEEN keys. The in-betweens dip below the keys, and in a flying clip the
+        # deepest dip is under the leg reaching forward to land, not under the one that
+        # has landed.
+        #
+        # Inferring it was never necessary. An eight-pose cycle lands the right foot at
+        # pose 0 and the left half a cycle later, and the authoring knows that, so it
+        # says so - the same way it states the stance count. Every check that depends
+        # on "at contact" then looks at the pose the clip MEANT rather than at whichever
+        # in-between happens to sag furthest.
+        landing = {"R": frames[0], "L": frames[min(span // 2, len(frames) - 1)]}
 
         # Is this a walk or a run? Not a label — a measurement. A walk always has a
         # foot down; a run is airborne for part of its cycle, and the formal name for
@@ -373,10 +381,8 @@ def main() -> None:
         contact_travel = (
             window[0]["along"]["R"] - window[-1]["along"]["R"] if len(window) > 1 else 0.0
         )
-        # The leading foot of a contact is the one that is further forward at its own
-        # landing, which for a cycle authored on eight poses is both of them in turn;
-        # taking the more forward of the two picks a real contact rather than a frame
-        # that merely happens to be low.
+        # Of the two authored landings, the one whose foot is further forward is the
+        # front foot of that contact.
         front = max("LR", key=lambda side: landing[side]["along"][side])
         back = "R" if front == "L" else "L"
         contact = landing[front]

@@ -60,8 +60,11 @@ const BREAKS_INTO_A_RUN: f32 = 3.4;
 /// fraction.** The contact length is the planted foot's travel relative to the hips,
 /// taken over the window each clip AUTHORS that foot to be down - poses 0 to
 /// stance-1 - because that is the only stretch where the foot is on the ground and
-/// the identity applies. 0.795 m walking, 0.716 jogging, 0.750 sprinting, against a
-/// human figure of roughly one leg length in every gait.
+/// the identity applies. 0.799 m walking and 0.869 in both running clips, against this
+/// character's own leg of 0.774 m hip to ankle - it is a stylised build with legs 45%
+/// of its height where a human's are 52%, so "about one leg length" is a different
+/// number here than the research's 0.99 m, and the running clips deliberately reach
+/// 14% past it.
 ///
 /// Two earlier attempts disagreed with each other by half, and both were measuring
 /// something else: one fitted a line to the whole cycle including the swing, the
@@ -78,8 +81,8 @@ const BREAKS_INTO_A_RUN: f32 = 3.4;
 /// 1.935 and 2.282, and the cadences that follow are believable without help: 112
 /// steps a minute walking at 1.8 m/s and 189 running at 3.6, against 95-140 and
 /// 150-200 for real people. That headroom is what let the speeds go up.
-const WALK_COVERS: f32 = 1.261;
-const RUN_COVERS: f32 = 1.965;
+const WALK_COVERS: f32 = 1.278;
+const RUN_COVERS: f32 = 2.318;
 
 /// The moving gaits, slowest first: the word in the clip's name, how far one cycle
 /// carries the warden in metres, and the speed above which the next one takes over.
@@ -148,7 +151,7 @@ const fn hands_over_above(covers: f32, frames: f32) -> f32 {
 /// divided by the stance fraction. The extra stride is therefore bought by spending
 /// LESS of the cycle on the ground, not by reaching further. Trying to reach further is
 /// why 42 degrees of thigh swing once read as the splits.
-const SPRINT_COVERS: f32 = 3.089;
+const SPRINT_COVERS: f32 = 3.477;
 
 /// What to hand `set_speed` so a clip plays at the right cadence.
 ///
