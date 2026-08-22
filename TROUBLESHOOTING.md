@@ -922,6 +922,44 @@ did, because a written-down impossibility stops anyone trying again.
   first, and put a camera and a light back afterwards — `--look` renders through the
   scene camera and reports "the scene has no camera" if the clear took it.
 
+### A clip plays too fast, and the cadence test passes anyway
+
+**Symptom.** The feet skate. The warden's ground speed is believable, the stride
+distance is measured, the cadence test passes — and the run still looks sped up.
+
+**Cause.** `set_speed` is a **multiple of a clip's natural rate**, not a rate. A
+clip's natural rate is one cycle over its authored duration, so cycles a second is
+`set_speed / duration`. `motion.rs` handed it `speed / covers`, which is already
+cycles a second — correct only for a clip lasting exactly one second.
+
+The walk lasts **1.042 s**, near enough to one that nothing looked wrong. The run is
+authored over sixteen frames rather than twenty-four, lasts **0.708 s**, and therefore
+played at **3.16 cycles a second where 2.24 was wanted — 41% too fast**.
+
+**Why no test saw it.** The cadence test asserted `speed / covers` and passed
+throughout, because that is the number the code was ASKING for. A test that checks the
+request rather than the result is a test that agrees with the code about something
+they are both wrong about. This is the second time that shape of mistake has appeared
+in this file; the first was a probe that walked a fixed offset down a centreline that
+swings, and reported "no change" for a fix that worked. **When a fix changes nothing,
+or a test never fails, suspect the ruler.**
+
+**Fix.** `playback_rate(speed, covers, clip_lasts)` includes the duration, and
+`Motions` carries both clips' lengths, read off the clips as they load.
+`models.rs::inspect` now reports each animation's length straight out of the header —
+glTF requires an animation sampler's input accessor to carry `min` and `max`, so no
+buffer decoding is needed.
+
+**And the test that can actually catch it, which is the point.** Not a value — a
+PROPERTY: *the cadence must come out the same whatever the clip's length.* Any check
+of the number `speed / covers` produces will pass while being wrong by exactly the
+duration, so the only way to see the fault is to vary the duration and demand the
+answer stay put. Verified by reintroducing the bug: it fails, naming 3.16 cycles a
+second.
+
+Plus one that a clip is authored somewhere near the time its stride takes, since the
+fix removes the pressure to keep the authored length sensible at all.
+
 ### "The limbs are still backwards"
 
 **Symptom.** Knees folding like a bird's, elbows bending the wrong way, and a walk
