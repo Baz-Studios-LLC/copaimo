@@ -1,58 +1,86 @@
-"""Refuses a gait clip whose limbs bend the wrong way.
+"""Refuses a gait clip whose limbs bend or reach the wrong way, and scores the rest.
 
     blender --background --python dev/art/verify_gait.py -- <glb> <clip> [<clip>..]
 
 # Why this exists
 
 Three separate attempts shipped a walk with the knees bending backwards and the arms
-swinging with the legs instead of against them, and each time it was found by the
-person playing the game rather than by anything here. The cause was always a SIGN:
-`swing` takes degrees about an armature axis, and whether positive is forward is a
-fact about the rig that was reasoned about instead of measured. Reasoning got it
-exactly inverted, and inverted twice reads as "the limbs are backwards" without
-saying which limb or which way.
+swinging with the legs instead of against them, and every one was found by the person
+playing the game. The cause was always a SIGN: `swing` takes degrees about an
+armature axis, and whether positive is forward is a fact about the rig that was
+reasoned about instead of measured. Reasoning got it exactly inverted, and inverted
+twice reads as "the limbs are backwards" without saying which limb or which way.
 
-So the signs are measured once, in `animate_ranger.py`, and this checks the RESULT —
-the exported file, posed over its own clips. A wrong sign now fails the export
-instead of reaching a player.
+# Two kinds of test, kept apart on purpose
 
-# The three things a walking person does
+**REFUSALS are signs.** A knee either folds forward or it does not, and there is no
+amount of it that is acceptable. These fail the export.
 
-**Arms oppose legs.** Left leg forward, right arm forward. Every walking animal with
-four limbs on two of them does this, and its absence is the single loudest wrongness
-in a gait.
+**SCORES are amplitudes.** How far the hips rise, how much the planted foot slides,
+how far the arms lag the legs — each has a target from the reference brief and a
+tolerance, and none has a value that is simply wrong. These are measured and printed
+as a `SCORE` line so one build can be compared against another rather than against a
+threshold somebody guessed.
 
-**A knee leads.** Bending a knee puts it in FRONT of the line from hip to ankle. Put
-it behind and the leg is a bird's.
+The split matters because a gate set to wherever the code happens to sit is
+decoration, and a gate set to an aspiration blocks every candidate including the
+good ones.
 
-**An elbow trails.** Bending an elbow puts it BEHIND the line from shoulder to wrist.
+# The trap this file exists to avoid
 
-Each is a sign, measured off the geometry, so each is a test.
+Opposition survives a global sign flip. Flip both arms AND both legs and the arms
+still oppose the legs, so a walk can be running entirely backwards and pass an
+opposition test. The reference brief names this explicitly. So opposition is checked
+alongside the ABSOLUTE direction of the lead foot in the same frame:
 
-# And the arms have to actually move
+* the leading foot lands heel-down, TOES UP, while the trailing one is up on its
+  toes,
+* and the leading knee is straighter than the trailing one.
 
-A swing too small to see passes the opposition test on a rounding error. So the arms
-must carry a real fraction of what the legs do — measured, not assumed, because the
-amplitude was once cut to six degrees as a workaround and stayed there.
+Both are asymmetries between the two legs at a contact pose, and both reverse under a
+sign flip. That is what makes them able to catch one.
 """
 
+import json
 import sys
 
 import bpy
 import mathutils
 
-# How much of the legs' fore-aft travel the hands must cover for the swing to read
-# as a swing. Measured on the fixed clips: hands 0.24 against feet 0.46 is a half.
-# A quarter is the floor — below that the shoulders look pinned.
+# How much of the legs fore-aft travel the hands must cover for the swing to read as
+# a swing. The amplitude was once cut to six degrees as a workaround and stayed
+# there, carrying the hands 9% of what the feet did.
 ARMS_CARRY_AT_LEAST = 0.25
 
 # How far off a straight line a joint must sit before its direction is called. Below
 # this the limb is straight and its bend direction is not a fact about anything.
 A_REAL_BEND = 0.004
 
+# How much a foot's pitch must change from its rest angle to count as deliberate.
+# Below this the ankle is neutral and neither heel-strike nor toe-off is being said.
+A_REAL_PITCH = 0.02
+
 
 def argv():
     return sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
+
+
+def turning_points(series):
+    """Where a looped series turns around, as (index, high|low) pairs.
+
+    The series is a CYCLE, so the last sample repeats the first and the neighbours
+    wrap. Counting turns is how the bob's frequency gets checked: a walk bobs twice
+    per cycle, and once per cycle reads as a limp.
+    """
+    n = len(series) - 1 if len(series) > 1 and series[0] == series[-1] else len(series)
+    found = []
+    for i in range(n):
+        here, before, after = series[i], series[(i - 1) % n], series[(i + 1) % n]
+        if here > before and here >= after:
+            found.append((i, "high"))
+        elif here < before and here <= after:
+            found.append((i, "low"))
+    return found
 
 
 def main() -> None:
@@ -70,36 +98,61 @@ def main() -> None:
     else:
         rig.animation_data_create()
 
-    def at(bone):
+    def head(bone):
         return rig.matrix_world @ rig.pose.bones[bone].head
 
-    # Forward is taken off the model's own toe, not assumed. A toe points forward
-    # from a foot on every rig, whatever the exporter did to the axes.
+    def tail(bone):
+        return rig.matrix_world @ rig.pose.bones[bone].tail
+
+    # Rest first: forward comes off the model's own toe rather than being assumed,
+    # and the feet's rest pitch is the baseline heel-strike is measured against.
+    rig.animation_data.action = None
     for posed in rig.pose.bones:
         posed.rotation_mode = "QUATERNION"
         posed.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
         posed.location = (0.0, 0.0, 0.0)
-    toe = (rig.matrix_world @ rig.pose.bones["L_ToeBase"].tail) - at("L_Foot")
+    rig.data.update_tag()
+    bpy.context.view_layer.update()
+
+    toe = tail("L_ToeBase") - head("L_Foot")
     forward = mathutils.Vector((toe.x, toe.y, 0.0)).normalized()
-    print(f"forward is ({forward.x:.3f}, {forward.y:.3f}, {forward.z:.3f})")
+
+    def pitch(side):
+        """How much a foot points UP, as a fraction. Its rest angle is the zero."""
+        span = tail(f"{side}_ToeBase") - head(f"{side}_Foot")
+        return span.z / span.length if span.length > 1e-9 else 0.0
+
+    at_rest = {side: pitch(side) for side in "LR"}
+    print(
+        f"forward is ({forward.x:.3f}, {forward.y:.3f}, {forward.z:.3f}); "
+        f"feet rest at pitch {at_rest['L']:+.3f}/{at_rest['R']:+.3f}"
+    )
 
     def lead(bone):
-        return (at(bone) - at("Hip")).dot(forward)
+        return (head(bone) - head("Hip")).dot(forward)
 
     def off_chord(top, joint, bottom):
         """How far the middle joint sits forward of the line from top to bottom."""
-        a, b, c = at(top), at(joint), at(bottom)
+        a, b, c = head(top), head(joint), head(bottom)
         span = c - a
         if span.length < 1e-6:
             return 0.0
         along = span.normalized()
         return ((b - a) - along * (b - a).dot(along)).dot(forward)
 
-    complaints = []
+    def folded(side):
+        """How far a knee is from straight, as a fraction of the leg's length."""
+        thigh = head(f"{side}_Thigh")
+        knee = head(f"{side}_Calf")
+        ankle = head(f"{side}_Foot")
+        straight = (thigh - knee).length + (knee - ankle).length
+        return 0.0 if straight < 1e-9 else 1.0 - (thigh - ankle).length / straight
+
+    refused, scored = [], {}
     for name in clips:
         action = bpy.data.actions.get(name)
         if action is None:
-            complaints.append(f"{name}: no such clip in the file")
+            refused.append(f"{name}: no such clip in the file")
             continue
         rig.animation_data.action = action
         low, high = (int(v) for v in action.frame_range)
@@ -110,75 +163,109 @@ def main() -> None:
             frames.append(
                 {
                     "frame": frame,
-                    "ground": min(
-                        (rig.matrix_world @ rig.pose.bones[f"{s}_ToeBase"].tail).z
-                        for s in ("L", "R")
-                    ),
+                    "hip": head("Hip").z,
+                    "ground": min(tail(f"{s}_ToeBase").z for s in "LR"),
                     "legs": lead("L_Foot") - lead("R_Foot"),
                     "arms": lead("L_Hand") - lead("R_Hand"),
-                    "knees": (
-                        off_chord("L_Thigh", "L_Calf", "L_Foot"),
-                        off_chord("R_Thigh", "R_Calf", "R_Foot"),
-                    ),
-                    "elbows": (
-                        off_chord("L_Upperarm", "L_Forearm", "L_Hand"),
-                        off_chord("R_Upperarm", "R_Forearm", "R_Hand"),
-                    ),
+                    "pitch": {s: pitch(s) - at_rest[s] for s in "LR"},
+                    "folded": {s: folded(s) for s in "LR"},
+                    "knees": {
+                        s: off_chord(f"{s}_Thigh", f"{s}_Calf", f"{s}_Foot") for s in "LR"
+                    },
+                    "elbows": {
+                        s: off_chord(f"{s}_Upperarm", f"{s}_Forearm", f"{s}_Hand")
+                        for s in "LR"
+                    },
                 }
             )
 
-        # How much the LOWER foot rides over the cycle. A planted foot should stay
-        # planted, so this wants to be near zero; it is reported rather than
-        # enforced because the number it should be has not been established, and a
-        # check whose threshold is set to wherever the code happens to sit is
-        # decoration. See TROUBLESHOOTING.md — it currently rides 0.095 m walking.
-        rides = max(f["ground"] for f in frames) - min(f["ground"] for f in frames)
+        span = len(frames) - 1 if frames[0]["legs"] == frames[-1]["legs"] else len(frames)
+        contact = max(frames, key=lambda f: abs(f["legs"]))
+        front, back = ("L", "R") if contact["legs"] > 0 else ("R", "L")
 
-        peak = max(frames, key=lambda f: abs(f["legs"]))
         legs_travel = max(f["legs"] for f in frames) - min(f["legs"] for f in frames)
         arms_travel = max(f["arms"] for f in frames) - min(f["arms"] for f in frames)
-        print(
-            f"\n{name}: peak stride at frame {peak['frame']}, "
-            f"legs {peak['legs']:+.3f} arms {peak['arms']:+.3f}"
-        )
-        print(
-            f"  travel over the cycle: legs {legs_travel:.3f}, arms {arms_travel:.3f} "
-            f"({arms_travel / legs_travel:.0%} of the legs)"
-        )
-        print(f"  the lower foot rides {rides:.4f} units, {rides * 1.7:.3f} m at game scale")
+        rides = max(f["ground"] for f in frames) - min(f["ground"] for f in frames)
+        bobs = max(f["hip"] for f in frames) - min(f["hip"] for f in frames)
+        highs = [i for i, kind in turning_points([f["hip"] for f in frames]) if kind == "high"]
 
-        if peak["legs"] * peak["arms"] >= 0.0:
-            complaints.append(
-                f"{name}: the arms swing WITH the legs. At frame {peak['frame']} the "
-                f"left leg leads by {peak['legs']:+.3f} and the left hand by "
-                f"{peak['arms']:+.3f} — same sign. A walk is contralateral: left leg "
-                f"forward, RIGHT arm forward. Flip the sign on the Upperarm swing."
+        # Where the arms peak against where the legs peak, as a share of the cycle.
+        # The brief puts the arm extremes 8 to 12 per cent behind the legs.
+        leg_peak = frames.index(contact)
+        arm_peak = frames.index(max(frames, key=lambda f: abs(f["arms"])))
+        lag = ((arm_peak - leg_peak) % span) / span if span else 0.0
+
+        scored[name] = {
+            "frames": span,
+            "legs_travel": round(legs_travel, 4),
+            "arms_carry": round(arms_travel / legs_travel, 3) if legs_travel else 0.0,
+            "planted_foot_rides_m": round(rides * 1.7, 4),
+            "hip_rises_cm": round(bobs * 170.0, 2),
+            "hip_highs_per_cycle": len(highs),
+            "hip_high_at_percent": [round(100.0 * i / span) for i in highs],
+            "arm_lag_percent": round(100.0 * lag),
+            "contact_frame": contact["frame"],
+        }
+        print(f"\n{name}: contact at frame {contact['frame']}, {front} leg leading")
+        for key, value in scored[name].items():
+            print(f"  {key}: {value}")
+
+        # --- Refusals: signs, not amounts.
+        if contact["legs"] * contact["arms"] >= 0.0:
+            refused.append(
+                f"{name}: the arms swing WITH the legs. At frame {contact['frame']} the "
+                f"left leg leads by {contact['legs']:+.3f} and the left hand by "
+                f"{contact['arms']:+.3f} - same sign. A walk is contralateral."
             )
         if legs_travel > 1e-6 and arms_travel / legs_travel < ARMS_CARRY_AT_LEAST:
-            complaints.append(
-                f"{name}: the arms barely move — {arms_travel:.3f} against the legs' "
+            refused.append(
+                f"{name}: the arms barely move - {arms_travel:.3f} against the legs "
                 f"{legs_travel:.3f}, {arms_travel / legs_travel:.0%} where "
-                f"{ARMS_CARRY_AT_LEAST:.0%} is the floor. Raise the arm amplitude."
+                f"{ARMS_CARRY_AT_LEAST:.0%} is the floor."
             )
-        for which, knee in zip("LR", peak["knees"]):
-            if knee < -A_REAL_BEND:
-                complaints.append(
-                    f"{name}: the {which} knee sits {-knee:.3f} BEHIND the line from "
-                    f"hip to ankle, so the leg folds like a bird's. A knee leads that "
-                    f"line. Turn the Calf about FOLDS_THE_KNEE, positive."
+        for side in "LR":
+            if contact["knees"][side] < -A_REAL_BEND:
+                refused.append(
+                    f"{name}: the {side} knee sits {-contact['knees'][side]:.3f} BEHIND "
+                    f"the hip-to-ankle line, so the leg folds like a birds."
                 )
-        for which, elbow in zip("LR", peak["elbows"]):
-            if elbow > A_REAL_BEND:
-                complaints.append(
-                    f"{name}: the {which} elbow sits {elbow:.3f} in FRONT of the line "
-                    f"from shoulder to wrist, so the arm folds the wrong way. An elbow "
-                    f"trails. Turn the Forearm about FOLDS_THE_ELBOW, positive."
+            if contact["elbows"][side] > A_REAL_BEND:
+                refused.append(
+                    f"{name}: the {side} elbow sits {contact['elbows'][side]:.3f} in "
+                    f"FRONT of the shoulder-to-wrist line, so the arm folds backwards."
                 )
 
-    if complaints:
-        print("\n" + "\n".join(f"REFUSED  {c}" for c in complaints))
+        # --- And the two asymmetries a global sign flip cannot survive.
+        if contact["pitch"][front] < A_REAL_PITCH:
+            refused.append(
+                f"{name}: the leading ({front}) foot is not presenting its heel - its "
+                f"pitch is {contact['pitch'][front]:+.3f} off rest where toes-up wants "
+                f"at least +{A_REAL_PITCH}. A front foot landing toe-first is the "
+                f"cleanest tell that the whole cycle is running backwards."
+            )
+        if contact["pitch"][back] > -A_REAL_PITCH:
+            refused.append(
+                f"{name}: the trailing ({back}) foot is not up on its toes - pitch "
+                f"{contact['pitch'][back]:+.3f} off rest, wanting at most "
+                f"-{A_REAL_PITCH}. A trailing foot pushing off heel-first is the same "
+                f"tell from the other side."
+            )
+        if contact["folded"][front] >= contact["folded"][back]:
+            refused.append(
+                f"{name}: at contact the leading ({front}) knee is folded "
+                f"{contact['folded'][front]:.4f} and the trailing ({back}) one "
+                f"{contact['folded'][back]:.4f}. The reaching leg is the STRAIGHT one; "
+                f"bent in front and straight behind is the backwards read."
+            )
+
+    print("\nSCORE " + json.dumps(scored, sort_keys=True))
+    if refused:
+        print("\n" + "\n".join(f"REFUSED  {r}" for r in refused))
         raise SystemExit(1)
-    print("\nevery clip: arms oppose the legs, knees lead, elbows trail.")
+    print(
+        "\nevery clip: arms oppose the legs, knees lead, elbows trail, "
+        "the front heel presents and the back foot pushes off."
+    )
 
 
 main()
