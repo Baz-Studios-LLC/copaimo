@@ -790,6 +790,68 @@ hillside legitimately grades two metres over two. At a quarter of a metre a ramp
 shrinks in proportion and a discontinuity does not. The same measurement reads
 0.26 m now and 4.45 m with the old code put back.
 
+### A generated character's hands drag the trousers about
+
+**Symptom.** A ribbon of surface stretches from the glove to the top of the thigh
+pocket whenever a limb moves, as if the fingers were stitched to the cloth.
+
+**Cause.** **Reciprocal cross-limb weight bleed between two shells that touch at
+bind pose.** The generator parks the hands ON the pockets — glove and trouser come
+within 0.003 of touching — and its radius-based auto-skin reached across the gap in
+BOTH directions: trouser vertices picked up `*_Hand` weight (up to 0.728) and glove
+vertices picked up `*_ThighTwist01/02`. Around 480 vertices ended up roughly half
+hand and half thigh, so both surfaces swim to the average of two diverging
+transforms.
+
+**Fix.** `unfuse_the_gloves_from_the_pockets` in `dev/art/animate_ranger.py`: weld
+vertices by position into pieces, let each piece choose ONE limb chain by majority
+weight, delete any weight naming the other chain, renormalise. It only removes
+weights the generator should not have authored — nothing is invented — and it is
+seam-free because a piece of cloth has no interior boundary to leave a
+discontinuity at. 562 weights off 481 vertices; walk's worst edge growth 0.0884 ->
+0.0323, edges over 2x 11 -> 0.
+
+**Four wrong turns worth recording, because each looked reasonable:**
+
+1. **"Strip the arm share from every vertex holding both."** Measured: **sixteen
+   times WORSE** (triangle stretch 2.64x -> 42.77x). It strips arm weight from
+   GLOVE vertices too, so a glove corner rides the thigh outright. Partial and
+   thresholded versions are also worse than nothing, because they leave a bigger
+   weight discontinuity at the boundary. **The repair has to be all-or-nothing per
+   piece.**
+2. **"There are no hand-to-leg edges, so there is nothing to cut."** Testing the
+   wrong thing. Dominance FLIPPING across an edge was never the requirement — a
+   0.50/0.50 vertex beside a 0.79/0.21 vertex is already a 4x tear with no flip at
+   all.
+3. **"The mesh is 432 disconnected fragments, so weighting cannot reach it."** A
+   measurement artifact of counting connected components in INDEX space. Weld
+   coincident positions and it is **19 clean pieces**. This one wasted the most
+   time, and it was my own number.
+4. **"Re-skin by proximity to the nearest bone."** Reproduces the original bug
+   exactly: the `R_Hand` bone segment runs THROUGH the pocket volume — pocket vertex
+   v887 sits 0.0204 from the hand bone and 0.0662 from the thigh, so the wrong limb
+   is 3.2x nearer. **Proximity decides how much; piece identity decides whose.**
+
+**And the filter that found nothing was looking for the wrong words.** An early
+repair searched vertex-group names for `"arm"` and `"leg"`. This rig's hands are
+`L_Hand`/`R_Hand` — no `"arm"` in them — and **no bone in the rig has `"leg"` in its
+name at all**. It found nothing where the fault actually was and reported that there
+was nothing to fix.
+
+### Rendering one side and calling it verified
+
+The fault was worse on the RIGHT hand and every camera in the render helper had a
+positive azimuth, which on this model only ever shows the LEFT. Mirrored views are
+in `CAMS` now (`tqfront_r`, `side_r`). **If a model is symmetric, the render set has
+to be too.**
+
+### Ranking stretch by ratio finds phantoms
+
+A 0.0017-unit edge at 15x is invisible; a 0.09-unit edge at 1.5x is the fault.
+`dev/art/ribbon_measure.py` ranks by absolute growth AND ratio, over every frame of
+a clip, with each edge attributed to its welded piece — which is how the remaining
+offenders were identified as the jacket hem rather than the hands.
+
 ### An authored clip comes out as the splits
 
 **Symptom.** A run where the legs reach nearly 90 degrees apart, the knees stay
