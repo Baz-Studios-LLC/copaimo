@@ -63,6 +63,7 @@ import mathutils
 # Blender does not put a --python script's own directory on the path, so a sibling
 # module is not importable without this.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import gather_clips  # noqa: E402
 import ik_gait  # noqa: E402
 
 # Which armature axis each joint turns about, and which way is positive. Measured —
@@ -1597,10 +1598,16 @@ def mend_the_shipped_idle(rig, facing) -> None:
 def main() -> None:
     here = os.path.dirname(os.path.abspath(__file__))
     root = os.path.dirname(os.path.dirname(here))
-    # The STRAIGHTENED copy, written by `straighten_rig.py`. Its rest pose already
-    # stands properly, so nothing here corrects anything - see that script for what was
-    # wrong and why correcting it per pose was the bug rather than the fix.
-    source = os.path.join(here, "ranger_straight.glb")
+    # The generator's own export, as it arrived.
+    #
+    # # Why not the straightened copy any more
+    #
+    # `straighten_rig.py` exists to serve HAND-AUTHORED gaits: it repairs a rest pose
+    # so that poses written against it come out standing properly. The generator's own
+    # clips were authored against the generator's own rest pose, so changing that rest
+    # pose would make every quaternion in them mean something else. Where the clips
+    # come from decides whether the rest pose may be touched, and the clips win.
+    source = os.path.join(root, "Ranger_Rig_Idle.glb")
     out = os.path.join(root, "assets", "models", "person_ranger.glb")
     if not os.path.isfile(source):
         raise SystemExit(f"the source is not there: {source}")
@@ -1629,6 +1636,19 @@ def main() -> None:
         raise SystemExit("no skinned mesh in the source")
     print(f"unfusing '{body.name}'")
     unfuse_the_gloves_from_the_pockets(rig, body)
+
+    # The generator's own walk and run, if they were exported alongside the idle.
+    #
+    # These are preset animations from the tool that rigged the character, which means
+    # they are made by people who could see the result - and the whole of the authoring
+    # below exists only because the first export happened to have the IDLE preset
+    # selected and nobody asked what else was on offer.
+    print("looking for the generator's own gaits:")
+    given = gather_clips.take_the_clips(rig, source)
+    if given:
+        gather_clips.how_long_each_is(given)
+    else:
+        print("  none found; the gaits below are authored instead")
 
     # Which way the body faces, taken once from the rest pose. Everything that needs
     # to know is handed this, rather than working it out from feet that have moved.
@@ -1673,19 +1693,28 @@ def main() -> None:
     # which its feet do not slide - `covers x fps / frames`. 1.935 over 24 is 1.93 m/s,
     # 2.282 over 16 is 3.42, and 3.50 over 14 is 6.00. `src/motion.rs` places each tier
     # at its own clip's native speed for exactly that reason.
-    gait(
-        rig, body, feet, ground, "walk", WALK_LEG, 24, ARM_FORWARD, ARM_BACK,
-        ELBOW_HELD, ELBOW_SWING, 0.0, WALK_STANCE, ik_gait.WALK_BOB, facing,
-    ).use_fake_user = True
-    gait(
-        rig, body, feet, ground, "run", RUN_LEG, 16, RUN_ARM_FORWARD, RUN_ARM_BACK,
-        RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_STANCE, ik_gait.RUN_BOB, facing,
-    ).use_fake_user = True
-    gait(
-        rig, body, feet, ground, "sprint", SPRINT_LEG, 16, SPRINT_ARM_FORWARD,
-        SPRINT_ARM_BACK, RUN_ELBOW_HELD, RUN_ELBOW_SWING, SPRINT_LEAN, SPRINT_STANCE,
-        ik_gait.RUN_BOB, facing,
-    ).use_fake_user = True
+    if "walk" in given:
+        print(f"  keeping the walk that came with the model")
+    else:
+        gait(
+            rig, body, feet, ground, "walk", WALK_LEG, 24, ARM_FORWARD, ARM_BACK,
+            ELBOW_HELD, ELBOW_SWING, 0.0, WALK_STANCE, ik_gait.WALK_BOB, facing,
+        ).use_fake_user = True
+    if "run" in given:
+        print(f"  keeping the run that came with the model")
+    else:
+        gait(
+            rig, body, feet, ground, "run", RUN_LEG, 16, RUN_ARM_FORWARD, RUN_ARM_BACK,
+            RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_STANCE, ik_gait.RUN_BOB, facing,
+        ).use_fake_user = True
+    if "sprint" in given:
+        print(f"  keeping the sprint that came with the model")
+    else:
+        gait(
+            rig, body, feet, ground, "sprint", SPRINT_LEG, 16, SPRINT_ARM_FORWARD,
+            SPRINT_ARM_BACK, RUN_ELBOW_HELD, RUN_ELBOW_SWING, SPRINT_LEAN, SPRINT_STANCE,
+            ik_gait.RUN_BOB, facing,
+        ).use_fake_user = True
 
     bpy.ops.export_scene.gltf(
         filepath=out,
