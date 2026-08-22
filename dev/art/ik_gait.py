@@ -113,13 +113,87 @@ def add_leg_ik(rig, side: str):
 
     hold = rig.pose.bones[f"{side}_Calf"].constraints.new("IK")
     hold.target = target
+    hold.pole_target = pole
     hold.chain_count = 2
     hold.use_rotation = False
     return target, pole, hold
 
 
-def where_the_feet_go(rig, facing, contact: float, share: float, phase: float,
-                      leg_length: float, ground: float):
+def aim_the_pole(rig, side: str, pole, hold, forward, leg_length: float) -> float:
+    """Sets the pole so the FOOT points forward, by trying every angle and measuring.
+
+    # What a pole is actually needed for here
+
+    With `use_rotation` off, IK places the shin's tail and resolves the chain's roll
+    itself. The two legs' bases are mirrored, and a reflection flips HANDEDNESS - so the
+    solver can settle that roll 180 degrees apart on the two sides from bases that are
+    otherwise perfectly matched. Measured: the LEFT foot pointed backwards on 13 of 17
+    run frames while the right did so on none.
+
+    Nothing is wrong with the rig. The solver simply has a free degree of freedom and no
+    reason to prefer one answer, so it must be given one.
+
+    `pole_angle` is an offset that depends on the bone's roll, so it cannot be assumed.
+    An earlier attempt searched it for the angle that put the KNEE furthest forward, and
+    that is the wrong thing to optimise: it found -75 and -45 degrees on the two sides
+    and turned both feet 168 degrees off the line of travel. The knee was right and the
+    foot was backwards, which is not an improvement.
+
+    So the thing measured is the thing that was wrong: the foot's heading. The knee is
+    checked too, as a veto rather than a target - an angle that points the foot forward
+    and the knee backwards is no good either.
+    """
+    hip = rig.matrix_world @ rig.pose.bones[f"{side}_Thigh"].head
+    pole.location = hip + forward * (leg_length * 1.5)
+
+    best, best_at = None, 0.0
+    for step in range(36):
+        angle = -math.pi + step * (2.0 * math.pi / 36.0)
+        hold.pole_angle = angle
+        bpy.context.view_layer.update()
+
+        thigh = rig.matrix_world @ rig.pose.bones[f"{side}_Thigh"].head
+        knee = rig.matrix_world @ rig.pose.bones[f"{side}_Calf"].head
+        ankle = rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head
+        toe = rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].tail
+
+        # The foot must point forward. That is the measurable that was wrong.
+        points = (toe - ankle).normalized().dot(forward)
+        # And the knee must not fold backwards, which is a veto and not a score.
+        span = ankle - thigh
+        if span.length > 1e-6:
+            along = span.normalized()
+            out = (knee - thigh) - along * (knee - thigh).dot(along)
+            if out.dot(forward) < 0.0:
+                continue
+        if best is None or points > best:
+            best, best_at = points, angle
+
+    hold.pole_angle = best_at
+    bpy.context.view_layer.update()
+    return best_at
+
+
+def ankle_rests_above_the_sole(rig, mesh, feet, side: str) -> float:
+    """How high the ankle sits above the sole with the foot flat, in model units.
+
+    The IK target drives the ANKLE, and an ankle is not a sole - it sits about 4.3 cm
+    up inside the shoe on this character. Aiming the target at the floor therefore
+    buries the foot by exactly that much before anything else goes wrong, which is part
+    of why every frame of the walk had a foot through the ground.
+    """
+    evaluated = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    baked = evaluated.to_mesh()
+    try:
+        matrix = evaluated.matrix_world
+        sole = min((matrix @ baked.vertices[i].co).z for i in feet[side])
+    finally:
+        evaluated.to_mesh_clear()
+    return (rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head).z - sole
+
+
+def where_the_soles_go(rig, facing, contact: float, share: float, phase: float,
+                       leg_length: float, ground: float):
     """Where each ankle should be at this instant, in armature space.
 
     Through STANCE the foot is still on the ground and the body travels over it, so
@@ -143,6 +217,13 @@ def where_the_feet_go(rig, facing, contact: float, share: float, phase: float,
             through = (own - share) / max(1e-6, 1.0 - share)
             along = contact * (through - 0.5)
             lift = CLEARS_BY * leg_length * math.sin(math.pi * through)
+        # Where the SOLE should be, not the ankle. An ankle is 14 cm up inside this
+        # character's shoe with the foot flat, and further as the foot tilts - up to 7
+        # cm either way over a 17 cm foot. Aiming the ankle at a fixed height therefore
+        # buries or floats the foot by an amount that changes every frame, which is
+        # what put the feet 20 cm through the floor. The sole is what touches the
+        # ground, so the sole is what the path is for; `solve_the_target` then works
+        # out where the ankle has to be to put it there.
         out[side] = mathutils.Vector(
             (
                 socket.x + forward.x * along,
@@ -161,6 +242,114 @@ def how_high_the_body_rides(share: float, phase: float, bob: float) -> float:
     frequency reads as a limp and one peaking AT contact reads as a hop.
     """
     return -bob * math.cos(4.0 * math.pi * (phase - share * 0.5))
+
+
+def solve_the_target(rig, mesh, feet, targets, wanted, pitches, tries: int = 4,
+                     forward=None, across=None, toe_out: float = 0.0):
+    """Moves each IK target until the SOLE lands where the path asks.
+
+    # Why this is solved and not computed
+
+    The ankle-to-sole distance is not a constant. It is 14 cm with the foot flat and
+    changes by up to 7 cm either way as the foot tilts, over a foot 17 cm long, and the
+    tilt changes every frame. A closed form would need the shoe's geometry; two facts
+    about it are enough to iterate instead.
+
+    Raising the target raises the sole very nearly one for one, so this converges in
+    three or four passes: solve the leg, set the foot's tilt, measure the sole off the
+    DEFORMED MESH, and move the target by whatever is left over.
+
+    The foot's tilt is set INSIDE the loop, because tilting the foot moves the sole and
+    the sole is the thing being aimed. Doing it afterwards - which was the first attempt -
+    changes the answer after it has been found.
+    """
+    worst = 0.0
+    for _ in range(tries):
+        bpy.context.view_layer.update()
+        for side in "LR":
+            point_the_foot(rig, side, pitches[side], toe_out, forward, across)
+        bpy.context.view_layer.update()
+        worst = 0.0
+        for side in "LR":
+            sole = lowest_sole(rig, mesh, feet, side)
+            off = wanted[side].z - sole
+            worst = max(worst, abs(off))
+            targets[side].location = targets[side].location + mathutils.Vector(
+                (0.0, 0.0, off)
+            )
+    return worst
+
+
+def lowest_sole(rig, mesh, feet, side: str) -> float:
+    """How low the deformed foot reaches, in armature Z."""
+    evaluated = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    baked = evaluated.to_mesh()
+    try:
+        matrix = evaluated.matrix_world
+        return min((matrix @ baked.vertices[i].co).z for i in feet[side])
+    finally:
+        evaluated.to_mesh_clear()
+
+
+def rest_foot_pitch(rig, side: str, forward):
+    """How far the sole tilts from horizontal in the REST pose, in degrees.
+
+    The zero that every authored ankle angle is measured against, because in the rest
+    pose the sole is flat on the floor - which is the only definition of "flat" that
+    means anything on a rig nobody here built.
+    """
+    heel = rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head
+    toe = rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].tail
+    span = toe - heel
+    flat = span - mathutils.Vector((0.0, 0.0, span.z))
+    return math.degrees(math.atan2(span.z, max(1e-6, flat.length)))
+
+
+def point_the_foot(rig, side: str, pitch: float, toe_out: float, forward, across):
+    """Aims one foot outright: heading AND pitch, both stated, neither read back.
+
+    # A foot is CONTROLLED, not corrected
+
+    Every earlier version nudged the foot from wherever it happened to be - set its
+    pitch relative to the shin, or measure its heading and turn it by the difference.
+    Both fail for the same reason, which is that the shin is solved by IK and swings
+    more than forty degrees a frame, so "wherever it happened to be" is not a fixed
+    starting point and there is nothing stable to correct FROM.
+
+    Worse, measuring the foot's own heading breaks exactly when it matters. A foot
+    arriving vertical from the solver has a horizontal component of 0.02 units on a 0.17
+    unit foot, and the SIGN of that is noise - which is why the run read as a foot
+    pointing 179 degrees backwards when it was really a foot pointing straight down.
+    Giving up in that case left it pointed forever; using the body's forward as a
+    stand-in flipped it the rest of the way.
+
+    So nothing is read back. The direction the foot should point is built from the
+    travel direction, the toe-out and the pitch - all three known, none of them
+    degenerate - and the foot is turned onto it by the shortest arc, which adds no roll.
+    That is what a foot control does in a hand-built rig: the foot's orientation is an
+    input, not a consequence.
+    """
+    hand = 1.0 if side == "L" else -1.0
+    yaw = math.radians(toe_out * hand)
+    heading = forward * math.cos(yaw) + across * math.sin(yaw)
+    lift = math.radians(pitch)
+    wanted = (heading * math.cos(lift) + mathutils.Vector((0.0, 0.0, 1.0)) * math.sin(lift)).normalized()
+
+    heel = rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head
+    toe = rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].tail
+    now = toe - heel
+    if now.length < 1e-9:
+        return
+    turn = now.normalized().rotation_difference(wanted)
+    if turn.angle < 1e-9:
+        return
+    posed = rig.pose.bones[f"{side}_Foot"]
+    frame = posed.matrix.to_3x3()
+    local = (frame.inverted() @ turn.axis).normalized()
+    posed.rotation_mode = "QUATERNION"
+    posed.rotation_quaternion = posed.rotation_quaternion @ mathutils.Quaternion(
+        local, turn.angle
+    )
 
 
 def bake_the_constraints(rig, first: int, last: int) -> None:

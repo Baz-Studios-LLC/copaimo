@@ -89,9 +89,9 @@ ALWAYS_ON_THE_GROUND = 1.0
 # has to be looked for over a window rather than at a single frame.
 STILL_DOWN = 0.006
 
-# How much a foot's pitch must change from its rest angle to count as deliberate.
-# Below this the ankle is neutral and neither heel-strike nor toe-off is being said.
-A_REAL_PITCH = 0.02
+# How far off horizontal a foot must point for the tilt to be deliberate, in degrees.
+# Below this the ankle is level and neither heel-strike nor toe-off is being said.
+A_REAL_PITCH = 4.0
 
 
 def argv():
@@ -185,11 +185,25 @@ def main() -> None:
     forward = both.normalized()
 
     def pitch(side):
-        """How much a foot points UP, as a fraction. Its rest angle is the zero."""
-        span = tail(f"{side}_ToeBase") - head(f"{side}_Foot")
-        return span.z / span.length if span.length > 1e-9 else 0.0
+        """How far a foot points up from HORIZONTAL, in degrees.
 
-    at_rest = {side: pitch(side) for side in "LR"}
+        In degrees from horizontal, which is the unit the authoring states these in, and
+        NOT as a sine ratio against the rest pose. Measured against rest it was
+        unreadable: this character's rest foot line already dips 31 degrees, so a
+        correct 32-degree toe-off came out as -0.018 against a -0.02 threshold and was
+        refused. The animation was hitting every pose exactly - 12 asked and 12 got, -32
+        asked and -33 got - and the checker was the thing that was wrong.
+        """
+        span = tail(f"{side}_ToeBase") - head(f"{side}_Foot")
+        flat = mathutils.Vector((span.x, span.y, 0.0))
+        return math.degrees(math.atan2(span.z, max(1e-6, flat.length)))
+
+    # Horizontal is the zero now, so there is no rest baseline to subtract.
+    at_rest = {side: 0.0 for side in "LR"}
+    print(
+        "feet at rest point "
+        + ", ".join(f"{s} {pitch(s):+.1f} deg from horizontal" for s in "LR")
+    )
 
     def toe_out(side):
         """Degrees a foot points away from the line of travel. Positive is flared.
@@ -306,7 +320,17 @@ def main() -> None:
                 }
             )
 
-        span = len(frames) - 1 if frames[0]["legs"] == frames[-1]["legs"] else len(frames)
+        # How many frames a CYCLE is, which is not how many frames were sampled: the
+        # last frame repeats the first so the clip loops, so a 25-frame clip is a
+        # 24-frame cycle.
+        #
+        # This used to decide that by asking whether frame 1 and the last frame were
+        # EXACTLY equal, as floats. They are equal in intent and differ in the last bit,
+        # so it took a 24-frame cycle for a 25-frame one - and every modulo wrap after
+        # that was off by one. The visible cost was `half_cycle_drift` reporting 25% on
+        # hips that measure 0.0 cm apart, which sent a real morning of work chasing a
+        # limp that was not there. The clip's own frame range says it exactly.
+        span = int(round(high - low)) or len(frames)
 
         # --- Which frame is a contact, found by the FOOT rather than by the split.
         #

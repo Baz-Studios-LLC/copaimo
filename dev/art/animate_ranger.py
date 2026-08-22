@@ -1315,9 +1315,15 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, reach: float
     # `straighten_rig.py` bakes in. A pole was tried and it rotates the whole chain
     # about the hip-to-ankle axis, so putting the knees forward turned both feet 168
     # degrees away from the line of travel - the knee right and the foot backwards.
+    flat = {side: ik_gait.rest_foot_pitch(rig, side, facing[0]) for side in "LR"}
+
     rigged = {side: ik_gait.add_leg_ik(rig, side) for side in "LR"}
     targets = {side: rigged[side][0] for side in "LR"}
+    for side, (_, pole, hold) in rigged.items():
+        turned = ik_gait.aim_the_pole(rig, side, pole, hold, facing[0], reach_of_leg)
+        print(f"  {name}: {side} pole at {math.degrees(turned):+.0f} deg")
 
+    off_by = 0.0
     for frame in range(1, span + 2):
         phase = ((frame - 1) % span) / span
         rest(rig)
@@ -1325,8 +1331,6 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, reach: float
         # The body: arms, spine, hands and the ankles. No thigh, no knee.
         for side, hand in (("L", 1.0), ("R", -1.0)):
             at = phase + (0.5 if hand > 0.0 else 0.0)
-            swing(rig, f"{side}_Foot", smoothly([row[2] for row in leg], at), LIFTS_THE_TOE)
-
             swung = math.cos(2.0 * math.pi * (at - 0.5 - ARM_LAG))
             middle = (reach + back) / 2.0
             half = (reach - back) / 2.0
@@ -1351,12 +1355,31 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, reach: float
         bpy.context.view_layer.update()
 
         # And where the feet go. Keyed on the targets, so the bake can sample them.
-        going = ik_gait.where_the_feet_go(
+        # Where each SOLE should be, and then the target solved so it lands there.
+        wanted = ik_gait.where_the_soles_go(
             rig, facing, CONTACT, share, phase, reach_of_leg, ground
         )
-        for side, spot in going.items():
+        # Straight off the table, in degrees from HORIZONTAL - not added to the rest
+        # pose's own tilt, because the foot's direction is now built from scratch rather
+        # than nudged from wherever it was.
+        pitches = {
+            side: smoothly(
+                [row[2] for row in leg], phase + (0.5 if side == "L" else 0.0)
+            )
+            for side in "LR"
+        }
+        for side, spot in wanted.items():
             targets[side].location = spot
+        left = ik_gait.solve_the_target(
+            rig, mesh, feet, targets, wanted, pitches,
+            forward=facing[0], across=facing[1], toe_out=TOES_SIT_AT,
+        )
+        off_by = max(off_by, left)
+        for side in "LR":
             targets[side].keyframe_insert("location", frame=frame)
+            rig.pose.bones[f"{side}_Foot"].keyframe_insert(
+                "rotation_quaternion", frame=frame
+            )
 
         key(rig, frame, DRIVEN)
 
@@ -1369,9 +1392,13 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, reach: float
     )
 
     baked = rig.animation_data.action
+
     turned = make_it_linear(baked)
     baked.name = name
-    print(f"  {name}: {span + 1} frames, {turned} keys linear, legs solved by IK")
+    print(
+        f"  {name}: {span + 1} frames, {turned} keys linear, legs solved by IK; "
+        f"the worst the sole missed its path by was {off_by * 170.0:.2f} cm"
+    )
     return baked
 
 
@@ -1607,7 +1634,26 @@ def main() -> None:
     # clips were authored against the generator's own rest pose, so changing that rest
     # pose would make every quaternion in them mean something else. Where the clips
     # come from decides whether the rest pose may be touched, and the clips win.
-    source = os.path.join(root, "Ranger_Rig_Idle.glb")
+    # The straightened copy when the gaits are AUTHORED here, the generator's own
+    # export when they are not. Which one is right depends entirely on where the clips
+    # come from: `straighten_rig.py` repairs a rest pose so that poses written against
+    # it stand properly, and a clip authored against the OLD rest pose would be
+    # corrupted by that same repair. So the generator's presets, if it ever ships any,
+    # must be read against the untouched export; anything written here wants the clean
+    # one.
+    presets = [
+        name
+        for name in os.listdir(root)
+        if name.lower().endswith(".glb")
+        and "ranger" in name.lower()
+        and name.lower() != "ranger_rig_idle.glb"
+    ]
+    source = (
+        os.path.join(root, "Ranger_Rig_Idle.glb")
+        if presets
+        else os.path.join(here, "ranger_straight.glb")
+    )
+    print(f"reading {os.path.basename(source)}" + (f"; presets present: {presets}" if presets else "; no preset gaits, so the straightened rig"))
     out = os.path.join(root, "assets", "models", "person_ranger.glb")
     if not os.path.isfile(source):
         raise SystemExit(f"the source is not there: {source}")
