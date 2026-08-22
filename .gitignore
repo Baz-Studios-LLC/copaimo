@@ -17,3 +17,7 @@ desktop.ini
 # both be the source of truth.
 /dev/art/*.blend
 /cover_patch.ply
+
+# Scratch worktrees the workflow tool makes for parallel agents. They are full
+# checkouts, so git sees them as embedded repositories and tries to add them.
+/.claude/worktrees/
