@@ -68,6 +68,27 @@ FOLDS_THE_KNEE = (0.0, 1.0, 0.0)
 FOLDS_THE_ELBOW = (0.0, -1.0, 0.0)
 LIFTS_THE_TOE = (0.0, -1.0, 0.0)
 
+# And the same axis the other way round, for the SPINE.
+#
+# # A limb hangs down; a spine stands up
+#
+# `REACHES_FORWARD` was measured on thighs and upper arms, which point DOWN from their
+# joints. A spine points UP. The identical rotation therefore carries a thigh's foot
+# forward and a spine's head BACKWARD, and using the constant named "reaches forward"
+# on the waist leant the torso back at every speed - reported as "human spines don't
+# lean back when we run", which is exactly right.
+#
+# Measured, not reasoned, like the rest of them: a positive ten degrees about
+# `REACHES_FORWARD` moves the head 0.054 units BACKWARD from the hips and the left
+# foot 0.079 FORWARD. `Waist`, `Spine01` and `Spine02` all point +Z; `L_Thigh` points
+# -Z.
+#
+# The lesson is about the NAME. An axis named for what it does cannot be written
+# backwards at a call site, which is what these constants are for - but the name is
+# only true for bones of the orientation it was measured on. So there are two, and
+# each says which way its bones point.
+LEANS_THE_TORSO_FORWARD = (0.0, 1.0, 0.0)
+
 # --- The eight poses of a cycle
 #
 # CONTACT, DOWN, PASSING, UP for one step, then the same four for the other leg. A
@@ -297,9 +318,21 @@ WALK_BOUND = 0.0
 RUN_BOUND = 0.022
 SPRINT_BOUND = 0.034
 
-# How far the body leans into a run, and further into a sprint.
-RUN_LEAN = 6.0
-SPRINT_LEAN = 11.0
+# How far the torso leans forward, in degrees, spread over the waist and lower spine.
+#
+# Real runners sit between 4 and 12 degrees of trunk flexion, most economically near 6,
+# and game guidance routinely overstates it: a "pronounced 15 to 30 degree lean" is
+# quoted for sprints against a measured 4 to 8. That is a two-to-four-times push, and
+# the cost of taking it is that the character reads as ACCELERATING permanently rather
+# than as running.
+#
+# And the sprint leans LESS than the jog, which is the opposite of the obvious guess
+# and was wrong here before: maximum-velocity sprinting is more upright than jogging,
+# because a big lean belongs to acceleration - 45 degrees at a sprinter's block exit,
+# nearly nothing at top speed. Keeping the sprint a shade under the jog is what stops
+# it reading as a permanent launch.
+RUN_LEAN = 9.0
+SPRINT_LEAN = 8.0
 
 # The arms hang a little OUT and the palms turn IN, in every frame, so the hands
 # clear the pockets. The generator's bind pose parks them ON the pockets — glove and
@@ -958,10 +991,15 @@ def pose_the_body(rig, leg, step: int, phase: float, reach: float, back: float,
     # translation moves both legs by the same vector, so it cannot make the two
     # halves differ.
     shift(rig, "Hip", -PELVIS_SWAY * math.sin(2.0 * math.pi * phase), (0.0, 1.0, 0.0))
-    # The lean into a run, on the waist rather than the hips so the legs keep their
-    # own frame.
-    swing(rig, "Waist", lean * 0.3, REACHES_FORWARD)
-    swing(rig, "Spine01", lean * 0.4, REACHES_FORWARD)
+    # The lean into a run, on the waist and lower spine rather than the hips so the
+    # legs keep their own frame. Spread across two joints so the back curves into it
+    # instead of hinging at one point.
+    #
+    # `LEANS_THE_TORSO_FORWARD`, NOT `REACHES_FORWARD` - see the constant. The spine
+    # points up where a limb points down, so the two need opposite signs to do the
+    # same thing, and using the limb's constant here leant the torso backwards.
+    swing(rig, "Waist", lean * 0.4, LEANS_THE_TORSO_FORWARD)
+    swing(rig, "Spine01", lean * 0.6, LEANS_THE_TORSO_FORWARD)
 
 
 def fill_in_the_flight(lift, bound: float):

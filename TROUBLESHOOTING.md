@@ -1050,6 +1050,50 @@ have a stance to measure: 1.935 m walking, 2.282 m running.
 cannot exceed 2.25 m/s without becoming a jog, whatever it says on the constant. Going
 faster needs a longer stride or a third clip, not a bigger number.
 
+### The torso leaned BACK while running
+
+**Symptom.** "Human spines don't lean back when we run." And they do not.
+
+**Cause.** An axis constant applied to the wrong kind of bone.
+
+`REACHES_FORWARD` was measured on thighs and upper arms, which point **DOWN** from
+their joints. The spine points **UP**. The identical rotation therefore carries a
+thigh's foot forward and a spine's head backward, so `swing(rig, "Waist", lean,
+REACHES_FORWARD)` leant the torso back at every speed.
+
+Measured rather than reasoned, once the report came in: a positive ten degrees about
+`REACHES_FORWARD` moves the head **0.054 units BACKWARD** from the hips and the left
+foot **0.079 FORWARD**. `Waist`, `Spine01` and `Spine02` all point +Z; `L_Thigh`
+points −Z.
+
+**The lesson is about the NAME, not the sign.** These constants exist so that a call
+site states an intention and cannot state a sign — but a name like "reaches forward"
+is only true for bones of the orientation it was measured on. There are two now, and
+each says which way its bones point.
+
+**And a second error in the same place:** `SPRINT_LEAN` was larger than `RUN_LEAN`,
+which is backwards. Maximum-velocity sprinting is **more upright** than jogging; a big
+lean belongs to acceleration, 45 degrees at a sprinter's block exit and nearly nothing
+at top speed. Real trunk flexion is 4 to 12 degrees with the most economical near 6,
+and game guidance quoting "15 to 30 for a sprint" is a two-to-four-times push that
+makes a character read as permanently accelerating. Now 9 for the jog and 8 for the
+sprint, measuring +6.97 and +6.2 degrees from the model's own resting posture.
+
+**How it survived, which is the part worth keeping.** The research brief said it
+plainly — "Torso: near-upright → forward lean, scaling with speed", "8-12 for a jog" —
+and there were renders of the run and the sprint on screen. The renders were described
+as showing "strong forward lean". They did not. **A render read for what it was
+expected to show is not a check**, and this is the second time on this asset that
+clips were judged without really being looked at.
+
+**Fix.** `LEANS_THE_TORSO_FORWARD`, and a refusal in `verify_gait.py`: a clip with a
+flight phase must have its trunk flexed forward by at least 4 degrees, and a walk must
+stay within 3 of the model's own posture. Both measured in DEGREES against the rest
+pose, because this figure stands with its chest 6.1 degrees behind vertical to begin
+with — an absolute threshold refused a run that had leant forward perfectly well,
+purely because it started from behind. The same calibration mistake as the sole
+measurement, in a different place.
+
 ### "The limbs are still backwards"
 
 **Symptom.** Knees folding like a bird's, elbows bending the wrong way, and a walk

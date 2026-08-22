@@ -42,6 +42,7 @@ sign flip. That is what makes them able to catch one.
 """
 
 import json
+import math
 import sys
 
 import bpy
@@ -61,6 +62,15 @@ LIMPS_BELOW = 0.80
 
 # And how far their peaks may drift from half a cycle apart, in frames.
 A_FRAME_OR_TWO = 2
+
+# How far forward a running trunk must be flexed, and how nearly upright a walking one
+# must stay. Both in degrees from the model's OWN resting posture.
+#
+# Four degrees is the bottom of the measured human range for running, which runs 4 to
+# 12 with the most economical near 6. Game guidance quotes 15 to 30 for sprints, which
+# is a two-to-four-times push and makes a character read as permanently accelerating.
+LEANS_FORWARD_AT_LEAST = 4.0
+STANDS_UP_WITHIN = 3.0
 
 # The summed stance shares below which a gait has a genuine flight phase. One exactly
 # would mean the two feet hand over with no overlap and no gap.
@@ -159,6 +169,20 @@ def main() -> None:
 
     at_rest = {side: pitch(side) for side in "LR"}
 
+    def trunk():
+        """How far the torso is flexed forward from vertical, in degrees.
+
+        In degrees, and against the model's OWN rest posture, because both matter.
+        Degrees so the answer can be held against the measured human range of 4 to 12;
+        against rest because this figure stands with its chest a little behind its
+        hips to begin with, and a walk is meant to leave that alone rather than
+        correct it. An absolute threshold refused a run that had leant forward by a
+        perfectly good twenty degrees of chest travel, purely because it started from
+        behind.
+        """
+        along = head("Spine02") - head("Hip")
+        return math.degrees(math.atan2(along.dot(forward), max(1e-6, along.z)))
+
     def under(side):
         return (
             head(f"{side}_Foot").z,
@@ -177,9 +201,11 @@ def main() -> None:
 
     def sole(side):
         return min(z - high for z, high in zip(under(side), above[side]))
+    trunk_at_rest = trunk()
     print(
         f"forward is ({forward.x:.3f}, {forward.y:.3f}, {forward.z:.3f}); "
-        f"feet rest at pitch {at_rest['L']:+.3f}/{at_rest['R']:+.3f}"
+        f"feet rest at pitch {at_rest['L']:+.3f}/{at_rest['R']:+.3f}; "
+        f"the torso rests {trunk_at_rest:+.1f} deg from vertical"
     )
 
     def lead(bone):
@@ -218,6 +244,8 @@ def main() -> None:
                 {
                     "frame": frame,
                     "hip": head("Hip").z,
+                    # How far the chest sits in front of the hips, which is the lean.
+                    "chest": trunk() - trunk_at_rest,
                     "ground": min(tail(f"{s}_ToeBase").z for s in "LR"),
                     "along": {s: lead(f"{s}_Foot") for s in "LR"},
                     "sole": {s: sole(s) for s in "LR"},
@@ -309,6 +337,9 @@ def main() -> None:
         front = max("LR", key=lambda side: landing[side]["along"][side])
         back = "R" if front == "L" else "L"
         contact = landing[front]
+
+        # The lean, averaged over the cycle: a run leans FORWARD and a walk stands up.
+        leans = sum(f["chest"] for f in frames[:span]) / max(1, span)
 
         legs_travel = max(f["legs"] for f in frames) - min(f["legs"] for f in frames)
         arms_travel = max(f["arms"] for f in frames) - min(f["arms"] for f in frames)
@@ -418,6 +449,7 @@ def main() -> None:
             # disagreed with a line fitted to the whole cycle by 20 to 55%.
             "contact_length_m": round(1.7 * abs(contact_travel), 3),
             "covers_implied_m": round(1.7 * abs(contact_travel) / (stance / 8.0), 3),
+            "leans_forward_deg": round(leans, 2),
             "arm_lag_percent": round(100.0 * lag),
             "arm_lag_wants": "8 to 12",
             "halves_bob_alike": round(rise, 3),
@@ -483,6 +515,26 @@ def main() -> None:
                 f"UP, which is a walk's heel strike. A run lands on the forefoot with "
                 f"the knee already flexed."
             )
+        # --- Which way the torso leans.
+        #
+        # A runner's trunk is flexed FORWARD, between about 4 and 12 degrees. Leaning
+        # back while running is not a matter of degree, it is a different action - so
+        # this is a refusal, and it is the check that was missing when a clip shipped
+        # doing exactly that. The cause was an axis constant measured on limbs, which
+        # point down, being applied to a spine, which points up.
+        if flies and leans < LEANS_FORWARD_AT_LEAST:
+            refused.append(
+                f"{name}: this clip flies, so it is a run - and its trunk is "
+                f"{leans:+.1f} deg from where the model rests, where a runner's is "
+                f"flexed FORWARD by {LEANS_FORWARD_AT_LEAST} or more. Leaning back "
+                f"while running is not something people do."
+            )
+        if not flies and abs(leans) > STANDS_UP_WITHIN:
+            refused.append(
+                f"{name}: the trunk is {leans:+.1f} deg off the model's own resting "
+                f"posture, and a walk should leave it within {STANDS_UP_WITHIN}."
+            )
+
         # A limp, stated as a refusal rather than a score, because a cycle whose two
         # steps differ is not a matter of degree - it is one step done twice, wrong.
         if rise < LIMPS_BELOW:
