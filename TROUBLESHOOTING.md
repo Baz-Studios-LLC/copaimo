@@ -852,6 +852,54 @@ A 0.0017-unit edge at 15x is invisible; a 0.09-unit edge at 1.5x is the fault.
 a clip, with each edge attributed to its welded piece — which is how the remaining
 offenders were identified as the jacket hem rather than the hands.
 
+### Movement is far too fast, and one clip never plays at all
+
+**Symptom.** "Movement is extremely fast." Also: judgements about how the walk looks
+that never actually described the walk.
+
+**Cause — three numbers, all wrong together.**
+
+* `WALK_SPEED` was **7.0 m/s** and `SPRINT_SPEED` **15.0** on a figure 1.7 m tall. A
+  real walk is 1.4 m/s. Seven is a 2:23 kilometre — faster than the world record —
+  and fifteen beats Usain Bolt's peak.
+* `BREAKS_INTO_A_RUN` was **6.5**, which is BELOW the walking speed. So every step
+  the warden had ever taken played the RUN clip. The walk clip sat in the file
+  unused, and every opinion formed about "the walk" was formed about the run played
+  at five cycles a second.
+* `STRIDE_COVERS` and `RUN_COVERS` — how far a cycle carries the warden, which the
+  playback rate is divided by — were estimated as `2 * leg * sin(stride angle)`.
+
+**Fix.** 1.8 and 3.6 m/s, threshold 3.0 between them, and the coverage MEASURED
+rather than derived: `dev/art/stride_measure.py` poses the real rig over the real
+clip and measures how far a foot travels front-to-back relative to the hips. 0.451
+units per foot walking, 0.478 running.
+
+**And a factor of two, which the test caught.** A cycle is both feet taking one step,
+so the body advances by TWICE one foot's swing — 1.53 m walking, not 0.77. Getting
+that wrong is the difference between a believable cadence and a blur.
+
+**Two tests now hold the set together**, because these numbers are only correct
+relative to each other: the gait threshold must lie strictly between the two speeds,
+and each clip must play between 0.6 and 2.5 cycles a second at its speed.
+
+**A consequence worth stating.** Believable speeds mean the 8 km map takes about
+thirty-seven minutes to cross at a run. That is a design question — mounts, roads,
+fast travel — not a bug to tune away by making the warden superhuman again.
+
+### "Why can I not see the character in Blender?"
+
+Because none of the work happens in the open Blender window. Every asset step is
+BATCH Blender: a headless process that imports, does one job, exports and exits.
+Nothing it does touches a running instance.
+
+And the live session cannot be used for this: the add-on that drives it executes code
+in a context without `bpy.context.object`, and the glTF importer needs that while
+setting up armature display, so `import_scene.gltf` fails there outright.
+
+**Fix.** `dev/art/ranger_blend.sh` writes `dev/art/ranger.blend` — the model, the rig
+and all three clips, textures packed, the walk loaded and the frame range set — built
+from the game's own copy so what opens is exactly what the game loads.
+
 ### An authored clip comes out as the splits
 
 **Symptom.** A run where the legs reach nearly 90 degrees apart, the knees stay

@@ -22,8 +22,38 @@ use crate::world::WorldBounds;
 
 /// Jogging speed in m/s. A brisk-but-believable pace, so the time it takes to
 /// cross the map is an honest signal about whether the map is the right size.
-const WALK_SPEED: f32 = 7.0;
-const SPRINT_SPEED: f32 = 15.0;
+// A brisk walk, in metres a second.
+//
+// # Seven was not a walk, it was a world record
+//
+// This was 7.0 and the sprint 15.0, on a figure 1.7 m tall. A real walk is about
+// 1.4 m/s; 7 m/s is a 2:23 kilometre, faster than anybody has ever run one, and
+// 15 m/s is faster than Usain Bolt's peak. Reported simply as "movement is
+// extremely fast", which it was by a factor of five.
+//
+// It also meant the WALK CLIP NEVER PLAYED. `motion::BREAKS_INTO_A_RUN` was 6.5,
+// below the walking speed, so every step the warden ever took ran the run clip —
+// at seven metres a second over a 1.14 m stride, five cycles a second, which is a
+// blur. Every judgement made about how the gaits looked was made about the run
+// clip played at five times its cadence.
+//
+// 1.8 is a shade above a real brisk walk, which is the usual game allowance: fast
+// enough not to feel like wading, slow enough that the world reads at its true
+// size.
+pub const WALK_SPEED: f32 = 1.8;
+/// A run, in metres a second.
+///
+/// Held to what the CLIP can carry rather than to what a runner can do. The run
+/// cycle covers 1.63 m of ground (measured, see `motion::RUN_COVERS`), so 3.6 m/s is
+/// 2.2 cycles a second — brisk but readable. Five metres a second would need three
+/// cycles a second and the legs would blur; carrying a real 5 m/s run needs a clip
+/// with a much longer stride, and a longer stride authored on this rig read as the
+/// splits.
+///
+/// The map is 8 km across, so crossing it at a run is about thirty-seven minutes.
+/// That is the honest consequence of believable speeds, and it is a design question
+/// rather than a bug: mounts, or a road network, or fast travel between towns.
+pub const SPRINT_SPEED: f32 = 3.6;
 /// How fast the warden swivels to face the way they're heading, in radians/sec.
 const TURN_RATE: f32 = 12.0;
 /// Standing eye-to-toe height, used to keep the body clear of the ground.

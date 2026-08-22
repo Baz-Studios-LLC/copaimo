@@ -31,26 +31,34 @@ use crate::player::{Player, Striding};
 /// Between the walk's own comfortable pace and the sprint: a warden pushing along
 /// at the top of a walk should already be running, because a walk cycle played fast
 /// enough to keep up with a sprint reads as a cartoon scurry.
-const BREAKS_INTO_A_RUN: f32 = 6.5;
+// Between the two speeds, and it has to be — this was 6.5 while WALK_SPEED was 7.0,
+// so the threshold sat BELOW walking pace and the walk clip never played once. Any
+// value here must lie strictly between `player::WALK_SPEED` and
+// `player::SPRINT_SPEED`, which `the_gait_threshold_lies_between_the_speeds` checks.
+const BREAKS_INTO_A_RUN: f32 = 3.0;
 
-/// How far one stride of the `run` clip carries the warden, in metres.
+/// How far one cycle of each clip carries the warden, in metres.
 ///
-/// Longer than a walk's, because a run's legs reach further: 42 degrees either side
-/// of the hip against a walk's 26. Measured the same way — twice the leg's length
-/// times the sine of the stride angle.
-const RUN_COVERS: f32 = 1.14;
+/// # Measured off the clips, not worked out from angles
+///
+/// These were estimated as `2 * leg * sin(stride angle)`, giving 1.35 and 1.14, and
+/// both were wrong. `dev/art/stride_measure.py` poses the real rig over the real
+/// clip and measures how far a foot travels front-to-back relative to the hips —
+/// which is the ground the character actually covers.
+///
+/// A foot swings 0.451 units in the walk and 0.478 in the run, on a model authored
+/// one unit tall and scaled to 1.7 m. A CYCLE is both feet taking one step, so the
+/// body advances by twice that: 1.53 m walking, 1.63 m running.
+///
+/// Getting the factor of two wrong is the difference between a believable cadence
+/// and a blur, and the cadence test below is what caught it.
+const STRIDE_COVERS: f32 = 1.53;
+const RUN_COVERS: f32 = 1.63;
 
-/// How far one stride of the `walk` clip carries the warden, in metres.
+/// How long one gait eases into another, in seconds.
 ///
-/// Measured from the clip: the legs swing `STRIDE` degrees either side of the hip,
-/// which at this leg length is about this far. It is the number to correct if the
-/// feet appear to skate — raise it if they slip forward, lower it if they scuff.
-const STRIDE_COVERS: f32 = 1.35;
-
-/// How long a blend between standing and walking takes, in seconds.
-///
-/// Short. A quarter of a second reads as the warden changing their mind; anything
-/// longer reads as the animation catching up with the game.
+/// Short: a warden who starts walking should look like they started walking, not
+/// like they faded into it. Long enough that the switch is not a snap.
 const BLEND: f32 = 0.18;
 
 /// The clips, once they have been found and put in a graph.
@@ -200,4 +208,50 @@ pub fn the_clips_are_ready(motions: Option<Res<Motions>>) -> bool {
 /// And whether they are still being waited for.
 pub fn still_waiting(waiting: Option<Res<Waiting>>) -> bool {
     waiting.is_some()
+}
+
+#[cfg(test)]
+mod pacing {
+    use super::*;
+
+    /// The walk clip has to be reachable, and so does the run.
+    ///
+    /// The threshold sat below walking speed once, so every step the warden took
+    /// played the RUN clip — at five cycles a second, which is a blur. Nothing
+    /// errored and the walk clip sat in the file unused, so every judgement about
+    /// how the gaits looked was made about the wrong clip.
+    #[test]
+    fn the_gait_threshold_lies_between_the_speeds() {
+        let walk = crate::player::WALK_SPEED;
+        let run = crate::player::SPRINT_SPEED;
+        assert!(
+            walk < BREAKS_INTO_A_RUN,
+            "walking at {walk} m/s is already over the {BREAKS_INTO_A_RUN} m/s              threshold, so the walk clip can never play"
+        );
+        assert!(
+            BREAKS_INTO_A_RUN < run,
+            "the run threshold {BREAKS_INTO_A_RUN} is above the top speed {run},              so the run clip can never play"
+        );
+    }
+
+    /// And the clips play at a believable cadence at those speeds.
+    ///
+    /// A clip is one stride, so its playback rate is strides a second. A person
+    /// walks at roughly one stride a second and runs at about one and a half; much
+    /// past two and the legs are a blur whatever the clip contains.
+    #[test]
+    fn neither_gait_plays_at_a_blur() {
+        let walking = crate::player::WALK_SPEED / STRIDE_COVERS;
+        let running = crate::player::SPRINT_SPEED / RUN_COVERS;
+        // A person walks at about one cycle a second and runs at about one and a
+        // half. Past two and a half the legs are a blur whatever the clip holds.
+        assert!(
+            (0.6..1.6).contains(&walking),
+            "the walk plays at {walking:.2} cycles a second"
+        );
+        assert!(
+            (1.0..2.5).contains(&running),
+            "the run plays at {running:.2} cycles a second"
+        );
+    }
 }
