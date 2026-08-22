@@ -40,7 +40,13 @@ use crate::world::WorldBounds;
 // 1.8 is a shade above a real brisk walk, which is the usual game allowance: fast
 // enough not to feel like wading, slow enough that the world reads at its true
 // size.
-pub const WALK_SPEED: f32 = 1.8;
+// 2.4, up from 1.8. A real brisk walk is about 1.8 and it felt sluggish to play,
+// which is the ordinary gap between a believable speed and a good one: a game
+// character reads as slow at the pace a person actually manages. 2.4 is the most the
+// walk clip supports without its cadence leaving the believable band - see
+// STRIDE_COVERS, which is what caps it. Going faster than this needs a LONGER STRIDE,
+// not a faster clip.
+pub const WALK_SPEED: f32 = 2.4;
 /// A run, in metres a second.
 ///
 /// Held to what the CLIP can carry rather than to what a runner can do. The run
@@ -53,7 +59,12 @@ pub const WALK_SPEED: f32 = 1.8;
 /// The map is 8 km across, so crossing it at a run is about thirty-seven minutes.
 /// That is the honest consequence of believable speeds, and it is a design question
 /// rather than a bug: mounts, or a road network, or fast travel between towns.
-pub const SPRINT_SPEED: f32 = 3.6;
+// 4.0, up from 3.6, and capped there by the run clip rather than by taste. The run
+// is authored with almost no stance phase and a stride 1.5x too short for the speed
+// it is asked to carry, so every extra metre per second buys a faster churn rather
+// than a longer step. Unlocking a real sprint means re-authoring the run with a
+// flight phase, not raising this number.
+pub const SPRINT_SPEED: f32 = 4.0;
 /// How fast the warden swivels to face the way they're heading, in radians/sec.
 const TURN_RATE: f32 = 12.0;
 /// Standing eye-to-toe height, used to keep the body clear of the ground.

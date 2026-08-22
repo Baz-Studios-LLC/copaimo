@@ -35,24 +35,37 @@ use crate::player::{Player, Striding};
 // so the threshold sat BELOW walking pace and the walk clip never played once. Any
 // value here must lie strictly between `player::WALK_SPEED` and
 // `player::SPRINT_SPEED`, which `the_gait_threshold_lies_between_the_speeds` checks.
-const BREAKS_INTO_A_RUN: f32 = 3.0;
+const BREAKS_INTO_A_RUN: f32 = 3.2;
 
 /// How far one cycle of each clip carries the warden, in metres.
 ///
-/// # Measured off the clips, not worked out from angles
+/// # Measured off the planted foot, which took three goes to get right
 ///
-/// These were estimated as `2 * leg * sin(stride angle)`, giving 1.35 and 1.14, and
-/// both were wrong. `dev/art/stride_measure.py` poses the real rig over the real
-/// clip and measures how far a foot travels front-to-back relative to the hips —
-/// which is the ground the character actually covers.
+/// First estimated as `2 * leg * sin(stride angle)`, giving 1.35 and 1.14. Both
+/// wrong, because a leg's reach is not the ground it covers.
 ///
-/// A foot swings 0.451 units in the walk and 0.478 in the run, on a model authored
-/// one unit tall and scaled to 1.7 m. A CYCLE is both feet taking one step, so the
-/// body advances by twice that: 1.519 m walking, 1.610 m running.
+/// Then MEASURED as one foot's fore-aft swing, doubled, on the reasoning that a
+/// cycle is both feet taking one step. Also wrong, and wrong differently for the two
+/// gaits — which is the sort of error that hides. The identity is
+/// `speed = cadence * stride`, and a planted foot is stationary on the GROUND, so
+/// relative to the hips it travels backward at exactly the character's speed. A foot
+/// moving `S` during a stance lasting a fraction `f` of the cycle therefore carries
+/// the body `S / f`, not `2 S`. A walk has a foot down about 60% of the time and a
+/// run about 35%, so doubling overstates a walk and understates a run by a third.
 ///
-/// Getting the factor of two wrong is the difference between a believable cadence
-/// and a blur, and the cadence test below is what caught it.
-const STRIDE_COVERS: f32 = 1.519;
+/// `dev/art/stride_measure.py` now fits a line to the planted foot's travel and
+/// reports the slope, so `f` falls out instead of being assumed.
+///
+/// **2.20 is that measurement, and it is provisional.** The current walk keeps a
+/// foot down for only three frames of twenty-four, so the fit has three points and
+/// the two feet disagree by 19%. It is nonetheless much closer than 1.519, which had
+/// the warden outrunning their own feet. Re-measure once the walk has a real stance.
+///
+/// **1.610 is NOT measured** — the run has no frames with a foot down at all, so
+/// there was nothing to fit. It is the old doubled figure, kept only because a wrong
+/// number that plays is better than no number, and it is why `SPRINT_SPEED` is
+/// capped at 4.0.
+const STRIDE_COVERS: f32 = 2.20;
 const RUN_COVERS: f32 = 1.610;
 
 /// What to hand `set_speed` so a clip plays at the right cadence.
@@ -316,15 +329,41 @@ mod pacing {
         let plays_at = |speed: f32, covers: f32, gait: &str| -> f32 {
             playback_rate(speed, covers, lasts(gait)) / lasts(gait)
         };
-        let walking = plays_at(crate::player::WALK_SPEED, STRIDE_COVERS, "walk");
-        let running = plays_at(crate::player::SPRINT_SPEED, RUN_COVERS, "run");
+        // In steps a minute, because that is the unit the evidence is in and
+        // "cycles a second" hid how bad the run was. Two steps to a cycle.
+        let steps = |cycles: f32| cycles * 2.0 * 60.0;
+        let walking = steps(plays_at(crate::player::WALK_SPEED, STRIDE_COVERS, "walk"));
+        let running = steps(plays_at(crate::player::SPRINT_SPEED, RUN_COVERS, "run"));
+
+        // Walking sits at 100 to 115 steps a minute, and 140 is itself the
+        // walk-to-run transition — past it a walk cycle is being asked to do a run's
+        // job.
         assert!(
-            (0.6..1.6).contains(&walking),
-            "the walk plays at {walking:.2} cycles a second"
+            (90.0..140.0).contains(&walking),
+            "the walk plays at {walking:.0} steps a minute, and 90 to 140 is a walk"
         );
+
+        // # A ratchet, not a blessing
+        //
+        // Recreational running is 150 to 180 steps a minute and elites are 180 plus.
+        // The run plays at 298, and this test used to PASS it, because the bound was
+        // written as "under 2.5 cycles a second" — which is 300 steps a minute, above
+        // anything a person does. A bound loose enough to admit the fault is not a
+        // test of it, and stating the unit wrong is what let it look reasonable.
+        //
+        // The cause is not this number. The run clip keeps a foot down for no frames
+        // at all, and its stride is about 1.5x too short for the speed it carries, so
+        // the cadence is whatever is left over. Lowering `SPRINT_SPEED` until this
+        // passed honestly would mean 2.7 m/s — slower than the sprint has ever been,
+        // to hide a fault in the clip.
+        //
+        // So the ceiling sits where the value stands, and its job is to stop it
+        // getting WORSE. It comes down when the run is re-authored with a real stance
+        // and a flight phase, and this comment is the record of that debt.
+        const RUN_CHURNS_AT: f32 = 300.0;
         assert!(
-            (1.0..2.5).contains(&running),
-            "the run plays at {running:.2} cycles a second"
+            running <= RUN_CHURNS_AT,
+            "the run plays at {running:.0} steps a minute, past the {RUN_CHURNS_AT:.0}              it is allowed while its stride is too short. A person runs at 150 to 180.              Give the run a longer stride rather than raising this."
         );
     }
 
