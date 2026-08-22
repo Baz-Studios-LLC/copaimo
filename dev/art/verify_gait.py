@@ -60,8 +60,16 @@ A_REAL_BEND = 0.004
 # How alike the two halves of a cycle must bob. Below this it limps.
 LIMPS_BELOW = 0.80
 
-# And how far their peaks may drift from half a cycle apart, in frames.
-A_FRAME_OR_TWO = 2
+# How far the second half of a cycle may differ from the first, as a share of the
+# bob. A cycle is two identical steps, so anything much above nought is a limp.
+A_DIFFERENT_STEP = 0.12
+
+# The most a planted foot may point away from the line of travel, in degrees.
+#
+# People walk with 7 to 10 degrees of toe-out. This model rests at 18.5 apiece, which
+# is 37 between the two feet and reads as splayed at a glance. 14 leaves room for a
+# stylised stance without letting it back to where it was.
+TOES_OUT_AT_MOST = 14.0
 
 # How far forward a running trunk must be flexed, and how nearly upright a walking one
 # must stay. Both in degrees from the model's OWN resting posture.
@@ -159,8 +167,22 @@ def main() -> None:
     rig.data.update_tag()
     bpy.context.view_layer.update()
 
-    toe = tail("L_ToeBase") - head("L_Foot")
-    forward = mathutils.Vector((toe.x, toe.y, 0.0)).normalized()
+    # Forward, from BOTH feet averaged.
+    #
+    # It used to come off the left foot alone, and that foot rests eighteen degrees
+    # toed-out - so the reference axis was itself skewed by half the angle between the
+    # feet. Every fore-aft number was measured against it: the left foot then read as
+    # nearly straight because it DEFINED the axis, and the right read as 37 degrees
+    # out, which is simply the angle between the two feet. It also cost about 5% on
+    # every contact length and stride, by the cosine of the skew.
+    #
+    # Averaging the two cancels whatever toe-out the rest pose has, because it is
+    # symmetric, and leaves the direction the body actually travels.
+    both = mathutils.Vector((0.0, 0.0, 0.0))
+    for side in "LR":
+        span = tail(f"{side}_ToeBase") - head(f"{side}_Foot")
+        both += mathutils.Vector((span.x, span.y, 0.0)).normalized()
+    forward = both.normalized()
 
     def pitch(side):
         """How much a foot points UP, as a fraction. Its rest angle is the zero."""
@@ -168,6 +190,26 @@ def main() -> None:
         return span.z / span.length if span.length > 1e-9 else 0.0
 
     at_rest = {side: pitch(side) for side in "LR"}
+
+    def toe_out(side):
+        """Degrees a foot points away from the line of travel. Positive is flared.
+
+        Only meaningful while the foot is roughly flat. Fold the knee a hundred
+        degrees and the foot points backwards and upwards, its shadow on the ground
+        shrinks to nothing, and the yaw of that shadow becomes noise - which is how a
+        first attempt at this reported 146 degrees of flare on a foot that was simply
+        in the air. So the caller checks the foot is DOWN before believing it.
+        """
+        span = tail(f"{side}_ToeBase") - head(f"{side}_Foot")
+        flat = mathutils.Vector((span.x, span.y, 0.0))
+        if flat.length < 1e-6:
+            return 0.0
+        flat.normalize()
+        across = mathutils.Vector((-forward.y, forward.x, 0.0))
+        yaw = math.degrees(math.atan2(flat.dot(across), flat.dot(forward)))
+        # +across is the model's left, so positive yaw flares the left foot and the
+        # right foot flares at negative. Flipped so that positive always means OUT.
+        return yaw if side == "L" else -yaw
 
     def trunk():
         """How far the torso is flexed forward from vertical, in degrees.
@@ -249,6 +291,7 @@ def main() -> None:
                     "ground": min(tail(f"{s}_ToeBase").z for s in "LR"),
                     "along": {s: lead(f"{s}_Foot") for s in "LR"},
                     "sole": {s: sole(s) for s in "LR"},
+                    "toes": {s: toe_out(s) for s in "LR"},
                     "legs": lead("L_Foot") - lead("R_Foot"),
                     "arms": lead("L_Hand") - lead("R_Hand"),
                     "pitch": {s: pitch(s) - at_rest[s] for s in "LR"},
@@ -402,13 +445,24 @@ def main() -> None:
             if max(early) > min(early) and max(late) > min(late)
             else 0.0
         )
-        # From the turning points, which already wrap, rather than from the argmax of
-        # each half. Splitting the cycle in two and comparing their argmaxes breaks
-        # whenever a peak lands ON the boundary: the run peaks at frames 1 and 8 of
-        # sixteen, which is half a cycle apart, and the windowed version reported them
-        # as 1 apart because one window ended at frame 9 and started its own count
-        # there.
-        apart = (highs[1] - highs[0]) if len(highs) == 2 else 0
+        # --- Whether the bob REPEATS every half cycle, which is the actual invariant.
+        #
+        # Two earlier versions of this tried to infer it from where the peaks are:
+        # first by comparing the argmax of each half, which breaks when a peak lands on
+        # the boundary, then by differencing the two detected turning points, which
+        # breaks when the top is flat and only one of a plateau gets counted. Both were
+        # measuring a proxy.
+        #
+        # The property itself is simple and needs no peak-finding at all: a cycle is
+        # two identical steps, so the hip height at any frame must equal the height
+        # half a cycle later. So that is what is measured - the worst disagreement
+        # across the cycle, as a share of the bob's own size.
+        half = span // 2
+        rises = max(f["hip"] for f in frames) - min(f["hip"] for f in frames)
+        drift = max(
+            abs(frames[i]["hip"] - frames[(i + half) % span]["hip"]) for i in range(span)
+        )
+        repeats = drift / rises if rises > 1e-9 else 0.0
 
         # Where the arms peak against where the LEGS peak, as a share of the cycle.
         # The brief puts the arm extremes 8 to 12 per cent behind the legs.
@@ -450,11 +504,12 @@ def main() -> None:
             "contact_length_m": round(1.7 * abs(contact_travel), 3),
             "covers_implied_m": round(1.7 * abs(contact_travel) / (stance / 8.0), 3),
             "leans_forward_deg": round(leans, 2),
+            # At the contact, where the foot is flat and the number means something.
+            "toe_out_deg": round(contact["toes"][front], 1),
             "arm_lag_percent": round(100.0 * lag),
             "arm_lag_wants": "8 to 12",
             "halves_bob_alike": round(rise, 3),
-            "halves_peak_frames_apart": apart,
-            "halves_should_be_apart": middle,
+            "half_cycle_drift": round(repeats, 3),
             "contact_frame": contact["frame"],
         }
         print(
@@ -515,6 +570,19 @@ def main() -> None:
                 f"UP, which is a walk's heel strike. A run lands on the forefoot with "
                 f"the knee already flexed."
             )
+        # --- How far the planted foot points away from the line of travel.
+        #
+        # Measured at the contact, because that is where the foot is flat: a foot in
+        # mid-swing with the knee folded has no meaningful yaw at all.
+        if abs(contact["toes"][front]) > TOES_OUT_AT_MOST:
+            refused.append(
+                f"{name}: the landing ({front}) foot points "
+                f"{contact['toes'][front]:+.1f} deg away from the line of travel, "
+                f"where a person walks with 7 to 10 and {TOES_OUT_AT_MOST} is the "
+                f"most this will pass. Splayed feet read as unnatural before anything "
+                f"else does."
+            )
+
         # --- Which way the torso leans.
         #
         # A runner's trunk is flexed FORWARD, between about 4 and 12 degrees. Leaning
@@ -545,10 +613,12 @@ def main() -> None:
                 f"{LIMPS_BELOW} is the floor. A cycle is two steps and the second is "
                 f"the first with the legs swapped, so the halves must match."
             )
-        if abs(apart - middle) > A_FRAME_OR_TWO:
+        if repeats > A_DIFFERENT_STEP:
             refused.append(
-                f"{name}: the two halves peak {apart} frames apart where half a cycle "
-                f"is {middle}. The bob is not keeping time with the steps."
+                f"{name}: the hips do not repeat every half cycle - the worst "
+                f"disagreement between a frame and its partner half a cycle later is "
+                f"{repeats:.0%} of the whole bob, where {A_DIFFERENT_STEP:.0%} is the "
+                f"most allowed. A cycle is two identical steps."
             )
         if contact["folded"][front] >= contact["folded"][back]:
             refused.append(

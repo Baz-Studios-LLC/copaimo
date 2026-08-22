@@ -366,6 +366,25 @@ FOREARMS = ("L_Forearm", "R_Forearm")
 STANCE_OPENS = 6.0
 THIGHS = ("L_Thigh", "R_Thigh")
 
+# And how far each foot is turned back IN, in degrees of yaw about the vertical.
+#
+# The model stands with 18.5 degrees of toe-out on each foot - 37 between them - where
+# a person has 7 to 10. Reported as "feet flair out when running seems unnatural",
+# and measured to be the rest pose rather than anything the clips do: at a contact the
+# foot yaws 18.4 against the rest pose's 18.5, so the authoring adds essentially
+# nothing.
+#
+# Ten degrees in per foot lands at 8.5, inside the human range. The sign is measured,
+# not reasoned, like every other sign on this rig: a POSITIVE ten degrees about
+# armature up takes the left foot from +18.5 to +28.5 of flare and the right from
+# +18.5 to +8.5. So the left needs negative and the right positive, which is
+# `-TOES_IN * hand`.
+#
+# This is a fact about the asset, so it is corrected everywhere the asset is posed -
+# the gaits AND the shipped idle - rather than in one clip.
+TOES_IN = 11.0
+FEET = ("L_Foot", "R_Foot")
+
 
 def swing(rig, bone: str, degrees: float, axis=(0.0, 1.0, 0.0)):
     """Turns a bone about an axis of the ARMATURE, whatever its own rest pose is."""
@@ -474,6 +493,44 @@ def where_each_sole_rests(rig):
         side: (ground, tuple(z - min(under_the_foot(rig, side)) for z in under_the_foot(rig, side)))
         for side in "LR"
     }
+
+
+def turn_further_absolutely(rig, bone: str, degrees: float, axis) -> None:
+    """Adds a turn about a TRUE armature axis, whatever the ancestors are doing.
+
+    # Why `turn_further` is not enough for a foot
+
+    `swing` and `turn_further` conjugate the axis with the bone's own REST matrix, so
+    the axis they end up turning about is dragged along by any posed ancestor. That is
+    ordinary FK and it is what a gait wants nearly everywhere: a knee should bend
+    relative to its thigh.
+
+    A foot's YAW is the exception. Toe-out is a rotation about the real vertical, and a
+    foot hangs below a thigh swung thirty degrees and a knee folded forty, so its rest
+    frame's idea of "up" is a long way from up. Asking for ten degrees of yaw that way
+    moved the left foot twenty-seven and the right one nine the WRONG WAY - the same
+    correction, opposite results, because each foot's ancestors had carried its axis
+    somewhere different.
+
+    So this one takes the parent's POSE into account. It costs a depsgraph flush,
+    because the parent's posed matrix has to be evaluated before it can be read, and
+    the caller is responsible for having done that.
+    """
+    posed = rig.pose.bones.get(bone)
+    if posed is None:
+        return
+    basis = posed.bone.matrix_local.to_3x3()
+    if posed.parent is not None:
+        drift = (
+            posed.parent.matrix.to_3x3()
+            @ posed.parent.bone.matrix_local.to_3x3().inverted()
+        )
+        basis = drift @ basis
+    local = (basis.inverted() @ mathutils.Vector(axis)).normalized()
+    posed.rotation_mode = "QUATERNION"
+    posed.rotation_quaternion = (
+        mathutils.Quaternion(local, math.radians(degrees)) @ posed.rotation_quaternion
+    )
 
 
 def sole_of_the_foot(rig, side: str, resting) -> float:
@@ -991,6 +1048,13 @@ def pose_the_body(rig, leg, step: int, phase: float, reach: float, back: float,
     # translation moves both legs by the same vector, so it cannot make the two
     # halves differ.
     shift(rig, "Hip", -PELVIS_SWAY * math.sin(2.0 * math.pi * phase), (0.0, 1.0, 0.0))
+    # The feet yawed back in toward the line of travel - see `TOES_IN`. AFTER the
+    # legs are posed and evaluated, and about a true armature axis, because a foot's
+    # rest frame has been carried off by its own thigh and knee by this point.
+    bpy.context.view_layer.update()
+    for side, hand in (("L", 1.0), ("R", -1.0)):
+        turn_further_absolutely(rig, f"{side}_Foot", -TOES_IN * hand, (0.0, 0.0, 1.0))
+
     # The lean into a run, on the waist and lower spine rather than the hips so the
     # legs keep their own frame. Spread across two joints so the back curves into it
     # instead of hinging at one point.
@@ -1188,6 +1252,11 @@ def mend_the_shipped_idle(rig) -> None:
     rest, and in baggy trousers that reads as one leg rather than two. See
     `STANCE_OPENS` for why the fix goes past anatomical normal rather than to it.
 
+    # And the feet pointed outwards
+
+    18.5 degrees of toe-out apiece against a human 7 to 10. Corrected here as well as
+    in the gaits, because it is a fact about the asset and not about one clip.
+
     Both repairs ride in ONE pass over the clip. Two passes would mean two full
     reads, two rebuilds and the second one reading what the first wrote, which is the
     trap the last note below is about.
@@ -1252,6 +1321,9 @@ def mend_the_shipped_idle(rig) -> None:
             # Composed on top of the idle's own pose rather than replacing it: the
             # idle shifts its weight from foot to foot, and that is worth keeping.
             turn_further(rig, name, STANCE_OPENS * hand, (0.0, 1.0, 0.0))
+        bpy.context.view_layer.update()
+        for name, hand in zip(FEET, (1.0, -1.0)):
+            turn_further_absolutely(rig, name, -TOES_IN * hand, (0.0, 0.0, 1.0))
         # Every bone, every frame — see `key`.
         for posed in rig.pose.bones:
             posed.keyframe_insert("rotation_quaternion", frame=frame)
@@ -1316,7 +1388,7 @@ def main() -> None:
     # Twenty-four frames a cycle for a walk, sixteen for a run. Eight poses either
     # way: a run is not a walk with bigger numbers, but it does have the same four
     # poses per step.
-    # Twenty-four frames a cycle for a walk, sixteen for the jog and fourteen for the
+    # Twenty-four frames a cycle for a walk and sixteen for both the jog and the
     # sprint. Eight poses each way: a run is not a walk with bigger numbers, but it
     # does have the same four poses per step.
     #
@@ -1333,7 +1405,7 @@ def main() -> None:
         RUN_ELBOW_SWING, RUN_LEAN, RUN_STANCE, RUN_BOUND, RUN_DROP, resting,
     ).use_fake_user = True
     gait(
-        rig, "sprint", SPRINT_LEG, 14, SPRINT_ARM_FORWARD, SPRINT_ARM_BACK,
+        rig, "sprint", SPRINT_LEG, 16, SPRINT_ARM_FORWARD, SPRINT_ARM_BACK,
         RUN_ELBOW_HELD, RUN_ELBOW_SWING, SPRINT_LEAN, SPRINT_STANCE, SPRINT_BOUND,
         RUN_DROP, resting,
     ).use_fake_user = True

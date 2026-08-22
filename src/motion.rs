@@ -78,8 +78,8 @@ const BREAKS_INTO_A_RUN: f32 = 3.4;
 /// 1.935 and 2.282, and the cadences that follow are believable without help: 112
 /// steps a minute walking at 1.8 m/s and 189 running at 3.6, against 95-140 and
 /// 150-200 for real people. That headroom is what let the speeds go up.
-const WALK_COVERS: f32 = 1.271;
-const RUN_COVERS: f32 = 1.908;
+const WALK_COVERS: f32 = 1.261;
+const RUN_COVERS: f32 = 1.965;
 
 /// The moving gaits, slowest first: the word in the clip's name, how far one cycle
 /// carries the warden in metres, and the speed above which the next one takes over.
@@ -119,7 +119,7 @@ const GAITS: &[(&str, f32, f32)] = &[
 const FPS: f32 = 24.0;
 const WALK_FRAMES: f32 = 24.0;
 const RUN_FRAMES: f32 = 16.0;
-const SPRINT_FRAMES: f32 = 14.0;
+const SPRINT_FRAMES: f32 = 16.0;
 
 /// The fastest a clip should be stretched past its own native speed.
 ///
@@ -148,7 +148,7 @@ const fn hands_over_above(covers: f32, frames: f32) -> f32 {
 /// divided by the stance fraction. The extra stride is therefore bought by spending
 /// LESS of the cycle on the ground, not by reaching further. Trying to reach further is
 /// why 42 degrees of thigh swing once read as the splits.
-const SPRINT_COVERS: f32 = 2.999;
+const SPRINT_COVERS: f32 = 3.089;
 
 /// What to hand `set_speed` so a clip plays at the right cadence.
 ///
