@@ -46,7 +46,7 @@ use crate::world::WorldBounds;
 // walk clip supports without its cadence leaving the believable band - see
 // STRIDE_COVERS, which is what caps it. Going faster than this needs a LONGER STRIDE,
 // not a faster clip.
-pub const WALK_SPEED: f32 = 2.4;
+pub const WALK_SPEED: f32 = 2.25;
 /// A run, in metres a second.
 ///
 /// Held to what the CLIP can carry rather than to what a runner can do. The run
@@ -64,7 +64,7 @@ pub const WALK_SPEED: f32 = 2.4;
 // it is asked to carry, so every extra metre per second buys a faster churn rather
 // than a longer step. Unlocking a real sprint means re-authoring the run with a
 // flight phase, not raising this number.
-pub const SPRINT_SPEED: f32 = 4.0;
+pub const SPRINT_SPEED: f32 = 4.6;
 /// How fast the warden swivels to face the way they're heading, in radians/sec.
 const TURN_RATE: f32 = 12.0;
 /// Standing eye-to-toe height, used to keep the body clear of the ground.

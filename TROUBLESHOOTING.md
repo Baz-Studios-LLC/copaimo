@@ -960,6 +960,96 @@ second.
 Plus one that a clip is authored somewhere near the time its stride takes, since the
 fix removes the pressure to keep the authored length sensible at all.
 
+### A walk that limps, while every direction measures correct
+
+**Symptom.** "The legs and arms are not moving correctly, they feel backwards even
+though they are facing the correct way now." Every sign checks out - opposition, knee
+lead, elbow trail, heel strike - and it still reads wrong.
+
+**Cause.** The two halves of the cycle did not match. Measured on the hips: one half
+bobbed **4.57 cm** and the other **2.95**, peaking **ten** frames apart where half a
+cycle is twelve. A cycle is two steps and the second is the first with the legs
+swapped, so a mismatch is a LIMP, and a limp is felt long before it is seen.
+
+**What did it.** The pelvis yaw and obliquity, applied as rotations of `Pelvis` -
+which carries both thighs. Zeroing them made the halves exact, which is what named
+them; halving them was not enough.
+
+**Why it could never work there.** The rig is not mirror-symmetric. `L_Thigh`'s local
+X runs (-0.007, -0.999, -0.044) against `R_Thigh`'s (+0.007, -0.992, +0.125). One
+shared rotation on their parent cannot move the two legs alike, and whatever it does
+to the STANCE leg's length is a change the foot-planting feeds straight into the hips.
+
+**Fix.** State the pelvis's rotations on the LEGS. Yaw becomes extra reach for the
+swinging thigh and less for the stance one; obliquity becomes adduction of the
+swinging leg. Each side is then independent, the stance leg's vertical extent stays a
+pure function of its own three angles, and the halves match by construction rather
+than by hoping the asset is symmetric. It is also faithful to what is being modelled -
+the brief's own reason for wanting hip yaw is that "the hips and legs are a unit".
+
+**The obliquity's sign was inverted too**, which the brief warns is the one people get
+backwards. Armature +X is forward, the left bones sit at +Y, and a positive turn about
++X carries +Y onto +Z - so a positive drop RAISED the swing hip, giving a hip-hitch
+strut instead of a drop.
+
+**And a test, so it cannot come back quietly.** `verify_gait.py` now refuses a clip
+whose halves bob by ratios under 0.80 or whose peaks drift more than two frames from
+half a cycle apart. This is the check that would have caught it from the start, and
+nothing else in the file could: every per-frame direction was right.
+
+### A bob with three peaks, and a foot that will not stay planted
+
+**Symptom.** Hips rising 10.6 cm with THREE high points per cycle where a walk has
+two, and a planted foot that slides anyway.
+
+**Two separate causes.**
+
+1. **The sole was a flat minimum over three bones.** The ankle sits higher off the
+   ground than the toe does, so the moment the lowest point switched from one to the
+   other - which is exactly what heel-strike-to-toe-off does - the measured sole
+   stepped by the difference, and planting stepped the hips with it. **Fix:** each
+   point carries its own rest height, so all three agree on a flat foot at rest and
+   each tracks the sole correctly as the ankle rolls.
+2. **Which foot to plant was being discovered rather than known.** Planting whichever
+   foot measured lowest sounds more robust and is worse: this model's rest pose is not
+   level (the right sole rests 1.4 cm higher), so the lower foot changed hands at
+   moments having nothing to do with the gait. **Fix:** an eight-pose cycle already
+   says which foot is down - the right lands at the start and pushes off halfway - so
+   pass it in.
+
+**And do not author the bob at all.** A hip bob added on top of posed legs is a second
+source of the same motion, and the two disagree: the curve says the body rises at
+passing while the geometry says it rises wherever the stance leg is straightest. Pose
+the legs, measure the stance foot, move the hips by the difference. The bob that comes
+out is the one a real walk has, for the reason a real walk has it - a straighter leg
+is a longer leg.
+
+### "speed = cadence x stride", and a stride measured with the wrong identity
+
+**Symptom.** The run churns. Raising the speed makes it frantic; lowering it makes the
+game feel slow. There is no setting that is right.
+
+**Cause.** How far a cycle carries the warden was measured as **twice** one foot's
+swing. A planted foot is STILL on the ground while the body travels over it, so
+relative to the hips it moves backward at exactly the body's speed: if it travels `S`
+during a stance lasting fraction `f` of the cycle, the body advances by **`S / f`**,
+not `2S`.
+
+The difference is the flight phase. A walk always has a foot down, `f` is about 0.6,
+and `S / f` lands near `2S`. A run is airborne for part of its cycle, `f` is about
+0.35, and the body covers nearly THREE times one foot's swing - distance it gets for
+free while neither foot is planted. So the run was understated by 45%, and the only
+way to reach the game's speed was to churn.
+
+**Fix.** `dev/art/stride_measure.py` fits a line to the planted foot's travel and
+reports the slope, so `f` falls out instead of being assumed. Measured off clips that
+have a stance to measure: 1.935 m walking, 2.282 m running.
+
+**A consequence worth stating.** The identity is exact and it CAPS the speeds. At
+1.935 m a cycle and 140 steps a minute - the top of a real walking cadence - a walk
+cannot exceed 2.25 m/s without becoming a jog, whatever it says on the constant. Going
+faster needs a longer stride or a third clip, not a bigger number.
+
 ### "The limbs are still backwards"
 
 **Symptom.** Knees folding like a bird's, elbows bending the wrong way, and a walk

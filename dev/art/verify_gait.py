@@ -56,6 +56,12 @@ ARMS_CARRY_AT_LEAST = 0.25
 # this the limb is straight and its bend direction is not a fact about anything.
 A_REAL_BEND = 0.004
 
+# How alike the two halves of a cycle must bob. Below this it limps.
+LIMPS_BELOW = 0.80
+
+# And how far their peaks may drift from half a cycle apart, in frames.
+A_FRAME_OR_TWO = 2
+
 # How much a foot's pitch must change from its rest angle to count as deliberate.
 # Below this the ankle is neutral and neither heel-strike nor toe-off is being said.
 A_REAL_PITCH = 0.02
@@ -165,6 +171,7 @@ def main() -> None:
                     "frame": frame,
                     "hip": head("Hip").z,
                     "ground": min(tail(f"{s}_ToeBase").z for s in "LR"),
+                    "along": {s: lead(f"{s}_Foot") for s in "LR"},
                     "legs": lead("L_Foot") - lead("R_Foot"),
                     "arms": lead("L_Hand") - lead("R_Hand"),
                     "pitch": {s: pitch(s) - at_rest[s] for s in "LR"},
@@ -185,25 +192,87 @@ def main() -> None:
 
         legs_travel = max(f["legs"] for f in frames) - min(f["legs"] for f in frames)
         arms_travel = max(f["arms"] for f in frames) - min(f["arms"] for f in frames)
-        rides = max(f["ground"] for f in frames) - min(f["ground"] for f in frames)
+        # How much a planted foot SLIDES.
+        #
+        # # Sliding is horizontal, and the first version of this measured vertical
+        #
+        # It took the spread of the lowest toe's height, which a walk with any foot
+        # roll at all varies on purpose: at heel strike the toe is up. So the metric
+        # punished exactly the thing that makes a step read as a step.
+        #
+        # A planted foot is still on the ground while the body moves over it, so
+        # relative to the hips it travels BACKWARD at the body's speed - which is to
+        # say linearly. Slide is therefore the departure from a straight line over
+        # the frames the foot is down, and it is scale-free: expressed as a share of
+        # how far the foot travels in that time.
+        def slide(side):
+            path = [f["along"][side] for f in frames]
+            half = span // 2
+            # The right foot is down over the first half of the cycle and the left
+            # over the second, which is what the pose table says.
+            window = range(0, half + 1) if side == "R" else range(half, span + 1)
+            walked = [path[i] for i in window if i < len(path)]
+            if len(walked) < 3:
+                return 0.0
+            travel = walked[0] - walked[-1]
+            if abs(travel) < 1e-6:
+                return 1.0
+            worst = 0.0
+            for step, here in enumerate(walked):
+                straight = walked[0] - travel * step / (len(walked) - 1)
+                worst = max(worst, abs(here - straight))
+            return worst / abs(travel)
+
+        rides = max(slide("L"), slide("R"))
         bobs = max(f["hip"] for f in frames) - min(f["hip"] for f in frames)
         highs = [i for i, kind in turning_points([f["hip"] for f in frames]) if kind == "high"]
+
+        # --- Whether the two halves of the cycle match, which is whether it limps.
+        #
+        # A cycle is two steps, and the second is the first with the legs swapped. So
+        # the hips must rise by the same amount in each half and peak half a cycle
+        # apart. When they do not, every direction still measures correct and the
+        # walk still reads as WRONG - which is exactly the report this came from:
+        # "the legs and arms do not feel like they are moving correctly, even though
+        # they are facing the right way now."
+        #
+        # Measured on the real clip, the pelvis yaw and obliquity were bobbing one
+        # half 4.57 cm and the other 2.95, peaking ten frames apart instead of
+        # twelve. Zeroing them made the halves exact, which is what identified them.
+        middle = span // 2
+        early = [f["hip"] for f in frames[: middle + 1]]
+        late = [f["hip"] for f in frames[middle:]]
+        rise = (
+            min(max(early) - min(early), max(late) - min(late))
+            / max(max(early) - min(early), max(late) - min(late))
+            if max(early) > min(early) and max(late) > min(late)
+            else 0.0
+        )
+        apart = (late.index(max(late)) + middle) - early.index(max(early))
 
         # Where the arms peak against where the legs peak, as a share of the cycle.
         # The brief puts the arm extremes 8 to 12 per cent behind the legs.
         leg_peak = frames.index(contact)
         arm_peak = frames.index(max(frames, key=lambda f: abs(f["arms"])))
-        lag = ((arm_peak - leg_peak) % span) / span if span else 0.0
+        # Measured against ANTI-PHASE, not against zero. The arms oppose the legs,
+        # so their extremes are half a cycle from the legs' by construction, and a
+        # correct ten per cent lag shows up as sixty per cent against a zero
+        # baseline. The lag is what is left after taking the half turn out.
+        lag = (((arm_peak - leg_peak) % span) / span - 0.5) if span else 0.0
 
         scored[name] = {
             "frames": span,
             "legs_travel": round(legs_travel, 4),
             "arms_carry": round(arms_travel / legs_travel, 3) if legs_travel else 0.0,
-            "planted_foot_rides_m": round(rides * 1.7, 4),
+            "planted_foot_slides": round(rides, 3),
             "hip_rises_cm": round(bobs * 170.0, 2),
             "hip_highs_per_cycle": len(highs),
             "hip_high_at_percent": [round(100.0 * i / span) for i in highs],
             "arm_lag_percent": round(100.0 * lag),
+            "arm_lag_wants": "8 to 12",
+            "halves_bob_alike": round(rise, 3),
+            "halves_peak_frames_apart": apart,
+            "halves_should_be_apart": middle,
             "contact_frame": contact["frame"],
         }
         print(f"\n{name}: contact at frame {contact['frame']}, {front} leg leading")
@@ -249,6 +318,21 @@ def main() -> None:
                 f"{contact['pitch'][back]:+.3f} off rest, wanting at most "
                 f"-{A_REAL_PITCH}. A trailing foot pushing off heel-first is the same "
                 f"tell from the other side."
+            )
+        # A limp, stated as a refusal rather than a score, because a cycle whose two
+        # steps differ is not a matter of degree - it is one step done twice, wrong.
+        if rise < LIMPS_BELOW:
+            refused.append(
+                f"{name}: it LIMPS. One half of the cycle bobs "
+                f"{max(early) - min(early):.4f} and the other "
+                f"{max(late) - min(late):.4f}, a ratio of {rise:.2f} where "
+                f"{LIMPS_BELOW} is the floor. A cycle is two steps and the second is "
+                f"the first with the legs swapped, so the halves must match."
+            )
+        if abs(apart - middle) > A_FRAME_OR_TWO:
+            refused.append(
+                f"{name}: the two halves peak {apart} frames apart where half a cycle "
+                f"is {middle}. The bob is not keeping time with the steps."
             )
         if contact["folded"][front] >= contact["folded"][back]:
             refused.append(

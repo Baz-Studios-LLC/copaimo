@@ -35,7 +35,7 @@ use crate::player::{Player, Striding};
 // so the threshold sat BELOW walking pace and the walk clip never played once. Any
 // value here must lie strictly between `player::WALK_SPEED` and
 // `player::SPRINT_SPEED`, which `the_gait_threshold_lies_between_the_speeds` checks.
-const BREAKS_INTO_A_RUN: f32 = 3.2;
+const BREAKS_INTO_A_RUN: f32 = 3.4;
 
 /// How far one cycle of each clip carries the warden, in metres.
 ///
@@ -56,17 +56,18 @@ const BREAKS_INTO_A_RUN: f32 = 3.2;
 /// `dev/art/stride_measure.py` now fits a line to the planted foot's travel and
 /// reports the slope, so `f` falls out instead of being assumed.
 ///
-/// **2.20 is that measurement, and it is provisional.** The current walk keeps a
-/// foot down for only three frames of twenty-four, so the fit has three points and
-/// the two feet disagree by 19%. It is nonetheless much closer than 1.519, which had
-/// the warden outrunning their own feet. Re-measure once the walk has a real stance.
+/// **Both are now measured off clips that have a stance to measure.** The provisional
+/// 2.20 was fitted to a walk that kept a foot down for three frames of twenty-four,
+/// so the fit had three points and the two feet disagreed by 19%; and 1.610 was never
+/// measured at all, because the old run had no frames with a foot down anywhere in
+/// it. Both were notes asking to be re-measured once the clips had real stance
+/// phases, which the eight-pose cycles do.
 ///
-/// **1.610 is NOT measured** — the run has no frames with a foot down at all, so
-/// there was nothing to fit. It is the old doubled figure, kept only because a wrong
-/// number that plays is better than no number, and it is why `SPRINT_SPEED` is
-/// capped at 4.0.
-const STRIDE_COVERS: f32 = 2.20;
-const RUN_COVERS: f32 = 1.610;
+/// 1.935 and 2.282, and the cadences that follow are believable without help: 112
+/// steps a minute walking at 1.8 m/s and 189 running at 3.6, against 95-140 and
+/// 150-200 for real people. That headroom is what let the speeds go up.
+const STRIDE_COVERS: f32 = 1.935;
+const RUN_COVERS: f32 = 2.282;
 
 /// What to hand `set_speed` so a clip plays at the right cadence.
 ///
