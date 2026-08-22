@@ -888,17 +888,96 @@ fast travel — not a bug to tune away by making the warden superhuman again.
 
 ### "Why can I not see the character in Blender?"
 
-Because none of the work happens in the open Blender window. Every asset step is
+Because none of the authoring happens in the open Blender window. Every asset step is
 BATCH Blender: a headless process that imports, does one job, exports and exits.
-Nothing it does touches a running instance.
+Nothing it does touches a running instance, so the open window keeps showing whatever
+was last put in it.
 
-And the live session cannot be used for this: the add-on that drives it executes code
-in a context without `bpy.context.object`, and the glTF importer needs that while
-setting up armature display, so `import_scene.gltf` fails there outright.
+**What was actually in the window** was the wreckage of one failed import: an
+`Armature`, an `Icosphere` — the sphere the glTF importer makes to draw bones with —
+and no character mesh between them. It looked like an empty rig because it *was* an
+empty rig.
 
-**Fix.** `dev/art/ranger_blend.sh` writes `dev/art/ranger.blend` — the model, the rig
-and all three clips, textures packed, the walk loaded and the frame range set — built
-from the game's own copy so what opens is exactly what the game loads.
+**And a correction worth keeping, because it was written into this file as a rule.**
+This section previously said the live session *cannot* import a GLB: that the add-on
+runs code in a context without `bpy.context.object`, which the importer needs while
+setting up armature display. That failure was real, but it was a STATE, not a
+property. Clearing the scene's objects and importing again worked first try — mesh,
+rig and all three clips. The original failure came from a script that began with
+`read_homefile(use_empty=True)`, which leaves no active object for the importer to
+reach for.
+
+The lesson is the one this file keeps relearning from the other direction: **one
+failure is a data point, not a rule.** Promoting it to a rule cost more than the bug
+did, because a written-down impossibility stops anyone trying again.
+
+**Two ways in, then.**
+
+* `dev/art/ranger_blend.sh` writes `dev/art/ranger.blend` — the model, the rig and all
+  three clips, textures packed, the walk loaded and the frame range set — built from
+  the game's own copy, so what opens is exactly what the game loads. Use this to
+  KEEP a scene.
+* The live session imports fine. Use it to LOOK at one, and to find numbers: it is
+  how the eye boxes in `dev/art/ranger_texture.py` were measured. Clear the scene
+  first, and put a camera and a light back afterwards — `--look` renders through the
+  scene camera and reports "the scene has no camera" if the clear took it.
+
+### "The limbs are still backwards"
+
+**Symptom.** Knees folding like a bird's, elbows bending the wrong way, and a walk
+that reads as wrong without it being obvious which part is wrong. Reported three
+times, fixed twice by adjusting numbers, and still wrong both times.
+
+**Cause — one sentence of prose in a docstring.** `animate_ranger.py` said:
+
+> The model faces +X. So a limb swinging forward turns about the armature's Y axis. A
+> positive swing is forward, which makes a knee's flexion negative and an elbow's
+> positive.
+
+Every clause after the first was wrong, and each call site then hard-coded a sign
+from it: `swing(Calf, -knee)`, `swing(Forearm, 18.0)`. It was **reasoned about rather
+than measured**, and reasoning got it inverted — which is the worst outcome, because
+inverted-twice still animates, still exports, and still passes every test that checks
+a clip exists.
+
+**Measured three ways, all agreeing.**
+
+1. **Directly.** +10 degrees about +Y moves the end of every limb BACKWARD — twelve
+   bones, both sides, 0.002 to 0.078 units. Forward is **−Y**.
+2. **The hinge test.** Bending a joint must FOLD the limb — shorten root-to-tip.
+   Twists and swings do not. Of six candidate axes only **+Y** both folds the knee
+   and puts it in FRONT of the hip-to-ankle line (+0.082), and only **−Y** both
+   folds the elbow and puts it BEHIND the shoulder-to-wrist line (−0.074).
+3. **The model's own idle.** `Ranger_Rig_Idle.glb` shipped with an authored pose by
+   someone who could see it. Its knees turn about +Y by 42 degrees; its elbows trail
+   by 0.037. Ground truth, in the same file, agreeing with the hinge test.
+
+**A fourth defect the measurement found on its own.** The arms were not opposing the
+legs because they were barely moving: `WALK_ARM` was **6 degrees**, moving the hands
+0.04 against the feet's 0.46 — 9% of the legs' travel. Six had been a workaround for
+the glove-in-pocket fault, which was repaired at its cause later, and the workaround
+was never taken back out. A walk without visible opposition reads as wrong, and no
+amount of correcting the knees fixes that.
+
+**Fix.** The axes are measured once and NAMED for what they do —
+`REACHES_FORWARD`, `FOLDS_THE_KNEE`, `FOLDS_THE_ELBOW`, `LIFTS_THE_TOE` — so a call
+site states an intention and cannot state a sign. Arm amplitude back to 20/30.
+
+**And `dev/art/verify_gait.py`, which is the part that matters.** It poses the
+EXPORTED file over its own clips and refuses it unless the arms oppose the legs, the
+knees lead, the elbows trail, and the arms carry at least a quarter of the legs'
+travel. Wired into `animate_ranger.sh`, so a wrong sign now fails the export instead
+of reaching a player. Every one of these three attempts was caught by the person
+playing the game; that is the thing this fixes.
+
+**Lesson.** A sign is a fact about a rig, not something to derive from how the rig
+was described. Measure it, name it for its effect, and check the result.
+
+**Still open, with a number.** The lower foot rides **0.095 m** over a walk cycle
+(0.121 m running) instead of staying planted, because the hip bob is ADDED on top of
+the rise a straightening leg already produces. `verify_gait.py` reports it. It is not
+enforced, because the value it should have has not been established and a threshold
+set to wherever the code happens to sit is decoration.
 
 ### An authored clip comes out as the splits
 

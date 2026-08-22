@@ -19,3 +19,8 @@ blender=$(find_blender) || { echo "Blender not found." >&2; exit 1; }
 # this is not done inside Blender.
 python "$here/ranger_texture.py"
 "$blender" --background --python-exit-code 1 --python "$here/animate_ranger.py"
+
+# And then REFUSE it if the limbs bend the wrong way. Three attempts shipped a walk
+# with backwards knees and arms swinging with the legs, and every one of them was
+# caught by the person playing the game. See dev/art/verify_gait.py.
+"$blender" --background --python-exit-code 1 --python "$here/verify_gait.py" --   "$(cd "$here/../.." && pwd)/assets/models/person_ranger.glb" walk run

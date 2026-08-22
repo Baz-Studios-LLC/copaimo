@@ -23,12 +23,34 @@ happens to be for the bone in question:
 That is exact for any rig, and it means this same script would work on a different
 skeleton with different rest poses.
 
-# Which way is forward
+# Which way is forward, and how that was settled
 
-The model faces +X. Up is +Z (Blender). So a limb swinging forward turns about the
-armature's **Y** axis, and the body bobs along **Z**. A positive swing is forward,
-which makes a knee's flexion negative and an elbow's positive — the same anatomy the
-scripted figure needed, just expressed in axes that hold for any rig.
+The model faces +X (0.969, 0.249, 0) taken off its own toe. Up is +Z. A limb swinging
+fore-and-aft turns about the armature's **Y**, and the body bobs along **Z**.
+
+The sentence that used to stand here said a positive Y swing is FORWARD, and that
+knee flexion is therefore negative and elbow flexion positive. **Every part of that
+was backwards, and it is why the limbs bent like a bird's for three attempts.** It
+was reasoning, not measuring.
+
+Measured instead, three ways that agree:
+
+1. **Directly.** +10 degrees about +Y moves the end of every limb BACKWARD — all
+   twelve bones, both sides, between 0.002 and 0.078 units. So forward is **−Y**.
+2. **The hinge test.** Bending a joint must FOLD the limb — shorten the line from
+   its root to its tip. Twists and swings do not. Of six candidate axes, the knee
+   folds on +Y with the knee LEADING the hip-to-ankle line by 0.082, and the elbow
+   folds on −Y with the elbow TRAILING the shoulder-to-wrist line by 0.074. Those
+   are the two human directions, and the other four axes give one or the other but
+   never both.
+3. **The model's own idle.** The clip that shipped in `Ranger_Rig_Idle.glb` is an
+   authored pose by someone who could see it, so it is ground truth in the same
+   file. Its knees turn about +Y by 42 degrees and its elbows trail by 0.037. It
+   agrees with the hinge test on both.
+
+So the axes below are NAMED for what they do, not for their sign, and the sign is
+recorded once where it was measured rather than re-derived at each call site. That is
+the whole fix: `bend the knee 40 degrees` cannot be written backwards.
 """
 
 import math
@@ -38,14 +60,26 @@ import sys
 import bpy
 import mathutils
 
+# Which armature axis each joint turns about, and which way is positive. Measured —
+# see the module docstring. Named so that a caller states an intention and cannot
+# state a sign.
+REACHES_FORWARD = (0.0, -1.0, 0.0)
+FOLDS_THE_KNEE = (0.0, 1.0, 0.0)
+FOLDS_THE_ELBOW = (0.0, -1.0, 0.0)
+LIFTS_THE_TOE = (0.0, -1.0, 0.0)
+
 # How far a thigh reaches at full stride, in degrees, and how far an arm answers it.
 WALK_STRIDE = 26.0
-WALK_ARM = 6.0
+# 20, not 6. At six degrees the hands moved 0.04 units against the feet's 0.46, so
+# there was no arm swing to oppose the legs with — the shoulders read as pinned, and
+# a walk without opposition reads as WRONG without it being obvious why. Six was a
+# workaround for the glove-in-pocket fault, and that is repaired at its cause now.
+WALK_ARM = 20.0
 # 28, not 42. Rendered and looked at: 42 degrees each way is 84 between the legs,
 # and with the knees straight it read as the splits — mid-air, no foot ever planted.
 # A stylised run wants a modest stride and a lot of KNEE.
 RUN_STRIDE = 28.0
-RUN_ARM = 10.0
+RUN_ARM = 30.0
 
 # How much a knee bends as the leg passes under the body.
 WALK_KNEE = 38.0
@@ -497,21 +531,31 @@ def gait(rig, name: str, stride: float, arm: float, knee: float, bob: float, lea
         for side, hand in (("L", 1.0), ("R", -1.0)):
             if passing:
                 forward = swinging * hand
-                swing(rig, f"{side}_Thigh", (10.0 if forward > 0 else -14.0))
-                swing(rig, f"{side}_Calf", -knee if forward > 0 else -6.0)
-                swing(rig, f"{side}_Foot", 12.0 if forward > 0 else -6.0)
-                swing(rig, f"{side}_Upperarm", 0.0)
+                # The swinging leg comes through lifted and folded; the stance leg
+                # is nearly straight under the body, taking the weight.
+                swing(rig, f"{side}_Thigh", 10.0 if forward > 0 else -14.0, REACHES_FORWARD)
+                swing(rig, f"{side}_Calf", knee if forward > 0 else 6.0, FOLDS_THE_KNEE)
+                # The swinging foot clears the ground toe-up. The STANCE foot is
+                # flat in a walk — a walk always has a foot planted, and a pointed
+                # one made the whole pass read as floating — but stays pointed in a
+                # run, where both feet genuinely leave the ground.
+                planted = -10.0 if name == "run" else 0.0
+                swing(rig, f"{side}_Foot", 8.0 if forward > 0 else planted, LIFTS_THE_TOE)
+                # The legs are together at a pass, so the arms are too.
+                swing(rig, f"{side}_Upperarm", 0.0, REACHES_FORWARD)
             else:
                 forward = lead * hand
-                swing(rig, f"{side}_Thigh", stride * forward)
+                swing(rig, f"{side}_Thigh", stride * forward, REACHES_FORWARD)
                 # The reaching leg is nearly straight; the trailing one keeps a bend
-                # because it is pushing off.
-                swing(rig, f"{side}_Calf", -8.0 if forward > 0 else -26.0)
-                swing(rig, f"{side}_Foot", -10.0 if forward > 0 else 16.0)
-                # Arms answer the OPPOSITE leg.
-                swing(rig, f"{side}_Upperarm", -arm * forward)
+                # because it is pushing off. Both POSITIVE: a knee folds one way.
+                swing(rig, f"{side}_Calf", 8.0 if forward > 0 else 26.0, FOLDS_THE_KNEE)
+                # Heel first on the reaching foot, toe down on the one pushing off.
+                swing(rig, f"{side}_Foot", 12.0 if forward > 0 else -14.0, LIFTS_THE_TOE)
+                # Arms answer the OPPOSITE leg — the minus is what makes it
+                # contralateral, and `verify_gait.py` is what proves it still is.
+                swing(rig, f"{side}_Upperarm", -arm * forward, REACHES_FORWARD)
             # A held bend, so the arms are not two planks.
-            swing(rig, f"{side}_Forearm", 18.0 if name == "walk" else 62.0)
+            swing(rig, f"{side}_Forearm", 18.0 if name == "walk" else 62.0, FOLDS_THE_ELBOW)
 
         # The arms out a little and the palms in, every frame — see ARM_OUT.
         # `shoulder`, NOT `arm`: `arm` is this function's swing amount, and naming

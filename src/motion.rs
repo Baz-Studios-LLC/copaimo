@@ -48,12 +48,12 @@ const BREAKS_INTO_A_RUN: f32 = 3.0;
 ///
 /// A foot swings 0.451 units in the walk and 0.478 in the run, on a model authored
 /// one unit tall and scaled to 1.7 m. A CYCLE is both feet taking one step, so the
-/// body advances by twice that: 1.53 m walking, 1.63 m running.
+/// body advances by twice that: 1.519 m walking, 1.610 m running.
 ///
 /// Getting the factor of two wrong is the difference between a believable cadence
 /// and a blur, and the cadence test below is what caught it.
-const STRIDE_COVERS: f32 = 1.53;
-const RUN_COVERS: f32 = 1.63;
+const STRIDE_COVERS: f32 = 1.519;
+const RUN_COVERS: f32 = 1.610;
 
 /// How long one gait eases into another, in seconds.
 ///
