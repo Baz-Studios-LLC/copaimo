@@ -69,6 +69,30 @@ const BREAKS_INTO_A_RUN: f32 = 3.4;
 const STRIDE_COVERS: f32 = 1.935;
 const RUN_COVERS: f32 = 2.282;
 
+/// The moving gaits, slowest first: the word in the clip's name, how far one cycle
+/// carries the warden in metres, and the speed above which the next one takes over.
+///
+/// # A table rather than fields, because a third clip is coming
+///
+/// This was two named fields and a boolean. The comment above `find_the_clips` had
+/// already predicted the problem — "reaching for `Animation(0)` would quietly make the
+/// warden stand still the day a third clip is added" — and the same was true of the
+/// playing code: every gait meant another arm of an `if`, another pair of constants
+/// threaded through, and another chance to hand one gait's distance to another gait's
+/// clip.
+///
+/// Adding a jog between the walk and the run is now a ROW. The selection, the cadence
+/// and the tests all read this table, so there is no second place to update and forget.
+///
+/// `covers` is measured, never derived: `dev/art/stride_measure.py` fits a line to the
+/// planted foot's travel to get the stance fraction, and a cycle carries `foot travel
+/// / stance fraction`. See `STRIDE_COVERS` for why the obvious `2 x foot swing` is
+/// wrong by 45% on anything with a flight phase.
+const GAITS: &[(&str, f32, f32)] = &[
+    ("walk", STRIDE_COVERS, BREAKS_INTO_A_RUN),
+    ("run", RUN_COVERS, f32::INFINITY),
+];
+
 /// What to hand `set_speed` so a clip plays at the right cadence.
 ///
 /// `set_speed` is a MULTIPLE of a clip's natural rate — one cycle over its authored
@@ -93,10 +117,13 @@ const BLEND: f32 = 0.18;
 #[derive(Resource)]
 pub struct Motions {
     graph: Handle<AnimationGraph>,
-    walk: AnimationNodeIndex,
     idle: AnimationNodeIndex,
-    /// A run, if the body has one.
-    run: Option<AnimationNodeIndex>,
+    /// Every moving gait the body actually carries, slowest first.
+    ///
+    /// Built from `GAITS`, skipping any the file does not have — a body with only a
+    /// walk still walks, and sprints by walking faster, which is wrong but is not
+    /// broken and beats refusing to animate.
+    gaits: Vec<Gait>,
     /// How long each gait's clip runs, in seconds.
     ///
     /// # Why a cadence needs the clip's own length
@@ -111,8 +138,18 @@ pub struct Motions {
     /// fast and the feet skated for it. Nothing in the cadence test could catch that,
     /// because the test checked the number being ASKED for rather than the one the
     /// player would produce.
-    walk_lasts: f32,
-    run_lasts: f32,
+    idle_lasts: f32,
+}
+
+/// One gait, with everything needed to play it at the right rate.
+struct Gait {
+    node: AnimationNodeIndex,
+    /// How far one cycle carries the warden, in metres.
+    covers: f32,
+    /// How long the clip runs, in seconds — see `playback_rate`.
+    lasts: f32,
+    /// Above this speed the next gait up takes over.
+    upto: f32,
 }
 
 /// The body's own glTF, held while its clips are being waited for.
@@ -162,9 +199,11 @@ pub fn find_the_clips(
                 .map(|(_, clip)| clip)
         })
     };
-    let (Some(walk), Some(idle)) = (named("walk"), named("idle")) else {
+    // Only the idle is required here. Which moving gaits exist is the `GAITS` loop's
+    // business, and it warns per missing gait rather than refusing the lot.
+    let Some(idle) = named("idle") else {
         warn!(
-            "the body has no walk and idle — it carries {:?}, so the warden will slide",
+            "the body has no idle — it carries {:?}, so the warden will slide",
             file.named_animations.keys().collect::<Vec<_>>()
         );
         commands.remove_resource::<Waiting>();
@@ -173,35 +212,47 @@ pub fn find_the_clips(
     // The clips themselves, for their durations. They are sub-assets of the file, so
     // they normally arrive with it — but not necessarily in the same frame, and a
     // duration of nought would divide the cadence into infinity. So this waits.
-    let Some(walk_lasts) = clips.get(walk).map(AnimationClip::duration) else {
+    let Some(idle_lasts) = clips.get(idle).map(AnimationClip::duration) else {
         return;
     };
-    if walk_lasts <= 0.0 {
-        warn!("the walk clip has no length, so its cadence cannot be set");
+
+    let mut graph = AnimationGraph::new();
+    let standing = graph.add_clip(idle.clone(), 1.0, graph.root);
+    let mut gaits = Vec::new();
+    for (called, covers, upto) in GAITS {
+        let Some(clip) = named(called) else {
+            info!("the body has no {called} clip; the gait above it will cover for it");
+            continue;
+        };
+        let Some(lasts) = clips.get(clip).map(AnimationClip::duration) else {
+            return;
+        };
+        if lasts <= 0.0 {
+            warn!("the {called} clip has no length, so its cadence cannot be set");
+            continue;
+        }
+        gaits.push(Gait {
+            node: graph.add_clip(clip.clone(), 1.0, graph.root),
+            covers: *covers,
+            lasts,
+            upto: *upto,
+        });
+    }
+    if gaits.is_empty() {
+        warn!("the body carries none of the gaits in GAITS, so the warden will slide");
         commands.remove_resource::<Waiting>();
         return;
     }
-
-    let mut graph = AnimationGraph::new();
-    let walking = graph.add_clip(walk.clone(), 1.0, graph.root);
-    let standing = graph.add_clip(idle.clone(), 1.0, graph.root);
-    // A run is optional: a body with only a walk sprints by walking faster, which
-    // is wrong but is not broken, and is better than refusing to animate at all.
-    let run_lasts = named("run")
-        .and_then(|run| clips.get(run))
-        .map(AnimationClip::duration)
-        .unwrap_or(walk_lasts);
-    let running = named("run").map(|run| graph.add_clip(run.clone(), 1.0, graph.root));
-    if running.is_none() {
-        info!("the body has no run clip; sprinting will play the walk quicker");
+    // The fastest gait always catches everything above it, whatever its row said, so
+    // that a missing top tier cannot leave a speed with no clip to play.
+    if let Some(top) = gaits.last_mut() {
+        top.upto = f32::INFINITY;
     }
     commands.insert_resource(Motions {
         graph: graphs.add(graph),
-        walk: walking,
         idle: standing,
-        run: running,
-        walk_lasts,
-        run_lasts,
+        gaits,
+        idle_lasts,
     });
     commands.remove_resource::<Waiting>();
 }
@@ -237,15 +288,19 @@ pub fn match_the_clip_to_the_walking(
     // Below this a warden is standing: a hair of drift from a clamped step should
     // not start the feet going.
     let moving = pace.speed > 0.05;
-    let running = moving && pace.speed > BREAKS_INTO_A_RUN && motions.run.is_some();
+    // The slowest gait whose ceiling this speed is still under. The list is ordered
+    // and its last entry catches everything, so this always finds one.
+    let gait = motions
+        .gaits
+        .iter()
+        .find(|gait| pace.speed <= gait.upto)
+        .unwrap_or_else(|| motions.gaits.last().expect("never empty"));
 
     for (mut player, mut moves) in &mut players {
-        let (wanted, covers, lasts) = if running {
-            (motions.run.expect("checked"), RUN_COVERS, motions.run_lasts)
-        } else if moving {
-            (motions.walk, STRIDE_COVERS, motions.walk_lasts)
+        let (wanted, covers, lasts) = if moving {
+            (gait.node, gait.covers, gait.lasts)
         } else {
-            (motions.idle, 0.0, motions.walk_lasts)
+            (motions.idle, 0.0, motions.idle_lasts)
         };
         if !player.is_playing_animation(wanted) {
             moves
@@ -366,6 +421,59 @@ mod pacing {
             running <= RUN_CHURNS_AT,
             "the run plays at {running:.0} steps a minute, past the {RUN_CHURNS_AT:.0}              it is allowed while its stride is too short. A person runs at 150 to 180.              Give the run a longer stride rather than raising this."
         );
+    }
+
+    /// The gait table has to be ordered, positive, and open at the top.
+    ///
+    /// Three properties, each of which breaks the selection silently rather than
+    /// loudly if it is violated — which is exactly why they are asserted rather than
+    /// trusted. The selection takes the FIRST gait whose ceiling the speed is under,
+    /// so an unordered table makes a fast gait shadow a slow one; a `covers` of nought
+    /// divides the cadence into infinity; and a finite top ceiling leaves the speeds
+    /// above it with no clip.
+    #[test]
+    fn the_gait_table_is_ordered_and_open_at_the_top() {
+        assert!(!GAITS.is_empty(), "there has to be at least one moving gait");
+        let mut previous = 0.0f32;
+        for (called, covers, upto) in GAITS {
+            assert!(
+                *covers > 0.0,
+                "the {called} gait covers {covers} m a cycle, and a cadence cannot be                  divided by that"
+            );
+            assert!(
+                *upto > previous,
+                "the {called} gait's ceiling {upto} is not above the one before it                  ({previous}), so it can never be chosen: the selection takes the first                  gait the speed fits under"
+            );
+            previous = *upto;
+        }
+        let (top, _, ceiling) = GAITS[GAITS.len() - 1];
+        assert!(
+            ceiling.is_infinite(),
+            "the fastest gait is {top} and its ceiling is {ceiling}, so nothing plays              above that speed"
+        );
+    }
+
+    /// And every gait in the table plays at a believable cadence at the speed that
+    /// selects it — not just the two that used to have named constants.
+    #[test]
+    fn no_gait_in_the_table_churns_at_its_own_ceiling() {
+        let mut floor = 0.0f32;
+        for (called, covers, upto) in GAITS {
+            // The fastest speed this gait is asked to carry: its own ceiling, or the
+            // sprint if it is the open-topped one at the top.
+            let fastest = if upto.is_infinite() {
+                crate::player::SPRINT_SPEED
+            } else {
+                *upto
+            };
+            let steps = fastest / covers * 120.0;
+            assert!(
+                (60.0..=250.0).contains(&steps),
+                "the {called} gait carries {fastest} m/s over {covers} m a cycle, which                  is {steps:.0} steps a minute. Real people manage 95 to 140 walking and                  150 to 200 running, so this needs a longer stride or another tier."
+            );
+            floor = fastest;
+        }
+        assert!(floor > 0.0, "no gait carried anything");
     }
 
     /// The cadence must not depend on how long the clip was authored.
