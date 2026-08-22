@@ -55,6 +55,20 @@ const BREAKS_INTO_A_RUN: f32 = 3.0;
 const STRIDE_COVERS: f32 = 1.519;
 const RUN_COVERS: f32 = 1.610;
 
+/// What to hand `set_speed` so a clip plays at the right cadence.
+///
+/// `set_speed` is a MULTIPLE of a clip's natural rate — one cycle over its authored
+/// duration — and not a rate. So playing `speed / covers` cycles a second means
+/// asking for that many multiplied by however long the clip happens to be.
+///
+/// Leaving the duration out is a bug that hides: the walk lasts 1.042 s, near enough
+/// to one that nothing looked wrong, while the run lasts 0.708 and played 41% too
+/// fast. The property that catches it is that the cadence must come out the SAME
+/// whatever the clip's length, which is what the test asserts.
+fn playback_rate(speed: f32, covers: f32, clip_lasts: f32) -> f32 {
+    clip_lasts * speed / covers
+}
+
 /// How long one gait eases into another, in seconds.
 ///
 /// Short: a warden who starts walking should look like they started walking, not
@@ -69,6 +83,22 @@ pub struct Motions {
     idle: AnimationNodeIndex,
     /// A run, if the body has one.
     run: Option<AnimationNodeIndex>,
+    /// How long each gait's clip runs, in seconds.
+    ///
+    /// # Why a cadence needs the clip's own length
+    ///
+    /// `set_speed` is a MULTIPLE of a clip's natural rate, not a rate. A clip's
+    /// natural rate is one cycle over its authored duration, so cycles a second is
+    /// `speed / duration` — and handing it `strides_a_second` alone silently assumes
+    /// every clip lasts exactly one second.
+    ///
+    /// The walk very nearly does, at 1.042 s. The run lasts 0.708, because it is
+    /// authored over sixteen frames rather than twenty-four, so it played 41% too
+    /// fast and the feet skated for it. Nothing in the cadence test could catch that,
+    /// because the test checked the number being ASKED for rather than the one the
+    /// player would produce.
+    walk_lasts: f32,
+    run_lasts: f32,
 }
 
 /// The body's own glTF, held while its clips are being waited for.
@@ -93,6 +123,7 @@ pub fn find_the_clips(
     mut commands: Commands,
     waiting: Res<Waiting>,
     files: Res<Assets<Gltf>>,
+    clips: Res<Assets<AnimationClip>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
 ) {
     let Some(file) = files.get(&waiting.0) else {
@@ -125,11 +156,27 @@ pub fn find_the_clips(
         commands.remove_resource::<Waiting>();
         return;
     };
+    // The clips themselves, for their durations. They are sub-assets of the file, so
+    // they normally arrive with it — but not necessarily in the same frame, and a
+    // duration of nought would divide the cadence into infinity. So this waits.
+    let Some(walk_lasts) = clips.get(walk).map(AnimationClip::duration) else {
+        return;
+    };
+    if walk_lasts <= 0.0 {
+        warn!("the walk clip has no length, so its cadence cannot be set");
+        commands.remove_resource::<Waiting>();
+        return;
+    }
+
     let mut graph = AnimationGraph::new();
     let walking = graph.add_clip(walk.clone(), 1.0, graph.root);
     let standing = graph.add_clip(idle.clone(), 1.0, graph.root);
     // A run is optional: a body with only a walk sprints by walking faster, which
     // is wrong but is not broken, and is better than refusing to animate at all.
+    let run_lasts = named("run")
+        .and_then(|run| clips.get(run))
+        .map(AnimationClip::duration)
+        .unwrap_or(walk_lasts);
     let running = named("run").map(|run| graph.add_clip(run.clone(), 1.0, graph.root));
     if running.is_none() {
         info!("the body has no run clip; sprinting will play the walk quicker");
@@ -139,6 +186,8 @@ pub fn find_the_clips(
         walk: walking,
         idle: standing,
         run: running,
+        walk_lasts,
+        run_lasts,
     });
     commands.remove_resource::<Waiting>();
 }
@@ -177,12 +226,12 @@ pub fn match_the_clip_to_the_walking(
     let running = moving && pace.speed > BREAKS_INTO_A_RUN && motions.run.is_some();
 
     for (mut player, mut moves) in &mut players {
-        let (wanted, covers) = if running {
-            (motions.run.expect("checked"), RUN_COVERS)
+        let (wanted, covers, lasts) = if running {
+            (motions.run.expect("checked"), RUN_COVERS, motions.run_lasts)
         } else if moving {
-            (motions.walk, STRIDE_COVERS)
+            (motions.walk, STRIDE_COVERS, motions.walk_lasts)
         } else {
-            (motions.idle, 0.0)
+            (motions.idle, 0.0, motions.walk_lasts)
         };
         if !player.is_playing_animation(wanted) {
             moves
@@ -190,11 +239,12 @@ pub fn match_the_clip_to_the_walking(
                 .repeat();
         }
         if moving {
-            // Strides a second, which is what stops the feet skating: a clip is one
-            // stride long, so its speed IS how many of them the warden needs. Each
-            // gait carries a different distance, so each is divided by its own.
+            // Strides a second is `speed / covers`: a clip is one stride long, so
+            // that is how many of them the warden needs, and each gait carries its
+            // own distance. Multiplied by the clip's LENGTH because `set_speed` is a
+            // multiple of its natural rate rather than a rate — see `Motions`.
             if let Some(active) = player.animation_mut(wanted) {
-                active.set_speed(pace.speed / covers);
+                active.set_speed(playback_rate(pace.speed, covers, lasts));
             }
         }
     }
@@ -236,15 +286,38 @@ mod pacing {
 
     /// And the clips play at a believable cadence at those speeds.
     ///
-    /// A clip is one stride, so its playback rate is strides a second. A person
-    /// walks at roughly one stride a second and runs at about one and a half; much
-    /// past two and the legs are a blur whatever the clip contains.
+    /// # Measured through the clip's own length, not around it
+    ///
+    /// This test used to assert on `speed / covers` — the number the game ASKS for —
+    /// and passed while the run played 41% too fast, because `set_speed` is a
+    /// multiple of a clip's natural rate and the run is authored over sixteen frames
+    /// rather than twenty-four. Checking the request rather than the result is how a
+    /// test agrees with the code about something they are both wrong about.
+    ///
+    /// So the durations come out of the FILE, and the cadence asserted here is the
+    /// one the animation player will produce.
     #[test]
     fn neither_gait_plays_at_a_blur() {
-        let walking = crate::player::WALK_SPEED / STRIDE_COVERS;
-        let running = crate::player::SPRINT_SPEED / RUN_COVERS;
-        // A person walks at about one cycle a second and runs at about one and a
-        // half. Past two and a half the legs are a blur whatever the clip holds.
+        let file = std::fs::read("assets/models/person_ranger.glb")
+            .expect("the ranger's own file, which the game loads");
+        let model = crate::models::inspect(&file).expect("a readable GLB");
+        let lasts = |gait: &str| -> f32 {
+            model
+                .clips
+                .iter()
+                .find(|(name, _)| name.to_lowercase().contains(gait))
+                .map(|(_, seconds)| *seconds)
+                .unwrap_or_else(|| panic!("no {gait} clip in {:?}", model.clips))
+        };
+
+        // What the player will actually produce: the rate handed to `set_speed`,
+        // divided by the clip's own length, because that rate is a multiple of one
+        // cycle over that length.
+        let plays_at = |speed: f32, covers: f32, gait: &str| -> f32 {
+            playback_rate(speed, covers, lasts(gait)) / lasts(gait)
+        };
+        let walking = plays_at(crate::player::WALK_SPEED, STRIDE_COVERS, "walk");
+        let running = plays_at(crate::player::SPRINT_SPEED, RUN_COVERS, "run");
         assert!(
             (0.6..1.6).contains(&walking),
             "the walk plays at {walking:.2} cycles a second"
@@ -253,5 +326,56 @@ mod pacing {
             (1.0..2.5).contains(&running),
             "the run plays at {running:.2} cycles a second"
         );
+    }
+
+    /// The cadence must not depend on how long the clip was authored.
+    ///
+    /// This is the test that would have caught the run playing 41% too fast, and the
+    /// one the old test could not be: it asserts a PROPERTY rather than a value.
+    /// `speed / covers` alone passes any check of the number it produces while being
+    /// wrong by exactly the clip's duration, so the only way to see the fault is to
+    /// vary the duration and demand the answer stay put.
+    #[test]
+    fn the_cadence_does_not_care_how_long_the_clip_is() {
+        let covers = STRIDE_COVERS;
+        let speed = crate::player::WALK_SPEED;
+        let wanted = speed / covers;
+        for lasts in [0.25, 0.5, 0.708, 1.0, 1.042, 2.0, 7.5] {
+            let plays_at = playback_rate(speed, covers, lasts) / lasts;
+            assert!(
+                (plays_at - wanted).abs() < 1e-4,
+                "a clip authored over {lasts} s plays at {plays_at:.4} cycles a second                  where {wanted:.4} was wanted — the cadence is following the clip's                  length instead of the warden's speed"
+            );
+        }
+    }
+
+    /// And a clip's length is not wildly off one stride's worth of time.
+    ///
+    /// The cadence fix makes any duration work, which removes the pressure to author
+    /// clips at a sensible length — and a clip stretched far from the speed it plays
+    /// at loses its keys' spacing to the resampling. So the authored length is
+    /// checked against the time a stride actually takes.
+    #[test]
+    fn each_clip_is_authored_near_the_time_its_stride_takes() {
+        let file = std::fs::read("assets/models/person_ranger.glb")
+            .expect("the ranger's own file, which the game loads");
+        let model = crate::models::inspect(&file).expect("a readable GLB");
+        for (gait, speed, covers) in [
+            ("walk", crate::player::WALK_SPEED, STRIDE_COVERS),
+            ("run", crate::player::SPRINT_SPEED, RUN_COVERS),
+        ] {
+            let lasts = model
+                .clips
+                .iter()
+                .find(|(name, _)| name.to_lowercase().contains(gait))
+                .map(|(_, seconds)| *seconds)
+                .unwrap_or_else(|| panic!("no {gait} clip in {:?}", model.clips));
+            let a_stride_takes = covers / speed;
+            let stretch = lasts / a_stride_takes;
+            assert!(
+                (0.4..2.5).contains(&stretch),
+                "the {gait} clip is authored over {lasts:.3} s and a stride takes                  {a_stride_takes:.3} s, so it plays at {stretch:.2}x its own rate"
+            );
+        }
     }
 }

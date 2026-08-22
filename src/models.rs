@@ -63,6 +63,15 @@ pub struct Model {
     pub joints: usize,
     /// Each mesh's own corner-to-corner extent, by name.
     pub bounds: Vec<(String, [f32; 3], [f32; 3])>,
+    /// Each animation, by name, with how many SECONDS it runs for.
+    ///
+    /// This is here because the length of a clip is not a detail of the file — it is
+    /// half of the cadence. `motion.rs` divides the warden's speed by how far a
+    /// stride carries them to get cycles per second, and then hands that to
+    /// `set_speed`, which is a MULTIPLE of the clip's own rate. So the arithmetic is
+    /// only right when a clip happens to last exactly one second, and the run lasted
+    /// 0.708 — it played 41% too fast and the feet skated for it.
+    pub clips: Vec<(String, f32)>,
 }
 
 #[cfg(test)]
@@ -202,6 +211,38 @@ pub fn inspect(bytes: &[u8]) -> Result<Model, String> {
         })
         .unwrap_or(0);
 
+    // Each animation's length: the largest time in any of its samplers. glTF
+    // REQUIRES an animation sampler's input accessor to carry `min` and `max`
+    // (spec 3.10.1), so this needs no buffer decoding — the header states it.
+    let clips = tree["animations"]
+        .as_array()
+        .map(|animations| {
+            animations
+                .iter()
+                .enumerate()
+                .map(|(which, animation)| {
+                    let name = animation["name"]
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| format!("animation {which}"));
+                    let lasts = animation["samplers"]
+                        .as_array()
+                        .map(|samplers| {
+                            samplers
+                                .iter()
+                                .filter_map(|sampler| sampler["input"].as_u64())
+                                .filter_map(|input| {
+                                    tree["accessors"][input as usize]["max"][0].as_f64()
+                                })
+                                .fold(0.0f64, f64::max)
+                        })
+                        .unwrap_or(0.0);
+                    (name, lasts as f32)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     Ok(Model {
         low,
         high,
@@ -209,6 +250,7 @@ pub fn inspect(bytes: &[u8]) -> Result<Model, String> {
         triangles,
         meshes: named,
         joints,
+        clips,
     })
 }
 
