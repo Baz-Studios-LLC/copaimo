@@ -109,6 +109,10 @@ SPINE_TWIST = 4.0
 ARM_OUT = 5.0
 PALM_IN = 10.0
 
+# A half-turn out of each forearm in the SHIPPED idle. See `untwist_the_forearms`.
+UNTWIST = 180.0
+FOREARMS = ("L_Forearm", "R_Forearm")
+
 
 def swing(rig, bone: str, degrees: float, axis=(0.0, 1.0, 0.0)):
     """Turns a bone about an axis of the ARMATURE, whatever its own rest pose is."""
@@ -623,6 +627,91 @@ def use_the_calmed_texture() -> None:
     print(f"USING {os.path.basename(calmed)} on {swapped} material(s)")
 
 
+def untwist_the_forearms(rig) -> None:
+    """Takes a half-turn out of both forearms across the shipped idle.
+
+    # The hands came facing the wrong way, and it was not our doing
+
+    Both forearms in `preset:biped:idle` are turned about 170 degrees from their rest
+    pose, which lands the palms FORWARD with the fingers splayed outward — the
+    reversed-hand read. It is the model's own authored pose: the original file and the
+    game's export measure identical on every hand and forearm value, and a render of
+    the untouched file shows it plainly. Nothing downstream did it.
+
+    A roll of 180 degrees about a forearm's own length is exactly what swaps
+    palm-forward for palm-back, and a bone runs along its local Y in Blender, so
+    rolling about local Y is pronation and supination and cannot move the wrist.
+    Rendered against 0, +90 and -90 before being chosen: the half-turn is the one that
+    hangs the hand naturally, and it leaves about ten degrees of residual pronation,
+    which is a believable authored amount.
+
+    # Why this bakes the clip rather than editing it
+
+    Blender 5.x actions are LAYERED and have no `action.fcurves` — curves live under
+    `action.layers[].strips[].channelbag(slot)`. Rather than reach into that, this
+    steps the clip, applies the correction and keys a new action, which is the same
+    shape as `gait()` and applies the fix to the POSE, which is the thing that was
+    wrong.
+
+    Two traps, both paid for once:
+
+    * **An assigned action is re-evaluated by the depsgraph** and puts the keyed value
+      straight back over a pose edit. So the pose is read, the action is dropped, and
+      only then is anything changed. Four identical renders came out before that was
+      understood.
+    * **Read the whole clip before writing any of it.** Otherwise the action being
+      read from is the action being written to.
+    """
+    if rig.animation_data is None or rig.animation_data.action is None:
+        print("no idle to untwist")
+        return
+    idle = rig.animation_data.action
+    was_called = idle.name
+    low, high = (int(v) for v in idle.frame_range)
+
+    held = []
+    for frame in range(low, high + 1):
+        bpy.context.scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        held.append(
+            {
+                posed.name: (
+                    posed.rotation_quaternion.copy(),
+                    posed.location.copy(),
+                    posed.scale.copy(),
+                )
+                for posed in rig.pose.bones
+            }
+        )
+
+    rig.animation_data.action = None
+    fixed = bpy.data.actions.new("untwisted")
+    rig.animation_data.action = fixed
+    half = mathutils.Quaternion(mathutils.Vector((0.0, 1.0, 0.0)), math.radians(UNTWIST))
+
+    for offset, pose in enumerate(held):
+        frame = low + offset
+        for posed in rig.pose.bones:
+            turn, where, scale = pose[posed.name]
+            posed.rotation_mode = "QUATERNION"
+            posed.rotation_quaternion = turn
+            posed.location = where
+            posed.scale = scale
+        for name in FOREARMS:
+            posed = rig.pose.bones.get(name)
+            if posed is not None:
+                posed.rotation_quaternion = posed.rotation_quaternion @ half
+        # Every bone, every frame — see `key`.
+        for posed in rig.pose.bones:
+            posed.keyframe_insert("rotation_quaternion", frame=frame)
+            posed.keyframe_insert("location", frame=frame)
+
+    bpy.data.actions.remove(idle)
+    fixed.name = was_called
+    fixed.use_fake_user = True
+    print(f"untwisted '{fixed.name}': {len(held)} frames, forearms rolled {UNTWIST:+.0f}")
+
+
 def main() -> None:
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     source = os.path.join(root, "Ranger_Rig_Idle.glb")
@@ -659,6 +748,9 @@ def main() -> None:
     if idle:
         print(f"keeping '{idle.name}'")
         idle.use_fake_user = True
+        # Before the gaits: `gait` takes over the active action, and this needs the
+        # idle to still be it.
+        untwist_the_forearms(rig)
 
     # Twenty-four frames a cycle for a walk, sixteen for a run: a run is the same
     # shape at a quicker cadence, and reads wrong if it is only bigger.

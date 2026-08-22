@@ -7,6 +7,7 @@
 #
 #   verify_gait.py    refuses a wrong SIGN and scores the amplitudes
 #   stride_measure.py how far a cycle carries the warden, off the planted foot
+#   roll_match.py     whether the hands hold the same twist in every clip
 #   gait_look.py      five frames of each clip from the side, to LOOK at
 #
 # The renders are the part that matters most and the part most easily skipped.
@@ -47,6 +48,10 @@ echo
 echo "=============== what a cycle covers ==============="
 "$blender" --background --python-exit-code 1 --python "$here/stride_measure.py" -- \
   "$(win "$glb")" "${clips[@]}" 2>&1 | grep -vE "^(INFO|Blender|[0-9][0-9]:[0-9][0-9])"
+
+echo
+echo "=============== do the hands agree between clips ==============="
+"$blender" --background --python-exit-code 1 --python "$here/roll_match.py" --   "$(win "$glb")" 2>&1 | grep -vE "^(INFO|Blender|[0-9][0-9]:[0-9][0-9])"
 
 echo
 echo "=============== frames to look at ==============="
