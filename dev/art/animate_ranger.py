@@ -60,6 +60,11 @@ import sys
 import bpy
 import mathutils
 
+# Blender does not put a --python script's own directory on the path, so a sibling
+# module is not importable without this.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ik_gait  # noqa: E402
+
 # Which armature axis each joint turns about, and which way is positive. Measured —
 # see the module docstring. Named so that a caller states an intention and cannot
 # state a sign.
@@ -88,6 +93,20 @@ LIFTS_THE_TOE = (0.0, -1.0, 0.0)
 # only true for bones of the orientation it was measured on. So there are two, and
 # each says which way its bones point.
 LEANS_THE_TORSO_FORWARD = (0.0, 1.0, 0.0)
+
+# How far a planted foot travels while it is down, in model units.
+#
+# ONE number for every gait, which is not a simplification - it is the finding. Planted
+# foot travel stays near one leg length from a jog to a world-class sprint, measured at
+# 0.99 plus or minus 0.08 m across speeds from 6.2 to 11.1 m/s. What changes with speed
+# is how long the foot stays down, not how far it goes while it is there.
+#
+# So the stride comes from the STANCE SHARE and nothing else: covers = contact / share,
+# which is 0.83 m a cycle over 0.625 for the walk, 1.39 over 0.375 for the jog and 2.09
+# over 0.25 for the sprint. 0.52 units is 0.88 m at 1.7 m scale, or 1.14 of this
+# character's own 0.455-unit leg - the stylised 14% over, stated rather than stumbled
+# into.
+CONTACT = 0.52
 
 # --- The eight poses of a cycle
 #
@@ -1264,79 +1283,174 @@ def fill_in_the_flight(lift, bound: float):
     return out
 
 
-def gait(rig, name: str, leg, span: int, reach: float, back: float,
-         elbow_held: float, elbow_swing: float, lean: float, stance: int,
-         bound: float, drop: float, resting, facing):
-    """One cycle of eight poses, and a ninth that repeats the first so it loops.
+def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, reach: float,
+         back: float, elbow_held: float, elbow_swing: float, lean: float,
+         stance: int, bob: float, facing):
+    """One cycle, authored by moving the FEET, with IK solving the legs.
 
-    # What the eight are
+    Nothing here poses a knee or a hip. The foot's path is stated - planted on the
+    ground through stance, arcing forward through swing - along with how far the body
+    rises and falls, and the leg is whatever reaches that. See `ik_gait` for why the
+    other way round could not work: with the sole planted, hip height is not a free
+    choice but the leg's vertical extent, so stating both over-determines it, and the
+    thing it over-determined was the 30 cm hip drop reported as a disconnected hip.
 
-    Contact, down, passing and up for one step, then the same four for the other leg.
-    The four-pose version this replaces had contact and passing only, which is the
-    walk with no recoil and no high point - weightless, and the single most common
-    thing wrong with a hand-made cycle.
-
-    # How the two legs stay out of phase
-
-    `leg` is ONE leg's table through a whole cycle. The other leg reads the same table
-    half a cycle along. Mirroring one step to build the other is a named cause of a
-    limp in three-quarter view, because the two legs do not occupy the same plane
-    relative to the camera.
-
-    # Two passes, because the hips cannot be decided in one
-
-    Pass one poses the body and asks, at each pose, where planting the stance foot
-    puts the hips. Pass two fills the airborne stretches with an arc between those
-    answers and keys the lot. A walk never leaves the ground so its second pass has
-    nothing to fill, but a run and a sprint do, and the arc is the flight.
+    The ankle is still stated, because IK on the shin drives the ANKLE and leaves the
+    foot's own orientation alone - which is right, since ankle flexion is relative to
+    the shin anyway. Heel strike and toe-off are therefore still authored, and still
+    read off the leg table's third column.
     """
     action = bpy.data.actions.new(name)
     rig.animation_data.action = action
     rest(rig)
 
-    def at_pose(step):
-        return (step % POSES) / POSES
+    share = min(stance / POSES, 0.5)
+    reach_of_leg = (
+        rig.matrix_world @ rig.pose.bones["R_Foot"].head
+        - rig.matrix_world @ rig.pose.bones["R_Thigh"].head
+    ).length
 
-    # Pass one: where the hips go wherever a foot is down, and how high they must be
-    # for the LOWER foot to clear the ground wherever neither is.
-    lift, clear = [], []
-    for step in range(POSES + 1):
-        pose_the_body(rig, leg, step, at_pose(step), reach, back, elbow_held,
-                      elbow_swing, lean, drop, facing)
-        planted = who_is_planted(step, stance)
-        lift.append(plant(rig, resting, planted) if planted else None)
-        clear.append(max(plant(rig, resting, side) for side in "LR"))
-    lift = fill_in_the_flight(lift, bound)
+    # No pole target: the knee's direction comes from the bind pose being BENT, which
+    # `straighten_rig.py` bakes in. A pole was tried and it rotates the whole chain
+    # about the hip-to-ankle axis, so putting the knees forward turned both feet 168
+    # degrees away from the line of travel - the knee right and the foot backwards.
+    rigged = {side: ik_gait.add_leg_ik(rig, side) for side in "LR"}
+    targets = {side: rigged[side][0] for side in "LR"}
 
-    # An airborne pose has nothing holding its feet up, so a leg reaching forward to
-    # land can pass straight through the floor - the sprint's foot was six centimetres
-    # under it. The arc is therefore raised wherever it would let that happen. Only
-    # ever raised: a body in flight may be higher than a ballistic arc suggests, and
-    # the alternative is a foot through the ground, which nothing excuses.
-    lift = [max(l, c) if who_is_planted(i, stance) is None else l
-            for i, (l, c) in enumerate(zip(lift, clear))]
-    # And the halves made identical again, since raising one may not have raised its
-    # partner - see the note in `fill_in_the_flight`.
-    half = POSES // 2
-    for i in range(half):
-        both = max(lift[i], lift[i + half])
-        lift[i] = lift[i + half] = both
-    lift[POSES] = lift[0]
+    for frame in range(1, span + 2):
+        phase = ((frame - 1) % span) / span
+        rest(rig)
 
-    # Pass two: the same poses, with the hips where pass one said, keyed.
-    for step in range(POSES + 1):
-        pose_the_body(rig, leg, step, at_pose(step), reach, back, elbow_held,
-                      elbow_swing, lean, drop, facing)
-        raise_the_hips(rig, lift[step])
-        key(rig, 1 + round(step * span / POSES), DRIVEN)
+        # The body: arms, spine, hands and the ankles. No thigh, no knee.
+        for side, hand in (("L", 1.0), ("R", -1.0)):
+            at = phase + (0.5 if hand > 0.0 else 0.0)
+            swing(rig, f"{side}_Foot", smoothly([row[2] for row in leg], at), LIFTS_THE_TOE)
 
-    # Nothing is done about interpolation here. Bezier is Blender's own default for a
-    # new key, and reaching for `action.fcurves` to set it does not work on 5.x
-    # anyway - actions are LAYERED now, and the curves live under
-    # `action.layers[].strips[].channelbag(slot)`. Easing a gait by hand would be the
-    # wrong move regardless: a walk wants to slow into each contact, which is what
-    # bezier already does.
-    return action
+            swung = math.cos(2.0 * math.pi * (at - 0.5 - ARM_LAG))
+            middle = (reach + back) / 2.0
+            half = (reach - back) / 2.0
+            swing(rig, f"{side}_Upperarm", middle + half * swung, REACHES_FORWARD)
+            swing(rig, f"{side}_Forearm", elbow_held + elbow_swing * swung, FOLDS_THE_ELBOW)
+            turn_further(rig, f"{side}_Upperarm", ARM_OUT * hand, (1.0, 0.0, 0.0))
+            swing(rig, f"{side}_Hand", PALM_IN * hand, axis=(0.0, 0.0, 1.0))
+
+        swing(rig, "Waist", lean * 0.4, LEANS_THE_TORSO_FORWARD)
+        swing(rig, "Spine01", lean * 0.6, LEANS_THE_TORSO_FORWARD)
+
+        # The body's height, on ROOT - which carries no skin weight at all, so moving
+        # it cannot shear anything. A deform bone would: translating one away from its
+        # parent drags blended vertices with it.
+        rides = ik_gait.how_high_the_body_rides(share, phase, bob)
+        root = rig.pose.bones.get("Root")
+        if root is not None:
+            axes = root.bone.matrix_local.to_3x3().inverted()
+            root.location = axes @ mathutils.Vector(
+                (0.0, 0.0, rides - ik_gait.KNEES_STAY_BENT)
+            )
+        bpy.context.view_layer.update()
+
+        # And where the feet go. Keyed on the targets, so the bake can sample them.
+        going = ik_gait.where_the_feet_go(
+            rig, facing, CONTACT, share, phase, reach_of_leg, ground
+        )
+        for side, spot in going.items():
+            targets[side].location = spot
+            targets[side].keyframe_insert("location", frame=frame)
+
+        key(rig, frame, DRIVEN)
+
+    # Solve, then turn the solution into plain keys and drop the helpers.
+    first, last = 1, span + 1
+    bpy.context.scene.frame_start, bpy.context.scene.frame_end = first, last
+    ik_gait.bake_the_constraints(rig, first, last)
+    ik_gait.drop_the_helpers(
+        [part for parts in rigged.values() for part in parts[:2]]
+    )
+
+    baked = rig.animation_data.action
+    turned = make_it_linear(baked)
+    baked.name = name
+    print(f"  {name}: {span + 1} frames, {turned} keys linear, legs solved by IK")
+    return baked
+
+
+def which_vertices_are_feet(mesh):
+    """Which vertices belong to each foot, by dominant weight. Computed once.
+
+    Weights never change, so recomputing this per frame is waste.
+    """
+    groups = {g.index: g.name for g in mesh.vertex_groups}
+    feet = {"L": [], "R": []}
+    for vertex in mesh.data.vertices:
+        heaviest = max(vertex.groups, key=lambda g: g.weight, default=None)
+        if heaviest is None:
+            continue
+        name = groups.get(heaviest.group, "")
+        for side in "LR":
+            if name.startswith(side + "_") and ("Foot" in name or "Toe" in name):
+                feet[side].append(vertex.index)
+    return feet
+
+
+def sole_of(rig, mesh, feet, side: str) -> float:
+    """How low the DEFORMED foot actually reaches, in armature Z.
+
+    Off the evaluated mesh, not off bone positions. Three bone points used to stand in
+    for the sole and they sit 2.7 to 8.4 cm above it depending on how the foot is
+    pitched - an error that swung 9.7 cm across a cycle and put the feet through the
+    floor on 22 of 25 walk frames while every number involved looked self-consistent.
+    The mesh is the thing that has to touch the floor, so the mesh is what to measure.
+    """
+    evaluated = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    baked = evaluated.to_mesh()
+    try:
+        matrix = evaluated.matrix_world
+        return min((matrix @ baked.vertices[i].co).z for i in feet[side])
+    finally:
+        evaluated.to_mesh_clear()
+
+
+def make_it_linear(action) -> int:
+    """Forces every key in an action to LINEAR interpolation.
+
+    Blender 5.x has no `action.fcurves` - actions are slots, layers, strips and
+    channelbags. And it matters more than it sounds: a planted foot slid 13.60 mm across
+    a cycle on Bezier keys against 0.92 mm on linear ones, because Bezier auto-handles
+    overshoot between them. glTF cannot carry Bezier anyway, so the exporter resamples
+    the overshoot straight into the clip.
+    """
+    from bpy_extras import anim_utils
+
+    if not action.slots:
+        return 0
+    bag = anim_utils.action_ensure_channelbag_for_slot(action, action.slots[0])
+    done = 0
+    for curve in bag.fcurves:
+        for point in curve.keyframe_points:
+            point.interpolation = "LINEAR"
+            done += 1
+        curve.update()
+    return done
+
+
+def smoothly(column, at: float) -> float:
+    """Samples a per-pose table anywhere in the cycle, smoothly and periodically.
+
+    Catmull-Rom, so the authored poses are still passed through exactly while the
+    frames between them are a curve this script controls rather than one Blender
+    guesses.
+    """
+    n = len(column)
+    x = at * n
+    i = math.floor(x)
+    f = x - i
+    a, b, c, d = (column[(i + k) % n] for k in (-1, 0, 1, 2))
+    return 0.5 * (
+        2.0 * b
+        + (-a + c) * f
+        + (2.0 * a - 5.0 * b + 4.0 * c - d) * f * f
+        + (-a + 3.0 * b - 3.0 * c + d) * f * f * f
+    )
 
 
 def use_the_calmed_texture() -> None:
@@ -1481,8 +1595,12 @@ def mend_the_shipped_idle(rig, facing) -> None:
 
 
 def main() -> None:
-    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    source = os.path.join(root, "Ranger_Rig_Idle.glb")
+    here = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.dirname(os.path.dirname(here))
+    # The STRAIGHTENED copy, written by `straighten_rig.py`. Its rest pose already
+    # stands properly, so nothing here corrects anything - see that script for what was
+    # wrong and why correcting it per pose was the bug rather than the fix.
+    source = os.path.join(here, "ranger_straight.glb")
     out = os.path.join(root, "assets", "models", "person_ranger.glb")
     if not os.path.isfile(source):
         raise SystemExit(f"the source is not there: {source}")
@@ -1534,6 +1652,16 @@ def main() -> None:
     for side, (ground, above) in resting.items():
         print(f"{side} sole rests at z={ground:+.4f}, points above it {above}")
 
+    # Which vertices are feet, and where the floor is. Both off the REST pose, once,
+    # and off the MESH rather than off bone positions - three bone points used to stand
+    # in for the sole and they sit 2.7 to 8.4 cm above it depending on how the foot is
+    # pitched, an error that swung 9.7 cm across a cycle.
+    feet = which_vertices_are_feet(body)
+    rest(rig)
+    bpy.context.view_layer.update()
+    ground = min(sole_of(rig, body, feet, side) for side in "LR")
+    print(f"the floor is at z={ground:+.5f}")
+
     # Twenty-four frames a cycle for a walk, sixteen for a run. Eight poses either
     # way: a run is not a walk with bigger numbers, but it does have the same four
     # poses per step.
@@ -1546,17 +1674,17 @@ def main() -> None:
     # 2.282 over 16 is 3.42, and 3.50 over 14 is 6.00. `src/motion.rs` places each tier
     # at its own clip's native speed for exactly that reason.
     gait(
-        rig, "walk", WALK_LEG, 24, ARM_FORWARD, ARM_BACK, ELBOW_HELD, ELBOW_SWING,
-        0.0, WALK_STANCE, WALK_BOUND, PELVIS_DROP, resting, facing,
+        rig, body, feet, ground, "walk", WALK_LEG, 24, ARM_FORWARD, ARM_BACK,
+        ELBOW_HELD, ELBOW_SWING, 0.0, WALK_STANCE, ik_gait.WALK_BOB, facing,
     ).use_fake_user = True
     gait(
-        rig, "run", RUN_LEG, 16, RUN_ARM_FORWARD, RUN_ARM_BACK, RUN_ELBOW_HELD,
-        RUN_ELBOW_SWING, RUN_LEAN, RUN_STANCE, RUN_BOUND, RUN_DROP, resting, facing,
+        rig, body, feet, ground, "run", RUN_LEG, 16, RUN_ARM_FORWARD, RUN_ARM_BACK,
+        RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_STANCE, ik_gait.RUN_BOB, facing,
     ).use_fake_user = True
     gait(
-        rig, "sprint", SPRINT_LEG, 16, SPRINT_ARM_FORWARD, SPRINT_ARM_BACK,
-        RUN_ELBOW_HELD, RUN_ELBOW_SWING, SPRINT_LEAN, SPRINT_STANCE, SPRINT_BOUND,
-        RUN_DROP, resting, facing,
+        rig, body, feet, ground, "sprint", SPRINT_LEG, 16, SPRINT_ARM_FORWARD,
+        SPRINT_ARM_BACK, RUN_ELBOW_HELD, RUN_ELBOW_SWING, SPRINT_LEAN, SPRINT_STANCE,
+        ik_gait.RUN_BOB, facing,
     ).use_fake_user = True
 
     bpy.ops.export_scene.gltf(

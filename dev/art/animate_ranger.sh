@@ -18,6 +18,10 @@ blender=$(find_blender) || { echo "Blender not found." >&2; exit 1; }
 # The texture first, in a tool that can be checked. See ranger_texture.py for why
 # this is not done inside Blender.
 python "$here/ranger_texture.py"
+# The rest pose is straightened FIRST, into its own file. The source is never touched,
+# and the authoring below then has no correction step at all - which is the point: the
+# defects were constants, and correcting a constant per pose is what twisted the feet.
+"$blender" --background --python-exit-code 1 --python "$here/straighten_rig.py" --   "$(cd "$here/../.." && pwd)/Ranger_Rig_Idle.glb" "$here/ranger_straight.glb"
 "$blender" --background --python-exit-code 1 --python "$here/animate_ranger.py"
 
 # And then REFUSE it if the limbs bend the wrong way. Three attempts shipped a walk
