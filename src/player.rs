@@ -20,51 +20,46 @@ use crate::util::facing_quat;
 use crate::world::terrain::TerrainSource;
 use crate::world::WorldBounds;
 
-/// Jogging speed in m/s. A brisk-but-believable pace, so the time it takes to
-/// cross the map is an honest signal about whether the map is the right size.
-// A brisk walk, in metres a second.
-//
-// # Seven was not a walk, it was a world record
-//
-// This was 7.0 and the sprint 15.0, on a figure 1.7 m tall. A real walk is about
-// 1.4 m/s; 7 m/s is a 2:23 kilometre, faster than anybody has ever run one, and
-// 15 m/s is faster than Usain Bolt's peak. Reported simply as "movement is
-// extremely fast", which it was by a factor of five.
-//
-// It also meant the WALK CLIP NEVER PLAYED. `motion::BREAKS_INTO_A_RUN` was 6.5,
-// below the walking speed, so every step the warden ever took ran the run clip —
-// at seven metres a second over a 1.14 m stride, five cycles a second, which is a
-// blur. Every judgement made about how the gaits looked was made about the run
-// clip played at five times its cadence.
-//
-// 1.8 is a shade above a real brisk walk, which is the usual game allowance: fast
-// enough not to feel like wading, slow enough that the world reads at its true
-// size.
-// 2.4, up from 1.8. A real brisk walk is about 1.8 and it felt sluggish to play,
-// which is the ordinary gap between a believable speed and a good one: a game
-// character reads as slow at the pace a person actually manages. 2.4 is the most the
-// walk clip supports without its cadence leaving the believable band - see
-// STRIDE_COVERS, which is what caps it. Going faster than this needs a LONGER STRIDE,
-// not a faster clip.
+/// A brisk walk, in metres a second.
+///
+/// # Seven was not a walk, it was a world record
+///
+/// This was 7.0 and the sprint 15.0, on a figure 1.7 m tall. A real walk is about
+/// 1.4 m/s; 7 m/s is a 2:23 kilometre, faster than anybody has run one, and 15 m/s
+/// beats Usain Bolt's peak. Reported simply as "movement is extremely fast", which it
+/// was by a factor of five.
+///
+/// It also meant the WALK CLIP NEVER PLAYED, because the run threshold sat BELOW the
+/// walking speed. Every step the warden had ever taken ran the run clip at five cycles
+/// a second, so every judgement anyone had made about how the gaits looked was a
+/// judgement about the run played at five times its cadence. **When a whole family of
+/// opinions is wrong at once, check whether they were all formed about the same
+/// mistake.**
+///
+/// # And why this number is a ceiling rather than a preference
+///
+/// `speed = cadence x stride length` is exact. The walk clip carries 1.935 m per
+/// cycle — measured, see `motion::STRIDE_COVERS` — so 2.25 m/s already asks for 140
+/// steps a minute, the top of a real walking cadence. Past that it is a jog, and
+/// `neither_gait_plays_at_a_blur` refuses it.
+///
+/// So raising this needs a LONGER STRIDE or a separate jog clip, not a bigger number.
+/// Raising the number alone buys a faster churn.
 pub const WALK_SPEED: f32 = 2.25;
+
 /// A run, in metres a second.
 ///
-/// Held to what the CLIP can carry rather than to what a runner can do. The run
-/// cycle covers 1.63 m of ground (measured, see `motion::RUN_COVERS`), so 3.6 m/s is
-/// 2.2 cycles a second — brisk but readable. Five metres a second would need three
-/// cycles a second and the legs would blur; carrying a real 5 m/s run needs a clip
-/// with a much longer stride, and a longer stride authored on this rig read as the
-/// splits.
+/// Held to what the CLIP can carry, by the same identity as `WALK_SPEED`. The run
+/// cycle covers 2.282 m — see `motion::RUN_COVERS`, and note it was long believed to
+/// be 1.610, understated by 45% because the stride was measured as twice one foot's
+/// swing rather than by the stance fraction. Correcting that measurement is what let
+/// this go from 3.6 to 4.6 without the feet churning any faster.
 ///
-/// The map is 8 km across, so crossing it at a run is about thirty-seven minutes.
-/// That is the honest consequence of believable speeds, and it is a design question
-/// rather than a bug: mounts, or a road network, or fast travel between towns.
-// 4.0, up from 3.6, and capped there by the run clip rather than by taste. The run
-// is authored with almost no stance phase and a stride 1.5x too short for the speed
-// it is asked to carry, so every extra metre per second buys a faster churn rather
-// than a longer step. Unlocking a real sprint means re-authoring the run with a
-// flight phase, not raising this number.
+/// The map is 8 km across, so crossing it at a run is about twenty-nine minutes. That
+/// is the honest consequence of believable speeds, and it is a design question rather
+/// than a bug: mounts, roads, or fast travel between towns.
 pub const SPRINT_SPEED: f32 = 4.6;
+
 /// How fast the warden swivels to face the way they're heading, in radians/sec.
 const TURN_RATE: f32 = 12.0;
 /// Standing eye-to-toe height, used to keep the body clear of the ground.
