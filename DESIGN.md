@@ -1144,6 +1144,44 @@ ranch wears one material and can be recoloured from one table.
 shipped models. A misspelt kind is otherwise silent: the thing is simply not there,
 and a hole in the yard looks like a layout decision.
 
+## Gaits are measured, and the run is still owed a rebuild
+
+Every fact in this section came out of Blender or out of cited gait research, and the
+instruments that produced them live in `dev/art/`: `verify_gait.py` (signs and
+amplitudes, and it REFUSES an export), `stride_measure.py` (what a cycle covers, off
+the planted foot), `roll_match.py` (whether the hands agree between clips), and
+`gait_report.sh` to run the lot.
+
+**The axis convention is measured and named, never described.** `REACHES_FORWARD`,
+`FOLDS_THE_KNEE`, `FOLDS_THE_ELBOW`, `LIFTS_THE_TOE`. A docstring once described it
+instead, was exactly inverted, and the limbs bent backwards for three attempts. A call
+site states an intention and cannot state a sign.
+
+**Speed, stride and cadence are one identity: `speed = cadence x stride`.** A clip has
+one speed at which its feet do not slide. Playback scaling buys cadence, not stride,
+and is only defensible as a ±20-25% correction around a clip authored at the right
+speed.
+
+**What is owed on the run, with numbers.** The walk is being rebuilt to the canonical
+eight poses; the run needs the same and more, because a run is not a faster walk — it
+is a different mechanical model, a spring-mass bounce rather than an inverted-pendulum
+vault. Against the reference brief the current run is wrong in six ways:
+
+| | now | wanted |
+|---|---|---|
+| poses per cycle | 4 (contact, pass, contact, pass) | 8 — Contact, Down, Push, Peak per step |
+| flight phase | none; no frame has a foot down | two per cycle, ~10% each, POSED not waited out |
+| knee peak in swing | 62 degrees | ~125; and 20-25 already flexed at touchdown |
+| hip | ±28 symmetric | ~50 flexion against 5-10 extension |
+| elbow | 62 degrees | ~90, closing further with speed |
+| arm extremes | at contact | at the airborne APEX — the opposite of a walk |
+| vertical | high at the pass | LOW at midstance, high in flight — inverted |
+| trunk lean | 6 degrees | 8-12 for a jog |
+
+Until that lands, `SPRINT_SPEED` is capped at 4.0 m/s and the run churns at 298 steps a
+minute against a human 150-180. The cadence test holds that as a ratchet rather than
+blessing it — see `motion.rs`.
+
 ## Change log
 
 **2026-08-21** — **The woods can be authored.** Five tree species built in
