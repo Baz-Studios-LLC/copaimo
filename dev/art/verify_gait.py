@@ -62,6 +62,15 @@ LIMPS_BELOW = 0.80
 # And how far their peaks may drift from half a cycle apart, in frames.
 A_FRAME_OR_TWO = 2
 
+# The summed stance shares below which a gait has a genuine flight phase. One exactly
+# would mean the two feet hand over with no overlap and no gap.
+ALWAYS_ON_THE_GROUND = 1.0
+
+# How near its lowest a sole must be to count as still on the ground, in model
+# units. A foot rolls through stance rather than sitting at one height, so a contact
+# has to be looked for over a window rather than at a single frame.
+STILL_DOWN = 0.006
+
 # How much a foot's pitch must change from its rest angle to count as deliberate.
 # Below this the ankle is neutral and neither heel-strike nor toe-off is being said.
 A_REAL_PITCH = 0.02
@@ -93,7 +102,27 @@ def main() -> None:
     args = argv()
     if len(args) < 2:
         raise SystemExit("need <glb> <clip> [<clip>...]")
-    source, clips = args[0], args[1:]
+    # Each clip is given as `name:stance`, where stance is how many of the eight
+    # poses each leg was authored on the ground. Five is a walk, three a jog, two a
+    # sprint.
+    #
+    # # Why this is declared and not measured
+    #
+    # It was measured first, as the share of frames each foot spends within a few
+    # millimetres of its lowest. On the walk that came out at 0.04 and 0.17 where the
+    # authored answer is 0.62 - not because the authoring is wrong but because a keyed
+    # FK leg has nothing holding its foot down BETWEEN keys, and the planted foot
+    # drifts millimetres in the in-betweens. Foot IK is what fixes that, and it is not
+    # built yet.
+    #
+    # So the duty factor is stated by the thing that knows it. The drift is still
+    # reported, as `planted_foot_slides`, because it is a real fault worth watching -
+    # it is just not a sound basis for deciding whether a clip is a walk.
+    source = args[0]
+    clips = {}
+    for given in args[1:]:
+        name, _, stance = given.partition(":")
+        clips[name] = int(stance) if stance else 5
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=source)
@@ -129,6 +158,25 @@ def main() -> None:
         return span.z / span.length if span.length > 1e-9 else 0.0
 
     at_rest = {side: pitch(side) for side in "LR"}
+
+    def under(side):
+        return (
+            head(f"{side}_Foot").z,
+            head(f"{side}_ToeBase").z,
+            tail(f"{side}_ToeBase").z,
+        )
+
+    # How high each of those three points sits above the ground in the REST pose.
+    #
+    # Without this the "sole" is whichever bone happens to poke lowest, and the ankle
+    # sits higher off the ground than the toe does — so a foot with the toe pointed
+    # measures LOWER than a flat one, and the frame that looked most like a contact
+    # was actually toe-off, where the ankle is plantarflexed thirty degrees. Every
+    # heel-strike check was then being applied to the wrong pose and every one failed.
+    above = {side: tuple(z - min(under(side)) for z in under(side)) for side in "LR"}
+
+    def sole(side):
+        return min(z - high for z, high in zip(under(side), above[side]))
     print(
         f"forward is ({forward.x:.3f}, {forward.y:.3f}, {forward.z:.3f}); "
         f"feet rest at pitch {at_rest['L']:+.3f}/{at_rest['R']:+.3f}"
@@ -155,7 +203,7 @@ def main() -> None:
         return 0.0 if straight < 1e-9 else 1.0 - (thigh - ankle).length / straight
 
     refused, scored = [], {}
-    for name in clips:
+    for name, stance in clips.items():
         action = bpy.data.actions.get(name)
         if action is None:
             refused.append(f"{name}: no such clip in the file")
@@ -172,6 +220,7 @@ def main() -> None:
                     "hip": head("Hip").z,
                     "ground": min(tail(f"{s}_ToeBase").z for s in "LR"),
                     "along": {s: lead(f"{s}_Foot") for s in "LR"},
+                    "sole": {s: sole(s) for s in "LR"},
                     "legs": lead("L_Foot") - lead("R_Foot"),
                     "arms": lead("L_Hand") - lead("R_Hand"),
                     "pitch": {s: pitch(s) - at_rest[s] for s in "LR"},
@@ -187,8 +236,79 @@ def main() -> None:
             )
 
         span = len(frames) - 1 if frames[0]["legs"] == frames[-1]["legs"] else len(frames)
-        contact = max(frames, key=lambda f: abs(f["legs"]))
-        front, back = ("L", "R") if contact["legs"] > 0 else ("R", "L")
+
+        # --- Which frame is a contact, found by the FOOT rather than by the split.
+        #
+        # This used to take the frame where the legs are widest apart. That is a fair
+        # description of a walk's contact and a wrong one for a sprint, where the
+        # widest split falls just after toe-off, in mid-flight, with both feet off
+        # the ground. Checked there, the sprint was refused for swinging its arms
+        # with its legs on the strength of a left-hand lead of +0.015 - which is
+        # noise, because mid-flight is exactly where the arms cross.
+        #
+        # Contact is when a foot is DOWN — but so is toe-off, and the two are
+        # opposite poses. What separates them is WHERE the foot is: a foot landing is
+        # ahead of the hips, a foot pushing off is behind them. So among the frames
+        # where a foot is as low as it gets, the contact is the one where that foot is
+        # furthest FORWARD.
+        def lands(side):
+            floor = min(f["sole"][side] for f in frames)
+            down = [f for f in frames if f["sole"][side] <= floor + STILL_DOWN]
+            return max(down, key=lambda f: f["along"][side])
+
+        landing = {side: lands(side) for side in "LR"}
+
+        # Is this a walk or a run? Not a label — a measurement. A walk always has a
+        # foot down; a run is airborne for part of its cycle, and the formal name for
+        # the difference is the duty factor.
+        #
+        # It decides which rules apply. A walk lands HEEL first, which is the check
+        # that catches a reversed cycle. A run lands on the FOREFOOT with the knee
+        # already flexed, so demanding a heel strike of it is demanding a fault: both
+        # the run and the sprint were refused for exactly that before this told them
+        # apart.
+        # Is this a walk or a run? Not a label but a measurement, and specifically the
+        # DUTY FACTOR: what share of the cycle each foot spends on the ground. Above a
+        # half per foot the two overlap and something is always down, which is a walk.
+        # Below it there are moments with neither down, which is a run.
+        #
+        # It decides which rules apply. A walk lands HEEL first, and that is the check
+        # which catches a reversed cycle. A run lands on the FOREFOOT with the knee
+        # already flexed, so demanding a heel strike of one is demanding a fault, and
+        # that is what refused both the run and the sprint before this told them apart.
+        #
+        # # Why the shares are summed rather than the airborne frames counted
+        #
+        # Counting frames where both soles sit above the floor called the WALK a run,
+        # with fourteen airborne frames of twenty-four. Those frames are not flight:
+        # they are the planted foot drifting upward BETWEEN keys, because a keyed FK
+        # leg has nothing holding its foot down in the in-betweens. Summing each foot's
+        # own stance share is immune to that, since a foot that drifts is still nearest
+        # the ground for the same share of the cycle.
+        #
+        # It is also the quantity that sets the stride: contact length divided by the
+        # stance fraction is how far a cycle carries the body, so it is worth reporting
+        # whether or not anything is refused on it.
+        # Two stance windows of `stance` poses each, out of eight. They overlap when
+        # stance is above four, which is what makes a gait a walk.
+        duty = 2.0 * stance / 8.0
+        flies = duty < ALWAYS_ON_THE_GROUND
+
+        # The right foot is authored down over poses 0 to stance-1, which on a clip of
+        # `span` frames with eight poses puts that window between these two frames.
+        planted_from = frames[0]["frame"]
+        planted_to = frames[0]["frame"] + round((stance - 1) * span / 8)
+        window = [f for f in frames if planted_from <= f["frame"] <= planted_to]
+        contact_travel = (
+            window[0]["along"]["R"] - window[-1]["along"]["R"] if len(window) > 1 else 0.0
+        )
+        # The leading foot of a contact is the one that is further forward at its own
+        # landing, which for a cycle authored on eight poses is both of them in turn;
+        # taking the more forward of the two picks a real contact rather than a frame
+        # that merely happens to be low.
+        front = max("LR", key=lambda side: landing[side]["along"][side])
+        back = "R" if front == "L" else "L"
+        contact = landing[front]
 
         legs_travel = max(f["legs"] for f in frames) - min(f["legs"] for f in frames)
         arms_travel = max(f["arms"] for f in frames) - min(f["arms"] for f in frames)
@@ -207,11 +327,14 @@ def main() -> None:
         # how far the foot travels in that time.
         def slide(side):
             path = [f["along"][side] for f in frames]
-            half = span // 2
-            # The right foot is down over the first half of the cycle and the left
-            # over the second, which is what the pose table says.
-            window = range(0, half + 1) if side == "R" else range(half, span + 1)
-            walked = [path[i] for i in window if i < len(path)]
+            # Over the window that foot is AUTHORED to be down, which for the left is
+            # the same window half a cycle along. Measuring over a fixed half-cycle
+            # instead put swing frames inside the window, and a swinging foot is
+            # supposed to depart from a straight line - so the metric punished the
+            # gaits with the shortest stance hardest, reporting 1.34 for the sprint.
+            downs = round((stance - 1) * span / 8) + 1
+            start = 0 if side == "R" else span // 2
+            walked = [path[i % span] for i in range(start, start + downs)]
             if len(walked) < 3:
                 return 0.0
             travel = walked[0] - walked[-1]
@@ -248,11 +371,23 @@ def main() -> None:
             if max(early) > min(early) and max(late) > min(late)
             else 0.0
         )
-        apart = (late.index(max(late)) + middle) - early.index(max(early))
+        # From the turning points, which already wrap, rather than from the argmax of
+        # each half. Splitting the cycle in two and comparing their argmaxes breaks
+        # whenever a peak lands ON the boundary: the run peaks at frames 1 and 8 of
+        # sixteen, which is half a cycle apart, and the windowed version reported them
+        # as 1 apart because one window ended at frame 9 and started its own count
+        # there.
+        apart = (highs[1] - highs[0]) if len(highs) == 2 else 0
 
-        # Where the arms peak against where the legs peak, as a share of the cycle.
+        # Where the arms peak against where the LEGS peak, as a share of the cycle.
         # The brief puts the arm extremes 8 to 12 per cent behind the legs.
-        leg_peak = frames.index(contact)
+        #
+        # Against the legs' own fore-aft extreme, not against the contact frame. In a
+        # walk those nearly coincide; in a run the legs are widest apart in mid-flight,
+        # a long way after the foot lands, so measuring from contact reported a lag of
+        # minus forty-four per cent - the arms appearing to LEAD the legs by half a
+        # cycle when nothing was wrong with them.
+        leg_peak = frames.index(max(frames, key=lambda f: abs(f["legs"])))
         arm_peak = frames.index(max(frames, key=lambda f: abs(f["arms"])))
         # Measured against ANTI-PHASE, not against zero. The arms oppose the legs,
         # so their extremes are half a cycle from the legs' by construction, and a
@@ -268,6 +403,21 @@ def main() -> None:
             "hip_rises_cm": round(bobs * 170.0, 2),
             "hip_highs_per_cycle": len(highs),
             "hip_high_at_percent": [round(100.0 * i / span) for i in highs],
+            "flies": flies,
+            "duty_factor": round(duty, 3),
+            # How far a cycle carries the body: contact length over stance fraction.
+            # `legs_travel` is the two feet's combined spread, so one foot's contact
+            # length is half of it.
+            # How far a cycle carries the body, by the one identity that is exact:
+            # contact length divided by the stance fraction.
+            #
+            # The contact length is measured over the window the RIGHT foot is
+            # authored to be down - poses 0 to stance-1 - because that is the only
+            # stretch where the foot is on the ground and the identity applies. Taking
+            # half the two feet's combined spread instead was an approximation, and it
+            # disagreed with a line fitted to the whole cycle by 20 to 55%.
+            "contact_length_m": round(1.7 * abs(contact_travel), 3),
+            "covers_implied_m": round(1.7 * abs(contact_travel) / (stance / 8.0), 3),
             "arm_lag_percent": round(100.0 * lag),
             "arm_lag_wants": "8 to 12",
             "halves_bob_alike": round(rise, 3),
@@ -275,7 +425,10 @@ def main() -> None:
             "halves_should_be_apart": middle,
             "contact_frame": contact["frame"],
         }
-        print(f"\n{name}: contact at frame {contact['frame']}, {front} leg leading")
+        print(
+            f"\n{name}: {front} foot lands at frame {contact['frame']} "
+            f"(sole {contact['sole'][front]:+.4f}), {back} trailing"
+        )
         for key, value in scored[name].items():
             print(f"  {key}: {value}")
 
@@ -304,20 +457,31 @@ def main() -> None:
                     f"FRONT of the shoulder-to-wrist line, so the arm folds backwards."
                 )
 
-        # --- And the two asymmetries a global sign flip cannot survive.
-        if contact["pitch"][front] < A_REAL_PITCH:
+        # --- And the asymmetries a global sign flip cannot survive.
+        if not flies:
+            # A walk: heel down in front, up on the toes behind.
+            if contact["pitch"][front] < A_REAL_PITCH:
+                refused.append(
+                    f"{name}: the leading ({front}) foot is not presenting its heel - "
+                    f"its pitch is {contact['pitch'][front]:+.3f} off rest where "
+                    f"toes-up wants at least +{A_REAL_PITCH}. A front foot landing "
+                    f"toe-first is the cleanest tell that the cycle runs backwards."
+                )
+            if contact["pitch"][back] > -A_REAL_PITCH:
+                refused.append(
+                    f"{name}: the trailing ({back}) foot is not up on its toes - pitch "
+                    f"{contact['pitch'][back]:+.3f} off rest, wanting at most "
+                    f"-{A_REAL_PITCH}. A trailing foot pushing off heel-first is the "
+                    f"same tell from the other side."
+                )
+        elif contact["pitch"][front] > A_REAL_PITCH:
+            # A run: the leading foot must NOT be presenting a heel. Toes level or
+            # pointed is right; toes up means it is landing like a walk.
             refused.append(
-                f"{name}: the leading ({front}) foot is not presenting its heel - its "
-                f"pitch is {contact['pitch'][front]:+.3f} off rest where toes-up wants "
-                f"at least +{A_REAL_PITCH}. A front foot landing toe-first is the "
-                f"cleanest tell that the whole cycle is running backwards."
-            )
-        if contact["pitch"][back] > -A_REAL_PITCH:
-            refused.append(
-                f"{name}: the trailing ({back}) foot is not up on its toes - pitch "
-                f"{contact['pitch'][back]:+.3f} off rest, wanting at most "
-                f"-{A_REAL_PITCH}. A trailing foot pushing off heel-first is the same "
-                f"tell from the other side."
+                f"{name}: this clip has a flight phase, so it is a run - but its "
+                f"leading ({front}) foot lands with the toes {contact['pitch'][front]:+.3f} "
+                f"UP, which is a walk's heel strike. A run lands on the forefoot with "
+                f"the knee already flexed."
             )
         # A limp, stated as a refusal rather than a score, because a cycle whose two
         # steps differ is not a matter of degree - it is one step done twice, wrong.

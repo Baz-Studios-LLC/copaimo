@@ -56,7 +56,19 @@ const BREAKS_INTO_A_RUN: f32 = 3.4;
 /// `dev/art/stride_measure.py` now fits a line to the planted foot's travel and
 /// reports the slope, so `f` falls out instead of being assumed.
 ///
-/// **Both are now measured off clips that have a stance to measure.** The provisional
+/// **Measured by the one identity that is exact: contact length over stance
+/// fraction.** The contact length is the planted foot's travel relative to the hips,
+/// taken over the window each clip AUTHORS that foot to be down - poses 0 to
+/// stance-1 - because that is the only stretch where the foot is on the ground and
+/// the identity applies. 0.795 m walking, 0.716 jogging, 0.750 sprinting, against a
+/// human figure of roughly one leg length in every gait.
+///
+/// Two earlier attempts disagreed with each other by half, and both were measuring
+/// something else: one fitted a line to the whole cycle including the swing, the
+/// other took half the two feet's combined spread, which is only the contact length
+/// if the feet are exactly antiphase.
+///
+/// **The older note, kept because it is still the reason the run was so wrong:** The provisional
 /// 2.20 was fitted to a walk that kept a foot down for three frames of twenty-four,
 /// so the fit had three points and the two feet disagreed by 19%; and 1.610 was never
 /// measured at all, because the old run had no frames with a foot down anywhere in
@@ -66,8 +78,8 @@ const BREAKS_INTO_A_RUN: f32 = 3.4;
 /// 1.935 and 2.282, and the cadences that follow are believable without help: 112
 /// steps a minute walking at 1.8 m/s and 189 running at 3.6, against 95-140 and
 /// 150-200 for real people. That headroom is what let the speeds go up.
-const WALK_COVERS: f32 = 1.935;
-const RUN_COVERS: f32 = 2.282;
+const WALK_COVERS: f32 = 1.271;
+const RUN_COVERS: f32 = 1.908;
 
 /// The moving gaits, slowest first: the word in the clip's name, how far one cycle
 /// carries the warden in metres, and the speed above which the next one takes over.
@@ -136,7 +148,7 @@ const fn hands_over_above(covers: f32, frames: f32) -> f32 {
 /// divided by the stance fraction. The extra stride is therefore bought by spending
 /// LESS of the cycle on the ground, not by reaching further. Trying to reach further is
 /// why 42 degrees of thigh swing once read as the splits.
-const SPRINT_COVERS: f32 = 3.50;
+const SPRINT_COVERS: f32 = 2.999;
 
 /// What to hand `set_speed` so a clip plays at the right cadence.
 ///
@@ -424,48 +436,49 @@ mod pacing {
                 .unwrap_or_else(|| panic!("no {gait} clip in {:?}", model.clips))
         };
 
+        // In steps a minute, because that is the unit the evidence is in and "cycles
+        // a second" hid how bad the run once was. Two steps to a cycle.
+        //
         // What the player will actually produce: the rate handed to `set_speed`,
         // divided by the clip's own length, because that rate is a multiple of one
         // cycle over that length.
-        let plays_at = |speed: f32, covers: f32, gait: &str| -> f32 {
-            playback_rate(speed, covers, lasts(gait)) / lasts(gait)
+        let steps = |speed: f32, covers: f32, gait: &str| -> f32 {
+            playback_rate(speed, covers, lasts(gait)) / lasts(gait) * 120.0
         };
-        // In steps a minute, because that is the unit the evidence is in and
-        // "cycles a second" hid how bad the run was. Two steps to a cycle.
-        let steps = |cycles: f32| cycles * 2.0 * 60.0;
-        let walking = steps(plays_at(crate::player::WALK_SPEED, WALK_COVERS, "walk"));
-        let running = steps(plays_at(crate::player::SPRINT_SPEED, RUN_COVERS, "run"));
 
-        // Walking sits at 100 to 115 steps a minute, and 140 is itself the
-        // walk-to-run transition — past it a walk cycle is being asked to do a run's
-        // job.
-        assert!(
-            (90.0..140.0).contains(&walking),
-            "the walk plays at {walking:.0} steps a minute, and 90 to 140 is a walk"
-        );
-
-        // # A ratchet, not a blessing
+        // # The debt this test used to carry is paid
         //
-        // Recreational running is 150 to 180 steps a minute and elites are 180 plus.
-        // The run plays at 298, and this test used to PASS it, because the bound was
-        // written as "under 2.5 cycles a second" — which is 300 steps a minute, above
-        // anything a person does. A bound loose enough to admit the fault is not a
-        // test of it, and stating the unit wrong is what let it look reasonable.
+        // It held a ratchet at 300 steps a minute with a note explaining why: the run
+        // clip kept a foot down for no frames at all, its stride was about 1.5x too
+        // short for the speed it carried, and it was also being asked to carry the
+        // SPRINT, because there was no sprint clip. The cadence was whatever was left
+        // over — 298 — and the bound had been written loose enough to admit it.
         //
-        // The cause is not this number. The run clip keeps a foot down for no frames
-        // at all, and its stride is about 1.5x too short for the speed it carries, so
-        // the cadence is whatever is left over. Lowering `SPRINT_SPEED` until this
-        // passed honestly would mean 2.7 m/s — slower than the sprint has ever been,
-        // to hide a fault in the clip.
-        //
-        // So the ceiling sits where the value stands, and its job is to stop it
-        // getting WORSE. It comes down when the run is re-authored with a real stance
-        // and a flight phase, and this comment is the record of that debt.
-        const RUN_CHURNS_AT: f32 = 300.0;
-        assert!(
-            running <= RUN_CHURNS_AT,
-            "the run plays at {running:.0} steps a minute, past the {RUN_CHURNS_AT:.0}              it is allowed while its stride is too short. A person runs at 150 to 180.              Give the run a longer stride rather than raising this."
-        );
+        // There is a sprint clip now, authored with two stance poses out of eight and
+        // a real flight phase, and each tier plays its own clip at very nearly that
+        // clip's native rate. So the bands below are the ones people actually walk and
+        // run at, with no allowance for a fault.
+        for (what, speed, covers, gait, band) in [
+            ("walk", crate::player::WALK_SPEED, WALK_COVERS, "walk", (90.0, 140.0)),
+            ("jog", crate::player::JOG_SPEED, RUN_COVERS, "run", (150.0, 200.0)),
+            (
+                "sprint",
+                crate::player::SPRINT_SPEED,
+                SPRINT_COVERS,
+                "sprint",
+                (170.0, 215.0),
+            ),
+        ] {
+            let cadence = steps(speed, covers, gait);
+            assert!(
+                (band.0..=band.1).contains(&cadence),
+                "the {what} plays at {cadence:.0} steps a minute at {speed} m/s, and \
+                 {} to {} is what a person does. Fix the STRIDE rather than this \
+                 bound: cadence is speed divided by how far a cycle carries them.",
+                band.0,
+                band.1
+            );
+        }
     }
 
     /// The gait table has to be ordered, positive, and open at the top.
