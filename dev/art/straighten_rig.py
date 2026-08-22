@@ -1,4 +1,17 @@
-"""Writes a copy of the ranger whose REST POSE is straight.
+"""SUPERSEDED by prepare_rig.py. Kept for its history, not called by anything.
+
+This repaired three faults of the rest pose - the splay, the knee and the toe-out -
+by rotating bones about measured axes. It worked, and it was not enough: the two sides
+were 5.45 cm from being mirrors of each other, the leaf bones had lengths the glTF
+importer invented, and the mesh was 1440 disconnected shells. Repairing symmetric
+faults on an asymmetric rig is why every fix needed its own per-side sign and why the
+leftover always came back somewhere else.
+
+prepare_rig.py does all of it from the source, with a refusal on each step.
+
+ORIGINAL DOCSTRING FOLLOWS.
+
+Writes a copy of the ranger whose REST POSE is straight.
 
     blender --background --python dev/art/straighten_rig.py -- <in.glb> <out.glb>
 

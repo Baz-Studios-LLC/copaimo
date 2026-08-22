@@ -75,8 +75,38 @@ RUN_BOB = 0.030
 #     drop 0.09 -> 0.54 units, 0.92 m
 #
 # Measured before this was understood: 0.49 m on the run against the 0.88 asked for, and
-# a run with visibly no stride. 0.09 clears 0.082 with a little margin.
-KNEES_STAY_BENT = 0.090
+# a run with visibly no stride. 0.09 cleared 0.082 with a little margin ON THE OLD BIND.
+#
+# The prepared rig changed the geometry under that number. Its bind is straighter, so
+# the leg reaches further, and the same 0.09 sat the body 15.3 cm low - every knee held
+# at least 32 degrees of fold through the whole walk, and the LEADING leg landed bent
+# 48 where a person heel-strikes nearly straight (the trailing one, rolling off its
+# toe, is the bent one). From the current reach: a straight leading leg at contact
+# needs a drop of 0.058, so this sits just under it and leaves heel-strike a real but
+# light fold.
+# 0.040 rather than the 0.058 a straight leading leg needs, because the walk BOB adds
+# its own 0.020 at contact - the vault's low point IS double support - and the two
+# stack. 0.065 + 0.020 sat the hip 14.4 cm low and bent the landing knee 33 degrees.
+# 0.026, down from 0.045: the body rides higher, so the legs are straighter in stance.
+# At 0.045 the stance leg sat at 95.6% extension, which puts the knee 11.8 cm off the
+# hip-to-ankle line - and forward-folding puts ALL of that in front, so the trailing
+# leg had its ankle 31 cm BEHIND the hip while its knee was in FRONT of it. A Z-shaped
+# leg, and nothing standing that way is balanced; reported as exactly that. The knee's
+# off-axis distance is what the ride height controls, since it falls out of the chord.
+# How extended the PLANTED leg is held. The ride height is derived from this and the
+# foot path - see animate_ranger's gait - so there is no hand-set crouch any more.
+# 0.97 rather than 1.0 because a locked knee has no give: a fraction of bend is what
+# keeps the IK away from its singularity and what a real stance leg carries.
+STANCE_LEG_EXTENDS = 0.98
+
+# The most the hips may sink below where they stand at rest, in model units - 4 cm.
+#
+# This is the knob for how upright he stands, because hip height IS knee bend: a
+# planted foot fixes the ankle, so every centimetre the hip drops is a centimetre the
+# leg has to fold. Six was chosen as a bound on a 16 cm lurch and left the legs
+# visibly bent; four is also what real walking's whole vertical hip travel measures,
+# so the more upright figure is the more accurate one too.
+HIP_DROPS_AT_MOST = 0.024
 
 
 def add_leg_ik(rig, side: str):
@@ -144,8 +174,25 @@ def aim_the_pole(rig, side: str, pole, hold, forward, leg_length: float) -> floa
     and the knee backwards is no good either.
     """
     hip = rig.matrix_world @ rig.pose.bones[f"{side}_Thigh"].head
-    pole.location = hip + forward * (leg_length * 1.5)
+    # Along THIS FOOT's heading, not dead ahead: a pole straight in front of the hip
+    # points both knees parallel while the feet toe out 7 degrees, and a knee inside
+    # its own toe line reads as knock-knees from behind. Knee over toe is the rule.
+    hand = 1.0 if side == "L" else -1.0
+    yaw = math.radians(TOES_POINT_OUT * hand)
+    up = mathutils.Vector((0.0, 0.0, 1.0))
+    across = up.cross(forward).normalized()
+    heading = (forward * math.cos(yaw) + across * math.sin(yaw)).normalized()
+    pole.location = hip + heading * (leg_length * 1.5)
 
+    # # The objective is the KNEE now, and the history matters
+    #
+    # This used to score the FOOT's heading, because with nothing else posing the
+    # foot, chain roll decided where it pointed - and the left foot ran backwards.
+    # The foot's orientation is STATED absolutely since, which made that objective
+    # blind: it no longer varies with the pole at all, so the search returned an
+    # arbitrary angle and the knees settled 6 cm inside the hip-to-ankle line -
+    # knock-knees, seen from behind and named. So the search now scores the thing
+    # the pole exists to place: the knee, pointing along its own foot's heading.
     best, best_at = None, 0.0
     for step in range(36):
         angle = -math.pi + step * (2.0 * math.pi / 36.0)
@@ -155,19 +202,19 @@ def aim_the_pole(rig, side: str, pole, hold, forward, leg_length: float) -> floa
         thigh = rig.matrix_world @ rig.pose.bones[f"{side}_Thigh"].head
         knee = rig.matrix_world @ rig.pose.bones[f"{side}_Calf"].head
         ankle = rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head
-        toe = rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].tail
 
-        # The foot must point forward. That is the measurable that was wrong.
-        points = (toe - ankle).normalized().dot(forward)
-        # And the knee must not fold backwards, which is a veto and not a score.
         span = ankle - thigh
-        if span.length > 1e-6:
-            along = span.normalized()
-            out = (knee - thigh) - along * (knee - thigh).dot(along)
-            if out.dot(forward) < 0.0:
-                continue
-        if best is None or points > best:
-            best, best_at = points, angle
+        if span.length < 1e-6:
+            continue
+        along = span.normalized()
+        out = (knee - thigh) - along * (knee - thigh).dot(along)
+        if out.length < 1e-6:
+            continue
+        # Knee over toe: the knee's off-the-line direction should BE the foot's
+        # heading, which this leg's pole already sits along.
+        tracks = out.normalized().dot(heading)
+        if best is None or tracks > best:
+            best, best_at = tracks, angle
 
     hold.pole_angle = best_at
     bpy.context.view_layer.update()
@@ -237,11 +284,25 @@ def where_the_soles_go(rig, facing, contact: float, share: float, phase: float,
 def how_high_the_body_rides(share: float, phase: float, bob: float) -> float:
     """How far the body sits above its own average, at this instant.
 
-    Twice per cycle and lowest just after each foot lands, which is the loading
-    response - the body falling onto the leg that has just taken it. A bob at the wrong
-    frequency reads as a limp and one peaking AT contact reads as a hop.
+    Twice per cycle either way, but WHERE the peaks fall depends on which kind of gait
+    this is, and the two kinds are opposite:
+
+      a WALK is an inverted pendulum - the body VAULTS over the straight stance leg, so
+        it is highest at mid-stance and lowest in double support;
+      a RUN is a spring - the leg compresses under the body, so it is LOWEST at
+        mid-stance and highest in flight.
+
+    One formula served both at first, and it was the run's. On the walk that put the
+    body at its highest exactly when both feet were spread on the ground, which drove
+    the trailing leg to full stretch: measured, the trailing knee snapped from 43.5
+    degrees to 0.3 in one frame, at precisely 100.0% of the leg's reach.
+
+    The duty factor already says which kind this is - stance over half the cycle is the
+    definition of a walk - so the share picks the sign.
     """
-    return -bob * math.cos(4.0 * math.pi * (phase - share * 0.5))
+    pendular = share > 0.5
+    swing = math.cos(4.0 * math.pi * (phase - share * 0.5))
+    return (bob if pendular else -bob) * swing
 
 
 def solve_the_target(rig, mesh, feet, targets, wanted, pitches, tries: int = 4,
@@ -305,7 +366,17 @@ def rest_foot_pitch(rig, side: str, forward):
     return math.degrees(math.atan2(span.z, max(1e-6, flat.length)))
 
 
-def point_the_foot(rig, side: str, pitch: float, toe_out: float, forward, across):
+# The toe-out the poles assume, matching prepare_rig's TOE_OUT. Only the pole aim
+# needs it here; the feet themselves are handed the value per call.
+TOES_POINT_OUT = 0.0
+
+# The most the toes may bend up at the ball, in degrees. Anatomy puts the
+# metatarsophalangeal joint's dorsiflexion near 55; past the cap the shoe crumples.
+TOES_BEND_UP_TO = 50.0
+
+
+def point_the_foot(rig, side: str, pitch: float, toe_out: float, forward, across,
+                   toes_at: float = None):
     """Aims one foot outright: heading AND pitch, both stated, neither read back.
 
     # A foot is CONTROLLED, not corrected
@@ -329,27 +400,63 @@ def point_the_foot(rig, side: str, pitch: float, toe_out: float, forward, across
     That is what a foot control does in a hand-built rig: the foot's orientation is an
     input, not a consequence.
     """
+    # # The whole ORIENTATION is stated, not just the line
+    #
+    # Aiming the ankle-to-toe LINE leaves one degree of freedom free: the bank about
+    # that line. With `use_rotation` off the IK settles the calf's roll however it
+    # likes, the foot inherits it, and the sole tilts sideways - "feet angle oddly to
+    # the side", visible from the front. So the target is a full frame: the bind
+    # orientation yawed to the heading and pitched about the heading's own lateral.
+    # Zero bank by construction, whatever the calf did.
     hand = 1.0 if side == "L" else -1.0
     yaw = math.radians(toe_out * hand)
     heading = forward * math.cos(yaw) + across * math.sin(yaw)
-    lift = math.radians(pitch)
-    wanted = (heading * math.cos(lift) + mathutils.Vector((0.0, 0.0, 1.0)) * math.sin(lift)).normalized()
+    up = mathutils.Vector((0.0, 0.0, 1.0))
+    # heading x up, not up x heading: the pitch axis must satisfy axis x heading = up
+    # so that POSITIVE degrees lift the toes. The other order is the same line pointed
+    # the other way, and it inverted every pitch in all three clips - leading feet
+    # landing toe-first, trailing feet pushing off heel-first - which the verifier
+    # refused on sight.
+    lateral = heading.cross(up).normalized()
 
-    heel = rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head
-    toe = rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].tail
-    now = toe - heel
-    if now.length < 1e-9:
+    # The bind's own heading, so the yaw applied is the DIFFERENCE - the bind already
+    # carries its toe-out.
+    world3 = rig.matrix_world.to_3x3()
+    foot_bind = rig.data.bones[f"{side}_Foot"]
+    toe_bind = rig.data.bones[f"{side}_ToeBase"]
+    rest_line = (rig.matrix_world @ (toe_bind.matrix_local
+                                     @ mathutils.Vector((0.0, toe_bind.length, 0.0)))
+                 ) - (rig.matrix_world @ foot_bind.matrix_local.translation)
+    rest_line.z = 0.0
+    if rest_line.length < 1e-9:
         return
-    turn = now.normalized().rotation_difference(wanted)
-    if turn.angle < 1e-9:
-        return
-    posed = rig.pose.bones[f"{side}_Foot"]
-    frame = posed.matrix.to_3x3()
-    local = (frame.inverted() @ turn.axis).normalized()
-    posed.rotation_mode = "QUATERNION"
-    posed.rotation_quaternion = posed.rotation_quaternion @ mathutils.Quaternion(
-        local, turn.angle
+    rest_line.normalize()
+    turn_yaw = mathutils.Quaternion(
+        up, math.atan2(rest_line.cross(heading).dot(up), rest_line.dot(heading))
     )
+
+    # The toes: flat under a rising heel while planted, following the foot when
+    # airborne. The caller knows which, so it states the toe pitch; the fallback is
+    # the planted rule, for callers with no phase to hand.
+    if toes_at is None:
+        toes_at = max(pitch, min(0.0, pitch + TOES_BEND_UP_TO))
+
+    for name, degrees in ((f"{side}_Foot", pitch), (f"{side}_ToeBase", toes_at)):
+        posed = rig.pose.bones[name]
+        turn = (mathutils.Quaternion(lateral, math.radians(degrees)) @ turn_yaw
+                ).to_matrix()
+        target = turn @ (world3 @ posed.bone.matrix_local.to_3x3())
+        # The parent may just have been re-posed, so the frame is flushed each time
+        # or the delta would be solved against a stale matrix.
+        bpy.context.view_layer.update()
+        current = posed.matrix.to_3x3()
+        if current.determinant() == 0.0:
+            continue
+        posed.rotation_mode = "QUATERNION"
+        posed.rotation_quaternion = (
+            posed.rotation_quaternion
+            @ (current.inverted() @ target).to_quaternion()
+        )
 
 
 def bake_the_constraints(rig, first: int, last: int) -> None:

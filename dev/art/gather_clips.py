@@ -42,8 +42,14 @@ GAITS = ("idle", "walk", "run", "sprint", "jog")
 
 
 def sibling_exports(beside: str):
-    """Every other export of this character sitting next to the primary one."""
-    folder = os.path.dirname(beside)
+    """Every other export of this character in the PROJECT ROOT.
+
+    The root and not the folder the primary sits in, because the primary is now the
+    prepared rig in dev/art/ - a build artifact among build artifacts. Scanning its
+    directory found a superseded intermediate .glb and tried to read gaits out of it.
+    Exports the user drops in land in the project root, so that is the place to look.
+    """
+    folder = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     primary = os.path.basename(beside).lower()
     found = []
     for name in sorted(os.listdir(folder)):
@@ -125,12 +131,21 @@ def take_the_clips(rig, beside: str):
         else:
             apart = rest_differs(rig, other)
             if apart > SAME_RIG_WITHIN:
-                raise SystemExit(
-                    f"{os.path.basename(path)} has a rest pose {apart:.5f} away from "
-                    f"the primary export, and {SAME_RIG_WITHIN} is the most that can "
-                    f"be the same rig. Every quaternion in its clips would mean "
-                    f"something else here. Re-export both from the same rig."
+                # A skip and not a refusal. The primary is the PREPARED rig now - its
+                # rest pose was deliberately changed (mirrored, straightened, A-posed)
+                # - so every raw generator export in the root is expected to sit here
+                # and expected not to match. Its quaternions are written against the
+                # old rest basis and would mean something else on this rig; using them
+                # needs a world-space retarget, not a copy, so they are left alone.
+                print(
+                    f"  {os.path.basename(path)}: rest pose {apart:.4f} from the "
+                    "prepared rig (a raw export, its clips cannot be copied) - skipped"
                 )
+                for action in brought:
+                    bpy.data.actions.remove(action)
+                for obj in fresh:
+                    bpy.data.objects.remove(obj, do_unlink=True)
+                continue
             for action in brought:
                 gait = which_gait(action.name)
                 if gait is None or gait == "idle":

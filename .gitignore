@@ -21,3 +21,7 @@ desktop.ini
 # Scratch worktrees the workflow tool makes for parallel agents. They are full
 # checkouts, so git sees them as embedded repositories and tries to add them.
 /.claude/worktrees/
+
+# Python bytecode. A stale ik_gait.pyc once made a source edit appear to do nothing.
+__pycache__/
+*.pyc

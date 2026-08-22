@@ -39,50 +39,32 @@ const BREAKS_INTO_A_RUN: f32 = 3.4;
 
 /// How far one cycle of each clip carries the warden, in metres.
 ///
-/// # Measured off the planted foot, which took three goes to get right
+/// # Measured off the planted SOLE of the shipped clips, not derived
 ///
-/// First estimated as `2 * leg * sin(stride angle)`, giving 1.35 and 1.14. Both
-/// wrong, because a leg's reach is not the ground it covers.
+/// `dev/art/native_speed.py` (scratch, rerun after any gait rebuild) tracks the
+/// lowest cluster of the deformed shoe between consecutive planted frames and takes
+/// its backward world velocity - the one number that is, by definition, the speed at
+/// which that clip's feet do not slide. `covers` is that velocity times the cycle's
+/// duration. Three earlier derivations each got it wrong a different way (leg reach,
+/// doubled swing, contact-over-stance on bones instead of the shoe), and the history
+/// of those mistakes is in git if it is ever wanted; the cure was to measure the
+/// thing itself.
 ///
-/// Then MEASURED as one foot's fore-aft swing, doubled, on the reasoning that a
-/// cycle is both feet taking one step. Also wrong, and wrong differently for the two
-/// gaits — which is the sort of error that hides. The identity is
-/// `speed = cadence * stride`, and a planted foot is stationary on the GROUND, so
-/// relative to the hips it travels backward at exactly the character's speed. A foot
-/// moving `S` during a stance lasting a fraction `f` of the cycle therefore carries
-/// the body `S / f`, not `2 S`. A walk has a foot down about 60% of the time and a
-/// run about 35%, so doubling overstates a walk and understates a run by a third.
+/// The identity behind it: `speed = cadence x stride`, and a planted foot travels
+/// backward relative to the hips at exactly the character's speed. The contact patch
+/// of a ROLLING shoe also advances heel-to-toe through stance, which the sole
+/// tracking sees and bone-based estimates did not - it is worth about 10% here.
 ///
-/// `dev/art/stride_measure.py` now fits a line to the planted foot's travel and
-/// reports the slope, so `f` falls out instead of being assumed.
-///
-/// **Measured by the one identity that is exact: contact length over stance
-/// fraction.** The contact length is the planted foot's travel relative to the hips,
-/// taken over the window each clip AUTHORS that foot to be down - poses 0 to
-/// stance-1 - because that is the only stretch where the foot is on the ground and
-/// the identity applies. 0.799 m walking and 0.869 in both running clips, against this
-/// character's own leg of 0.774 m hip to ankle - it is a stylised build with legs 45%
-/// of its height where a human's are 52%, so "about one leg length" is a different
-/// number here than the research's 0.99 m, and the running clips deliberately reach
-/// 14% past it.
-///
-/// Two earlier attempts disagreed with each other by half, and both were measuring
-/// something else: one fitted a line to the whole cycle including the swing, the
-/// other took half the two feet's combined spread, which is only the contact length
-/// if the feet are exactly antiphase.
-///
-/// **The older note, kept because it is still the reason the run was so wrong:** The provisional
-/// 2.20 was fitted to a walk that kept a foot down for three frames of twenty-four,
-/// so the fit had three points and the two feet disagreed by 19%; and 1.610 was never
-/// measured at all, because the old run had no frames with a foot down anywhere in
-/// it. Both were notes asking to be re-measured once the clips had real stance
-/// phases, which the eight-pose cycles do.
-///
-/// 1.935 and 2.282, and the cadences that follow are believable without help: 112
-/// steps a minute walking at 1.8 m/s and 189 running at 3.6, against 95-140 and
-/// 150-200 for real people. That headroom is what let the speeds go up.
-const WALK_COVERS: f32 = 1.278;
-const RUN_COVERS: f32 = 2.318;
+/// Current clips, measured 2026-08-22 (toe flex, shoe weights owned by the feet,
+/// stride bounded by this character's short legs and a 6 cm cap on hip drop):
+/// walk 0.950 m/s native, run 2.618, sprint 3.863. The
+/// running sweeps are one leg length apiece - which only fits inside the leg's reach
+/// because the stance window is asymmetric (land ~35% ahead, release ~65% behind,
+/// the art pipeline's LANDS_AHEAD). Measured per VERTEX of the planted sole,
+/// horizontal only: a centroid whose membership shifts as the shoe rolls reads as
+/// slide when nothing slid, and vertical pad lift is not slide either.
+const WALK_COVERS: f32 = 0.950;
+const RUN_COVERS: f32 = 1.745;
 
 /// The moving gaits, slowest first: the word in the clip's name, how far one cycle
 /// carries the warden in metres, and the speed above which the next one takes over.
@@ -122,7 +104,7 @@ const GAITS: &[(&str, f32, f32)] = &[
 const FPS: f32 = 24.0;
 const WALK_FRAMES: f32 = 24.0;
 const RUN_FRAMES: f32 = 16.0;
-const SPRINT_FRAMES: f32 = 16.0;
+const SPRINT_FRAMES: f32 = 14.0;
 
 /// The fastest a clip should be stretched past its own native speed.
 ///
@@ -143,15 +125,16 @@ const fn hands_over_above(covers: f32, frames: f32) -> f32 {
     natively_carries(covers, frames) * STRETCHES_TO
 }
 
-/// What a sprint cycle will carry once there is a sprint clip, in metres.
+/// What one sprint cycle carries, measured like the others - see `WALK_COVERS`.
 ///
-/// 3.50 m over fourteen frames is 6.0 m/s natively, at 206 steps a minute — and it is
-/// reachable, because planted-foot travel stays near one leg length at every speed
-/// (measured at 0.99 ± 0.08 m from 6.2 to 11.1 m/s) and stride is that contact length
-/// divided by the stance fraction. The extra stride is therefore bought by spending
-/// LESS of the cycle on the ground, not by reaching further. Trying to reach further is
-/// why 42 degrees of thigh swing once read as the splits.
-const SPRINT_COVERS: f32 = 3.477;
+/// 2.253 m over fourteen frames is 3.86 m/s natively at 206 steps a minute. The
+/// sprint sweeps the same ground per stance as the run (planted-foot travel stays
+/// near one leg length at every speed - 0.99 +/- 0.08 m from 6.2 to 11.1 m/s) and
+/// buys its speed with a shorter cycle and a longer flight, never by reaching
+/// further. Trying to reach further is why 42 degrees of thigh swing once read as
+/// the splits, and it is also why the first sprint clip came out NATIVELY SLOWER
+/// than the run: it kept the run's cadence and shrank its sweep.
+const SPRINT_COVERS: f32 = 2.253;
 
 /// What to hand `set_speed` so a clip plays at the right cadence.
 ///
@@ -461,6 +444,11 @@ mod pacing {
         // a real flight phase, and each tier plays its own clip at very nearly that
         // clip's native rate. So the bands below are the ones people actually walk and
         // run at, with no allowance for a fault.
+        // Each named speed is paired with the clip THE TABLE actually selects for
+        // it. The jog rides the SPRINT clip: the run clip's native is reach-limited
+        // to 2.60 m/s, its ceiling is 3.24, and the default pace sits above that -
+        // so the run clip serves the in-between band (analog sticks, slowdowns) and
+        // the jog test below pairs with the sprint clip, same as the game does.
         for (what, speed, covers, gait, band) in [
             ("walk", crate::player::WALK_SPEED, WALK_COVERS, "walk", (90.0, 140.0)),
             ("jog", crate::player::JOG_SPEED, RUN_COVERS, "run", (150.0, 200.0)),

@@ -78,7 +78,34 @@ TOES_OUT_AT_MOST = 14.0
 # 12 with the most economical near 6. Game guidance quotes 15 to 30 for sprints, which
 # is a two-to-four-times push and makes a character read as permanently accelerating.
 LEANS_FORWARD_AT_LEAST = 4.0
-STANDS_UP_WITHIN = 3.0
+
+# A walk may lean FORWARD up to this, and must never lean back at all. It was a
+# symmetric 3 degrees either way, which is right for an unloaded stroll and wrong for
+# this character: he carries a backpack, and its mass sits behind him, so an upright
+# trunk reads as reclining - reported twice as "leaning back" while the number said
+# +1.6 forward. A loaded walker leans into the load. Backwards still refuses at once,
+# since that was the original fault this guard was written for.
+WALK_MAY_LEAN_FORWARD = 8.0
+WALK_MAY_LEAN_BACK = 0.5
+
+# How far a thigh must extend BEHIND vertical somewhere in the cycle, in degrees.
+# Walking reaches 10 to 20; this asks for most of the bottom of that, because a leg
+# that never gets behind the body is what makes the hips look pushed out in front.
+THIGH_REACHES_BACK = 12.0
+
+# How far past a SMOOTH bob's own steepest step the hips may move between two frames.
+#
+# An absolute limit cannot work here and was tried: a sprint's hips complete two rises
+# in 0.58 s, so its per-frame steps are legitimately about three times a walk's, and a
+# figure that suited the walk refused the sprint at once. What is constant across gaits
+# is the SHAPE - a cosine of amplitude A over a span N steps at most A * 4pi / N per
+# frame - so the measured worst step is compared with that instead. A step function has
+# one step far larger than its own amplitude implies, which is what this catches: the
+# lurch that started this measured 3.8x, and a healthy walk measures 1.3.
+HIP_STEPS_PAST_SMOOTH = 2.0
+
+# How nearly the first frame must equal the last. They are the same instant.
+SEAM_CLOSES_WITHIN = 0.002
 
 # The summed stance shares below which a gait has a genuine flight phase. One exactly
 # would mean the two feet hand over with no overlap and no gap.
@@ -198,11 +225,35 @@ def main() -> None:
         flat = mathutils.Vector((span.x, span.y, 0.0))
         return math.degrees(math.atan2(span.z, max(1e-6, flat.length)))
 
-    # Horizontal is the zero now, so there is no rest baseline to subtract.
-    at_rest = {side: 0.0 for side in "LR"}
+    # # Zero is the BIND, and that is a change worth explaining
+    #
+    # This measured from horizontal and treated that as the zero, because back then the
+    # foot bones ran horizontally through the shoe, so bind and horizontal were the same
+    # thing. They are not any more: the ball joint moved to the shoe's real flex point
+    # near the sole, so the bind's ankle-to-toe line now dips about ten degrees while
+    # the SOLE is still flat on the floor. Against horizontal, a correct heel strike
+    # then reads as roughly zero and gets refused.
+    #
+    # The bind is the pose in which the sole is flat - that is what the pipeline
+    # guarantees, soles at 0.0000 cm - so it is the honest zero for "how far is this
+    # foot tilted off the floor". The earlier note about a rest pose dipping 31 degrees
+    # was true of the delivered CROUCH, which is no longer the bind.
+    holding = rig.animation_data.action if rig.animation_data else None
+    if rig.animation_data:
+        rig.animation_data.action = None
+    for posed in rig.pose.bones:
+        posed.rotation_mode = "QUATERNION"
+        posed.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+        posed.location = (0.0, 0.0, 0.0)
+    bpy.context.view_layer.update()
+    at_rest = {side: pitch(side) for side in "LR"}
+    if rig.animation_data:
+        rig.animation_data.action = holding
+    bpy.context.view_layer.update()
     print(
         "feet at rest point "
-        + ", ".join(f"{s} {pitch(s):+.1f} deg from horizontal" for s in "LR")
+        + ", ".join(f"{s} {at_rest[s]:+.1f} deg from horizontal (this is the zero)"
+                    for s in "LR")
     )
 
     def toe_out(side):
@@ -310,6 +361,18 @@ def main() -> None:
                     "arms": lead("L_Hand") - lead("R_Hand"),
                     "pitch": {s: pitch(s) - at_rest[s] for s in "LR"},
                     "folded": {s: folded(s) for s in "LR"},
+                    # Where the hips sit, and how far each thigh swings. Both were
+                    # measured by hand for a long time before they earned refusals
+                    # below; see `the_body_is_over_its_feet` and `thighs_swing_both_ways`.
+                    "hipfwd": lead("Hip"),
+                    "ankles": {s: lead(f"{s}_Foot") for s in "LR"},
+                    "thigh": {
+                        s: math.degrees(math.atan2(
+                            lead(f"{s}_Calf") - lead(f"{s}_Thigh"),
+                            max(1e-9, head(f"{s}_Thigh").z - head(f"{s}_Calf").z),
+                        ))
+                        for s in "LR"
+                    },
                     "knees": {
                         s: off_chord(f"{s}_Thigh", f"{s}_Calf", f"{s}_Foot") for s in "LR"
                     },
@@ -627,10 +690,94 @@ def main() -> None:
                 f"flexed FORWARD by {LEANS_FORWARD_AT_LEAST} or more. Leaning back "
                 f"while running is not something people do."
             )
-        if not flies and abs(leans) > STANDS_UP_WITHIN:
+        # --- The body has to be over its feet.
+        #
+        # Not a matter of degree either: a walker whose hips are in front of BOTH feet
+        # is falling, and it is what "the hips are sitting forward of the feet" was
+        # seeing. Measured per frame rather than on average, because an average hides
+        # exactly the few frames where it happens.
+        adrift = [
+            f["frame"] for f in frames
+            if all(f["ankles"][s] < f["hipfwd"] for s in "LR")
+        ]
+        if adrift and not flies:
+            refused.append(
+                f"{name}: on {len(adrift)} frame(s) the hips are in front of BOTH "
+                f"feet - {adrift[:6]} - so nothing is under the body. A walk always "
+                f"has a foot to fall onto."
+            )
+
+        # --- And the thighs have to swing BOTH ways.
+        #
+        # A thigh that only ever points forward reads as the hips being pushed out in
+        # front of the legs, whatever the trunk is doing: measured at one point it
+        # ranged +13 to +34 degrees and reached behind vertical on a single frame of
+        # twenty-five. Normal walking swings roughly -20 (extended at toe-off) to +30
+        # or +35 (flexed at terminal swing), so the FORWARD end needs no guarding - it
+        # is the extension that goes missing.
+        for side in "LR":
+            behind = min(f["thigh"][side] for f in frames)
+            if behind > -THIGH_REACHES_BACK:
+                refused.append(
+                    f"{name}: the {side} thigh only reaches {behind:+.1f} deg from "
+                    f"vertical, never extending {THIGH_REACHES_BACK} behind it. A leg "
+                    f"that only swings forward puts the hips in front of the body."
+                )
+
+        # --- The hips must not lurch.
+        #
+        # They ride a smooth bob; a step between frames far larger than its neighbours
+        # is the jitter that was reported as a bounce. It came from clamping the hip to
+        # a reach limit frame by frame, which made its height a step function and
+        # dropped it 5.95 cm in one frame.
+        steps = [
+            abs(frames[i]["hip"] - frames[i - 1]["hip"]) for i in range(1, len(frames))
+        ]
+        # `bob_height`, NOT `rise`: `rise` belongs to the limp check further down and
+        # naming this one the same clobbered it, so a healthy walk was refused with a
+        # message contradicting itself - "one half bobs 0.0224 and the other 0.0224, a
+        # ratio of 0.02". A shadowed name inside one long function is not a small bug.
+        bob_height = max(f["hip"] for f in frames) - min(f["hip"] for f in frames)
+        smooth = bob_height / 2.0 * 4.0 * math.pi / max(1, len(frames) - 1)
+        if steps and smooth > 0.0 and max(steps) > smooth * HIP_STEPS_PAST_SMOOTH:
+            worst = frames[steps.index(max(steps)) + 1]["frame"]
+            refused.append(
+                f"{name}: the hips move {max(steps) * 100.0:.2f} cm between two frames "
+                f"at frame {worst}, which is {max(steps) / smooth:.1f}x the steepest a "
+                f"smooth bob of this height ({bob_height * 100.0:.1f} cm over "
+                f"{len(frames) - 1} frames) would ever need. A step that size is seen "
+                f"as a bounce."
+            )
+
+        # --- And the loop has to close.
+        #
+        # First frame and last are the same instant, so any difference is crossed every
+        # cycle. It was seen as an arm jumping: frame 1 is the authoring loop's first
+        # pass and settles differently from every frame after it.
+        if len(frames) > 1:
+            seam = max(
+                abs(frames[0][what] - frames[-1][what]) for what in ("hip", "hipfwd")
+            )
+            for what in ("ankles", "thigh"):
+                seam = max(
+                    seam,
+                    max(abs(frames[0][what][s] - frames[-1][what][s]) for s in "LR"),
+                )
+            if seam > SEAM_CLOSES_WITHIN:
+                refused.append(
+                    f"{name}: the first and last frames differ by {seam:.4f}, and they "
+                    f"are the same instant of the cycle. Anything above "
+                    f"{SEAM_CLOSES_WITHIN} is a discontinuity crossed every loop."
+                )
+
+        if not flies and not (
+            -WALK_MAY_LEAN_BACK <= leans <= WALK_MAY_LEAN_FORWARD
+        ):
             refused.append(
                 f"{name}: the trunk is {leans:+.1f} deg off the model's own resting "
-                f"posture, and a walk should leave it within {STANDS_UP_WITHIN}."
+                f"posture, and a walk wants between {-WALK_MAY_LEAN_BACK:+.1f} and "
+                f"{WALK_MAY_LEAN_FORWARD:+.1f}. Leaning BACK is the fault this checks "
+                f"for; a loaded walker leans into the load."
             )
 
         # A limp, stated as a refusal rather than a score, because a cycle whose two

@@ -44,34 +44,43 @@ use crate::world::WorldBounds;
 /// (v²/gL, leg 0.90 m), and the walk-to-run transition sits at Fr ≈ 0.5 — so a real
 /// human at the old "walk" speed would already have broken into a run.
 ///
-/// 1.9 is what the walk CLIP natively carries: 1.935 m a cycle at 115 steps a minute.
-/// Played at its own rate, so nothing stretches and nothing skates.
-pub const WALK_SPEED: f32 = 1.28;
+/// The walk CLIP natively carries 0.95 m/s, played at 1.00x - nothing stretches,
+/// 120 steps a minute, mid the 90-140 band.
+///
+/// That is a deliberate amble rather than a brisk walk, and it is the price of
+/// keeping him upright. His legs are 45% of his height where a person's are 52%, and
+/// a planted foot pins the hip to sqrt(reach^2 - ahead^2) above the ankle, so every
+/// extra centimetre of stride is paid for in crouch. The hip is capped at 6 cm of
+/// drop (ik_gait.HIP_DROPS_AT_MOST) and the stride is whatever fits under that cap.
+/// Walking is the deliberate slow mode here anyway; the default pace is the jog.
+pub const WALK_SPEED: f32 = 0.95;
 
 /// The default pace, in metres a second. A jog.
 ///
-/// The clip called `run` is really a jog — 2.282 m a cycle at 180 steps a minute is
-/// 3.42 m/s — and this plays it at very nearly its native rate. Comparable figures:
-/// Palworld's default is 3.50, Unity's third-person sprint 5.34, Epic's own authored
-/// run 5.00.
-pub const JOG_SPEED: f32 = 3.48;
+/// Comparable figures: Palworld's default is 3.50, Unity's third-person sprint 5.34,
+/// Epic's own authored run 5.00.
+///
+/// The RUN clip at 200 steps a minute exactly, the top of the 150-200 band a person
+/// runs at. Derived, not chosen: cadence is speed over covers, so 200 x 1.745 / 120
+/// is the fastest this clip may be asked to carry.
+///
+/// The old 3.48 was tuned against clips whose feet skated. On honest planted soles it
+/// demanded leg-blur cadence, and since the stride is measured and already at what the
+/// legs allow, the ask is what came down.
+pub const JOG_SPEED: f32 = 2.90;
 
 /// A sprint, in metres a second. Held on Shift.
 ///
-/// # Capped by the clip, and the cap is the next piece of work
+/// EXACTLY the sprint clip's native 3.86 m/s (2.253 m a cycle over 0.583 s, 206
+/// steps a minute): Shift plays it at 1.00x, nothing stretches, nothing skates -
+/// a real 37% jump over the default pace.
 ///
-/// There is no sprint clip yet, so this stretches the jog. The reference brief puts
-/// the acceptable stretch at ±25% around a clip's native speed, and 3.42 × 1.25 =
-/// 4.28 — past that the cadence leaves the believable band and the legs churn, which
-/// is what 4.6 was doing at 242 steps a minute.
-///
-/// **A real 6 m/s sprint needs 3.50 m a cycle, and the way to get it is AIRTIME, not
-/// reach.** Planted-foot travel is about one leg length in every clip, from a jog to
-/// a world-class sprint — Weyand measures 0.99 ± 0.08 m across 6.2 to 11.1 m/s — and
-/// stride is that contact length divided by the stance fraction. So a longer stride
-/// comes from spending less of the cycle on the ground, and trying to buy it with a
-/// bigger leg angle is why 42 degrees of thigh swing once read as the splits.
-pub const SPRINT_SPEED: f32 = 5.21;
+/// The old 5.21 predates a working sprint clip: it was picked against an ASPIRATIONAL
+/// covers of 3.477 for a clip that had never been authored, and on the real one it
+/// demanded 250 steps a minute, which is leg-blur. If Shift needs to be faster one
+/// day, the clip must cover more ground first - longer flight or a 12-frame cycle -
+/// and this constant then follows the new measurement, never the other way round.
+pub const SPRINT_SPEED: f32 = 3.86;
 
 /// How fast the warden swivels to face the way they're heading, in radians/sec.
 const TURN_RATE: f32 = 12.0;
