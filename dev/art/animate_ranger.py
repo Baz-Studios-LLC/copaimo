@@ -1115,7 +1115,17 @@ SPRINT_LEAN = RUN_LEAN * 1.45
 # cannot drift apart. Replaces ARM_OUT, which added abduction on top of the old
 # near-hanging bind and would read as chicken wings on this one.
 ARM_HANGS_AT = 12.0
-PALM_IN = 10.0
+# 80, up from 10. Reported as the hands being "angled backwards", and what that turned out
+# to be is the ROLL and not the bend: the wrist's flexion measures plus or minus 14 degrees
+# from the bind, symmetric between the sides and 1.4 at idle, so it was never the culprit.
+# Rendered across the run, the hand sat FLAT with the palm down and the fingers splayed
+# forward - a table top rather than a hand - and it is the roll that fixes that.
+#
+# There is a limit to how good this gets: the rig has 41 bones and only `L_Hand` and `R_Hand`
+# among them, no fingers at all, so the splayed fingers are baked into the mesh and cannot be
+# curled by posing. The roll is chosen to point them along the direction of travel, which is
+# the most a hand can be helped without finger bones.
+PALM_IN = 80.0
 
 # --- Two repairs to the idle the model shipped with. See `mend_the_shipped_idle`.
 #

@@ -1899,7 +1899,11 @@ def cut_the_fusions(rig, mesh, hops: int = 4, times_median: float = 4.0):
 
 # How far from a limb's own axis a small piece has to sit before it counts as hanging OFF the
 # limb rather than being worn on it, in model units - about 17 cm. See `hangs_off`.
-CLEARS_THE_ARM = 0.10
+# 0.07, about 12 cm. Lowered from 0.10 once the straps UNDER the arms were reported as still
+# there: at 17 cm only the piece 29.4 cm out was going, and the two at 16.1 and 18.5 stayed.
+# The cuff is at 6.7 cm, so there is a wide gap between what is worn on the arm and what
+# dangles off it, and the threshold sits in the middle of it rather than near either edge.
+CLEARS_THE_ARM = 0.07
 
 
 def remove_the_hanging_straps(rig, mesh, biggest: int = 120):

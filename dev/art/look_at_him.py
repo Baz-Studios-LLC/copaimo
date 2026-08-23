@@ -85,6 +85,9 @@ SHOTS = (
     # stray straps - so it is where a wrongly removed sleeve would show.
     ("cuff", 25.0, 0.30, mathutils.Vector((0.0, 0.0, high * 0.65))),
     ("cuff_side", 105.0, 0.30, mathutils.Vector((0.0, 0.0, high * 0.65))),
+    # The hand itself, close, from two sides - reported as angled backwards.
+    ("hand", 20.0, 0.26, mathutils.Vector((0.0, 0.0, high * 0.56))),
+    ("hand_side", 100.0, 0.26, mathutils.Vector((0.0, 0.0, high * 0.56))),
 )
 
 made = []
