@@ -407,8 +407,14 @@ RUN_LEG = (
     #                       raises the ankle off the contact point, which needs less
     #                       vertical reach and so frees up horizontal.
     0.0,      # 12.5  mid-stance - sole flat, weight loaded  [thigh 2.0, knee 38.0]
-    -48.0,    # 25    push-off - leg extended hard behind, driving back  [thigh -38.0, knee 4.0]
-    #                       Was -32. This is the reach knob, not just a pose.
+    -26.0,    # 25    push-off - leg extended hard behind, driving back  [thigh -38.0, knee 4.0]
+    #                       -26, after -32, -48 and -38. This is the reach knob, not just
+    #                       a pose - but it turned out to be a nearly free one, which is why
+    #                       it moved four times. Going -48 -> -38 -> -26 cost covers 2.495
+    #                       -> 2.493 -> 2.502 m, so the sweep does not come from HOW FAR the
+    #                       ankle plantarflexes, only from it doing so at all, and the last
+    #                       step even improved the planted foot's rate consistency (spread
+    #                       4.01 cm to 0.26). Reach was never the thing being traded.
     #                       `where_the_balls_go` authors the BALL's path and `ankle_for`
     #                       derives the ankle from it, so how far the ball may sit behind
     #                       the hip depends on how far the ankle is pulled forward of the
@@ -425,6 +431,17 @@ RUN_LEG = (
     #                       He is normally proportioned - 50.1% of height, hip socket to
     #                       floor - so a person with his legs sweeps about a metre. The
     #                       shortfall was in the solve, not the skeleton.
+    #
+    #                       -48 went too far the other way, and the give was in the ANKLE:
+    #                       this angle is the sole against the FLOOR, and at toe-off the
+    #                       shank is steep, so -48 of sole came out as -60.5 of ankle bend.
+    #                       That folds the shoe on a foot that is still on the ground, and
+    #                       a planted foot cannot be corrected afterwards - rotating one
+    #                       lifts its sole, and the floor solve is long past. So the limit
+    #                       here is what the ankle can carry, not what the reach would like:
+    #                       see ANKLE_BENDS_BETWEEN and keep_the_swing_ankle_honest, which
+    #                       handles the SWING half of the same fault where a correction is
+    #                       free.
     -30.0,    # 37.5  early flight - knee folding up behind  [thigh -30.0, knee 70.0]
     -36.0,    # 50    peak fold - heel toward the buttock  [thigh -6.0, knee 100.0]
     -34.0,    # 62.5  knee drive - thigh coming through high  [thigh 22.0, knee 92.0]
@@ -536,7 +553,15 @@ ARM_BACK = -22.0
 # properly. It only got there by accident, through multipliers of 1.9 and 2.7 on values
 # that were far too small - so the two clips disagreed by more than a factor of two, and
 # the one that was reported as wrong was the one with the honest numbers.
-RUN_ARM_FORWARD = 38.0
+# 28 forward, -55 back. Reported: "the jog the arms seem to go up too high". Two things
+# stack into hand height and 38 was the wrong one to have raised - the shoulder driving 38
+# degrees forward AND the elbow folding to 106 at that same extreme put the hand up by the
+# chest. Cutting the shoulder swing is the cheaper of the two, because the elbow fold is
+# what makes the arm read as ANGLED rather than dangling.
+#
+# Deliberately asymmetric now: a jogger drives further back than forward, and the back half
+# is the half that was reported as too small in the first place. So the -55 stays.
+RUN_ARM_FORWARD = 28.0
 RUN_ARM_BACK = -55.0
 
 # A sprint drives the arms harder still, and the check in `verify_gait.py` refuses a
@@ -552,7 +577,10 @@ RUN_ARM_BACK = -55.0
 # huge multiple to look like a sprint. Now that the run is honest, the same multiples would
 # put the sprint at 72 and -148 degrees. Retuned to hold the sprint at the 42/-85 that
 # measured well - about 127 degrees of swing against the run's 93.
-SPRINT_ARM_FORWARD = RUN_ARM_FORWARD * 1.1
+# 1.4, so the sprint keeps a bigger forward drive than the jog now that the jog's own has
+# come down. The two are related by a multiplier and it has needed re-deriving every time
+# the run moved - see the note on SPRINT_LEAN for the same pattern in a third place.
+SPRINT_ARM_FORWARD = RUN_ARM_FORWARD * 1.4
 # The BACK swing is scaled harder than the forward one, and separately from it.
 #
 # Reported as "the elbows dont go back far enough". They can be pushed on their own: what
@@ -719,11 +747,23 @@ RUN_ELBOW_SWING = 30.0
 # degrees against the run's 94, and fold and shoulder extension add up in the same joint -
 # so the fold that the run can carry at full stretch hyperextends here. Refused twice before
 # landing: at 94 +/- 28 and again at 76 +/- 30.
-SPRINT_ELBOW_HELD = 70.0
+# 85 held with only 14 of swing - a TIGHT angle held nearly constant, where the run's arm
+# opens and closes through 60 degrees. Reported: "the sprint the arms should be more angled
+# and expressive they seem a bit loose for a sprint", and loose is exactly what it was: at
+# 70 +/- 26 the sprint's elbow ran 44 to 96, straighter than the run's 46 to 106, so the
+# faster gait had the floppier arm.
+#
+# That happened by accident rather than by choice. 94 +/- 28 and then 76 +/- 30 were both
+# REFUSED for hyperextension, and each retreat was made to clear the guard without asking
+# what the pose should be. A sprinter's arms are the opposite of loose - clamped near a
+# right angle and driven from the shoulder - so holding the fold nearly fixed and letting
+# the SHOULDER do the work is both what it should look like and what keeps it clear of the
+# guard: 71 to 99 never approaches the 106 that passed for the run.
+SPRINT_ELBOW_HELD = 85.0
 # 28, from 4 - which was a locked elbow. The sprint's SHOULDER measured fine all along, so
 # nothing ever pointed at its elbow; it took fixing the run's to notice the sprint had the
 # same fault twice as badly.
-SPRINT_ELBOW_SWING = 26.0
+SPRINT_ELBOW_SWING = 14.0
 
 # How far the SHOULDERS counter-rotate against the hips, in degrees each way.
 #
@@ -1687,6 +1727,7 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
     # degrees away from the line of travel - the knee right and the foot backwards.
     flat = {side: ik_gait.rest_foot_pitch(rig, side, facing[0]) for side in "LR"}
 
+    rest_bend = {side: ankle_bend(rig, side) for side in "LR"}
     rigged = {side: ik_gait.add_leg_ik(rig, side) for side in "LR"}
     targets = {side: rigged[side][0] for side in "LR"}
     for side, (_, pole, hold) in rigged.items():
@@ -2152,15 +2193,140 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
     dropped = forget_the_frames_before(baked, first)
     bpy.context.scene.frame_start = first
 
+    # The ankles LAST, and only the airborne ones - see keep_the_swing_ankle_honest. It has
+    # to be here: before the bake the legs are IK constraints and the shank it measures
+    # against does not exist yet.
+    straightened = keep_the_swing_ankle_honest(
+        rig, span, share, facing[1], rest_bend
+    )
+
     closed = close_the_loop(baked, 1, span + 1)
     turned = make_it_linear(baked)
     baked.name = name
     print(
         f"  {name}: {span + 1} frames, {turned} keys linear, {closed} closed at the "
-        f"seam, {dropped} run-up keys dropped, legs solved by IK; "
+        f"seam, {dropped} run-up keys dropped, legs solved by IK, "
+        f"{straightened} swing ankles pulled back inside "
+        f"{ANKLE_BENDS_BETWEEN[0]:.0f}..{ANKLE_BENDS_BETWEEN[1]:.0f} deg; "
         f"the worst the shoe missed the floor by was {clamped * 170.0:.2f} cm"
     )
     return baked
+
+
+# How far the ankle may bend away from its rest angle, in degrees: plantarflexed, then
+# dorsiflexed. A person runs inside about -25 to +30 and a shoe folds visibly well before
+# either end.
+ANKLE_BENDS_BETWEEN = (-30.0, 30.0)
+
+
+def ankle_bend(rig, side: str) -> float:
+    """How far this ankle is from its rest angle. Positive is toes-up (dorsiflexion)."""
+    knee = rig.matrix_world @ rig.pose.bones[f"{side}_Calf"].head
+    ankle = rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head
+    toe = rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].head
+    shank = (ankle - knee)
+    foot = (toe - ankle)
+    if shank.length < 1e-9 or foot.length < 1e-9:
+        return 0.0
+    return math.degrees(shank.normalized().angle(foot.normalized()))
+
+
+def turn_a_bone_further(rig, bone: str, degrees: float, axis) -> None:
+    """ADDS a turn about an axis of the armature, keeping whatever the bone already has.
+
+    `swing` SETS a rotation, which is right for authoring and wrong for a correction - it
+    would throw away the pose being corrected.
+    """
+    posed = rig.pose.bones[bone]
+    rest = posed.bone.matrix_local.to_3x3()
+    local = (rest.inverted() @ mathutils.Vector(axis)).normalized()
+    posed.rotation_mode = "QUATERNION"
+    posed.rotation_quaternion = (
+        mathutils.Quaternion(local, math.radians(degrees)) @ posed.rotation_quaternion
+    )
+
+
+def keep_the_swing_ankle_honest(rig, span: int, share: float, across, rest_bend) -> int:
+    """Pulls an airborne ankle back inside `ANKLE_BENDS_BETWEEN`, frame by frame.
+
+    # Why this exists, and why the last fix for it did not hold
+    #
+    # `RUN_LEG` authors the sole's pitch against the FLOOR. While the foot is planted that
+    # is exactly right - the floor is what the sole rests on. In SWING it is the wrong
+    # frame: the shank sweeps most of a right angle, and a sole held to a floor-relative
+    # angle leaves the ANKLE JOINT to absorb the whole difference. Measured, +63.5 degrees
+    # of dorsiflexion on the run against a human range of about -25..+30 - the toes hauled
+    # up into the shin, reported twice now as a "compressed back foot".
+    #
+    # It was fixed once by subtracting, by hand, the dorsiflexion each swing frame happened
+    # to be carrying. That is a correction and not a cure, and it lasted exactly until the
+    # knee moved: raising RUN_SWING_LIFT from 0.24 to 0.34 folded the shank further and
+    # brought the whole fault straight back, at +63.5 where it had been +65.
+    #
+    # So this measures instead. It runs AFTER the bake, because the legs are solved by IK
+    # constraints and the shank simply does not exist as a pose until then - which is also
+    # why it could never have been done in the authoring loop.
+    #
+    # An airborne foot touches nothing, so its orientation is free: correcting it cannot
+    # lift a sole off the floor or slide a plant. Only airborne frames are touched.
+    #
+    # The sign and the scale are PROBED rather than derived. Rotating a foot about the
+    # body's lateral axis changes the shank-relative angle by some gain that depends on
+    # where the shank happens to be pointing, and this file has a long history of sign
+    # errors reasoned out and measured wrong afterwards. One 2-degree test rotation gives
+    # both, and costs nothing.
+    """
+    fixed = 0
+    for frame in range(1, span + 2):
+        bpy.context.scene.frame_set(frame)
+        for side in "LR":
+            own = ((frame - 1) / span + (0.5 if side == "L" else 0.0)) % 1.0
+            if ik_gait.the_foot_is_down(own, share):
+                continue
+            bone = f"{side}_Foot"
+            bpy.context.view_layer.update()
+            off = ankle_bend(rig, side) - rest_bend[side]
+            low, high = ANKLE_BENDS_BETWEEN
+            excess = off - high if off > high else (off - low if off < low else 0.0)
+            if abs(excess) < 0.5:
+                continue
+
+            posed = rig.pose.bones[bone]
+            held = posed.rotation_quaternion.copy()
+            turn_a_bone_further(rig, bone, 2.0, across)
+            bpy.context.view_layer.update()
+            gain = (ankle_bend(rig, side) - rest_bend[side] - off) / 2.0
+            posed.rotation_quaternion = held
+            if abs(gain) < 1e-3:
+                continue
+
+            turn_a_bone_further(rig, bone, -excess / gain, across)
+            bpy.context.view_layer.update()
+            posed.keyframe_insert("rotation_quaternion", frame=frame)
+            fixed += 1
+
+    # Read it back from the KEYS, not from the pose that was just set. If a correction did
+    # not survive being keyed, that is the only way to see it.
+    # Read back from the KEYS, not from the pose just set, and say which foot is which.
+    # An airborne foot left out of band would mean a correction that did not survive being
+    # keyed; a PLANTED one out of band is a different fault entirely and cannot be fixed
+    # here - rotating a planted foot lifts its sole off the floor, and the floor solve ran
+    # during authoring, long before this. That has to come off the authored pose instead.
+    left = []
+    for frame in range(1, span + 2):
+        bpy.context.scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        for side in "LR":
+            off = ankle_bend(rig, side) - rest_bend[side]
+            own = ((frame - 1) / span + (0.5 if side == "L" else 0.0)) % 1.0
+            if abs(off) > abs(ANKLE_BENDS_BETWEEN[1]) + 2.0:
+                left.append((abs(off), frame, side, off,
+                             ik_gait.the_foot_is_down(own, share)))
+    left.sort(reverse=True)
+    for _, frame, side, off, planted in left[:4]:
+        print(f"    ankle still {off:+.1f} deg at f{frame}{side} "
+              f"({'PLANTED - fix the authored pose' if planted else 'AIRBORNE - a bug here'})")
+    return fixed
 
 
 def which_vertices_are_feet(mesh):
