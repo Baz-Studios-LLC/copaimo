@@ -697,6 +697,16 @@ TRUNK_PITCHES = 2.5
 # them - see the note in swing_the_arm. 1.0 is a plain cosine. Only the sprint pumps.
 # Extra degrees of inward tuck at the top of the forward swing, and how far ahead of the
 # apex that peak lands, as a fraction of a cycle. See the note in swing_the_arm.
+# How far behind the forearm the wrist drags, in degrees, and by how much of a cycle. See
+# the note where it is applied.
+#
+# 26 degrees is a lot on paper and reads as very little, because the term is zero-mean: it
+# is the gap between the arm angle now and a fortieth of a cycle ago. At 26 it produced only
+# 4.6 deg of actual wrist travel, which still read as a dead hand; 70 gives about 13, which
+# is a runner wrist rather than a flick.  Nothing at the extremes either way.
+HAND_LAGS_THE_ARM_BY = 70.0
+HAND_LAGS_THE_ARM = 0.025
+
 WALK_CROSSES_IN = 6.0
 RUN_CROSSES_IN = 16.0
 SPRINT_CROSSES_IN = 11.0
@@ -1654,6 +1664,34 @@ def swing_the_arm(rig, side: str, hand: float, phase: float, reach: float,
         @ mathutils.Vector((0.0, 1.0, 0.0))
     ).normalized()
     swing(rig, f"{side}_Hand", PALM_IN * hand, axis=along)
+
+    # # And then the wrist DRAGS behind the forearm
+    #
+    # Reported: "the wrists dont move so the hands feel off". They did not move at all -
+    # `swing` SETS a rotation, so the line above was the whole of the hand's pose and it is
+    # a constant. The arm swung 94 degrees and the hand went along as one rigid piece,
+    # which is precisely the "mechanical" that follow-through exists to fix.
+    #
+    # The principle is drag: "when raising an arm, you might lead with the upper arm, then
+    # elbow, then wrist, then fingers", and "looser or heavier elements lag noticeably
+    # further behind the main mass". The wrist is the last joint before the fingers, so it
+    # is the loosest thing on the arm and should lag the most.
+    #
+    # Written as the DIFFERENCE between where the arm is and where it was, which is the same
+    # form the chest and the head already use here. That shape matters: it is zero-mean, so
+    # it changes WHEN the hand arrives without moving the palm's neutral pose - the palm
+    # stays facing the thigh, which took several rounds to get right and should not be
+    # disturbed to add a wrist. It also peaks where the arm is moving fastest and vanishes
+    # at both extremes, which is what drag physically is.
+    #
+    # About the elbow's own `hinge`, so the hand flexes in the plane the arm swings in. Any
+    # fixed axis would have become a wrist TWIST the moment the elbow folded - the exact bug
+    # documented on the pronation above, and on the elbow above that. Third time on this arm.
+    trails = HAND_LAGS_THE_ARM_BY * (
+        math.cos(2.0 * math.pi * (at - HAND_LAGS_THE_ARM - 0.5 - ARM_LAG))
+        - math.cos(2.0 * math.pi * (at - 0.5 - ARM_LAG))
+    )
+    turn_a_bone_further(rig, f"{side}_Hand", trails, hinge)
 
 
 def fill_in_the_flight(lift, bound: float):
