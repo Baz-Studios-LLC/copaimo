@@ -81,6 +81,10 @@ SHOTS = (
     # the trouser leg would be if that criterion was too broad.
     ("thighs", 0.0, 0.55, mathutils.Vector((0.0, 0.0, high * 0.42))),
     ("thighs_side", 90.0, 0.55, mathutils.Vector((0.0, 0.0, high * 0.42))),
+    # Close on the forearm and the sleeve cuff, which is where four shells were removed as
+    # stray straps - so it is where a wrongly removed sleeve would show.
+    ("cuff", 25.0, 0.30, mathutils.Vector((0.0, 0.0, high * 0.65))),
+    ("cuff_side", 105.0, 0.30, mathutils.Vector((0.0, 0.0, high * 0.65))),
 )
 
 made = []

@@ -1897,6 +1897,11 @@ def cut_the_fusions(rig, mesh, hops: int = 4, times_median: float = 4.0):
         )
 
 
+# How far from a limb's own axis a small piece has to sit before it counts as hanging OFF the
+# limb rather than being worn on it, in model units - about 17 cm. See `hangs_off`.
+CLEARS_THE_ARM = 0.10
+
+
 def remove_the_hanging_straps(rig, mesh, biggest: int = 120):
     """Deletes the loose strap pieces the generator hung off the forearms.
 
@@ -1936,10 +1941,45 @@ def remove_the_hanging_straps(rig, mesh, biggest: int = 120):
         return who
 
     owners = [owns(v) for v in mesh.data.vertices]
+
+    # # It has to HANG OFF the arm, not sit on it
+    #
+    # Size and forearm-ownership alone took the SLEEVE CUFFS with the straps. Four shells
+    # qualified and one of them was the ribbed band at the end of the sleeve; removing it left
+    # the sleeve an open tube with the forearm passing through, reported as the forearm not
+    # being connected to the upper arm. The raw export has the band and the built asset did
+    # not, which is what settled it.
+    #
+    # Encircling was the first test tried and it fails: the cuff covers only 54 degrees round
+    # the arm, because most of it is the sleeve's own shell and only a fragment is separate.
+    #
+    # DISTANCE from the arm's own axis works. Measured on the four: 6.7 cm for the cuff, and
+    # 16.1, 18.5 and 29.4 for the straps. A cuff is worn ON the arm so it sits within a few
+    # centimetres of the bone; a strap dangling off is three times that or more.
+    def hangs_off(shell):
+        side = owners[next(iter(shell))][0]
+        elbow = mesh.matrix_world.inverted() @ (
+            rig.matrix_world @ rig.pose.bones[f"{side}_Forearm"].head
+        )
+        wrist = mesh.matrix_world.inverted() @ (
+            rig.matrix_world @ rig.pose.bones[f"{side}_Hand"].head
+        )
+        along = (wrist - elbow)
+        if along.length < 1e-9:
+            return False
+        along.normalize()
+        out = 0.0
+        for i in shell:
+            spoke = mesh.data.vertices[i].co - elbow
+            spoke -= along * spoke.dot(along)
+            out += spoke.length
+        return (out / len(shell)) > CLEARS_THE_ARM
+
     loose = [
         shell for shell in whole_shells(mesh)
         if len(shell) <= biggest
         and all("Forearm" in owners[i] for i in shell)
+        and hangs_off(shell)
     ]
     if not loose:
         print("  no forearm-only pieces small enough to be a stray strap")
