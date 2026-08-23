@@ -1696,6 +1696,196 @@ def add_room_where_it_tears(rig, mesh, cuts: int = 1):
         )
 
 
+def cut_the_fusions(rig, mesh, hops: int = 4, times_median: float = 4.0):
+    """Cuts the faces where the generator welded a limb to the body, and caps what is left.
+
+    # What is being cut, and how it is told apart from real clothing
+    #
+    # `tear_audit.py` finds edges stretching x21 under animation, and the worst run from
+    # `Spine01` to `R_ForearmTwist01` - the chest to the forearm. That is not geometry. In the
+    # A-pose the forearm hangs beside the hip, and the generator has fused the two where they
+    # nearly touched, leaving a band of faces bridging the gap. When the arm swings the band
+    # has to stretch, and that stretching IS the tearing.
+    #
+    # Telling a fusion from ordinary clothing is the whole difficulty, because for a dressed
+    # character a sleeve genuinely IS continuous with the jacket at the shoulder. Two tests
+    # together, and neither works alone:
+    #
+    #   * BONE DISTANCE. How many joints apart the bones driving a face's corners are. An
+    #     upperarm and a spine are close in the hierarchy and a face spanning them is a
+    #     shoulder. A forearm and a spine are five joints apart and nothing legitimate spans
+    #     them. Distance alone is not enough because a single mis-weighted vertex - there are
+    #     `Waist` weights down at knee height - makes an innocent face look far-flung.
+    #   * SIZE. The median face here is 2.70 cm2. A fusion has to span a real gap, so it is
+    #     enormous by comparison: the worst is 120.5 cm2, forty-five times the median. A
+    #     mis-weighted vertex sits in a face of ordinary size.
+    #
+    # At five hops and five times the median that is 32 faces. Deliberately the tightest
+    # defensible set rather than the largest - the same tests at four hops would take 101.
+    #
+    # # Why the holes are capped SEPARATELY, and never bridged
+    #
+    # Cutting the band leaves two boundary loops: one where it left the arm, one where it left
+    # the torso. Filling each on its own closes the arm as an arm and the torso as a torso.
+    # `bridge_edge_loops` would join the two loops back together, which is the fusion again -
+    # it is the obvious operator to reach for here and it is exactly wrong.
+    #
+    # Only the NEW boundaries are filled. This mesh is not watertight to begin with - it is 19
+    # shells and the garments have open hems - so filling every boundary would sew the jacket
+    # shut. The edges that were already open are recorded first and left alone.
+    """
+    def owns(vertex):
+        best, who = 0.0, ""
+        for group in vertex.groups:
+            if group.weight > best:
+                best, who = group.weight, mesh.vertex_groups[group.group].name
+        return who
+
+    joined = {}
+    for bone in rig.data.bones:
+        if bone.parent:
+            joined.setdefault(bone.name, set()).add(bone.parent.name)
+            joined.setdefault(bone.parent.name, set()).add(bone.name)
+
+    known = {}
+
+    def apart(a, b):
+        """How many joints lie between two bones."""
+        if a == b:
+            return 0
+        key = (a, b) if a < b else (b, a)
+        if key in known:
+            return known[key]
+        seen, edge, far = {a}, [a], 0
+        while edge and far < 14:
+            far += 1
+            nxt = []
+            for here in edge:
+                for there in joined.get(here, ()):
+                    if there == b:
+                        known[key] = far
+                        return far
+                    if there not in seen:
+                        seen.add(there)
+                        nxt.append(there)
+            edge = nxt
+        known[key] = 99
+        return 99
+
+    owners = [owns(v) for v in mesh.data.vertices]
+
+    # # Judged on the EDGE, not on the face's area
+    #
+    # The first version picked faces by area - over five times the median - and cut 31 of
+    # them, and the tearing did not move: 8.57% of edges past x1.35 before, 8.53% after, with
+    # the very same worst edge at x21.11. Area is a symptom. What actually tears is a long
+    # EDGE spanning bones that swing apart, and those edges survived the cut because they were
+    # shared with a neighbouring face that happened to fall under the area threshold.
+    #
+    # So the test is on the edge itself: longer than `times_median` times the median edge, and
+    # its two ends driven by bones at least `hops` joints apart. Any face carrying such an
+    # edge goes, which is the only way to be sure the edge goes with it.
+    lengths = sorted(
+        (mesh.data.vertices[e.vertices[0]].co - mesh.data.vertices[e.vertices[1]].co).length
+        for e in mesh.data.edges
+    )
+    median = lengths[len(lengths) // 2]
+    big = median * times_median
+    print(f"  the median edge is {median * 170.0:.2f} cm, so 'long' here is over "
+          f"{big * 170.0:.2f} cm")
+
+    torn = set()
+    for edge in mesh.data.edges:
+        a, b = edge.vertices
+        span = (mesh.data.vertices[a].co - mesh.data.vertices[b].co).length
+        if span > big and apart(owners[a], owners[b]) >= hops:
+            torn.add(edge.key)
+
+    fused = [
+        poly.index for poly in mesh.data.polygons
+        if any(
+            tuple(sorted((poly.vertices[i], poly.vertices[(i + 1) % len(poly.vertices)])))
+            in torn
+            for i in range(len(poly.vertices))
+        )
+    ]
+    print(f"  {len(torn)} edges are long AND span {hops}+ joints, carried by "
+          f"{len(fused)} faces")
+
+    if not fused:
+        print("  nothing is fused by both tests, so there is nothing to cut")
+        return
+
+    faces_before = len(mesh.data.polygons)
+    print(f"  {len(fused)} faces are {hops}+ joints across AND over "
+          f"{big * 170.0 * 170.0:.1f} cm2")
+
+    # # The cut and the cap in ONE bmesh session
+    #
+    # The first version recorded which edges were open before the cut, cut, recorded them
+    # again, and filled the difference. That is wrong in a way nothing complained about:
+    # deleting faces RENUMBERS the vertices, so an edge key taken before the cut names a
+    # different pair of vertices afterwards. The "difference" came out as 7007 edges, and
+    # filling them sewed up 240 faces worth of boundary all over the mesh - including the
+    # garment hems, which are open on purpose. The mesh is not watertight to begin with: 7475
+    # of its 10432 edges are boundary edges, because glTF splits vertices for hard edges.
+    #
+    # Holding the boundary as bmesh REFERENCES avoids the whole problem. An element that
+    # survives a delete keeps its identity, so the edges around the cut can be picked out
+    # before and still be the same edges after. And staying inside one edit-mode session is
+    # what preserves the custom split normals - `bm.to_mesh` would drop them.
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    mesh.select_set(True)
+    bpy.context.view_layer.objects.active = mesh
+    bpy.ops.object.mode_set(mode="EDIT")
+    working = bmesh.from_edit_mesh(mesh.data)
+    working.faces.ensure_lookup_table()
+    going = [working.faces[i] for i in fused]
+    doomed = set(going)
+
+    # The rim: edges of a doomed face that some surviving face also uses. These are what the
+    # cut leaves open, and they are exactly what should be capped.
+    rim = [
+        edge for face in going for edge in face.edges
+        if any(other not in doomed for other in edge.link_faces)
+    ]
+    rim = list(dict.fromkeys(rim))
+    print(f"  they are rimmed by {len(rim)} edges that survive the cut")
+
+    for face in working.faces:
+        face.select_set(False)
+    for edge in working.edges:
+        edge.select_set(False)
+    for vertex in working.verts:
+        vertex.select_set(False)
+    bmesh.ops.delete(working, geom=going, context="FACES")
+
+    # `rim` still refers to live edges - only the faces were removed.
+    capped = 0
+    for edge in rim:
+        if edge.is_valid:
+            edge.select_set(True)
+            capped += 1
+    bmesh.update_edit_mesh(mesh.data)
+    print(f"  {capped} of the rim survived and is selected for capping")
+    bpy.ops.mesh.fill_holes(sides=0)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    cut = faces_before - len(mesh.data.polygons)
+    print(f"  net {cut:+d} faces; the body is {len(mesh.data.vertices)} vertices and "
+          f"{len(mesh.data.polygons)} faces")
+    if cut > len(fused):
+        refuse(
+            f"{cut} faces went for {len(fused)} asked - more was cut than chosen"
+        )
+    if not mesh.data.has_custom_normals:
+        refuse(
+            "the cut lost the custom split normals, which lights the character as a "
+            "different shape - see the note on welding"
+        )
+
+
 def main():
     where = argv()
     if len(where) < 2:
@@ -1753,6 +1943,8 @@ def main():
     # separate, and that is the tearing. Cutting them is modelling work rather than a
     # pipeline step, because the surface behind a fusion does not exist and the hole left
     # would need closing.
+    print("\ncutting the limb-to-body fusions:")
+    cut_the_fusions(rig, mesh)
     print("\nthe leaf bones:")
     reach_the_ends(rig, mesh)
     print("\nRoot and Hip:")
