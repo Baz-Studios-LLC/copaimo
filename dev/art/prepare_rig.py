@@ -1886,6 +1886,89 @@ def cut_the_fusions(rig, mesh, hops: int = 4, times_median: float = 4.0):
         )
 
 
+def remove_the_hanging_straps(rig, mesh, biggest: int = 120):
+    """Deletes the loose strap pieces the generator hung off the forearms.
+
+    # What these are
+    #
+    # The character wears a backpack, and the generator gave it straps - but it also left
+    # four small pieces of strap floating on the FOREARMS, where no strap belongs. They dangle
+    # off the wrists and swing with the arms, which is what they were reported as.
+    #
+    # They are identifiable without any guesswork, because after a virtual weld the mesh is 19
+    # shells and each of these is one of them:
+    #
+    #   44 verts, 6.8 cm across, z 110-117, every vertex on L_ForearmTwist01
+    #   49 verts, 10.0 cm,       z 103-113, L_ForearmTwist01 and 02
+    #   60 verts, 10.3 cm,       z 102-112, R_ForearmTwist01 and 02
+    #   73 verts, 5.3 cm,        z 103-108, every vertex on R_ForearmTwist01
+    #
+    # 226 vertices between them. Small, thin, self-contained, and driven only by forearm
+    # bones - which is exactly what a strap that has ended up on an arm looks like, and
+    # nothing else in this mesh looks like it.
+    #
+    # # What is deliberately NOT touched
+    #
+    # The 62-vertex shell at z 122-126 is a real strap, correctly driven by `Spine02` and
+    # `L_Clavicle`: it crosses the chest, where a strap should be, and it moves with the
+    # torso. And the 268-vertex shell on `R_UpperarmTwist01` spans 35 cm - that is a SLEEVE,
+    # not a strap. The size cap and the forearm-only test keep both.
+    #
+    # The shoes are 311 and 318 vertices, the gloves 406 and 471, so nothing near them is at
+    # risk from a 120-vertex cap either.
+    """
+    def owns(vertex):
+        best, who = 0.0, ""
+        for group in vertex.groups:
+            if group.weight > best:
+                best, who = group.weight, mesh.vertex_groups[group.group].name
+        return who
+
+    owners = [owns(v) for v in mesh.data.vertices]
+    loose = [
+        shell for shell in whole_shells(mesh)
+        if len(shell) <= biggest
+        and all("Forearm" in owners[i] for i in shell)
+    ]
+    if not loose:
+        print("  no forearm-only pieces small enough to be a stray strap")
+        return
+
+    going = {i for shell in loose for i in shell}
+    print(f"  {len(loose)} loose forearm pieces, {len(going)} vertices: "
+          + ", ".join(str(len(shell)) for shell in sorted(loose, key=len)))
+
+    before = len(mesh.data.vertices)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    mesh.select_set(True)
+    bpy.context.view_layer.objects.active = mesh
+    bpy.ops.object.mode_set(mode="EDIT")
+    working = bmesh.from_edit_mesh(mesh.data)
+    working.verts.ensure_lookup_table()
+    for face in working.faces:
+        face.select_set(False)
+    for edge in working.edges:
+        edge.select_set(False)
+    for vertex in working.verts:
+        vertex.select_set(False)
+    bmesh.ops.delete(
+        working, geom=[working.verts[i] for i in going], context="VERTS"
+    )
+    bmesh.update_edit_mesh(mesh.data)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    went = before - len(mesh.data.vertices)
+    print(f"  {went} vertices went; the body is {len(mesh.data.vertices)}")
+    if went != len(going):
+        refuse(
+            f"asked to remove {len(going)} vertices and {went} went - the delete did not "
+            f"do what it said"
+        )
+    if not mesh.data.has_custom_normals:
+        refuse("removing the straps lost the custom split normals")
+
+
 def main():
     where = argv()
     if len(where) < 2:
@@ -1943,8 +2026,22 @@ def main():
     # separate, and that is the tearing. Cutting them is modelling work rather than a
     # pipeline step, because the surface behind a fusion does not exist and the hole left
     # would need closing.
-    print("\ncutting the limb-to-body fusions:")
-    cut_the_fusions(rig, mesh)
+    print("\nremoving the straps that ended up on the forearms:")
+    remove_the_hanging_straps(rig, mesh)
+    # NOT CALLED, and it must not be without a narrower test. `cut_the_fusions` HOLED THE
+    # TROUSERS: it took faces whose corners were 4+ joints apart, and some of those are not
+    # fusions at all - they are ordinary trouser geometry containing a single mis-weighted
+    # vertex, `Waist` weights sitting down at knee height. Cutting them opened a gap on the
+    # thigh you can see skin through and a diamond hole in the shin.
+    #
+    # Worse, the render that would have shown this was taken and read wrongly: the dark
+    # angular shapes on the thighs were called trouser design and they were the holes. A cut
+    # has to be checked by LOOKING, and looking means knowing what you expect to see.
+    #
+    # It also bought very little even when it worked - tearing 8.57% to 8.30% of edges past
+    # x1.35 - so there is no case for keeping it in this form. If it comes back it needs a
+    # test that cannot mistake a mis-weighted vertex for a bridge: arm-to-trunk only, or the
+    # face's vertices genuinely far apart in SPACE rather than merely across a long edge.
     print("\nthe leaf bones:")
     reach_the_ends(rig, mesh)
     print("\nRoot and Hip:")

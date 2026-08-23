@@ -18,7 +18,10 @@ import mathutils
 ART = "C:/Users/jsull/Desktop/copaimo/dev/art"
 sys.path.insert(0, ART)
 
-GLB = "C:/Users/jsull/Desktop/copaimo/assets/models/person_ranger.glb"
+# Overridable, so the RAW export can be put through the same lens as the prepared one. That
+# comparison is the only way to tell "the pipeline broke this" from "it arrived like this",
+# and guessing which is a fast way to spend a day fixing the generator's own work.
+GLB = os.environ.get("LOOK_GLB", "C:/Users/jsull/Desktop/copaimo/assets/models/person_ranger.glb")
 OUT = os.environ.get("LOOK_OUT", ".")
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -28,7 +31,8 @@ rig = next(o for o in bpy.data.objects if o.type == "ARMATURE")
 import prepare_rig
 
 mesh = prepare_rig.the_body()
-prepare_rig.reach_the_ends(rig, mesh)
+if os.environ.get("LOOK_RAW") != "1":
+    prepare_rig.reach_the_ends(rig, mesh)
 
 sun = bpy.data.objects.new("sun", bpy.data.lights.new("sun", type="SUN"))
 bpy.context.scene.collection.objects.link(sun)
@@ -68,6 +72,15 @@ SHOTS = (
     ("back", 180.0, 1.15, middle),
     ("armpit", 35.0, 0.42, mathutils.Vector((0.0, 0.0, high * 0.72))),
     ("hip", 20.0, 0.42, mathutils.Vector((0.0, 0.0, high * 0.55))),
+    # The wrists, because that is where the generator hung four loose strap pieces off the
+    # forearms - the thing that had to be removed, and the place to check nothing else went.
+    ("wrists", 0.0, 0.50, mathutils.Vector((0.0, 0.0, high * 0.62))),
+    ("wrists_side", 90.0, 0.50, mathutils.Vector((0.0, 0.0, high * 0.62))),
+    # The thighs and knees. The fusion cut took faces owned partly by `Waist` down at knee
+    # height, which is a MIS-WEIGHTED vertex rather than a fusion - so this is where a hole in
+    # the trouser leg would be if that criterion was too broad.
+    ("thighs", 0.0, 0.55, mathutils.Vector((0.0, 0.0, high * 0.42))),
+    ("thighs_side", 90.0, 0.55, mathutils.Vector((0.0, 0.0, high * 0.42))),
 )
 
 made = []
