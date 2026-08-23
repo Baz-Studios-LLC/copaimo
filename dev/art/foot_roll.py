@@ -255,22 +255,29 @@ def rest_the_shoe_on_the_floor(rig, mesh, feet, targets, ground, planted, tilts,
         # precision there buys nothing and symmetry buys everything. So the airborne
         # branch predicts the sole from the ankle and the SHARED drop instead of reading
         # its own.
-        drop = {
-            side: (rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head).z
-            - lowest[side]
-            for side in "LR"
-        }
-        shared_drop = (drop["L"] + drop["R"]) / 2.0
         worst = 0.0
         for side in "LR":
             if planted.get(side):
                 off = ground - lowest[side]
             else:
-                # Airborne: only stop it going THROUGH, never pull it down to touch -
-                # and judged against the shared drop, so the two legs are corrected
-                # alike.
-                ankle = (rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head).z
-                off = max(0.0, ground - (ankle - shared_drop))
+                # Airborne: only stop it going THROUGH, never pull it down to touch,
+                # and judged against its OWN sole.
+                #
+                # It used to predict the sole from the ankle and the SHARED drop, for the
+                # symmetry reason argued above. That symmetry cost monotonicity, which is
+                # worse: `shared_drop` moves as the OTHER foot rolls through stance, so a
+                # descending foot got lifted by an amount that had nothing to do with its
+                # own geometry. Measured on the run, the lead sole fell 12.81, 12.32,
+                # 12.12, 8.11, 4.54 and then rose to 5.13 one frame before contact -
+                # reported as "the lead foot doesn't land in the same spot, 12 shifts
+                # forward from 11".
+                #
+                # Its own sole makes the clamp fire only on a real penetration rather than
+                # on a mispredicted one, so the descent stays monotonic. The asymmetry that
+                # `shared_drop` existed to hide is then confined to the frames where a foot
+                # would genuinely have gone through the floor, instead of being spread
+                # across the whole swing.
+                off = max(0.0, ground - lowest[side])
             worst = max(worst, abs(off))
             targets[side].location = targets[side].location + mathutils.Vector(
                 (0.0, 0.0, off)

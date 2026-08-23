@@ -570,7 +570,11 @@ ARM_BACK = -22.0
 #
 # Deliberately asymmetric now: a jogger drives further back than forward, and the back half
 # is the half that was reported as too small in the first place. So the -55 stays.
-RUN_ARM_FORWARD = 28.0
+# 20 forward. Reported: "on the run the lead hand goes too high and too extended".
+# Measured, the hand reached 4.4 cm ABOVE the shoulder and 43 cm in front of it - which is a
+# reach, not a jog's swing. The Animator's Survival Kit and the run-cycle references agree
+# that at the top of the cycle the arm is BENT and not extended.
+RUN_ARM_FORWARD = 20.0
 RUN_ARM_BACK = -55.0
 
 # A sprint drives the arms harder still, and the check in `verify_gait.py` refuses a
@@ -689,6 +693,12 @@ TRUNK_PITCHES = 2.5
 # gait with the smallest swing, so the tuck has room. The faster gaits swing the shoulder
 # much further, and a tuck that is fine at 94 degrees of swing drives the hand through the
 # ribs at 127 - the two multiply rather than add. So the tuck now shrinks as the swing grows.
+# How much the arm swing DWELLS at its extremes rather than gliding sinusoidally through
+# them - see the note in swing_the_arm. 1.0 is a plain cosine. Only the sprint pumps.
+WALK_PUMPS = 1.0
+RUN_PUMPS = 1.0
+SPRINT_PUMPS = 0.55
+
 WALK_TUCK_IN = 24.0
 RUN_TUCK_IN = 12.0
 SPRINT_TUCK_IN = 6.0
@@ -741,8 +751,14 @@ ELBOW_SWING = 12.0
 # 110 degrees of fold the wrist swings through and the joint reads hyperextended. 106 is the
 # most that has ever passed, so the front extreme is pinned there and the whole of the extra
 # range is spent OPENING the back arm, which is the half that was missing anyway.
-RUN_ELBOW_HELD = 76.0
-RUN_ELBOW_SWING = 30.0
+# 80 +/- 28, so 52 behind and 108 in front. Reported: the lead hand is "too extended".
+# Cutting RUN_ARM_FORWARD from 28 to 20 brought the hand DOWN (+4.4 to -1.3 cm against the
+# shoulder) and left it 43 cm in front, unchanged - at a forward-and-up angle the shoulder
+# governs the hand's HEIGHT and the elbow governs its REACH, so the wrong knob was turned
+# first. 108 is as tight as the front can go: 116 was refused for hyperextension and ~110 is
+# where that starts.
+RUN_ELBOW_HELD = 80.0
+RUN_ELBOW_SWING = 28.0
 
 # The sprint's elbows are tight and stay near constant, rather than opening and closing.
 #
@@ -779,11 +795,21 @@ RUN_ELBOW_SWING = 30.0
 # right angle and driven from the shoulder - so holding the fold nearly fixed and letting
 # the SHOULDER do the work is both what it should look like and what keeps it clear of the
 # guard: 71 to 99 never approaches the 106 that passed for the run.
-SPRINT_ELBOW_HELD = 85.0
+# 88 held with 20 of swing, so 68 to 108 - MORE variation than the run's 46 to 106, not
+# less. Researched rather than guessed, and it corrected me: a pumping arm does not hold a
+# fixed angle. "The upper arm carries through the motion and compresses as the whole arm
+# comes forward, while the rear arm's elbow is just coming out from behind the body" - so the
+# elbow closes going forward and opens going back, and the sprint should do MORE of that than
+# the jog, not less.
+#
+# 85 +/- 14 was the mistake: it was chosen to clear a hyperextension refusal, and a nearly
+# fixed angle is exactly what "a bit loose" and "not pumping" describe - an arm swinging as
+# one rigid piece. 108 stays under the ~110 where the guard trips.
+SPRINT_ELBOW_HELD = 88.0
 # 28, from 4 - which was a locked elbow. The sprint's SHOULDER measured fine all along, so
 # nothing ever pointed at its elbow; it took fixing the run's to notice the sprint had the
 # same fault twice as badly.
-SPRINT_ELBOW_SWING = 14.0
+SPRINT_ELBOW_SWING = 20.0
 
 # How far the SHOULDERS counter-rotate against the hips, in degrees each way.
 #
@@ -1502,7 +1528,7 @@ DRIVEN = (
 
 def swing_the_arm(rig, side: str, hand: float, phase: float, reach: float,
                   back: float, elbow_held: float, elbow_swing: float, tuck_in: float,
-                  facing) -> None:
+                  pumps: float, facing) -> None:
     """One arm, for one instant of a cycle: swing, elbow, hang and palm.
 
     In ONE place because it used to be written out twice - once in `pose_the_body` and
@@ -1516,6 +1542,15 @@ def swing_the_arm(rig, side: str, hand: float, phase: float, reach: float,
     """
     at = phase + (0.5 if hand > 0.0 else 0.0)
     swung = math.cos(2.0 * math.pi * (at - 0.5 - ARM_LAG))
+    # `pumps` shapes that cosine without moving its extremes or its phase. Below 1 it
+    # flattens the peaks and steepens the middle, so the arm DWELLS at the ends of its swing
+    # and snaps between them - which is what "pumping" is, and what a pure sinusoid can
+    # never be, since a sinusoid spends its time evenly. The references call a sprint's arms
+    # an "aggressive pump" as a thing distinct from a run's swing; this is that distinction.
+    # Kept as an odd-symmetric power so the two halves stay mirror images and the cycle
+    # still closes.
+    if pumps != 1.0:
+        swung = math.copysign(abs(swung) ** pumps, swung)
     middle = (reach + back) / 2.0
     half = (reach - back) / 2.0
     swings_to = middle + half * swung
@@ -1712,7 +1747,7 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
          swing_lift: float, swing_shape: float, lands_ahead: float,
          arm_forward: float, arm_back: float, elbow_held: float, elbow_swing: float,
          lean: float, share: float, sinks: float, leads: float, bound: float,
-         absorbs: float, tuck_in: float, twist: float, pelvis, facing):
+         absorbs: float, tuck_in: float, pumps: float, twist: float, pelvis, facing):
     """One cycle, authored by moving the FEET, with IK solving the legs.
 
     Nothing here poses a knee or a hip. The foot's path is stated - planted on the
@@ -2002,7 +2037,7 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
         for side, hand in (("L", 1.0), ("R", -1.0)):
             swing_the_arm(
                 rig, side, hand, phase, arm_forward, arm_back, elbow_held,
-                elbow_swing, tuck_in, facing,
+                elbow_swing, tuck_in, pumps, facing,
             )
 
         # The body's height, on ROOT - which carries no skin weight at all, so moving
@@ -2883,7 +2918,7 @@ def main() -> None:
             # 2 degrees of trunk lean, not 0. A walk is upright, but dead plumb
             # reads as being carried along rather than walking; a couple of degrees is
             # what a person leans to actually go somewhere.
-            ELBOW_HELD, ELBOW_SWING, WALK_LEAN, WALK_SHARE, WALK_SINKS, WALK_LEADS, WALK_BOUND, WALK_ABSORBS, WALK_TUCK_IN, WALK_TWIST, WALK_PELVIS, facing,
+            ELBOW_HELD, ELBOW_SWING, WALK_LEAN, WALK_SHARE, WALK_SINKS, WALK_LEADS, WALK_BOUND, WALK_ABSORBS, WALK_TUCK_IN, WALK_PUMPS, WALK_TWIST, WALK_PELVIS, facing,
         ).use_fake_user = True
     gait(
             # An EVEN span, always: a cycle is two identical steps, so the half
@@ -2892,13 +2927,13 @@ def main() -> None:
             # hips disagree with themselves by 21%, which is a limp.
             rig, body, feet, ground, "run", RUN_LEG, 24, RUN_CONTACT, RUN_SWING_LIFT, RUN_SWING_SHAPE, RUN_LANDS_AHEAD,
             RUN_ARM_FORWARD, RUN_ARM_BACK,
-            RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_SHARE, RUN_SINKS, RUN_LEADS, RUN_BOUND, RUN_ABSORBS, RUN_TUCK_IN, RUN_TWIST, RUN_PELVIS, facing,
+            RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_SHARE, RUN_SINKS, RUN_LEADS, RUN_BOUND, RUN_ABSORBS, RUN_TUCK_IN, RUN_PUMPS, RUN_TWIST, RUN_PELVIS, facing,
         ).use_fake_user = True
     gait(
             # 14 frames, not 16: a sprint cycle is ~0.58 s where a run's is ~0.67.
             rig, body, feet, ground, "sprint", SPRINT_LEG, 24, SPRINT_CONTACT, SPRINT_SWING_LIFT, SPRINT_SWING_SHAPE, SPRINT_LANDS_AHEAD,
             SPRINT_ARM_FORWARD, SPRINT_ARM_BACK, SPRINT_ELBOW_HELD, SPRINT_ELBOW_SWING, SPRINT_LEAN, SPRINT_SHARE,
-            SPRINT_SINKS, SPRINT_LEADS, SPRINT_BOUND, SPRINT_ABSORBS, SPRINT_TUCK_IN, SPRINT_TWIST, SPRINT_PELVIS, facing,
+            SPRINT_SINKS, SPRINT_LEADS, SPRINT_BOUND, SPRINT_ABSORBS, SPRINT_TUCK_IN, SPRINT_PUMPS, SPRINT_TWIST, SPRINT_PELVIS, facing,
         ).use_fake_user = True
 
     bpy.ops.export_scene.gltf(
