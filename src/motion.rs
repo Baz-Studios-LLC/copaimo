@@ -64,8 +64,8 @@ const BREAKS_INTO_A_RUN: f32 = 3.4;
 /// the art pipeline's LANDS_AHEAD). Measured per VERTEX of the planted sole,
 /// horizontal only: a centroid whose membership shifts as the shoe rolls reads as
 /// slide when nothing slid, and vertical pad lift is not slide either.
-const WALK_COVERS: f32 = 0.881;
-const RUN_COVERS: f32 = 1.529;
+const WALK_COVERS: f32 = 0.970;
+const RUN_COVERS: f32 = 2.495;
 
 /// The moving gaits, slowest first: the word in the clip's name, how far one cycle
 /// carries the warden in metres, and the speed above which the next one takes over.
@@ -190,6 +190,27 @@ const fn halfway(slower: f32, faster: f32) -> f32 {
     (slower + faster) / 2.0
 }
 
+/// MEASURED BY `dev/art/measure_covers.py`, not by `verify_gait`'s `covers_implied_m`.
+///
+/// This is the most consequential number here, because `playback_rate` divides by it: too
+/// small and the clip plays too fast, so the legs turn at a rate implying more speed than
+/// the body has. That is precisely the "running through water" and "Scooby Doo run" the
+/// gait kept being reported as, and it was a measurement error the whole time - no amount
+/// of re-posing was ever going to fix it.
+///
+/// `covers_implied_m` is `contact_length / stance_share` where `contact_length` is the
+/// AUTHORED sweep, and it is wrong twice over: the reach solve clips the ask, so the ask is
+/// not the outcome; and the achieved figure is taken between two landmark extremes, missing
+/// travel the foot does while rolling past them. Measured against the outcome, walk was 9%
+/// short, run 28% and sprint 36%.
+///
+/// The outcome is measured from the invariant that defines `covers`: through stance the
+/// contact patch travels backward at a constant rate equal to the body's forward speed, so
+/// `covers` is that rate times the span. On the run the per-frame spread of that rate is
+/// 0.41 cm, which is how you know it really is constant and the number is trustworthy.
+///
+/// Re-run the probe and paste the numbers whenever a clip is re-authored.
+///
 /// What one sprint cycle carries, measured like the others - see `WALK_COVERS`.
 ///
 /// 2.601 m over fourteen frames is 4.46 m/s natively at 206 steps a minute. The
@@ -199,7 +220,7 @@ const fn halfway(slower: f32, faster: f32) -> f32 {
 /// further. Trying to reach further is why 42 degrees of thigh swing once read as
 /// the splits, and it is also why the first sprint clip came out NATIVELY SLOWER
 /// than the run: it kept the run's cadence and shrank its sweep.
-const SPRINT_COVERS: f32 = 2.111;
+const SPRINT_COVERS: f32 = 3.308;
 
 /// What to hand `set_speed` so a clip plays at the right cadence.
 ///

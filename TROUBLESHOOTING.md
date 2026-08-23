@@ -1995,6 +1995,85 @@ tuning again.
 `each_clip_is_authored_near_the_time_its_stride_takes`, both reading `CHURNS_BETWEEN` — now
 as sanity bounds rather than gates.
 
+### ISSUE: the "Scooby Doo run" was a measurement error, not a pose
+
+**What you see.** The run reads as churning without going anywhere. Reported across many
+sessions as "running through water", "the scooby doo character run", and finally the one
+that cracked it: *"the character model moves quick but movement itself is slow"*.
+
+**What it actually was.** `motion::RUN_COVERS` said the cycle carried 1.801 m. Measured off
+the shipped clip, the planted contact patch travels back **10.39 cm every frame** — dead
+steady, spread 0.41 cm across the whole stance — which over a 24-frame cycle is **2.495 m**.
+The number was **28% too small**, and the walk was 9% small and the sprint 36%.
+
+`playback_rate` is `speed * lasts / covers`, so understating `covers` makes the clip play
+that much too fast. The legs turn at a rate implying far more speed than the body has, and
+leg cadence is what the eye reads as speed — so the legs say one thing and the ground says
+another. At 3.70 m/s the run was turning at **290 steps a minute**, a sprint cadence
+carrying a jog speed. With the true figure it is **178**, which is a jog.
+
+The bad ruler was `verify_gait`'s `covers_implied_m` = `contact_length / stance_share`,
+wrong twice over: `contact_length` is the AUTHORED sweep and the reach solve clips it, so
+the ask is not the outcome; and the achieved figure is taken between two landmark extremes,
+so it misses travel the foot does while rolling past them. It read 0.60 m where the foot
+genuinely swept 0.83.
+
+**What changed.** `dev/art/measure_covers.py`, which measures the outcome from the
+invariant that actually defines `covers`: through stance the contact patch travels backward
+at a constant rate equal to the body's forward speed, so `covers` is that rate times the
+span. The per-frame spread is how you know it is trustworthy. Walk 0.881 → 0.970, run
+1.801 → **2.495**, sprint 2.111 → **3.308**.
+
+**How much was wasted on the wrong thing.** Everything. Speeds were raised four times, the
+cadence bands were rewritten twice, the stride was pushed until the leg saturated, and a
+leg-lengthening was proposed and nearly built — all to fix a symptom of one wrong constant.
+Two rulers had to be fixed before the fault was even visible, and the first replacement was
+ALSO wrong: it asked whether the contact patch was stationary, which is right for a clip
+carrying root motion and nonsense for an in-place clip, and it duly reported 53 cm of
+failure on the signed-off walk.
+
+**The principle.** *Before tuning a value, measure whether the value is even being read
+correctly.* And the corollary this file keeps re-learning: a derived quantity is only as
+good as its landmarks. `covers_implied_m` looked authoritative because it had a formula.
+
+**The test.** None yet, and it wants one: a Rust test cannot read a GLB's skinned
+deformation, so the honest guard is a probe run alongside `animate_ranger.sh` that refuses
+when the declared `COVERS` and the measured rate disagree by more than a few percent. Worth
+adding — this fault was invisible for weeks and cost more than any other in this file.
+
+### ISSUE: "the head bob is extreme", and three knobs that did nothing
+
+**What you see.** The head pumps up and down far too much through the run. Measured, head
+travel was **14.74 cm** against a hip rise of 11.60 — the head was *amplifying* the pelvis,
+when a running body stabilises the head above all else.
+
+**What it actually was.** Three separate faults stacked, each one masking the next.
+
+1. `key()` wrote a `location` channel only for `Hip` and `Root`, so `head.location` was set
+   on the pose and discarded. Every value tried measured the same 6.29 cm.
+2. Adding `"Head"` to that list appeared to fix it — travel jumped to 13.50 cm. It did not:
+   `TRUNK_PITCHES` was raised from 2.0 to 4.0 in the same edit, and that is what moved it.
+   The head channel was still doing nothing. **Two changes in one build, and the wrong one
+   got the credit.**
+3. The damping term was `axes @ Vector((0, 0, z))`, and `axes` is the basis built for
+   `Root`. A pose bone's `location` is in its OWN rest space, so on the Head that pushed in
+   an arbitrary, near-horizontal direction. Which is why more than doubling
+   `HEAD_RIDES_LESS` — 0.4 to 0.85 — moved travel 12.08 cm to 11.76.
+
+**What changed.** The lift is built from world up and taken into the head's own basis with
+`head.bone.matrix_local.to_3x3().inverted()`, and it is applied after the root block, since
+`rides` does not exist before it — authoring a damping term without the thing it damps is
+how it came out amplifying. Run head travel **14.74 → 4.93 cm**, head/hip **1.04 → 0.43**.
+
+**The principle.** *Change one thing per build.* Fault 2 cost the most, and it cost it by
+being a real fix whose effect was invisible because a second change was louder. And: a
+knob doing a twentieth of what the geometry says is not a knob that needs turning further —
+see the identical lesson on `RUN_SINKS` and on pelvis sway.
+
+**The test.** None. A guard that every bone the authoring writes `location` to is also in
+`key()`'s list would have caught fault 1, and asserting head travel stays under the hip's
+would have caught faults 2 and 3.
+
 ## Keeping this honest
 
 Add an entry when a bug took **more than one attempt** to fix, or when the symptom

@@ -172,7 +172,10 @@ WALK_CONTACT = 0.34
 # The lesson is the one this file keeps paying for: when a tuning knob does a tenth of
 # what the geometry says it should, stop turning it - something downstream is cancelling
 # it. See TROUBLESHOOTING.md.
-RUN_CONTACT = 0.36
+# 0.48. Only reachable now that toe-off actually plantarflexes - see RUN_LEG's push-off
+# row. At -32 degrees of toe-off this asked for sweep the leg could not give and the
+# clipping came back as foot slide.
+RUN_CONTACT = 0.48
 SPRINT_CONTACT = RUN_CONTACT * 1.0
 
 # Where each gait's foot lands, as the share of its sweep ahead of the hip. See
@@ -396,7 +399,24 @@ RUN_LEG = (
     #                       raises the ankle off the contact point, which needs less
     #                       vertical reach and so frees up horizontal.
     0.0,      # 12.5  mid-stance - sole flat, weight loaded  [thigh 2.0, knee 38.0]
-    -32.0,    # 25    push-off - leg extended hard behind, driving back  [thigh -38.0, knee 4.0]
+    -48.0,    # 25    push-off - leg extended hard behind, driving back  [thigh -38.0, knee 4.0]
+    #                       Was -32. This is the reach knob, not just a pose.
+    #                       `where_the_balls_go` authors the BALL's path and `ankle_for`
+    #                       derives the ankle from it, so how far the ball may sit behind
+    #                       the hip depends on how far the ankle is pulled forward of the
+    #                       ball - which is exactly what plantarflexion does. Toes down 32
+    #                       degrees barely tilts it, so the reach budget was being spent as
+    #                       though the foot were a stub; the ankle-to-ball segment is 15.9
+    #                       cm and at -48 most of it counts toward reach behind the body.
+    #                       A sprinter's ankle goes past -50 at toe-off, so this is not even
+    #                       an exaggeration - it is the pose that was missing.
+    #
+    #                       This is why the earlier conclusion was wrong. Pushing
+    #                       RUN_CONTACT alone saturated the leg and paid the difference in
+    #                       foot slide, which read as "his legs are as long as they get".
+    #                       He is normally proportioned - 50.1% of height, hip socket to
+    #                       floor - so a person with his legs sweeps about a metre. The
+    #                       shortfall was in the solve, not the skeleton.
     -30.0,    # 37.5  early flight - knee folding up behind  [thigh -30.0, knee 70.0]
     -36.0,    # 50    peak fold - heel toward the buttock  [thigh -6.0, knee 100.0]
     -34.0,    # 62.5  knee drive - thigh coming through high  [thigh 22.0, knee 92.0]
@@ -553,14 +573,29 @@ HEAD_LAGS_THE_CHEST = 0.10
 # monsters, not a gait study, and the reference class is stylised action animation - where
 # extremes are pushed past life because that is what reads at speed and at distance. The
 # same goes for the head bob and the arm swing below.
-TRUNK_PITCHES = 4.0
+# 2.5, down from 4.0. It was raised to 4 as a deliberate exaggeration, and on its own that
+# was fine - but the trunk pitches the whole spine, so at 4 degrees over a ~70 cm spine it
+# was adding about 5 cm of head travel UNDERNEATH the head bob. Two knobs pushing the same
+# pixel is how an "extreme" head happens when neither number looks extreme.
+TRUNK_PITCHES = 2.5
 
 # How far the head bobs vertically, in model units, lagging the hips.
 #
 # The hips already rise and fall; the head followed them rigidly because nothing else
 # touched it. A real head lags the body's bob and settles after it, which is follow-through
 # - and the head is the part an eye tracks, so this is the cheapest liveliness there is.
-HEAD_BOBS = 0.014
+# 0.005, down from 0.014. Reported: "the head bob is extreme". It was, and the number is
+# not what changed - keying it is. `key()` only wrote a `location` channel for Hip and Root,
+# so the head term was set on the pose and thrown away, and every value tried measured the
+# same 6.29 cm of travel. Adding "Head" to that list connected a knob that had been turned
+# up blind, and travel jumped to 13.50 cm at once. This is what it should have been set to
+# had it ever been measurable.
+HEAD_BOBS = 0.005
+
+# How much of the hips vertical the head cancels. 0.85 lands the head near 65% of the
+# what the pelvis does, which is the right way round - see `head_rides_less` at the point of
+# use for why it was the wrong way round before.
+HEAD_RIDES_LESS = 0.85
 
 # How far the forearms are tucked ACROSS the front of the body, in degrees.
 #
@@ -1749,13 +1784,8 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
             # one is what a follow-through actually is: the head is held back while the
             # body rises, and catches up after. Zero-mean, so it changes when the head
             # arrives rather than how high it goes.
-            head.location = axes @ mathutils.Vector((
-                0.0, 0.0,
-                HEAD_BOBS * (
-                    math.cos(4.0 * math.pi * (behind - share / 2.0))
-                    - math.cos(4.0 * math.pi * (phase - share / 2.0))
-                ),
-            ))
+            # Set further down, once the hip's own vertical is known - the head has to
+            # DAMP that rather than be authored blind against it. See `head_rides_less`.
 
         # # The pelvis, on all three axes - see WALK_PELVIS
         #
@@ -1914,6 +1944,41 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
                 facing[0] * leads
                 + facing[1] * (-pelvis[0] * weight)
                 + mathutils.Vector((0.0, 0.0, max(rides, -sinks)))
+            )
+
+        # # The head rides LESS than the hips
+        #
+        # Reported: "the head bob is extreme". Measured, head travel was 14.74 cm against a
+        # hip rise of 11.6 - the head was AMPLIFYING the hip, when the head is the most
+        # stabilised part of a running body. A runner's gaze holds steady while the pelvis
+        # does the work; the spine and neck spend the difference. So the head gets a
+        # negative gain on the hip's own vertical, and it has to be applied here rather than
+        # up with the rest of the head work, because `rides` does not exist yet up there.
+        # Authoring a damping term without the thing it damps is how it came out amplifying.
+        #
+        # The zero-mean follow-through stays: it changes WHEN the head arrives, which is the
+        # overlapping-action part, and is a different job from how far it travels.
+        if head is not None:
+            # `axes` is NOT the right basis here, and using it is why raising
+            # HEAD_RIDES_LESS from 0.4 to 0.85 moved head travel 12.08 cm to 11.76 - a
+            # knob doing a twentieth of what it should. A pose bone's `location` is in its
+            # OWN rest space, and `axes` was built for Root; applied to the Head it pushes
+            # in some arbitrary direction that happens to be nearly horizontal. The lift
+            # has to be expressed in the head's own basis, so build it from world up and
+            # take it there.
+            amount = (
+                HEAD_BOBS * (
+                    math.cos(4.0 * math.pi * (behind - share / 2.0))
+                    - math.cos(4.0 * math.pi * (phase - share / 2.0))
+                )
+                - HEAD_RIDES_LESS * max(rides, -sinks)
+            )
+            skyward = rig.matrix_world.to_3x3().inverted() @ mathutils.Vector(
+                (0.0, 0.0, 1.0)
+            )
+            head.location = (
+                head.bone.matrix_local.to_3x3().inverted()
+                @ (skyward.normalized() * amount)
             )
         bpy.context.view_layer.update()
         if os.environ.get("DIAG") and frame == 1:
