@@ -445,7 +445,16 @@ RUN_LEG = (
     -30.0,    # 37.5  early flight - knee folding up behind  [thigh -30.0, knee 70.0]
     -36.0,    # 50    peak fold - heel toward the buttock  [thigh -6.0, knee 100.0]
     -34.0,    # 62.5  knee drive - thigh coming through high  [thigh 22.0, knee 92.0]
-    -18.0,    # 75    reaching - the furthest the leg gets in front  [thigh 38.0, knee 50.0]
+    -8.0,     # 75    reaching - the furthest the leg gets in front
+    #                       -8, not -18. The last two swing rows turn the foot 26 degrees
+    #                       toes-up to set the heel strike, and that rotation lifts the TOE
+    #                       faster than the ankle is descending - so the sole's lowest point
+    #                       stopped falling and rose again one frame before contact: 12.70,
+    #                       8.11, 4.24, then back up to 5.10, then land. Reported exactly as
+    #                       it measures - "frames 11 and 12, the lead foot doesnt land in the
+    #                       same spot, 12 shifts forward from 11". Starting the toes-up
+    #                       earlier spreads the same rotation over more frames, so the
+    #                       descent stays monotonic.  [thigh 38.0, knee 50.0]
     8.0,      # 87.5  descending - foot coming back under to land  [thigh 34.0, knee 26.0]
     # The swing four were -14, -12, -6, -2, and they are FLOOR-relative, which is the
     # trap. While the foot is planted the floor is the right frame - it is what the sole
@@ -671,7 +680,18 @@ TRUNK_PITCHES = 2.5
 # is shoulder INTERNAL ROTATION, turning the hinge plane across the body. So the fold
 # axis is derived per frame from where the hand should head - forward, and this many
 # degrees toward the midline. See swing_the_arm.
-FOREARMS_TUCK_IN = 24.0
+# How far the forearms angle toward the midline, PER GAIT. It was one number for all three,
+# and 24 degrees is what put the arms inside the torso - measured on the sprint at 7.09 cm
+# through the chest wall, and reported on both clips.
+#
+# 24 came from a report about the JOG: "when people jog their forearms are more in front of
+# the body. Here the forearms are more outward". That is still true of the jog, and it is the
+# gait with the smallest swing, so the tuck has room. The faster gaits swing the shoulder
+# much further, and a tuck that is fine at 94 degrees of swing drives the hand through the
+# ribs at 127 - the two multiply rather than add. So the tuck now shrinks as the swing grows.
+WALK_TUCK_IN = 24.0
+RUN_TUCK_IN = 12.0
+SPRINT_TUCK_IN = 6.0
 
 # How much of the trunk lean is taken back out at the NECK, so the head stays over the
 # shoulders instead of riding the lean out in front.
@@ -1481,7 +1501,8 @@ DRIVEN = (
 
 
 def swing_the_arm(rig, side: str, hand: float, phase: float, reach: float,
-                  back: float, elbow_held: float, elbow_swing: float, facing) -> None:
+                  back: float, elbow_held: float, elbow_swing: float, tuck_in: float,
+                  facing) -> None:
     """One arm, for one instant of a cycle: swing, elbow, hang and palm.
 
     In ONE place because it used to be written out twice - once in `pose_the_body` and
@@ -1541,12 +1562,12 @@ def swing_the_arm(rig, side: str, hand: float, phase: float, reach: float,
     # fold the other way, so an arm going behind straightens.
     # The hinge plane is DERIVED, not fixed. `upper` is where the upper arm actually
     # points after the swing above; `heads` is where the hand should go from there -
-    # forward, and FOREARMS_TUCK_IN toward the midline (`across * hand` points away from
+    # forward, and `tuck_in` degrees toward the midline (`across * hand` points away from
     # the body, so inward is its negation). Rotating `upper` about `upper x heads` carries
     # it toward `heads`, which is the fold wanted. A constant axis cannot do this because
     # it does not know where the upper arm ended up.
     upper = (posed.matrix.to_3x3() @ mathutils.Vector((0.0, 1.0, 0.0))).normalized()
-    tuck = math.radians(FOREARMS_TUCK_IN)
+    tuck = math.radians(tuck_in)
     heads = (forward * math.cos(tuck) - across * (hand * math.sin(tuck))).normalized()
     hinge = upper.cross(heads)
     # With the upper arm lying along `heads` there is no plane; fall back rather than
@@ -1691,7 +1712,7 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
          swing_lift: float, swing_shape: float, lands_ahead: float,
          arm_forward: float, arm_back: float, elbow_held: float, elbow_swing: float,
          lean: float, share: float, sinks: float, leads: float, bound: float,
-         absorbs: float, twist: float, pelvis, facing):
+         absorbs: float, tuck_in: float, twist: float, pelvis, facing):
     """One cycle, authored by moving the FEET, with IK solving the legs.
 
     Nothing here poses a knee or a hip. The foot's path is stated - planted on the
@@ -1727,7 +1748,7 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
     # degrees away from the line of travel - the knee right and the foot backwards.
     flat = {side: ik_gait.rest_foot_pitch(rig, side, facing[0]) for side in "LR"}
 
-    rest_bend = {side: ankle_bend(rig, side) for side in "LR"}
+    rest_bend = {side: rest_ankle_bend(rig, side) for side in "LR"}
     rigged = {side: ik_gait.add_leg_ik(rig, side) for side in "LR"}
     targets = {side: rigged[side][0] for side in "LR"}
     for side, (_, pole, hold) in rigged.items():
@@ -1981,7 +2002,7 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
         for side, hand in (("L", 1.0), ("R", -1.0)):
             swing_the_arm(
                 rig, side, hand, phase, arm_forward, arm_back, elbow_held,
-                elbow_swing, facing,
+                elbow_swing, tuck_in, facing,
             )
 
         # The body's height, on ROOT - which carries no skin weight at all, so moving
@@ -2218,6 +2239,38 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
 # either end.
 ANKLE_BENDS_BETWEEN = (-30.0, 30.0)
 
+# Where the pull toward the band starts, as a fraction of the limit. 0.75 means an ankle is
+# left alone up to three quarters of the way to the edge and then eased, so the correction
+# has no step in it - see the note where it is used.
+EASES_FROM = 0.75
+
+
+def rest_ankle_bend(rig, side: str) -> float:
+    """The ankle's angle in the BIND, read from rest geometry and nothing else.
+
+    This is the datum every ankle measurement is a deviation from, and taking it from
+    `pose.bones` was a bug that hid the whole swing correction on one side. `gait()` runs
+    once per clip and the rig keeps the last clip's pose between calls, so the "rest" datum
+    was actually whatever frame the previous gait left behind - different for each clip, and
+    different for the LEFT leg than the RIGHT, because the two are half a cycle apart.
+
+    Measured, that put the sprint's left datum 46 degrees out: the correction pass read the
+    left ankle at +19.98 where it truly sat at +65.8, saw it comfortably inside the band, and
+    skipped every frame of it. The right leg's datum happened to be close enough to work, so
+    the corrections looked like they were running - 13 of them, all on the right foot.
+    Reported as a compressed foot at frames 2, 24 and 25, which are exactly left-swing.
+
+    `data.bones` cannot be posed, so this cannot happen again.
+    """
+    knee = rig.data.bones[f"{side}_Calf"].head_local
+    ankle = rig.data.bones[f"{side}_Foot"].head_local
+    toe = rig.data.bones[f"{side}_ToeBase"].head_local
+    shank = ankle - knee
+    foot = toe - ankle
+    if shank.length < 1e-9 or foot.length < 1e-9:
+        return 0.0
+    return math.degrees(shank.normalized().angle(foot.normalized()))
+
 
 def ankle_bend(rig, side: str) -> float:
     """How far this ankle is from its rest angle. Positive is toes-up (dorsiflexion)."""
@@ -2287,8 +2340,17 @@ def keep_the_swing_ankle_honest(rig, span: int, share: float, across, rest_bend)
             bpy.context.view_layer.update()
             off = ankle_bend(rig, side) - rest_bend[side]
             low, high = ANKLE_BENDS_BETWEEN
-            excess = off - high if off > high else (off - low if off < low else 0.0)
-            if abs(excess) < 0.5:
+            # Eased, not clamped. A hard clamp corrects nothing up to the band edge and then
+            # the full excess just past it, which is a STEP in the correction curve - and a
+            # step in a foot's orientation between two frames is a visible snap, reported as
+            # "the lead foot doesn't land in the same spot, 12 shifts forward from 11". So
+            # the pull starts before the limit and eases in: nothing at `EASE_FROM` of the
+            # way to the edge, full correction at the edge and beyond.
+            edge = high if off > 0.0 else low
+            along = abs(off) / max(1e-6, abs(edge))
+            pull = min(1.0, (along - EASES_FROM) / (1.0 - EASES_FROM))
+            excess = (off - edge) * pull if pull > 0.0 else 0.0
+            if abs(excess) < 0.25:
                 continue
 
             posed = rig.pose.bones[bone]
@@ -2821,7 +2883,7 @@ def main() -> None:
             # 2 degrees of trunk lean, not 0. A walk is upright, but dead plumb
             # reads as being carried along rather than walking; a couple of degrees is
             # what a person leans to actually go somewhere.
-            ELBOW_HELD, ELBOW_SWING, WALK_LEAN, WALK_SHARE, WALK_SINKS, WALK_LEADS, WALK_BOUND, WALK_ABSORBS, WALK_TWIST, WALK_PELVIS, facing,
+            ELBOW_HELD, ELBOW_SWING, WALK_LEAN, WALK_SHARE, WALK_SINKS, WALK_LEADS, WALK_BOUND, WALK_ABSORBS, WALK_TUCK_IN, WALK_TWIST, WALK_PELVIS, facing,
         ).use_fake_user = True
     gait(
             # An EVEN span, always: a cycle is two identical steps, so the half
@@ -2830,13 +2892,13 @@ def main() -> None:
             # hips disagree with themselves by 21%, which is a limp.
             rig, body, feet, ground, "run", RUN_LEG, 24, RUN_CONTACT, RUN_SWING_LIFT, RUN_SWING_SHAPE, RUN_LANDS_AHEAD,
             RUN_ARM_FORWARD, RUN_ARM_BACK,
-            RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_SHARE, RUN_SINKS, RUN_LEADS, RUN_BOUND, RUN_ABSORBS, RUN_TWIST, RUN_PELVIS, facing,
+            RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_SHARE, RUN_SINKS, RUN_LEADS, RUN_BOUND, RUN_ABSORBS, RUN_TUCK_IN, RUN_TWIST, RUN_PELVIS, facing,
         ).use_fake_user = True
     gait(
             # 14 frames, not 16: a sprint cycle is ~0.58 s where a run's is ~0.67.
             rig, body, feet, ground, "sprint", SPRINT_LEG, 24, SPRINT_CONTACT, SPRINT_SWING_LIFT, SPRINT_SWING_SHAPE, SPRINT_LANDS_AHEAD,
             SPRINT_ARM_FORWARD, SPRINT_ARM_BACK, SPRINT_ELBOW_HELD, SPRINT_ELBOW_SWING, SPRINT_LEAN, SPRINT_SHARE,
-            SPRINT_SINKS, SPRINT_LEADS, SPRINT_BOUND, SPRINT_ABSORBS, SPRINT_TWIST, SPRINT_PELVIS, facing,
+            SPRINT_SINKS, SPRINT_LEADS, SPRINT_BOUND, SPRINT_ABSORBS, SPRINT_TUCK_IN, SPRINT_TWIST, SPRINT_PELVIS, facing,
         ).use_fake_user = True
 
     bpy.ops.export_scene.gltf(

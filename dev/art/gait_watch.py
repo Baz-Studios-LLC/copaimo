@@ -284,8 +284,7 @@ def say_so():
         return
     behind = how_stale()
     if behind > 2.0:
-        text = (f"STALE - {CLIP} rebuilt {behind / 60.0:.0f} min after this scene. "
-                f"Re-run dev/art/animate_ranger.sh")
+        text = f"STALE by {behind / 60.0:.0f} min - re-run dev/art/animate_ranger.sh"
         colour = (1.0, 0.35, 0.25, 1.0)
         size = 20
     else:
@@ -302,8 +301,22 @@ def say_so():
 
 
 restore()
+# ONE caption, not one per reload. This script re-runs on every revert, and a draw handler
+# added to SpaceView3D outlives the revert - so each reload stacked another copy and the
+# captions drew over each other into an unreadable smear. The handle is parked in
+# `driver_namespace`, which is the one place that survives a file load, so the previous one
+# can be removed before adding this one.
+KEY = "gait_watch_caption"
+old = bpy.app.driver_namespace.get(KEY)
+if old is not None:
+    try:
+        bpy.types.SpaceView3D.draw_handler_remove(old, "WINDOW")
+    except Exception:
+        pass
 try:
-    bpy.types.SpaceView3D.draw_handler_add(say_so, (), "WINDOW", "POST_PIXEL")
+    bpy.app.driver_namespace[KEY] = bpy.types.SpaceView3D.draw_handler_add(
+        say_so, (), "WINDOW", "POST_PIXEL"
+    )
 except Exception:
     pass
 bpy.app.timers.register(tick, first_interval=2.0)
