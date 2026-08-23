@@ -1583,6 +1583,119 @@ def make_the_shoes_mirrors(rig, mesh):
         )
 
 
+def add_room_where_it_tears(rig, mesh, cuts: int = 1):
+    """Subdivides the polygons that straddle two body regions, so the skin has room to bend.
+
+    # What tears, and why it is not webbing
+    #
+    # `tear_audit.py` measures every edge's deformed length against its rest length across
+    # every frame of every clip. 894 of 10432 edges - 8.57% - stray past x1.35, and the worst
+    # reaches x21 on a single edge running from `Spine01` to `R_ForearmTwist01`.
+    #
+    # An edge from the chest to the forearm looks exactly like generated webbing, and the
+    # first guess was that these were spurious bridging faces to cut. Measured, they are not:
+    # of the 121 polygons that straddle two regions only EIGHT are slivers, their median area
+    # is 15.7 cm2 against a 2.79 cm median edge length, the largest is 120 cm2, and together
+    # they are 8.56% of the whole surface. That figure sitting on top of the 8.57% of edges
+    # that tear is the whole diagnosis: these are not artefacts, they are ordinary quads that
+    # are simply far too big, each with its corners on bones that swing apart.
+    #
+    # A few huge polygons across an armpit means a few long edges taking the entire
+    # deformation. Cutting them would open holes in a surface that is meant to be there. The
+    # fix for coarse geometry at a joint is not to remove it, it is to give it more of itself.
+    #
+    # # Why subdividing is safe here where welding never is
+    #
+    # This mesh's standing rule is that glTF splits vertices to encode hard edges, so MERGING
+    # them leaves the custom split normals describing a surface that no longer exists and the
+    # character is lit as a different shape. Subdividing is the opposite operation: it adds
+    # vertices between existing ones and interpolates, so no split is collapsed and no normal
+    # is orphaned. `has_custom_normals` is checked afterwards regardless, because that whole
+    # class of fault is invisible to any geometry measurement.
+    #
+    # Vertex groups are interpolated onto the new vertices by Blender, which is what makes
+    # this worth doing at all - the new geometry inherits a BLEND of the bones at each corner,
+    # and a blend is exactly what a joint needs.
+    #
+    # Runs before `put_the_ball_where_the_shoe_bends` and the shoe re-weight, both of which
+    # assign by position and would otherwise be working from geometry that is about to change.
+    """
+    def owns(vertex):
+        best, who = 0.0, ""
+        for group in vertex.groups:
+            if group.weight > best:
+                best, who = group.weight, mesh.vertex_groups[group.group].name
+        return who
+
+    def region(name):
+        for part in ("Forearm", "Upperarm", "Hand"):
+            if part in name:
+                return "arm"
+        for part in ("Thigh", "Calf", "Foot", "Toe"):
+            if part in name:
+                return "leg"
+        for part in ("Spine", "Waist", "Hip", "Pelvis", "Neck", "Head"):
+            if part in name:
+                return "trunk"
+        return None
+
+    owners = [region(owns(v)) for v in mesh.data.vertices]
+    straddling = [
+        poly.index for poly in mesh.data.polygons
+        if len({owners[i] for i in poly.vertices} - {None}) > 1
+    ]
+    if not straddling:
+        print("  nothing straddles two regions, so there is nothing to open up")
+        return
+
+    before = len(mesh.data.vertices)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    mesh.select_set(True)
+    bpy.context.view_layer.objects.active = mesh
+    for poly in mesh.data.polygons:
+        poly.select = poly.index in straddling
+    for vertex in mesh.data.vertices:
+        vertex.select = False
+    for index in straddling:
+        for i in mesh.data.polygons[index].vertices:
+            mesh.data.vertices[i].select = True
+
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_mode(type="FACE")
+    bpy.ops.mesh.subdivide(number_cuts=cuts, smoothness=0.0)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    # # Back down to four influences a vertex
+    #
+    # Subdividing BLENDS the weights of the corners it interpolates between, which is the
+    # point - a new vertex in an armpit inheriting some spine and some upperarm is what stops
+    # it tearing. But blending stacks influences, and the build refused: "7 bones drive one
+    # vertex; glTF carries 4 and drops the rest". Four is the format's limit, so anything
+    # above it is not a heavier vertex, it is a vertex whose smallest influences vanish
+    # silently at export - and silently is the word that matters, since the mesh would look
+    # right in Blender and wrong in the game.
+    #
+    # Trimming to the four largest and renormalising is what the exporter would do anyway,
+    # done here where it can be seen and where the guard can check it.
+    bpy.ops.object.vertex_group_limit_total(limit=4)
+    bpy.ops.object.vertex_group_normalize_all(lock_active=False)
+
+    after = len(mesh.data.vertices)
+    print(f"  {len(straddling)} polygons straddled a joint; subdividing them {cuts}x "
+          f"took the body from {before} to {after} vertices")
+    if after <= before:
+        refuse(
+            f"the subdivide added nothing - {before} vertices before and {after} after - so "
+            f"the selection did not reach the operator"
+        )
+    if not mesh.data.has_custom_normals:
+        refuse(
+            "subdividing lost the custom split normals, which is the fault that lights the "
+            "character as a different shape - see the note on welding"
+        )
+
+
 def main():
     where = argv()
     if len(where) < 2:
@@ -1621,6 +1734,25 @@ def main():
     #      plane wants the normal with its lateral component negated; `flip_normals` negates
     #      all three, and those are different vectors. Getting it wrong is the documented
     #      shards/melted-shoe fault that no geometry guard can see.
+    # NOT CALLED. `add_room_where_it_tears` is kept below because its measurements are worth
+    # having, but subdividing was the WRONG FIX and the evidence says so:
+    #
+    #   * It took the body from 7578 to 18532 vertices and tearing did not fall.
+    #   * It cannot even be shown to have helped or hurt, because the strain metric it was
+    #     judged by is RESOLUTION-DEPENDENT: the same 1 cm of displacement is x1.33 on a 3 cm
+    #     edge and x2 on a 1 cm one, so a finer mesh scores worse for free. 8.57% before
+    #     against 8.68% after is not a comparison, it is two different rulers.
+    #   * And the premise was wrong anyway. The weighting is not the fault - the median weight
+    #     jump across an edge is 0.006, joints blend as they should, and the only hard seams
+    #     are the 11 deliberate ones at the shoe's ball. Adding resolution to weights that are
+    #     already correct cannot fix a problem that is geometric.
+    #
+    # The actual fault is that the generator FUSED limbs to the body where they sat close:
+    # 165 edges bridge two body regions, up to 36.74 cm long against a 2.79 cm median, over
+    # 121 polygons that are 8.56% of the whole surface. Those bridges stretch when the limbs
+    # separate, and that is the tearing. Cutting them is modelling work rather than a
+    # pipeline step, because the surface behind a fusion does not exist and the hole left
+    # would need closing.
     print("\nthe leaf bones:")
     reach_the_ends(rig, mesh)
     print("\nRoot and Hip:")
