@@ -55,6 +55,7 @@ import math
 import os
 import re
 import sys
+import time
 
 import bpy
 import mathutils
@@ -180,12 +181,23 @@ def aim_the_viewport(mesh, rotation):
 WATCHER = '''
 import json
 import os
+import time
 
 import bpy
 
 SIDECAR = bpy.data.filepath + ".view.json"
 SETTLE = 1.0
 IDLE = 1.5
+
+# What this scene was built from, stamped in at build time. The .blend's own timestamp is
+# not enough on its own: it only changes when something rewrites the SCENE, and the failure
+# worth catching is the GLB moving on while the scene does not - a build that refused after
+# writing the model, or any path that rebuilds the clips without refreshing the viewer.
+# Then nothing changes, the watcher has nothing to notice, and the window goes on showing
+# work that was superseded hours ago. Which is how already-fixed faults get reported again.
+SOURCE = bpy.context.scene.get("built_from", "")
+BUILT_AT = bpy.context.scene.get("built_at", 0.0)
+CLIP = bpy.context.scene.get("built_clip", "?")
 
 
 def views():
@@ -254,9 +266,63 @@ def tick():
     return IDLE
 
 
+def how_stale():
+    """Seconds the model is ahead of this scene, or 0 if the scene is current."""
+    if not SOURCE:
+        return 0.0
+    try:
+        return max(0.0, os.path.getmtime(SOURCE) - BUILT_AT)
+    except OSError:
+        return 0.0
+
+
+def say_so():
+    """Draws the verdict over the viewport, because a caption cannot be missed."""
+    try:
+        import blf
+    except ImportError:
+        return
+    behind = how_stale()
+    if behind > 2.0:
+        text = (f"STALE - {CLIP} rebuilt {behind / 60.0:.0f} min after this scene. "
+                f"Re-run dev/art/animate_ranger.sh")
+        colour = (1.0, 0.35, 0.25, 1.0)
+        size = 20
+    else:
+        text = f"{CLIP} - current, built {time.strftime('%H:%M', time.localtime(BUILT_AT))}"
+        colour = (0.45, 0.85, 0.5, 0.7)
+        size = 13
+    try:
+        blf.size(0, size)
+        blf.color(0, *colour)
+        blf.position(0, 22, 22, 0)
+        blf.draw(0, text)
+    except Exception:
+        pass
+
+
 restore()
+try:
+    bpy.types.SpaceView3D.draw_handler_add(say_so, (), "WINDOW", "POST_PIXEL")
+except Exception:
+    pass
 bpy.app.timers.register(tick, first_interval=2.0)
 '''
+
+
+def stamp_the_scene(glb: str, clip: str):
+    """Records which model this scene was built from, and when.
+
+    Read back by the watcher to decide whether the window is showing current work. Stored
+    on the scene rather than in a sidecar so it cannot be separated from the .blend, and so
+    a scene copied somewhere else still knows what it came from.
+    """
+    scene = bpy.context.scene
+    scene["built_from"] = os.path.abspath(glb)
+    scene["built_at"] = os.path.getmtime(glb)
+    scene["built_clip"] = clip
+    print(f"  stamped: built from {os.path.basename(glb)} "
+          f"({time.strftime('%H:%M:%S', time.localtime(scene['built_at']))}), clip {clip}")
 
 
 def install_the_watcher():
@@ -467,6 +533,7 @@ def main():
 
     scene.frame_set(scene.frame_start)
     aim_the_viewport(mesh, view)
+    stamp_the_scene(glb, clip)
     install_the_watcher()
 
     if save_to:

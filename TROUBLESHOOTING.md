@@ -2108,9 +2108,30 @@ duplication problem, which is the wrong way round.
 of the build.* A pipeline that produces the artefact but not the view of it has an
 un-versioned step in the middle of the feedback loop.
 
-**The test.** None, and it is hard to have one — the failure is invisible by construction.
-The nearest thing is what was added: make the refresh a step of the build rather than
-something to remember.
+**The test.** The scene says so itself. Two layers, because the refresh alone is not a
+guarantee — asked for one directly: *"make sure the blender always has the changes otherwise
+I'll end up spotting the same issues that have been fixed"*.
+
+1. `animate_ranger.sh` rewrites every existing `gait_watch_*.blend` as its last step, so the
+   watchers fire and open windows reload themselves. This covers the ordinary case.
+2. Each scene is **stamped** with the path and timestamp of the GLB it was built from
+   (`built_from`, `built_at`, `built_clip` on the scene), and the in-blend watcher compares
+   that against the GLB on disk every tick and **captions the viewport**: small and green
+   when current, large and red when not — *"STALE — run rebuilt 14 min after this scene"*.
+
+Layer 2 exists because layer 1 cannot cover everything. The watcher only ever watched the
+**.blend's** own timestamp, so it notices a rewritten scene and is blind to the case that
+actually bites: the GLB moving on while the scene does not. That happens whenever a build
+refuses *after* `animate_ranger.py` has written the model — `set -euo pipefail` stops the
+script before the refresh — or whenever the clips are rebuilt by any path that skips it.
+Nothing changes, the watcher has nothing to notice, and the window keeps showing superseded
+work.
+
+Verified rather than assumed: the stamp survives the save, resolves its source, reads
+"current" immediately after a build, and a GLB fifteen minutes newer reads STALE.
+
+What neither layer can cover is Blender started without `--enable-autoexec`, since then no
+registered script runs at all — no reload and no caption. `gait_watch.sh` always passes it.
 
 ## Keeping this honest
 
