@@ -625,7 +625,12 @@ HEAD_BOBS = 0.005
 # How much of the hips vertical the head cancels. 0.85 lands the head near 65% of the
 # what the pelvis does, which is the right way round - see `head_rides_less` at the point of
 # use for why it was the wrong way round before.
-HEAD_RIDES_LESS = 0.85
+# 1.10, up from 0.85. Not because the ratio was wrong - it held at 0.56 - but because the
+# hip bob nearly doubled when `absorbs` and `bound` gave the run a real DOWN and UP, and a
+# constant ratio against a bigger hip means a bigger head. 0.56 of 18.11 cm is 10.05, and
+# the complaint that started this was 14.74. So the damping is raised to hold the head near
+# 7 cm in absolute terms, which is what was actually being asked for.
+HEAD_RIDES_LESS = 1.10
 
 # How far the forearms are tucked ACROSS the front of the body, in degrees.
 #
@@ -674,8 +679,23 @@ LEAN_AT_THE_CHEST = 0.2
 # the brief's 35-45 front and 10-20 back.
 ELBOW_HELD = 25.0
 ELBOW_SWING = 12.0
-RUN_ELBOW_HELD = 88.0
-RUN_ELBOW_SWING = 18.0
+# 80 held with 36 of swing, from 88 and 18. The shoulder swing was fixed first and it was
+# not enough on its own: a contact sheet still read as arms held still, because with the
+# elbow pinned near 88 degrees the HAND orbits close to the chest however far the upper arm
+# travels. Measured, the shoulder swung 93.9 degrees while the hand moved only 48 cm.
+#
+# `elbow_swing` rides on `elbow_held` against the same `swung` phase as the shoulder, so a
+# positive value folds the arm MORE in front and opens it BEHIND - which is exactly the
+# Survival Kit shape: the front arm comes up tight and the back arm extends and sweeps past
+# the hip. At 18 the back arm still sat at 70 degrees of fold, which is not an extension.
+# 80 +/- 36 gives 44 in front and 116 behind, so the contrast is doing the work.
+# 76 +/- 30, so 46 in front and 106 behind. 80 +/- 36 was refused - "the R elbow sits 0.014
+# in FRONT of the shoulder-to-wrist line, so the arm folds backwards" - because past about
+# 110 degrees of fold the wrist swings through and the joint reads hyperextended. 106 is the
+# most that has ever passed, so the front extreme is pinned there and the whole of the extra
+# range is spent OPENING the back arm, which is the half that was missing anyway.
+RUN_ELBOW_HELD = 76.0
+RUN_ELBOW_SWING = 30.0
 
 # The sprint's elbows are tight and stay near constant, rather than opening and closing.
 #
@@ -695,8 +715,16 @@ RUN_ELBOW_SWING = 18.0
 # So the swing has to come DOWN, not the hold up, and the ceiling is the forward total.
 # 94 + 4 = 98 at the front and 90 at the back - tight at both ends, which is a sprinter's
 # arm anyway, and clear of the crossing with room to spare.
-SPRINT_ELBOW_HELD = 94.0
-SPRINT_ELBOW_SWING = 4.0
+# 70 +/- 26, tighter than the run's 76 +/- 30 rather than looser, which is the opposite of
+# how every other sprint constant relates to its run. The sprint's SHOULDER swings 127
+# degrees against the run's 94, and fold and shoulder extension add up in the same joint -
+# so the fold that the run can carry at full stretch hyperextends here. Refused twice before
+# landing: at 94 +/- 28 and again at 76 +/- 30.
+SPRINT_ELBOW_HELD = 70.0
+# 28, from 4 - which was a locked elbow. The sprint's SHOULDER measured fine all along, so
+# nothing ever pointed at its elbow; it took fixing the run's to notice the sprint had the
+# same fault twice as badly.
+SPRINT_ELBOW_SWING = 26.0
 
 # How far the SHOULDERS counter-rotate against the hips, in degrees each way.
 #
@@ -911,8 +939,21 @@ RUN_SINKS = 0.056
 SPRINT_SINKS = RUN_SINKS
 
 WALK_BOUND = 0.0
-RUN_BOUND = 0.016
-SPRINT_BOUND = 0.022
+# 0.030 and 0.040, up from 0.016 and 0.022. `bound` is how far above the straight line the
+# hips arc while airborne - the Survival Kit's "THE UP", the fifth drawing, where the body
+# is highest and both feet are clear. With the DOWN deepened by `absorbs` this is the other
+# half of the vertical contrast that a run lives on.
+#
+# These could not be raised before without the head bob going with them, and the head bob
+# had just been reported as extreme. It rides at 0.43 of the hips now that its damping is
+# in the right basis, so the two are no longer in conflict.
+RUN_BOUND = 0.030
+SPRINT_BOUND = 0.040
+
+# How much deeper than the reach ceiling the hips dip at the landing - see `deepest`.
+WALK_ABSORBS = 0.0
+RUN_ABSORBS = 0.026
+SPRINT_ABSORBS = 0.034
 
 # How far the torso leans forward, in degrees, spread over the waist and lower spine.
 #
@@ -1599,7 +1640,7 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
          swing_lift: float, swing_shape: float, lands_ahead: float,
          arm_forward: float, arm_back: float, elbow_held: float, elbow_swing: float,
          lean: float, share: float, sinks: float, leads: float, bound: float,
-         twist: float, pelvis, facing):
+         absorbs: float, twist: float, pelvis, facing):
     """One cycle, authored by moving the FEET, with IK solving the legs.
 
     Nothing here poses a knee or a hip. The foot's path is stated - planted on the
@@ -1739,10 +1780,24 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
     # introduce a step at the boundaries, and the airborne windows of a symmetric gait are
     # themselves symmetric - so unlike tracking the ceiling, this cannot make it limp.
     # WALK_BOUND is 0, so a walk is untouched.
+    # `absorbs` is an EXTRA dip below whatever the reach ceiling demands, and it exists
+    # because the ceiling is what binds here - which is why raising `sinks` from 0.056 to
+    # 0.075 once produced byte-identical scores, `hip_rises_cm` stuck at 9.52. `max` takes
+    # the SHALLOWER of the ceiling and the sink cap, so `sinks` is a limit that was never
+    # being reached and turning it up did nothing.
+    #
+    # The `max` stays, because it is a real safety: where the ceiling would demand a huge
+    # drop the hip holds still and the leading leg simply reaches its limit, rather than
+    # lurching. Absorption is subtracted AFTER it, so it is a deliberate amount rather than
+    # whatever the ceiling happened to ask for.
+    #
+    # Going deeper than the ceiling is always safe - a lower hip has more reach, not less.
+    # And it is what the Survival Kit's second drawing is: "THE DOWN", the knee absorbing
+    # the landing. Ours barely dipped, which is most of why the row read as flat.
     deepest = max(
         min(reach_ceiling(step / span) for step in range(span)),
         -sinks,
-    )
+    ) - absorbs
     airborne = [
         not any(
             ik_gait.the_foot_is_down(
@@ -1983,7 +2038,9 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
             root.location = axes @ (
                 facing[0] * leads
                 + facing[1] * (-pelvis[0] * weight)
-                + mathutils.Vector((0.0, 0.0, max(rides, -sinks)))
+                # Clamped against `sinks + absorbs`, not `sinks` alone - otherwise the
+                # clamp would immediately undo the absorption it was just given.
+                + mathutils.Vector((0.0, 0.0, max(rides, -sinks - absorbs)))
             )
 
         # # The head rides LESS than the hips
@@ -2607,7 +2664,7 @@ def main() -> None:
             # 2 degrees of trunk lean, not 0. A walk is upright, but dead plumb
             # reads as being carried along rather than walking; a couple of degrees is
             # what a person leans to actually go somewhere.
-            ELBOW_HELD, ELBOW_SWING, WALK_LEAN, WALK_SHARE, WALK_SINKS, WALK_LEADS, WALK_BOUND, WALK_TWIST, WALK_PELVIS, facing,
+            ELBOW_HELD, ELBOW_SWING, WALK_LEAN, WALK_SHARE, WALK_SINKS, WALK_LEADS, WALK_BOUND, WALK_ABSORBS, WALK_TWIST, WALK_PELVIS, facing,
         ).use_fake_user = True
     gait(
             # An EVEN span, always: a cycle is two identical steps, so the half
@@ -2616,13 +2673,13 @@ def main() -> None:
             # hips disagree with themselves by 21%, which is a limp.
             rig, body, feet, ground, "run", RUN_LEG, 24, RUN_CONTACT, RUN_SWING_LIFT, RUN_SWING_SHAPE, RUN_LANDS_AHEAD,
             RUN_ARM_FORWARD, RUN_ARM_BACK,
-            RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_SHARE, RUN_SINKS, RUN_LEADS, RUN_BOUND, RUN_TWIST, RUN_PELVIS, facing,
+            RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_SHARE, RUN_SINKS, RUN_LEADS, RUN_BOUND, RUN_ABSORBS, RUN_TWIST, RUN_PELVIS, facing,
         ).use_fake_user = True
     gait(
             # 14 frames, not 16: a sprint cycle is ~0.58 s where a run's is ~0.67.
             rig, body, feet, ground, "sprint", SPRINT_LEG, 24, SPRINT_CONTACT, SPRINT_SWING_LIFT, SPRINT_SWING_SHAPE, SPRINT_LANDS_AHEAD,
             SPRINT_ARM_FORWARD, SPRINT_ARM_BACK, SPRINT_ELBOW_HELD, SPRINT_ELBOW_SWING, SPRINT_LEAN, SPRINT_SHARE,
-            SPRINT_SINKS, SPRINT_LEADS, SPRINT_BOUND, SPRINT_TWIST, SPRINT_PELVIS, facing,
+            SPRINT_SINKS, SPRINT_LEADS, SPRINT_BOUND, SPRINT_ABSORBS, SPRINT_TWIST, SPRINT_PELVIS, facing,
         ).use_fake_user = True
 
     bpy.ops.export_scene.gltf(

@@ -65,7 +65,7 @@ const BREAKS_INTO_A_RUN: f32 = 3.4;
 /// horizontal only: a centroid whose membership shifts as the shoe rolls reads as
 /// slide when nothing slid, and vertical pad lift is not slide either.
 const WALK_COVERS: f32 = 0.970;
-const RUN_COVERS: f32 = 2.495;
+const RUN_COVERS: f32 = 2.500;
 
 /// The moving gaits, slowest first: the word in the clip's name, how far one cycle
 /// carries the warden in metres, and the speed above which the next one takes over.
