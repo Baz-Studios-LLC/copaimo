@@ -1899,11 +1899,16 @@ def cut_the_fusions(rig, mesh, hops: int = 4, times_median: float = 4.0):
 
 # How far from a limb's own axis a small piece has to sit before it counts as hanging OFF the
 # limb rather than being worn on it, in model units - about 17 cm. See `hangs_off`.
-# 0.07, about 12 cm. Lowered from 0.10 once the straps UNDER the arms were reported as still
-# there: at 17 cm only the piece 29.4 cm out was going, and the two at 16.1 and 18.5 stayed.
-# The cuff is at 6.7 cm, so there is a wide gap between what is worn on the arm and what
-# dangles off it, and the threshold sits in the middle of it rather than near either edge.
-CLEARS_THE_ARM = 0.07
+# How far off a limb's own axis a small piece has to sit, in CENTIMETRES, before it counts as
+# hanging off the limb rather than being worn on it.
+#
+# In centimetres on purpose. It was in model units, compared against a figure measured in
+# world centimetres, and the mismatch silently spared the straps this exists to remove -
+# twice, because the second attempt lowered the number instead of fixing the units.
+#
+# The cuff sits at 6.7 cm and the straps at 16.1, 18.5 and 29.4, so 11 sits in the middle of
+# a wide gap rather than near either edge.
+CLEARS_THE_ARM = 11.0
 
 
 def remove_the_hanging_straps(rig, mesh, biggest: int = 120):
@@ -1960,31 +1965,44 @@ def remove_the_hanging_straps(rig, mesh, biggest: int = 120):
     # DISTANCE from the arm's own axis works. Measured on the four: 6.7 cm for the cuff, and
     # 16.1, 18.5 and 29.4 for the straps. A cuff is worn ON the arm so it sits within a few
     # centimetres of the bone; a strap dangling off is three times that or more.
-    def hangs_off(shell):
+    def how_far_off_the_arm(shell):
+        """Mean distance from the forearm's own axis, in CENTIMETRES.
+
+        In world space and in real units, both deliberately. The first version worked in
+        mesh-local while the threshold had been derived from a world-space probe, and the two
+        are not the same space - so it silently spared the straps it was written to remove:
+        pieces measured at 16.1 and 18.5 cm by the probe came out under a 12 cm limit here.
+        Nudging the number would have papered over a units bug.
+        """
         side = owners[next(iter(shell))][0]
-        elbow = mesh.matrix_world.inverted() @ (
-            rig.matrix_world @ rig.pose.bones[f"{side}_Forearm"].head
-        )
-        wrist = mesh.matrix_world.inverted() @ (
-            rig.matrix_world @ rig.pose.bones[f"{side}_Hand"].head
-        )
-        along = (wrist - elbow)
+        elbow = rig.matrix_world @ rig.pose.bones[f"{side}_Forearm"].head
+        wrist = rig.matrix_world @ rig.pose.bones[f"{side}_Hand"].head
+        along = wrist - elbow
         if along.length < 1e-9:
-            return False
+            return 0.0
         along.normalize()
         out = 0.0
         for i in shell:
-            spoke = mesh.data.vertices[i].co - elbow
+            spoke = (mesh.matrix_world @ mesh.data.vertices[i].co) - elbow
             spoke -= along * spoke.dot(along)
             out += spoke.length
-        return (out / len(shell)) > CLEARS_THE_ARM
+        return out / len(shell) * SCALE
 
-    loose = [
+    candidates = [
         shell for shell in whole_shells(mesh)
         if len(shell) <= biggest
         and all("Forearm" in owners[i] for i in shell)
-        and hangs_off(shell)
     ]
+    # Printed every build, because the whole difficulty here is telling a cuff from a strap and
+    # the number that does it should not be invisible.
+    loose = []
+    for shell in candidates:
+        out = how_far_off_the_arm(shell)
+        keeps = out <= CLEARS_THE_ARM
+        print(f"    {len(shell):3} verts sit {out:5.1f} cm off the arm axis -> "
+              f"{'worn on the arm, KEPT' if keeps else 'hangs off, removed'}")
+        if not keeps:
+            loose.append(shell)
     if not loose:
         print("  no forearm-only pieces small enough to be a stray strap")
         return

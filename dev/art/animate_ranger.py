@@ -1125,7 +1125,7 @@ ARM_HANGS_AT = 12.0
 # among them, no fingers at all, so the splayed fingers are baked into the mesh and cannot be
 # curled by posing. The roll is chosen to point them along the direction of travel, which is
 # the most a hand can be helped without finger bones.
-PALM_IN = 80.0
+PALM_IN = -70.0
 
 # --- Two repairs to the idle the model shipped with. See `mend_the_shipped_idle`.
 #
