@@ -2,17 +2,12 @@
 # Adds walk and run clips to the made ranger. See dev/art/animate_ranger.py.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
-find_blender() {
-  if command -v blender >/dev/null 2>&1; then command -v blender; return; fi
-  for base in "/c/Program Files/Blender Foundation" "/c/Program Files/Blender" \
-              "/Applications/Blender.app/Contents/MacOS"; do
-    [ -d "$base" ] || continue
-    found=$(find "$base" -maxdepth 2 \( -name "blender.exe" -o -name "blender" \) \
-            -type f 2>/dev/null | sort -Vr | head -1)
-    [ -n "$found" ] && { echo "$found"; return; }
-  done
-  return 1
-}
+# Sourced rather than pasted. This script carried its own copy of `find_blender`, one of
+# the four blender.sh was written to replace and whose own header already says they
+# "should come here too". Sourcing also brings `win`, which the viewer refresh at the
+# bottom of this script needs - and adding a fifth copy of that to get hold of it would
+# have been exactly the wrong way round.
+. "$here/blender.sh"
 blender=$(find_blender) || { echo "Blender not found." >&2; exit 1; }
 
 # The stance shares come from animate_ranger.py, which is where they are decided.
@@ -50,3 +45,33 @@ python "$here/ranger_texture.py"
 # with backwards knees and arms swinging with the legs, and every one of them was
 # caught by the person playing the game. See dev/art/verify_gait.py.
 "$blender" --background --python-exit-code 1 --python "$here/verify_gait.py" --   "$(cd "$here/../.." && pwd)/assets/models/person_ranger.glb" walk:"$(shares WALK_SHARE)" run:"$(shares RUN_SHARE)" sprint:"$(shares SPRINT_SHARE)"
+
+# # And refresh any viewer scene that is already open
+#
+# `gait_watch.sh` builds a .blend and opens it, and the .blend carries a watcher that
+# reverts itself when the file's timestamp changes - so a rebuild is meant to reach an open
+# window without anybody closing anything. What was missing is the other half: this script
+# rewrites the GLB and nothing rewrote the SCENE, so an open window went on showing whatever
+# clip it was built from.
+#
+# It went unnoticed for a session because the scenes are only stale, never broken. Measured
+# at the point it was caught, the viewer scenes were from 10:53 and the GLB from 13:02 - two
+# hours and four rounds of changes apart, including the whole arm swing and lean pass. That
+# is worse than a bug: a stale scene makes the reports coming back UNRELIABLE, and neither
+# side can tell.
+#
+# Only scenes that already EXIST are rewritten. Building one for a clip nobody has open
+# would put a window's worth of work on every run of this script for no reason, and creating
+# files nobody asked for is its own surprise.
+watch="${TMPDIR:-/tmp}/gait_watch"
+for scene in "$watch"/gait_watch_*.blend; do
+  [ -f "$scene" ] || continue
+  case "$scene" in *.blend1) continue ;; esac
+  named="$(basename "$scene" .blend)"
+  named="${named#gait_watch_}"
+  case "$named" in gait_watch) continue ;; esac
+  "$blender" --background --python-exit-code 1 --python "$here/gait_watch.py" -- \
+    "$(win "$(cd "$here/../.." && pwd)/assets/models/person_ranger.glb")" "$named" \
+    --save "$(win "$scene")" 2>&1 | grep -E "REFUSED|Error|Traceback" && exit 1
+  echo "refreshed the $named viewer scene - an open window reloads itself"
+done

@@ -2074,6 +2074,44 @@ see the identical lesson on `RUN_SINKS` and on pelvis sway.
 `key()`'s list would have caught fault 1, and asserting head travel stays under the hip's
 would have caught faults 2 and 3.
 
+### ISSUE: the Blender viewer showed a clip two hours out of date
+
+**What you see.** Nothing. That is the whole problem. Asked directly — "are you updating the
+blender pages?" — and the answer was no.
+
+**What it actually was.** `gait_watch.sh` builds a scene and opens it, and the scene carries
+a registered watcher that reverts itself when the file's timestamp changes, so a rebuild is
+supposed to reach an already-open window without anyone closing anything. That half worked.
+The missing half is that `animate_ranger.sh` rewrites the **GLB** and nothing rewrote the
+**scene**, so an open window went on showing whatever clip it was built from.
+
+Measured when it was caught: the viewer scenes were written at 10:53 and the GLB at 13:02 —
+two hours and four rounds of changes apart, including the entire arm-swing and lean pass.
+
+**Why it is worse than a bug.** A stale scene is never broken, only old, so there is nothing
+to notice. It makes the reports coming back **unreliable** — feedback on animation that is
+no longer what the build contains — and neither side can tell which round is being judged.
+Every other entry in this file was found by measuring the wrong thing; this one is measuring
+the right thing on the wrong version.
+
+**What changed.** `animate_ranger.sh` now rewrites every `gait_watch_*.blend` that already
+exists, as its last step, so the watchers fire and open windows reload themselves. Only
+scenes that exist are touched: building one for a clip nobody has open would add a window's
+worth of work to every run, and creating files nobody asked for is its own surprise.
+
+Getting `win` for that meant the script had to stop carrying its own copy of `find_blender`
+and source `blender.sh` — which is what `blender.sh`'s header already asked for, naming this
+script first among four. The alternative was a fifth copy of a path helper in order to fix a
+duplication problem, which is the wrong way round.
+
+**The principle.** *If a person is going to judge the output, the thing they look at is part
+of the build.* A pipeline that produces the artefact but not the view of it has an
+un-versioned step in the middle of the feedback loop.
+
+**The test.** None, and it is hard to have one — the failure is invisible by construction.
+The nearest thing is what was added: make the refresh a step of the build rather than
+something to remember.
+
 ## Keeping this honest
 
 Add an entry when a bug took **more than one attempt** to fix, or when the symptom
