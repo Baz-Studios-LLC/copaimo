@@ -191,28 +191,51 @@ def aim_the_pole(rig, side: str, pole, hold, forward, leg_length: float) -> floa
     # arbitrary angle and the knees settled 6 cm inside the hip-to-ankle line -
     # knock-knees, seen from behind and named. So the search now scores the thing
     # the pole exists to place: the knee, pointing along its own foot's heading.
+    # # Coarse, then FINE, because the quantisation is not shared between the sides
+    #
+    # This was a single 36-step sweep - 10 degree resolution - and the chosen angle is
+    # fixed for the whole clip. So each leg carried a standing error of up to 5 degrees,
+    # in whichever direction its own grid point happened to fall, and the two legs' errors
+    # are independent. That is a permanent difference in chain roll between the sides, and
+    # it shows up worst where roll matters most: the frames just after toe-off with the leg
+    # extended. Measured on the sprint, the two thighs disagreed 7.97 degrees half a cycle
+    # apart while every other frame in the cycle matched to 0.00 - the authored motion was
+    # exactly symmetric and only the solve was not.
+    #
+    # A second pass at 1 degree over the winning bracket takes that from 5 degrees to 0.5.
     best, best_at = None, 0.0
-    for step in range(36):
-        angle = -math.pi + step * (2.0 * math.pi / 36.0)
-        hold.pole_angle = angle
-        bpy.context.view_layer.update()
+    coarse = 2.0 * math.pi / 36.0
+    tries = [-math.pi + step * coarse for step in range(36)]
+    for pass_number in (0, 1):
+        for angle in tries:
+            hold.pole_angle = angle
+            bpy.context.view_layer.update()
 
-        thigh = rig.matrix_world @ rig.pose.bones[f"{side}_Thigh"].head
-        knee = rig.matrix_world @ rig.pose.bones[f"{side}_Calf"].head
-        ankle = rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head
+            thigh = rig.matrix_world @ rig.pose.bones[f"{side}_Thigh"].head
+            knee = rig.matrix_world @ rig.pose.bones[f"{side}_Calf"].head
+            ankle = rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head
 
-        span = ankle - thigh
-        if span.length < 1e-6:
-            continue
-        along = span.normalized()
-        out = (knee - thigh) - along * (knee - thigh).dot(along)
-        if out.length < 1e-6:
-            continue
-        # Knee over toe: the knee's off-the-line direction should BE the foot's
-        # heading, which this leg's pole already sits along.
-        tracks = out.normalized().dot(heading)
-        if best is None or tracks > best:
-            best, best_at = tracks, angle
+            span = ankle - thigh
+            if span.length < 1e-6:
+                continue
+            along = span.normalized()
+            out = (knee - thigh) - along * (knee - thigh).dot(along)
+            if out.length < 1e-6:
+                continue
+            # Knee over toe: the knee's off-the-line direction should BE the foot's
+            # heading, which this leg's pole already sits along.
+            tracks = out.normalized().dot(heading)
+            if best is None or tracks > best:
+                    best, best_at = tracks, angle
+        if pass_number == 0:
+            # One degree either side of the winner, over the coarse bracket it won by.
+            fine = math.radians(1.0)
+            span_each_way = int(round(coarse / fine))
+            tries = [
+                best_at + step * fine
+                for step in range(-span_each_way, span_each_way + 1)
+            ]
+            best = None
 
     hold.pole_angle = best_at
     bpy.context.view_layer.update()

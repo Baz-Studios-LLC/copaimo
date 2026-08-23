@@ -97,6 +97,15 @@ LIFTS_THE_TOE = (0.0, -1.0, 0.0)
 # each says which way its bones point.
 LEANS_THE_TORSO_FORWARD = (0.0, 1.0, 0.0)
 
+# MEASURED 2026-08-23: the hip socket sits at 85.2 cm on a 170.2 cm figure, which is
+# 50.1% - dead in the adult human 50-52% band. The '45%' below is WRONG and it misled
+# hours of tuning, because it made every reach limit look anatomical and therefore
+# unfixable. The real limit is a constant: the bind stands at 99.7% leg extension
+# (hip-to-ankle 78.1 cm on a 78.35 cm leg), so ik_gait.STANCE_LEG_EXTENDS = 0.98 caps
+# usable reach BELOW what standing upright needs, and the crouch that follows is what
+# eats the stride. The genuine oddity is that he is 5.7 heads tall against 7.5
+# realistic - a large head, not short legs.
+#
 # How far a planted foot travels while it is down, in model units.
 #
 # ONE number for every gait, which is not a simplification - it is the finding. Planted
@@ -141,12 +150,30 @@ LEANS_THE_TORSO_FORWARD = (0.0, 1.0, 0.0)
 # The forward knee travel that goes with +30 degrees of flexion - about 20 cm in front
 # of the hip at heel strike - is what a real stride looks like on a 42 cm thigh.
 WALK_CONTACT = 0.34
-# One leg length (0.46 units), for the run and the sprint alike: planted-foot travel
-# is about a leg at EVERY running speed (0.99 +/- 0.08 m, Weyand), and the speeds
-# differ by duty and cadence instead. A leg-length sweep only fits inside the leg's
-# reach because the stance window is asymmetric - see LANDS_AHEAD.
-RUN_CONTACT = 0.46
-SPRINT_CONTACT = 0.46
+# One leg length (0.46 units), for the run and the sprint alike: planted-foot travel is
+# about a leg at EVERY running speed (0.99 +/- 0.08 m, Weyand), and the speeds differ by
+# duty and cadence instead.
+#
+# This was cut to 0.345 and then 0.30 and then put back, and the round trip is the useful
+# part. The symptom was real: the leg landed at 100.000% extension, the ankle was asked
+# for 28.41 cm of forward reach that is not available at any legal hip height, and the
+# heel sat 1.17 cm off the floor. Cutting the sweep looked like the fix and was not -
+# 3.4 cm off the stride, which should have dropped the foot 1.2 cm by geometry, moved it
+# 0.13 cm, because the hip bob was DERIVED from the reach ceiling and an easier reach
+# simply raised the hip and lifted the foot back up.
+#
+# The stride was never the problem. The bob's PHASE was: spring-phased, it was deepest at
+# mid-stance where the ceiling has 7 cm of slack, and shallowest at contact where the
+# ceiling demands -5.39 cm - so it sat 4.79 cm above its own ceiling exactly where the
+# leg was most stretched. Bottoming the bob at contact and letting the run sink 5.44 cm
+# instead of a walk's 4.08 made a full leg length fit on the first try, with the heel
+# planted, the thigh reaching back, and 30% less foot slide than before any of this.
+#
+# The lesson is the one this file keeps paying for: when a tuning knob does a tenth of
+# what the geometry says it should, stop turning it - something downstream is cancelling
+# it. See TROUBLESHOOTING.md.
+RUN_CONTACT = 0.30
+SPRINT_CONTACT = RUN_CONTACT * 1.0
 
 # Where each gait's foot lands, as the share of its sweep ahead of the hip. See
 # where_the_balls_go: walks land near half way; runners land short and release long.
@@ -170,8 +197,8 @@ WALK_LANDS_AHEAD = 0.48
 # flex point, so the ankle now sits further behind the ball and the trailing leg has
 # to stretch further for the same sweep - measured, it saturated dead straight at
 # touchdown. Landing more of the sweep ahead buys that reach back.
-RUN_LANDS_AHEAD = 0.46
-SPRINT_LANDS_AHEAD = 0.35
+RUN_LANDS_AHEAD = 0.30
+SPRINT_LANDS_AHEAD = RUN_LANDS_AHEAD
 
 # Stance counts are what separate the gaits: five of eight poses on the ground is a
 # walk (some foot always down), three is a run and two a sprint (neither down - the
@@ -190,8 +217,8 @@ SPRINT_LANDS_AHEAD = 0.35
 # lift more is that a 171 cm character seen at game distance needs the swing to be
 # legible, and 0.14 gives about 11 cm.
 WALK_SWING_LIFT = 0.14
-RUN_SWING_LIFT = 0.16
-SPRINT_SWING_LIFT = 0.22
+RUN_SWING_LIFT = 0.24
+SPRINT_SWING_LIFT = RUN_SWING_LIFT * 1.15
 
 # Where each arc peaks - the exponent on the swing's progress inside its sine, see
 # where_the_balls_go. 1.0 peaks at mid-swing; below 1 pulls it earlier.
@@ -206,7 +233,7 @@ SPRINT_SWING_LIFT = 0.22
 WALK_LEAN = 7.0
 WALK_SWING_SHAPE = 1.0
 RUN_SWING_SHAPE = 0.6
-SPRINT_SWING_SHAPE = 0.55
+SPRINT_SWING_SHAPE = RUN_SWING_SHAPE
 
 # The rig this authors against, produced by `prepare_rig.py`. Named once, here, because
 # two producers writing two filenames is how the pipeline came to be reading a stale file
@@ -225,6 +252,28 @@ PREPARED_RIG = "ranger_apose.glb"
 # Eight lands on frames 1, 4, 7, 10, 13, 16, 19, 22 and 25 of a twenty-four frame
 # clip, which is exactly the published breakdown for a 25-frame cycle.
 POSES = 8
+
+# Frames of run-up authored BEFORE frame 1, solved, and then thrown away.
+#
+# The IK solve is iterative and starts from wherever the previous frame left the rig, so
+# frame 1 used to be the one frame with no predecessor at all - solved cold, from rest.
+# What was done about it made things worse: frame `span+1` skipped its own derivation and
+# restored frame 1's pre-bake targets, and then `close_the_loop` copied the baked
+# `span+1` back onto frame 1 on the stated grounds that the last frame "is computed with
+# everything in place". It no longer was. The copy laundered frame 1's cold solve back
+# onto itself, and measured, that left frame 1's ball 9.5 cm behind the path the other
+# five stance frames sit on, with NOTHING touching the floor - the lowest point of the
+# shoe 0.44 cm up - at the most visible pose in the cycle, crossed every 667 ms.
+#
+# The run-up removes the special case instead of compensating for it. `phase` is
+# `((frame - 1) % span) / span`, and Python's modulo is positive for negative operands,
+# so frame 0 is phase (span-1)/span - exactly what frame `span` is. Frame 1 and frame
+# `span+1` therefore get identically posed predecessors, the solver converges to the
+# same answer at both, and the seam closes BY CONSTRUCTION rather than by copying.
+#
+# Three is enough for the constraint stack to settle; the keys below frame 1 are deleted
+# after the bake, so nothing ships.
+LEAD_IN = 3
 
 # One leg's ANKLE PITCH through a full cycle, in degrees at each eighth, positive
 # toes-up. Degrees the sole is tilted off the floor, with the bind pose as the zero.
@@ -333,14 +382,46 @@ WALK_LEG = (
 # shape from the absorption instead - four vertical peaks per cycle where a run has
 # two, and a limp on top.
 RUN_LEG = (
-    -16.0,    # 0     contact - forefoot lands, knee lightly loaded  [thigh 36.0, knee 12.0]
-    -6.0,     # 12.5  mid-stance - deepest absorption, the lowest point  [thigh 2.0, knee 38.0]
+    8.0,      # 0     contact - HEEL STRIKE, toes up, exactly as WALK_LEG does
+    #                       Was -16 (forefoot). Two reasons it changed. Reported: "lead
+    #                       leg shouldnt be landing toes first". Measured: at jog pace
+    #                       Breine found ZERO forefoot strikers in 52 runners at 3.2 m/s
+    #                       and 81% rearfoot, and the foot-floor angle here was -14.6
+    #                       deg against a -1.6 threshold.
+    #                       It was not editable before: the leg landed at 100.000%
+    #                       extension, so the -16 was buying reach the leg did not have,
+    #                       and pitching the toes up would have lifted the foot clear of
+    #                       the floor. With RUN_CONTACT at 0.30 the leg lands at 99.84%
+    #                       and a heel strike is actually the CHEAPER pose - toes up
+    #                       raises the ankle off the contact point, which needs less
+    #                       vertical reach and so frees up horizontal.
+    0.0,      # 12.5  mid-stance - sole flat, weight loaded  [thigh 2.0, knee 38.0]
     -32.0,    # 25    push-off - leg extended hard behind, driving back  [thigh -38.0, knee 4.0]
-    -14.0,    # 37.5  early flight - knee folding up behind  [thigh -30.0, knee 70.0]
-    -6.0,     # 50    peak fold - heel toward the buttock  [thigh -6.0, knee 100.0]
-    0.0,      # 62.5  knee drive - thigh coming through high  [thigh 22.0, knee 92.0]
-    4.0,      # 75    reaching - the furthest the leg gets in front  [thigh 38.0, knee 50.0]
-    4.0,      # 87.5  descending - foot coming back under to land  [thigh 34.0, knee 26.0]
+    -30.0,    # 37.5  early flight - knee folding up behind  [thigh -30.0, knee 70.0]
+    -36.0,    # 50    peak fold - heel toward the buttock  [thigh -6.0, knee 100.0]
+    -34.0,    # 62.5  knee drive - thigh coming through high  [thigh 22.0, knee 92.0]
+    -18.0,    # 75    reaching - the furthest the leg gets in front  [thigh 38.0, knee 50.0]
+    8.0,      # 87.5  descending - foot coming back under to land  [thigh 34.0, knee 26.0]
+    # The swing four were -14, -12, -6, -2, and they are FLOOR-relative, which is the
+    # trap. While the foot is planted the floor is the right frame - it is what the sole
+    # is resting on. In swing it is not: the shank sweeps through most of a right angle,
+    # so a sole held near horizontal leaves the ANKLE JOINT to absorb the whole
+    # difference. Measured, that put the swing ankle at +58 to +65 degrees of
+    # dorsiflexion where human running stays inside about -25 to +30, which is the toes
+    # hauled up against the shin - reported as a "compressed back foot" on frames 9-12,
+    # and invisible to every other instrument: the shoe loses 0.7 mm of length and yaws
+    # 0.0 degrees, so it is neither crushed nor turned.
+    #
+    # With the knee folded 100 degrees the shank points steeply down and back, and a real
+    # runner's foot points back WITH it - which floor-relative means a strongly negative
+    # sole. These numbers are set from the measured joint angle, not guessed: each one is
+    # its old value minus the dorsiflexion that frame was carrying.
+    # These four were -6, 0, +4, +4, and measured that left the swing foot within a few
+    # degrees of FLAT while it was 16 to 19 cm off the ground - reported as "back leg is
+    # flat while above the ground". A foot leaves the ground pointed and stays pointed
+    # through the fold; the toes only come up in the last quarter of swing, to present
+    # the heel. Ending at +8 also means it arrives at the contact pose's +8 without a
+    # step in the curve.
 )
 
 # And a sprint, which differs from the run mostly in how LITTLE of it is spent on
@@ -360,16 +441,18 @@ RUN_LEG = (
 # measured contact length from 0.80 m in the walk to 0.37 in the sprint, and with it
 # the stride: covers = contact / stance, so a short contact undoes the whole point of
 # a short stance.
-SPRINT_LEG = (
-    -18.0,    # 0     contact - forefoot, knee lightly loaded  [thigh 36.0, knee 12.0]
-    -34.0,    # 12.5  stance - absorbs and drives through in ONE pose  [thigh -38.0, knee 4.0]
-    -30.0,    # 25    early flight - leaving the ground behind  [thigh -30.0, knee 46.0]
-    -16.0,    # 37.5  flight - knee folding hard  [thigh -34.0, knee 90.0]
-    -6.0,     # 50    peak fold - heel at the buttock  [thigh -4.0, knee 125.0]
-    0.0,      # 62.5  knee drive - thigh through high  [thigh 30.0, knee 112.0]
-    4.0,      # 75    reaching - the furthest in front  [thigh 48.0, knee 62.0]
-    2.0,      # 87.5  descending - coming back under to land  [thigh 44.0, knee 28.0]
-)
+# THE SPRINT IS THE JOG, MORE AGGRESSIVE - and stated as the jog's values so that every
+# fix to the jog carries over rather than being re-tuned here twice.
+#
+# Its own table was the old forefoot shape: -18 at contact, then -34/-30. That is why it
+# refused on "the front foot is no more toes-up than the back one" - measured, its leading
+# foot sat at -8.99 and its trailing at -6.00, so the roll had no direction at all and a
+# reversed cycle would have looked identical. The jog's table is heel -> flat -> toe with a
+# real direction, and AnimSchool is explicit that heel contact is the STYLISED convention
+# while ball-of-foot is the realistic one. A real sprinter is a forefoot striker; if that
+# is wanted later it needs the reach budget checked first, which is exactly the trap that
+# cost five rounds on the walk and another on the jog.
+SPRINT_LEG = RUN_LEG
 
 # --- The arms
 #
@@ -384,14 +467,51 @@ ARM_BACK = -22.0
 # amplitude is measured to scale up with gait velocity, and the check in
 # `verify_gait.py` refuses a clip whose hands cover less than a quarter of what its
 # feet do - which the run failed outright at a walk's amplitude once its stride grew.
-RUN_ARM_FORWARD = 34.0
-RUN_ARM_BACK = -46.0
+# 24, down from 34, and RUN_ELBOW_HELD up from 62 - reported as "lead arm is
+# extended too far", and measured as a wrist 37.5 cm ahead of the shoulder at
+# 78-93% of full shoulder-to-wrist extension, climbing to near shoulder height. A
+# jogger's elbows stay pinned near 90 deg and the hands travel from the hip to the
+# lower chest in a tight arc, peaking maybe 15-20 cm ahead. `elbow_held` is the base
+# fold and `elbow_swing` rides on it, so 62 +/- 18 held the arm between 44 and 80
+# degrees of fold - never near 90, hence reaching rather than pumping.
+#
+# The SHOULDER swing is unchanged at 34/-46. It was cut to 24/-32 while the stride
+# was temporarily down at 0.30, because arms unchanged against a third less leg
+# travel measured 1.361 of it where they had been 0.916 - but the stride came back to
+# 0.46 once the hip bob stopped fighting it, and the cut then read as under-swinging
+# at 0.46 of the legs. The fold was always the fix for "extended too far"; the swing
+# was never the problem.
+# 22/-58, not 34/-46: the same 80 degrees of swing, moved BACK.
+#
+# Reported twice as the lead arm being "too extended". The elbow fold was the first half
+# of that and is fixed (62 -> 88, so it now holds near a jogger's 90). What was left is
+# that the whole arm sits too far forward - measured, the wrist was 31 cm ahead of the
+# shoulder through the entire stance, barely varying, which is a held-out arm rather than
+# a pumping one. Shrinking the swing was tried and was wrong: it made the arms read as
+# under-swinging (0.46 of the legs' travel) without moving the hand back much. Shifting
+# the WINDOW keeps the amplitude and moves the mean, exactly as LANDS_AHEAD does for the
+# legs.
+RUN_ARM_FORWARD = 21.0
+RUN_ARM_BACK = -29.0
 
 # A sprint drives the arms harder still, and the check in `verify_gait.py` refuses a
 # clip whose hands cover less than a quarter of what its feet do - which a sprint's
 # much longer stride makes easy to fail.
-SPRINT_ARM_FORWARD = 46.0
-SPRINT_ARM_BACK = -58.0
+# 1.9, up from 1.45. Arm swing scales with speed, and this is the knob asked for twice.
+# There IS a ceiling: at an outright 46/-58 the arm went so far back that the elbow read as
+# in FRONT of the shoulder-to-wrist line and refused. That was with the elbow held at 62,
+# leaving 44 degrees of fold at the back extreme; at 88 it keeps 70, so there is more room
+# now than there was - but the refusal is the thing to watch if this goes higher.
+SPRINT_ARM_FORWARD = RUN_ARM_FORWARD * 1.9
+# The BACK swing is scaled harder than the forward one, and separately from it.
+#
+# Reported as "the elbows dont go back far enough". They can be pushed on their own: what
+# refused earlier was the FORWARD fold crossing the shoulder-to-wrist line near 106
+# degrees, and the back extreme is nowhere near any limit - measured, the elbow sits
+# 15.05 cm BEHIND that line there, and travelled only 21.6 cm behind the shoulder.
+# A sprinter's arms are asymmetric anyway: the drive back is the powerful half and the
+# forward recovery is shorter.
+SPRINT_ARM_BACK = RUN_ARM_BACK * 2.7
 
 # How far the arm extremes fall BEHIND the leg extremes, as a share of the cycle.
 #
@@ -399,7 +519,89 @@ SPRINT_ARM_BACK = -58.0
 # cycle, which is where 0.10 comes from. Arms hitting their extremes on the same
 # frame as the feet is a named failure - it reads as mechanical and synchronised,
 # like a wind-up toy - and the old clip had no lag at all.
-ARM_LAG = 0.10
+ARM_LAG = 0.03
+
+# --- OVERLAPPING ACTION: how far up the body each part LAGS the one below it.
+#
+# Reported as feeling "stiff" three separate times, and as wanting Genshin's liveliness.
+# The named cause, from the animation principle itself: a character reads as "a stiff toy
+# robot" when its parts move in sync, and reads as alive when "the torso twists, the head
+# bobs, and other elements move out of sync".
+#
+# Everything in this gait was moving on ONE phase. The pelvis sway, the shoulder twist and
+# the pelvis yaw were all the same cosine or its exact negation; the trunk lean was a
+# CONSTANT that never varied across the cycle; the head was a constant counter-rotation
+# with no motion of its own. Nothing lagged anything, which is overlapping action's
+# opposite.
+#
+# So the spine is a lag chain: the pelvis leads, the chest follows a fraction of a cycle
+# later, the head later still. A fraction of a CYCLE rather than a count of frames, so the
+# three clips stay consistent with each other at different frame counts.
+#
+# Small numbers on purpose. Overlap is a delay, not a wobble - too much and the segments
+# visibly fight each other instead of flowing.
+CHEST_LAGS_THE_HIPS = 0.04
+HEAD_LAGS_THE_CHEST = 0.10
+
+# How much the trunk PITCHES across the cycle, in degrees either side of `lean`.
+#
+# The lean was a fixed angle, so the torso was welded at one attitude for the whole clip
+# while the legs worked underneath it. A runner's trunk pitches a little as each push comes
+# through - it is small, and it is the difference between a torso that is carried and one
+# that is doing something.
+# 4.0, not the 2.0 a measured runner shows. This is a fantasy game about collecting
+# monsters, not a gait study, and the reference class is stylised action animation - where
+# extremes are pushed past life because that is what reads at speed and at distance. The
+# same goes for the head bob and the arm swing below.
+TRUNK_PITCHES = 4.0
+
+# How far the head bobs vertically, in model units, lagging the hips.
+#
+# The hips already rise and fall; the head followed them rigidly because nothing else
+# touched it. A real head lags the body's bob and settles after it, which is follow-through
+# - and the head is the part an eye tracks, so this is the cheapest liveliness there is.
+HEAD_BOBS = 0.014
+
+# How far the forearms are tucked ACROSS the front of the body, in degrees.
+#
+# Reported as "when people jog their forearms are more in front of the body. Here the
+# forearms are more outward", and the cause is that the elbow folded about
+# FOLDS_THE_ELBOW - a FIXED armature axis. A fixed hinge plane does not follow where the
+# upper arm points, so with the arm hanging ARM_HANGS_AT out to the side the fold threw
+# the hand laterally instead of forward.
+#
+# Anatomically the elbow is a hinge and cannot carry the hand inward by itself; what does
+# is shoulder INTERNAL ROTATION, turning the hinge plane across the body. So the fold
+# axis is derived per frame from where the hand should head - forward, and this many
+# degrees toward the midline. See swing_the_arm.
+FOREARMS_TUCK_IN = 24.0
+
+# How much of the trunk lean is taken back out at the NECK, so the head stays over the
+# shoulders instead of riding the lean out in front.
+#
+# The gait leaned `Waist` and `Spine01` and countered nothing, so the head inherited the
+# whole lean: measured, it sat 7.7 cm ahead of the hip on every frame of the run. A head
+# that leads the body is a classic off-balance read - reported as "something still seems
+# off about the characters balance" - and runners do the opposite, keeping the head
+# stacked and the gaze up while the trunk pitches.
+#
+# Not 1.0. A dead-level head on a leaning trunk reads as stiff, and the neck genuinely
+# does travel with the spine a little. The idle already did exactly this - Spine01 at
+# +1.0 of its breath against NeckTwist01 at -0.8 - so the gait was the odd one out.
+HEAD_HOLDS_BACK = 0.65
+
+# How the trunk lean is DIVIDED between the two spine joints, lowest first.
+#
+# It was 0.4 at the waist and 0.6 at the chest, which bends the character mostly at the
+# ribs - reported as the lean being "in the wrong place". A runner does not curl forward;
+# the whole body tilts from low down and the trunk stays a straight line, which is why the
+# reference poses read as a plank leaning rather than a hunch. Putting most of it at the
+# waist gives that, and leaves a little at the chest so the spine is not dead rigid.
+#
+# These must sum to 1.0 or the total lean stops matching RUN_LEAN, and LEANS_FORWARD_AT
+# LEAST in verify_gait is measured on the delivered angle.
+LEAN_AT_THE_WAIST = 0.8
+LEAN_AT_THE_CHEST = 0.2
 
 # The elbow bends more at the forward extreme and straightens toward the back one,
 # because an elbow cannot fold backward: an arm swinging behind the body has to
@@ -407,8 +609,63 @@ ARM_LAG = 0.10
 # the brief's 35-45 front and 10-20 back.
 ELBOW_HELD = 25.0
 ELBOW_SWING = 12.0
-RUN_ELBOW_HELD = 62.0
+RUN_ELBOW_HELD = 88.0
 RUN_ELBOW_SWING = 18.0
+
+# The sprint's elbows are tight and stay near constant, rather than opening and closing.
+#
+# # Which end of the swing was the problem, because the obvious answer is wrong
+#
+# The refusal is "the elbow sits in FRONT of the shoulder-to-wrist line, so the arm folds
+# backwards", and the intuition is that an arm thrown too far BEHIND causes it - an elbow
+# cannot fold the other way, so a back-swung arm straightens. That was the first fix tried
+# here, tightening the hold to 96 to protect the back extreme, and it made things WORSE.
+#
+# Measured per frame, the offending arm is the FORWARD one. At the back extreme the elbow
+# sits 15.05 cm BEHIND the line, which is entirely healthy. At the forward extreme it sits
+# 1.69 cm in front, and the fold there is 107.8 degrees - because `elbow_swing` ADDS at the
+# forward extreme. The crossing point is near 106: measured, 105.9 degrees of fold put the
+# elbow 1.32 cm behind the line and 107.3 put it 0.94 in front.
+#
+# So the swing has to come DOWN, not the hold up, and the ceiling is the forward total.
+# 94 + 4 = 98 at the front and 90 at the back - tight at both ends, which is a sprinter's
+# arm anyway, and clear of the crossing with room to spare.
+SPRINT_ELBOW_HELD = 94.0
+SPRINT_ELBOW_SWING = 4.0
+
+# How far the SHOULDERS counter-rotate against the hips, in degrees each way.
+#
+# Reported as "the elbows dont go back far enough" - and more shoulder extension cannot
+# fix that, because the elbow sits one upper-arm length from the shoulder and so its
+# backward travel is capped at 26 cm. Measured, it reached 25.8 of that 26 with the swing
+# already at 2.7x, which is 99% of the geometric limit. Pushing the angle further just
+# rotates the arm past horizontal and buys nothing.
+#
+# What was missing is that the TORSO never rotated at all. A runner's shoulders twist
+# against the pelvis, and that carries the whole shoulder - and the elbow hanging off it -
+# further back on the retreating side. It is also what makes a sprint read as driving
+# rather than pedalling.
+#
+# Applied to Spine02 about world up, in phase with the arm swing, so the shoulder goes
+# back with its own arm. The arms are aimed in WORLD terms AFTER the spine moves, so their
+# angles are unchanged by this - only where they start from.
+# Measured elbow travel against the PELVIS, which is the frame that shows it - against the
+# shoulder it is invisible, because counter-rotation carries the shoulder and the elbow
+# together:
+#
+#     walk    0 deg -> the elbow reaches  4.0 cm behind the hips, 16.2 cm of travel
+#             5 deg ->                    5.3 cm behind,          17.5 cm
+#     jog     0 deg ->                    5.3 cm behind,          22.1 cm
+#            10 deg ->                    8.0 cm behind,          27.6 cm
+#     sprint  0 deg ->                    8.9 cm behind,          42.6 cm
+#            18 deg ->                   13.4 cm behind,          51.8 cm
+#
+# 5 / 10 / 18 across the three tiers. The walk's is the smallest because a walk really does
+# rotate least, and it was checked against the approved clip rather than assumed: lean,
+# slide and thigh symmetry all measured identical to before it was added.
+WALK_TWIST = 5.0
+RUN_TWIST = 10.0
+SPRINT_TWIST = 18.0
 
 # --- The pelvis, expressed on the LEGS
 #
@@ -452,27 +709,83 @@ PELVIS_YAW = 6.0
 # looking yanked clear rather than clearing naturally.
 PELVIS_DROP = 4.0
 
-# And nought for the gaits that fly.
+# --- The PELVIS, on all three axes. This is what stops a gait reading as stiff.
 #
-# The drop is applied as adduction of each thigh with the sign flipped by side, and
-# this rig's thighs are not mirror images: `L_Thigh`'s local X runs
-# (-0.007, -0.999, -0.044) against `R_Thigh`'s (+0.007, -0.992, +0.125). So the two
-# sides do not receive equal treatment, and the leftover asymmetry lands in the hips
-# through the planting.
+# Reported as "still feels too stiff" and "from the side the run resembles the old Scooby
+# Doo character run" - legs cycling under a torso that does not answer them. The cause was
+# that the pelvis was not posed AT ALL: `RUN_DROP` was set to 0.0 and `PELVIS_SWAY` was
+# defined and never referenced, so lateral sway measured exactly 0.0000 cm in every clip
+# and there was no obliquity and no pelvic yaw either. A rigid pelvis on cycling legs is
+# the cartoon run.
 #
-# A walk carries it - five stance poses a leg spread the error thinly and the halves
-# still match to 0.89 - but a run has three and a sprint two, so the same error weighs
-# twice as much and the run limped at 0.59 against a floor of 0.80. The obliquity is
-# also the least visible thing in a clip whose legs are already dramatic, which makes
-# it the right thing to give up.
-RUN_DROP = 0.0
+# Walking reference, from gait analysis: the pelvis inclines side to side about 7 degrees,
+# rotates about 5, and sways laterally toward whichever foot carries the weight - about
+# 3 cm at this height, which is what PELVIS_SWAY already said before anything read it.
+# Faster gaits carry more of all three.
+#
+# The three are separate motions and each does a different job:
+#
+#   SWAY moves the pelvis over the planted foot, which is what balancing on one leg
+#     actually requires - without it the body hangs between its feet.
+#   OBLIQUITY drops the hip on the SWING side and lifts it over the support leg, which
+#     is the single clearest read of weight being carried.
+#   YAW rotates the pelvis against the shoulders. The shoulders already counter-rotate
+#     (see SPRINT_TWIST); with the pelvis fixed, that twist had nothing to twist against.
+#
+# Obliquity was previously given up - "the least visible thing in a clip whose legs are
+# already dramatic" - because it made the run limp, the two thighs' local axes not being
+# mirror images. That diagnosis was wrong: the limp was `out[POSES] = out[0]` zeroing one
+# frame of the flight arc, and it is fixed. So this is worth trying again, and the limp
+# guards will say whether it holds.
+#
+# SWAY SHRINKS WITH SPEED, and the first version had it backwards.
+#
+# Reported as "he seems to just be swaying side to side", and two things were wrong. The
+# amplitudes were about double - the ~3 cm the reference quotes for a walk is the TOTAL
+# excursion, so the amplitude is half of it - and the scaling ran the wrong way: I gave the
+# sprint the most sway when it should have the least. Lateral displacement of the centre of
+# mass DECREASES with velocity, because faster gaits land closer to the midline; the same
+# literature treats excess lateral movement as a pathology marker rather than a flourish
+# ("every centimetre increase ... associated with a 30% reduction in running ability").
+#
+# So sway falls walk -> jog -> sprint. Yaw still rises with speed - pelvic rotation grows
+# with the stride, and it is the axis that reads as drive rather than wobble.
+#
+# OBLIQUITY IS KEPT SMALL, and 11 degrees was too much for a reason worth writing down.
+# Contralateral pelvic drop is a clinical measure: healthy running carries a little of it,
+# and MORE of it is the Trendelenburg pattern - weak hip abductors failing to hold the
+# pelvis level over the stance leg. Bramah 2018 puts it starkly: for each 1 degree of extra
+# pelvic drop, the odds of a runner being classified as injured rose by 80%. So a big drop
+# does not read as effort, it reads as a laboured runner about to get hurt, which is the
+# opposite of what this character should look like.
+#
+# The direction is still drop-on-the-swing-side - that is what the gluteus medius acting
+# eccentrically over the stance leg produces - but the size is now the modest one a strong
+# runner shows. Two sources disagreed on the direction (an animation tutorial has the hip
+# dropping on the bent-leg side, the clinical literature has a healthy pelvis level or
+# slightly up on the lifted side); the mechanism settles it, and the difference between
+# them is magnitude rather than sign.
+#
+# (sway in model units, obliquity in degrees, yaw in degrees)
+WALK_PELVIS = (0.009, 4.0, 5.0)
+RUN_PELVIS = (0.006, 5.0, 7.0)
+SPRINT_PELVIS = (0.004, 6.0, 9.0)
 
-# SWAY, once per cycle, toward whichever foot is bearing the weight. In model units
-# on a figure one unit tall, so about 3 cm at 1.7 m.
-PELVIS_SWAY = 0.018
-
-# How far the pelvis is carried FORWARD of where it rests, in model units - 2 cm.
-PELVIS_LEADS = 0.012
+# How far the hips are carried FORWARD of where they rest, in model units, PER GAIT.
+#
+# This replaces a single `PELVIS_LEADS = 0.012` that was defined and never referenced -
+# orphaned the same way `fill_in_the_flight` still is - so nothing has been carrying its
+# hips forward, in any clip. Per-gait rather than shared because the walk's look is
+# settled: WALK_LEADS stays at zero, so wiring this up cannot move it, and only the
+# faster gaits lean into their stride.
+#
+# Safe on `Root` despite it parenting everything, because the ball path is stated against
+# each thigh's REST socket (`bone.matrix_local.translation`), not its posed one. So the
+# hips move and the footfalls do not follow - which is the whole point, and would
+# silently cancel if the path used the posed socket.
+WALK_LEADS = 0.0
+RUN_LEADS = 0.012
+SPRINT_LEADS = RUN_LEADS * 1.5
 
 # --- How much of the cycle is spent on the ground, and how far the body arcs
 # while none of it is
@@ -488,9 +801,22 @@ PELVIS_LEADS = 0.012
 # as the splits, and it is why the run could not carry the speed it was asked to.
 #
 # A walk overlaps at five, so some foot is always down and there is nothing to arc.
-WALK_STANCE = 5
-RUN_STANCE = 3
-SPRINT_STANCE = 2
+# Given as the SHARE of the cycle each foot is down, not as a count of poses.
+#
+# It was `stance / POSES` - a whole number of eighths - and that granularity is what
+# capped the flight phase. The reference breakdown (Schubert's 24-frame run, a key every
+# three frames) puts exactly ONE of the four poses per step in the air, which is a 25%
+# flight fraction and so a 0.333 duty per foot. Eighths cannot say 0.333: 3/8 is 0.375
+# and 2/8 is 0.25. At 0.375 the closed stance interval covers 10 of 24 frames per foot,
+# leaving 24 - 20 = 4 airborne, and four is not enough for the ballistic arc to BE an
+# arc - it plateaus across two frames and then drops, which the bounce guard refuses. At
+# 0.333 it is 9 per foot and 6 airborne, three per stretch, which is the shape the
+# reference describes and the room the arc needs.
+#
+# The walk and sprint keep their old values exactly, written as the fractions they were.
+WALK_SHARE = 5.0 / 8.0
+RUN_SHARE = 8.0 / 24.0
+SPRINT_SHARE = 2.0 / 8.0
 
 # And how far the body rises above the straight line between two planted poses while
 # it is airborne. Nought for a walk, which never leaves the ground.
@@ -499,9 +825,29 @@ SPRINT_STANCE = 2
 # reads as a shuffle that never reaches flight. In model units on a figure one unit
 # tall, 0.022 is 3.7 cm of arc on top of whatever the planted geometry already gives,
 # and 0.034 is 5.8.
+# How far the hips may sink below standing, PER GAIT.
+#
+# ik_gait.HIP_DROPS_AT_MOST is 4 cm and its own comment says why: "four is also what
+# real walking's whole vertical hip travel measures". That is a WALK figure, and it was
+# being applied to the run and the sprint as well. A jog's hips oscillate 8-10 cm across
+# three independent labs, so the cap was holding the run to less than half a jog's travel
+# on the strength of a measurement of walking.
+#
+# It also made the heel strike impossible. The run's reach ceiling at contact is
+# -5.39 cm - that is how far the hip MUST drop for the leg to put its foot on the floor
+# out in front - and a 4.08 cm cap cannot get there, so the foot stayed 1.17 cm up
+# however the stride was trimmed.
+#
+# The run gets 5.44 cm, which is what its own ceiling asks for and no more. Note this is
+# the drop AT CONTACT, where the knee is nearly straight; it is NOT licence to deepen
+# mid-stance, where the knee already folds 56-59 deg against a human jog's 40-45.
+WALK_SINKS = 0.024
+RUN_SINKS = 0.056
+SPRINT_SINKS = RUN_SINKS
+
 WALK_BOUND = 0.0
-RUN_BOUND = 0.022
-SPRINT_BOUND = 0.034
+RUN_BOUND = 0.016
+SPRINT_BOUND = 0.022
 
 # How far the torso leans forward, in degrees, spread over the waist and lower spine.
 #
@@ -517,7 +863,10 @@ SPRINT_BOUND = 0.034
 # nearly nothing at top speed. Keeping the sprint a shade under the jog is what stops
 # it reading as a permanent launch.
 RUN_LEAN = 9.0
-SPRINT_LEAN = 8.0
+# 2.3, up from 1.55: the reference range for a SPRINT is 15-30 degrees of trunk lean and
+# 1.55 delivered 13.01, which read as under-committed. verify_gait has a floor on forward
+# lean and no ceiling for a flying gait, so the only bound here is taste.
+SPRINT_LEAN = RUN_LEAN * 2.3
 
 # The arms hang a little OUT and the palms turn IN, in every frame, so the hands
 # clear the pockets. The generator's bind pose parks them ON the pockets — glove and
@@ -935,7 +1284,12 @@ def key(rig, frame: int, bones):
     _ = bones
     for posed in rig.pose.bones:
         posed.keyframe_insert("rotation_quaternion", frame=frame)
-        if posed.name in ("Hip", "Root"):
+        # `Head` is here for the follow-through bob. It was set in the pose and never
+        # keyed, so the term measured EXACTLY no effect - head travel 6.29 cm before and
+        # after, which is what sent me looking at the maths instead of the plumbing. Same
+        # class of trap as the Pelvis being a connected bone: the code reads correctly and
+        # nothing reaches the file.
+        if posed.name in ("Hip", "Root", "Head"):
             posed.keyframe_insert("location", frame=frame)
 
 
@@ -1018,12 +1372,40 @@ def swing_the_arm(rig, side: str, hand: float, phase: float, reach: float,
     bpy.context.view_layer.update()
     # Most bend at the forward extreme, straightest at the back one - an elbow cannot
     # fold the other way, so an arm going behind straightens.
-    turn_further_absolutely(
-        rig, f"{side}_Forearm", elbow_held + elbow_swing * swung, FOLDS_THE_ELBOW
+    # The hinge plane is DERIVED, not fixed. `upper` is where the upper arm actually
+    # points after the swing above; `heads` is where the hand should go from there -
+    # forward, and FOREARMS_TUCK_IN toward the midline (`across * hand` points away from
+    # the body, so inward is its negation). Rotating `upper` about `upper x heads` carries
+    # it toward `heads`, which is the fold wanted. A constant axis cannot do this because
+    # it does not know where the upper arm ended up.
+    upper = (posed.matrix.to_3x3() @ mathutils.Vector((0.0, 1.0, 0.0))).normalized()
+    tuck = math.radians(FOREARMS_TUCK_IN)
+    heads = (forward * math.cos(tuck) - across * (hand * math.sin(tuck))).normalized()
+    hinge = upper.cross(heads)
+    # With the upper arm lying along `heads` there is no plane; fall back rather than
+    # normalise a zero vector.
+    hinge = (
+        hinge.normalized() if hinge.length > 1e-6
+        else mathutils.Vector(FOLDS_THE_ELBOW)
     )
+    turn_further_absolutely(
+        rig, f"{side}_Forearm", elbow_held + elbow_swing * swung, hinge
+    )
+    bpy.context.view_layer.update()
     # The palms face the thighs and stay there: pronation through an arm swing is only
     # about fourteen degrees, so a palm that visibly rolls is wrong.
-    swing(rig, f"{side}_Hand", PALM_IN * hand, axis=(0.0, 0.0, 1.0))
+    #
+    # About the FOREARM's own long axis, not a fixed armature axis - which is the bug
+    # documented a dozen lines above, made again on the very next bone. A fixed (0,0,1)
+    # means "up" only while the forearm hangs; once the elbow folds 88 degrees the
+    # forearm points forward and inward, and turning the hand about world up stops being
+    # pronation and becomes a wrist TWIST. Reported as "the hand/wrist twisted", and it
+    # appeared the moment the fold went from 62 to 88.
+    along = (
+        rig.pose.bones[f"{side}_Forearm"].matrix.to_3x3()
+        @ mathutils.Vector((0.0, 1.0, 0.0))
+    ).normalized()
+    swing(rig, f"{side}_Hand", PALM_IN * hand, axis=along)
 
 
 def fill_in_the_flight(lift, bound: float):
@@ -1062,40 +1444,26 @@ def fill_in_the_flight(lift, bound: float):
         if v is None:
             out[i] = out[known[0]] if i < known[0] else out[known[-1]]
 
-    # --- And now make the two halves identical, because they are the same step.
+    # NO half-cycle enforcement here any more, and no seam line.
     #
-    # A cycle is two steps and the second is the first with the legs swapped, so the
-    # hips must follow a curve that repeats every HALF cycle. Anything else is a limp.
+    # There used to be `half = POSES // 2; out[i + half] = out[i]` followed by
+    # `out[POSES] = out[0]`, which averaged/copied one half of the cycle onto the other
+    # and closed the seam. Both were correct when this took a NINE-ENTRY list - eight
+    # poses plus a closing seam - and both became corrupting the day it started taking a
+    # per-FRAME list instead: on a 24-frame cycle they clobber indices 4-7 with 0-3, and
+    # `out[POSES] = out[0]` zeroes index 8, which is a real airborne frame in the middle
+    # of the cycle rather than a seam.
     #
-    # Up to here they only nearly did. The planted heights come out of measuring a rig
-    # whose two legs are not mirror images - `L_Thigh`'s local X runs
-    # (-0.007, -0.999, -0.044) against `R_Thigh`'s (+0.007, -0.992, +0.125) - so the
-    # same pose measured on the left and the right differs by a little, and Blender's
-    # default bezier handles then interpolate the difference unevenly. On the walk that
-    # left the halves matching to 0.89; on the run, with three stance poses instead of
-    # five to spread it over, 0.57 against a floor of 0.80.
+    # Measured, that is exactly what it did: the arc came out
+    # [.., 0.0, 3.59, 3.59, 2.39, ..] over the first flight and
+    # [.., 2.39, 3.59, 3.59, 2.39, ..] over the second, so the hips sat 2.39 cm lower on
+    # frame 9 than on frame 21 - the same instant of the same step - and the run refused
+    # "the hips do not repeat every half cycle" by 27%. Four other fixes were aimed at
+    # that asymmetry before it was traced here; none of them could have worked.
     #
-    # Averaging each pose with its half-cycle partner ENFORCES the invariant instead of
-    # hoping the asset supports it. It is the right move rather than a patch, because
-    # the difference being averaged away is measurement noise about a quantity that is
-    # periodic by definition - and it costs nothing, since both values describe the
-    # same moment of the same step.
-    # COPIED rather than averaged, and the difference matters. Averaging the two
-    # halves moved BOTH of them, which took the planted poses off the ground they had
-    # just been measured onto - the right foot ended up sinking 4 cm in the sprint and
-    # the contact checks started failing on the wrong frame.
-    #
-    # Copying the first half onto the second leaves every value that was measured
-    # against a planted right foot exactly where planting put it, and hands the left
-    # the same curve. That curve is CORRECT for the left too, because both legs read
-    # the same pose table half a cycle apart, so the same pose deserves the same hip
-    # height. Whatever the rig's own left-right difference is then shows up as a small
-    # constant offset on one foot instead of as a limp, and a limp is far the worse of
-    # the two to look at.
-    half = POSES // 2
-    for i in range(half):
-        out[i + half] = out[i]
-    out[POSES] = out[0]
+    # Nothing is needed in its place. The caller builds the airborne mask from a periodic
+    # phase, so the gaps are symmetric by construction - which the untouched second and
+    # third flights prove, both filling to an identical 2.39/3.59/3.59/2.39.
     return out
 
 
@@ -1124,7 +1492,16 @@ def idle_breathing(rig, facing):
         for side, hand in (("L", 1.0), ("R", -1.0)):
             swing(rig, f"{side}_Upperarm", 3.0, REACHES_FORWARD)
             swing(rig, f"{side}_Forearm", 8.0, FOLDS_THE_ELBOW)
-            swing(rig, f"{side}_Hand", PALM_IN * hand, axis=(0.0, 0.0, 1.0))
+            # About the FOREARM's own axis, as swing_the_arm does - a fixed world axis
+            # stops being pronation and becomes a wrist twist the moment the elbow folds.
+            # This was the second copy of that bug; the idle only hid it because its elbow
+            # barely bends.
+            bpy.context.view_layer.update()
+            along = (
+                rig.pose.bones[f"{side}_Forearm"].matrix.to_3x3()
+                @ mathutils.Vector((0.0, 1.0, 0.0))
+            ).normalized()
+            swing(rig, f"{side}_Hand", PALM_IN * hand, axis=along)
             # The breath lifts the arms a little with the ribs.
             turn_further(
                 rig, f"{side}_Upperarm",
@@ -1146,7 +1523,8 @@ def idle_breathing(rig, facing):
 def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: float,
          swing_lift: float, swing_shape: float, lands_ahead: float,
          arm_forward: float, arm_back: float, elbow_held: float, elbow_swing: float,
-         lean: float, stance: int, facing):
+         lean: float, share: float, sinks: float, leads: float, bound: float,
+         twist: float, pelvis, facing):
     """One cycle, authored by moving the FEET, with IK solving the legs.
 
     Nothing here poses a knee or a hip. The foot's path is stated - planted on the
@@ -1165,18 +1543,12 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
     rig.animation_data.action = action
     rest(rig)
 
-    # # The stance share is the TRUE duty factor - no cap at a half
+    # The stance share arrives as a fraction of the cycle, and is the TRUE duty factor.
     #
-    # This was `min(stance / POSES, 0.5)`, and the cap removed DOUBLE SUPPORT from the
-    # walk entirely. A walk is a walk precisely because stance exceeds half the cycle:
-    # five poses of eight, so both feet are down for a quarter of it. Capped at a half,
-    # the moment the leading foot landed the trailing one was already counted as
-    # airborne and began arcing up - which lifted its ankle, shortened its hip-to-ankle
-    # chord, and folded its knee 72 degrees at toe-off where a person is nearer 40.
-    #
-    # The cap also silently told the bob every gait was a run; that was patched by
-    # passing `duty` separately, which was treating the symptom.
-    share = stance / POSES
+    # It was once `min(stance / POSES, 0.5)`, and that cap removed DOUBLE SUPPORT from the
+    # walk entirely - a walk is a walk precisely because stance exceeds half the cycle.
+    # The cap is long gone; the division has now gone too, because whole eighths could not
+    # express the 0.333 a jog needs. See WALK_SHARE.
     reach_of_leg = (
         rig.matrix_world @ rig.pose.bones["R_Foot"].head
         - rig.matrix_world @ rig.pose.bones["R_Thigh"].head
@@ -1201,6 +1573,10 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
     landmarks = {
         side: foot_roll.foot_landmarks(rig, mesh, feet, side) for side in "LR"
     }
+    # Shared between the sides before anything reads them, so the mesh's left-right
+    # difference stays in the mesh instead of becoming a limp. See
+    # foot_roll.make_the_landmarks_mirrors.
+    foot_roll.make_the_landmarks_mirrors(landmarks, facing, mathutils.Vector((0.0, 0.0, 1.0)))
     print(
         f"  {name}: the ball sits "
         f"{landmarks['R']['ball_above_sole'] * 170.0:.1f} cm above the sole, with "
@@ -1266,15 +1642,68 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
     # that is a cosine - so one is fitted between the deepest the ceiling allows and
     # the height he stands at, phased to bottom out at contact. The ceiling is still
     # honoured frame by frame, but it now only trims a curve that is already close.
+    # # Where the hips ride: a smooth bob, PLUS a ballistic arc while airborne.
+    #
+    # Two things that had to be separated, because doing either alone fails.
+    #
+    # The BASE is a cosine fitted between the deepest the reach ceiling allows and bind
+    # height. Following the ceiling per frame instead was tried, on the reasoning that a
+    # planted foot genuinely pins the hip so the ceiling is not a choice there. Measured,
+    # it was much worse and every guard caught it: the hips rose 5.7 cm ABOVE bind height
+    # where the ceiling sat above it, moved 5.59 cm in a single frame, and the two halves
+    # of the cycle disagreed by 92% because the ceiling is not symmetric - the two shoes
+    # sit about 4 cm differently on their bones, and a fitted curve averages that away
+    # while a tracked one inherits it. The ceiling also jumps at LANDING, not only where
+    # nothing is down, which is what that reasoning missed.
+    #
+    # The ARC is added on top, over the airborne stretches only, and it is what makes a
+    # run read as a run: AnimSchool's Peak pose is "character is fully in the air", and
+    # before this the flight frames had the feet 1.3 cm off the floor - the right duration
+    # at the wrong height, which reads as one continuous pass rather than bounding.
+    # `fill_in_the_flight` draws it as a parabola that is zero at both ends, so it cannot
+    # introduce a step at the boundaries, and the airborne windows of a symmetric gait are
+    # themselves symmetric - so unlike tracking the ceiling, this cannot make it limp.
+    # WALK_BOUND is 0, so a walk is untouched.
     deepest = max(
         min(reach_ceiling(step / span) for step in range(span)),
-        -ik_gait.HIP_DROPS_AT_MOST,
+        -sinks,
     )
-    print(f"  {name}: the hips ride between {deepest * 170.0:+.1f} cm and 0, "
-          f"bottoming out at each contact")
-    off_by, clamped, first_frame = 0.0, 0.0, None
-    for frame in range(1, span + 2):
+    airborne = [
+        not any(
+            ik_gait.the_foot_is_down(
+                ((step / span) + (0.5 if side == "L" else 0.0)) % 1.0, share
+            )
+            for side in "LR"
+        )
+        for step in range(span)
+    ]
+    # Filled over TWO cycles and then halved, because the cycle wraps and a list does
+    # not. `fill_in_the_flight` arcs between known indices, so the airborne stretch that
+    # straddles the seam - the last frames of the cycle, whose landing is frame 1 of the
+    # next - has no known index after it and falls through to "hold the nearest", i.e. no
+    # arc at all. That gave one bound of the cycle its full arc and the other none, which
+    # measured as the hips failing to repeat every half cycle by 20% where 12% passes.
+    # Over two cycles that stretch is interior, so both bounds get the same arc - and it
+    # is the FIRST copy that has both of them interior, not the second, whose own tail is
+    # then the unfilled one.
+    twice = [None if up else 0.0 for up in airborne] * 2
+    arc = fill_in_the_flight(twice, bound)[:span]
+    # A WALK bottoms at CONTACT - an inverted pendulum, lowest in double support. A RUN
+    # bottoms on the DOWN pose, one eighth in: it is a spring, and AnimSchool's Down is
+    # "the lowest, most compressed position". Duty factor says which kind this is.
+    bottoms_at = 0.0 if share > 0.5 else 1.0 / POSES
+    print(f"  {name}: the hips bob {deepest * 170.0:+.1f} cm, plus up to "
+          f"{max(arc) * 170.0:.1f} cm of ballistic arc over "
+          f"{sum(airborne)} airborne frames of {span}")
+    off_by, clamped = 0.0, 0.0
+    for frame in range(1 - LEAD_IN, span + 2):
         phase = ((frame - 1) % span) / span
+        # WHICH FOOT IS CARRYING: +1 for the right, -1 for the left. R is planted over own
+        # phase 0..share, so its mid-stance is at share/2 and the left's half a cycle
+        # later, and a cosine about that peaks where the weight is. Set HERE, at the top,
+        # because both the pelvis block and the root block below want it - defining it
+        # beside one of them put it after its first use and raised UnboundLocalError.
+        weight = math.cos(2.0 * math.pi * (phase - share / 2.0))
         rest(rig)
 
         # The SPINE first, then the arms.
@@ -1284,8 +1713,79 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
         # where it was asked to be, while its amplitude stayed exactly right. Aiming
         # after the parent has moved is the whole point of stating a direction: it holds
         # whatever the chain above it does.
-        swing(rig, "Waist", lean * 0.4, LEANS_THE_TORSO_FORWARD)
-        swing(rig, "Spine01", lean * 0.6, LEANS_THE_TORSO_FORWARD)
+        # The trunk PITCHES across the cycle rather than holding one angle - see
+        # TRUNK_PITCHES. Twice per cycle, because both pushes drive it.
+        pitching = TRUNK_PITCHES * math.cos(4.0 * math.pi * (phase - share / 2.0))
+        swing(rig, "Waist", (lean + pitching) * LEAN_AT_THE_WAIST,
+              LEANS_THE_TORSO_FORWARD)
+        swing(rig, "Spine01", (lean + pitching) * LEAN_AT_THE_CHEST,
+              LEANS_THE_TORSO_FORWARD)
+        # And taken back out at the neck, split over both segments so no single joint
+        # kinks. See HEAD_HOLDS_BACK.
+        for segment in ("NeckTwist01", "NeckTwist02"):
+            swing(rig, segment, -(lean + pitching) * HEAD_HOLDS_BACK * 0.5,
+                  LEANS_THE_TORSO_FORWARD)
+        # And the shoulders twist against the hips, BEFORE the arms are aimed - see
+        # SPRINT_TWIST. LAGGED behind the pelvis by CHEST_LAGS_THE_HIPS, which is what
+        # makes it overlapping action rather than two parts moving as one piece.
+        if twist:
+            swing(rig, "Spine02",
+                  twist * math.cos(
+                      2.0 * math.pi
+                      * (phase - 0.5 - ARM_LAG - CHEST_LAGS_THE_HIPS)
+                  ),
+                  (0.0, 0.0, 1.0))
+        # The head: a bob that FOLLOWS the body's, lagged again - see HEAD_BOBS. The head
+        # is what an eye tracks, so it is the cheapest liveliness available.
+        head = rig.pose.bones.get("Head")
+        if head is not None and HEAD_BOBS:
+            axes = head.bone.matrix_local.to_3x3().inverted()
+            behind = phase - CHEST_LAGS_THE_HIPS - HEAD_LAGS_THE_CHEST
+            # The DIFFERENCE between where the body is and where the head has got to,
+            # not a bob of its own. A lagged wave ADDED to the body's just rides along
+            # with it - measured, the head went on peaking at frame 11 with the hip
+            # however far it was delayed, because 1 cm of extra bob cannot move the peak
+            # of a 5.8 cm ride. Subtracting the body's own phase and adding the lagged
+            # one is what a follow-through actually is: the head is held back while the
+            # body rises, and catches up after. Zero-mean, so it changes when the head
+            # arrives rather than how high it goes.
+            head.location = axes @ mathutils.Vector((
+                0.0, 0.0,
+                HEAD_BOBS * (
+                    math.cos(4.0 * math.pi * (behind - share / 2.0))
+                    - math.cos(4.0 * math.pi * (phase - share / 2.0))
+                ),
+            ))
+
+        # # The pelvis, on all three axes - see WALK_PELVIS
+        #
+        # `weight` is +1 when the RIGHT foot is carrying and -1 when the left is. R is
+        # planted over own phase 0..share, so its mid-stance is at share/2 and the left's
+        # half a cycle later; a cosine about that puts the peak where the weight is.
+        _, obliquity, yaw = pelvis
+        if obliquity:
+            # Rolls about the direction of travel: the hip rides UP over the support leg
+            # and DROPS on the swing side.
+            #
+            # NEGATED `weight`, and it was measured rather than reasoned. The first sign
+            # put the hip high on the swing side on 16 of 16 single-support frames of the
+            # walk - exactly inverted, which reads as the body being thrown away from the
+            # leg holding it up. The sway, on the same `weight`, was right first time at
+            # 16 of 16, so the two axes genuinely take opposite signs and guessing them
+            # together would have hidden one behind the other.
+            turn_further_absolutely(
+                rig, "Pelvis", -obliquity * weight, facing[0]
+            )
+        if yaw:
+            # Against the shoulders. `Spine02` twists on the arm-swing phase above, so the
+            # pelvis takes the same phase with the opposite sign - otherwise the torso has
+            # nothing to counter-rotate against and the twist reads as the whole body
+            # turning.
+            turn_further_absolutely(
+                rig, "Pelvis",
+                -yaw * math.cos(2.0 * math.pi * (phase - 0.5 - ARM_LAG)),
+                (0.0, 0.0, 1.0),
+            )
 
         # The body: arms, hands and the ankles. No thigh, no knee.
         for side, hand in (("L", 1.0), ("R", -1.0)):
@@ -1394,39 +1894,26 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
         # leading leg simply reaches its limit - which is a straight leg at heel
         # strike, exactly what a walk wants there. The floor solve then brings its
         # target to the ground, so nothing floats.
-        # WHERE the bob bottoms out depends on which kind of gait this is, and the two
-        # are opposite - the distinction the deleted `how_high_the_body_rides` used to
-        # carry, and which this lost when the height became derived:
-        #
-        #   a WALK is an inverted pendulum. The body vaults over a straight stance leg,
-        #     so it is LOWEST in double support, which is contact - phase 0 and 0.5.
-        #   a RUN is a spring. The leg compresses under the body, so it is lowest at
-        #     MID-STANCE and highest in flight.
-        #
-        # Using the walk's phasing for everything put the run's and sprint's dips at
-        # phase 0 and 0.5 - and with stance only 0.375 of their cycle, half of every
-        # dip landed while both feet were off the ground, where nothing is compressing.
-        # Duty factor says which kind this is, so it picks the phase.
-        bottoms_at = 0.0 if share > 0.5 else share / 2.0
-        rides = deepest * (
-            1.0 + math.cos(4.0 * math.pi * (phase - bottoms_at))
-        ) / 2.0
+        rides = (
+            deepest * (1.0 + math.cos(4.0 * math.pi * (phase - bottoms_at))) / 2.0
+            + arc[(frame - 1) % span]
+        )
         root = rig.pose.bones.get("Root")
         if root is not None:
             axes = root.bone.matrix_local.to_3x3().inverted()
-            root.location = axes @ mathutils.Vector(
-                # Floored at the cap as well as trimmed by the ceiling. Trimming
-                # alone let the hip follow a ceiling that dives to -12 cm, so the
-                # bounded bob was bounded in name only and the lurch stayed.
-                # The fitted bob ALONE, floored at the cap. Trimming it to the
-                # per-frame reach ceiling as well is what put steps back in: the
-                # ceiling jumps as feet land and lift, and on the sprint that moved
-                # the hips 2.28 cm of their 2.3 cm total travel inside one frame. The
-                # bob is already fitted to sit under the ceiling's deepest point, and
-                # where a leg still cannot quite reach, the floor solve pulls its
-                # target down until it can - which was measured and is why nothing
-                # floats.
-                (0.0, 0.0, max(rides, -ik_gait.HIP_DROPS_AT_MOST))
+            # Lateral sway goes HERE and not on the Pelvis, which is connected to its
+            # parent - Blender ignores `location` on a connected bone, so the first
+            # attempt measured 0.00 cm of sway in every clip while looking correct in the
+            # code. The root already carries the bob and the forward lead, and the ball
+            # path is stated against each thigh's REST socket, so moving the root carries
+            # the hips without dragging the footfalls after them.
+            #
+            # `across` is +Y, the model's LEFT, so a positive `weight` - the right foot
+            # carrying - has to move the pelvis the other way.
+            root.location = axes @ (
+                facing[0] * leads
+                + facing[1] * (-pelvis[0] * weight)
+                + mathutils.Vector((0.0, 0.0, max(rides, -sinks)))
             )
         bpy.context.view_layer.update()
         if os.environ.get("DIAG") and frame == 1:
@@ -1439,28 +1926,6 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
                     f"{balls[side].y:+.3f},{balls[side].z:+.3f}) hip_z={hip_at.z:+.3f} "
                     f"hip_to_ball={gap:.3f} reach={reach_of_leg:.3f}"
                 )
-
-        # # The loop frame is COPIED, not solved again
-        #
-        # The last frame is the first frame: that is what makes a cycle loop. Solving it
-        # afresh gets a slightly different answer, because the solve is iterative and
-        # starts from wherever the previous frame left the rig - and measured, that put
-        # the walk's last frame 3.1 cm through the floor while its first sat exactly on
-        # it. A loop seam is the one frame guaranteed to be looked at, since it is
-        # crossed every cycle.
-        if frame == span + 1 and first_frame is not None:
-            for side in "LR":
-                targets[side].location = first_frame["targets"][side].copy()
-                for part in ("Foot", "ToeBase"):
-                    rig.pose.bones[f"{side}_{part}"].rotation_quaternion = first_frame[
-                        "feet"
-                    ][f"{side}_{part}"].copy()
-                    rig.pose.bones[f"{side}_{part}"].keyframe_insert(
-                        "rotation_quaternion", frame=frame
-                    )
-                targets[side].keyframe_insert("location", frame=frame)
-            key(rig, frame, DRIVEN)
-            continue
 
         tilts = {}
         for side in "LR":
@@ -1516,38 +1981,30 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
             rig.pose.bones[f"{side}_Foot"].keyframe_insert(
                 "rotation_quaternion", frame=frame
             )
-        if frame == 1:
-            first_frame = {
-                "targets": {s: targets[s].location.copy() for s in "LR"},
-                # Foot AND ToeBase: the toe is posed now too, and a seam copy that
-                # restores only the foot leaves the toe holding the LAST frame's bend.
-                "feet": {
-                    f"{s}_{part}": rig.pose.bones[
-                        f"{s}_{part}"
-                    ].rotation_quaternion.copy()
-                    for s in "LR"
-                    for part in ("Foot", "ToeBase")
-                },
-            }
-
         key(rig, frame, DRIVEN)
 
     # Solve, then turn the solution into plain keys and drop the helpers.
+    #
+    # The run-up is baked WITH the clip - that is the whole point, it is what gives
+    # frame 1 a settled predecessor - and cut off afterwards.
     first, last = 1, span + 1
-    bpy.context.scene.frame_start, bpy.context.scene.frame_end = first, last
-    ik_gait.bake_the_constraints(rig, first, last)
+    bpy.context.scene.frame_start = first - LEAD_IN
+    bpy.context.scene.frame_end = last
+    ik_gait.bake_the_constraints(rig, first - LEAD_IN, last)
     ik_gait.drop_the_helpers(
         [part for parts in rigged.values() for part in parts[:2]]
     )
 
     baked = rig.animation_data.action
+    dropped = forget_the_frames_before(baked, first)
+    bpy.context.scene.frame_start = first
 
     closed = close_the_loop(baked, 1, span + 1)
     turned = make_it_linear(baked)
     baked.name = name
     print(
         f"  {name}: {span + 1} frames, {turned} keys linear, {closed} closed at the "
-        f"seam, legs solved by IK; "
+        f"seam, {dropped} run-up keys dropped, legs solved by IK; "
         f"the worst the shoe missed the floor by was {clamped * 170.0:.2f} cm"
     )
     return baked
@@ -1589,6 +2046,42 @@ def sole_of(rig, mesh, feet, side: str) -> float:
         evaluated.to_mesh_clear()
 
 
+def where_the_curves_live(action):
+    """The channelbag holding an action's f-curves, or None if it has no slot yet.
+
+    Blender 5 has no `action.fcurves` - actions are slots, layers, strips and
+    channelbags, and reaching for the old attribute raises `AttributeError`, which reads
+    as a broken script rather than a moved API. Three functions below needed the same
+    four lines to get at the curves, so it lives here once.
+    """
+    from bpy_extras import anim_utils
+
+    if not action.slots:
+        return None
+    return anim_utils.action_ensure_channelbag_for_slot(action, action.slots[0])
+
+
+def forget_the_frames_before(action, first: int) -> int:
+    """Deletes every key earlier than `first`. Used to cut the run-up off a clip.
+
+    See LEAD_IN: the frames before 1 exist only so the IK solver reaches frame 1 warm,
+    with a predecessor at the same phase frame `span` has. Once baked they have done
+    their job, and shipping them would put the cycle's start three frames late and hand
+    the game a clip whose first key is not its first pose.
+    """
+    bag = where_the_curves_live(action)
+    if bag is None:
+        return 0
+    cut = 0
+    for curve in bag.fcurves:
+        doomed = [p for p in curve.keyframe_points if p.co[0] < first - 0.01]
+        for point in reversed(doomed):
+            curve.keyframe_points.remove(point)
+            cut += 1
+        curve.update()
+    return cut
+
+
 def close_the_loop(action, first: int, last: int) -> int:
     """Makes the first frame identical to the last, which is what a cycle means.
 
@@ -1603,11 +2096,9 @@ def close_the_loop(action, first: int, last: int) -> int:
     last frame is computed with everything in place and lands exactly on the trend, so
     it is the one to trust.
     """
-    from bpy_extras import anim_utils
-
-    if not action.slots:
+    bag = where_the_curves_live(action)
+    if bag is None:
         return 0
-    bag = anim_utils.action_ensure_channelbag_for_slot(action, action.slots[0])
     copied = 0
     for curve in bag.fcurves:
         source = next(
@@ -1637,11 +2128,9 @@ def make_it_linear(action) -> int:
     overshoot between them. glTF cannot carry Bezier anyway, so the exporter resamples
     the overshoot straight into the clip.
     """
-    from bpy_extras import anim_utils
-
-    if not action.slots:
+    bag = where_the_curves_live(action)
+    if bag is None:
         return 0
-    bag = anim_utils.action_ensure_channelbag_for_slot(action, action.slots[0])
     done = 0
     for curve in bag.fcurves:
         for point in curve.keyframe_points:
@@ -2013,22 +2502,22 @@ def main() -> None:
             # 2 degrees of trunk lean, not 0. A walk is upright, but dead plumb
             # reads as being carried along rather than walking; a couple of degrees is
             # what a person leans to actually go somewhere.
-            ELBOW_HELD, ELBOW_SWING, WALK_LEAN, WALK_STANCE, facing,
+            ELBOW_HELD, ELBOW_SWING, WALK_LEAN, WALK_SHARE, WALK_SINKS, WALK_LEADS, WALK_BOUND, WALK_TWIST, WALK_PELVIS, facing,
         ).use_fake_user = True
     gait(
             # An EVEN span, always: a cycle is two identical steps, so the half
             # cycle must land exactly on a frame. 15 was tried for the cadence and the
             # verifier refused it - the two halves sample different phases and the
             # hips disagree with themselves by 21%, which is a limp.
-            rig, body, feet, ground, "run", RUN_LEG, 16, RUN_CONTACT, RUN_SWING_LIFT, RUN_SWING_SHAPE, RUN_LANDS_AHEAD,
+            rig, body, feet, ground, "run", RUN_LEG, 24, RUN_CONTACT, RUN_SWING_LIFT, RUN_SWING_SHAPE, RUN_LANDS_AHEAD,
             RUN_ARM_FORWARD, RUN_ARM_BACK,
-            RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_STANCE, facing,
+            RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_SHARE, RUN_SINKS, RUN_LEADS, RUN_BOUND, RUN_TWIST, RUN_PELVIS, facing,
         ).use_fake_user = True
     gait(
             # 14 frames, not 16: a sprint cycle is ~0.58 s where a run's is ~0.67.
-            rig, body, feet, ground, "sprint", SPRINT_LEG, 14, SPRINT_CONTACT, SPRINT_SWING_LIFT, SPRINT_SWING_SHAPE, SPRINT_LANDS_AHEAD,
-            SPRINT_ARM_FORWARD, SPRINT_ARM_BACK, RUN_ELBOW_HELD, RUN_ELBOW_SWING, SPRINT_LEAN, SPRINT_STANCE,
-            facing,
+            rig, body, feet, ground, "sprint", SPRINT_LEG, 24, SPRINT_CONTACT, SPRINT_SWING_LIFT, SPRINT_SWING_SHAPE, SPRINT_LANDS_AHEAD,
+            SPRINT_ARM_FORWARD, SPRINT_ARM_BACK, SPRINT_ELBOW_HELD, SPRINT_ELBOW_SWING, SPRINT_LEAN, SPRINT_SHARE,
+            SPRINT_SINKS, SPRINT_LEADS, SPRINT_BOUND, SPRINT_TWIST, SPRINT_PELVIS, facing,
         ).use_fake_user = True
 
     bpy.ops.export_scene.gltf(

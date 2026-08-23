@@ -15,6 +15,24 @@ find_blender() {
 }
 blender=$(find_blender) || { echo "Blender not found." >&2; exit 1; }
 
+# The stance shares come from animate_ranger.py, which is where they are decided.
+#
+# They used to be typed again here as `walk:0.625 run:0.3333 sprint:0.25`, and the day
+# RUN_SHARE moved to 7/24 this file went on telling verify_gait 0.3333 - so the verifier
+# measured a planted window the clip does not have and reported a duty factor of 0.667 for
+# a clip authored at 0.583. A number stated in two places is a number that will disagree
+# with itself.
+shares() {
+  python - "$1" <<'PYEOF'
+import re, sys
+src = open("dev/art/animate_ranger.py", encoding="utf-8").read()
+hit = re.search(rf"^{sys.argv[1]} = (.+)$", src, re.M)
+if not hit:
+    raise SystemExit(f"no {sys.argv[1]} in animate_ranger.py")
+print(f"{eval(hit.group(1)):.6f}")
+PYEOF
+}
+
 # The texture first, in a tool that can be checked. See ranger_texture.py for why
 # this is not done inside Blender.
 python "$here/ranger_texture.py"
@@ -31,4 +49,4 @@ python "$here/ranger_texture.py"
 # And then REFUSE it if the limbs bend the wrong way. Three attempts shipped a walk
 # with backwards knees and arms swinging with the legs, and every one of them was
 # caught by the person playing the game. See dev/art/verify_gait.py.
-"$blender" --background --python-exit-code 1 --python "$here/verify_gait.py" --   "$(cd "$here/../.." && pwd)/assets/models/person_ranger.glb" walk:5 run:3 sprint:2
+"$blender" --background --python-exit-code 1 --python "$here/verify_gait.py" --   "$(cd "$here/../.." && pwd)/assets/models/person_ranger.glb" walk:"$(shares WALK_SHARE)" run:"$(shares RUN_SHARE)" sprint:"$(shares SPRINT_SHARE)"

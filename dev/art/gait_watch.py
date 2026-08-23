@@ -53,6 +53,7 @@ directly as the foot skating across the markers instead of gripping one.
 
 import math
 import os
+import re
 import sys
 
 import bpy
@@ -67,15 +68,41 @@ import prepare_rig
 SCALE = 170.0            # centimetres per Blender unit, as the rest of dev/art uses
 METRES_PER_UNIT = SCALE / 100.0
 
-# From src/motion.rs, which is the authority. Kept as a table so a change there shows up
-# here as a mismatch rather than as a silently wrong cadence.
 FPS = 24.0
-CLIPS = {
-    #  clip:   (frames, covers metres, the speed the game drives it at)
-    "walk": (24.0, 0.926, 0.93),
-    "run": (16.0, 1.626, 2.71),
-    "sprint": (14.0, 2.601, 4.46),
-}
+
+
+def clips_from_the_game():
+    """Frames, covers and driven speed, READ from src/motion.rs and src/player.rs.
+
+    This was a hand-kept copy carrying a comment that a change in motion.rs would "show up
+    here as a mismatch rather than as a silently wrong cadence". It did not: the covers
+    were re-measured three times in one sitting and this table went on reporting 206 steps
+    a minute for a clip the game drives at 212. A copy checked only by somebody
+    remembering to check it is not a check.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    root = os.path.dirname(os.path.dirname(here))
+
+    def rust(path, pattern):
+        text = open(os.path.join(root, path), encoding="utf-8").read()
+        found = re.search(pattern, text, re.M)
+        if not found:
+            raise SystemExit(f"no {pattern!r} in {path}")
+        return float(found.group(1))
+
+    out = {}
+    for name, speed in (
+        ("walk", "WALK_SPEED"), ("run", "JOG_SPEED"), ("sprint", "SPRINT_SPEED")
+    ):
+        out[name] = (
+            rust("src/motion.rs", rf"^const {name.upper()}_FRAMES: f32 = ([0-9.]+);"),
+            rust("src/motion.rs", rf"^const {name.upper()}_COVERS: f32 = ([0-9.]+);"),
+            rust("src/player.rs", rf"^pub const {speed}: f32 = ([0-9.]+);"),
+        )
+    return out
+
+
+CLIPS = clips_from_the_game()
 
 # Blender's own orthographic view rotations, used as constants rather than derived,
 # because `bpy.ops.view3d.view_axis` needs a real 3D region and this has to work with no
@@ -134,6 +161,112 @@ def aim_the_viewport(mesh, rotation):
             "REFUSED: no 3D viewport in this startup file to aim, so the saved .blend "
             "would open looking at nothing"
         )
+
+
+# A script stored INSIDE the .blend, registered to run when it loads.
+#
+# The point is that rebuilding a clip should not cost anyone a keystroke. Blender reads a
+# .blend into memory when it opens, so a rebuilt file is invisible to a window already
+# showing the old one - which was being dealt with by killing Blender and reopening it,
+# and that threw away the viewing angle and the frame every single time.
+#
+# This watches the .blend's own timestamp and reverts when it changes, so a rebuild just
+# appears. The angle survives because it is written to a sidecar file first and read back
+# after the reload - the view is stored IN the .blend, so a plain revert would otherwise
+# snap back to the authored side-on framing.
+#
+# It only runs if Blender is started with `--enable-autoexec`, which gait_watch.sh does.
+# That flag is per-session, so nothing is changed in anyone's preferences.
+WATCHER = '''
+import json
+import os
+
+import bpy
+
+SIDECAR = bpy.data.filepath + ".view.json"
+SETTLE = 1.0
+IDLE = 1.5
+
+
+def views():
+    for screen in bpy.data.screens:
+        for area in screen.areas:
+            if area.type == "VIEW_3D":
+                yield area.spaces.active.region_3d
+
+
+def remember():
+    spot = next(views(), None)
+    if spot is None:
+        return
+    try:
+        with open(SIDECAR, "w") as handle:
+            json.dump({
+                "rot": list(spot.view_rotation),
+                "loc": list(spot.view_location),
+                "dist": spot.view_distance,
+                "persp": spot.view_perspective,
+            }, handle)
+    except OSError:
+        pass
+
+
+def restore():
+    try:
+        with open(SIDECAR) as handle:
+            saved = json.load(handle)
+    except (OSError, ValueError):
+        return
+    for spot in views():
+        spot.view_perspective = saved["persp"]
+        spot.view_rotation = saved["rot"]
+        spot.view_location = saved["loc"]
+        spot.view_distance = saved["dist"]
+
+
+def stamp():
+    try:
+        return os.path.getmtime(bpy.data.filepath)
+    except OSError:
+        return None
+
+
+# [last seen mtime, whether a change is waiting to settle]
+state = [stamp(), False]
+
+
+def tick():
+    now = stamp()
+    if now is None:
+        return IDLE
+    if now != state[0]:
+        # Noted, but not acted on yet - the file may still be being written.
+        state[0], state[1] = now, True
+        return SETTLE
+    if state[1]:
+        state[1] = False
+        remember()
+        try:
+            bpy.ops.wm.revert_mainfile()
+        except RuntimeError:
+            return IDLE
+        return None      # the reloaded file registers its own timer
+    return IDLE
+
+
+restore()
+bpy.app.timers.register(tick, first_interval=2.0)
+'''
+
+
+def install_the_watcher():
+    """Puts the reload watcher into the .blend and marks it to run on load."""
+    name = "gait_watch_reload.py"
+    text = bpy.data.texts.get(name) or bpy.data.texts.new(name)
+    text.clear()
+    text.write(WATCHER)
+    text.use_module = True          # this is the "Register" checkbox
+    print(f"  installed {name} ({len(WATCHER)} chars), registered to run on load")
 
 
 def lay_the_ground(forward, covers_units, span, low):
@@ -271,14 +404,9 @@ def main():
     rig = next((o for o in bpy.data.objects if o.type == "ARMATURE"), None)
     if rig is None:
         raise SystemExit("no armature in that file")
-    meshes = [
-        o for o in bpy.data.objects
-        if o.type == "MESH"
-        and (o.vertex_groups or any(m.type == "ARMATURE" for m in o.modifiers))
-    ]
-    if not meshes:
-        raise SystemExit("no skinned mesh in that file")
-    mesh = meshes[0]
+    # The BODY, not whichever skinned mesh the importer happened to list first - the
+    # backpack is its own object now, and it is 370 vertices against the body's 7261.
+    mesh = prepare_rig.the_body()
 
     print(f"\nopening {os.path.basename(glb)}, clip '{clip}'")
     print("repairing what the importer invented:")
@@ -339,6 +467,7 @@ def main():
 
     scene.frame_set(scene.frame_start)
     aim_the_viewport(mesh, view)
+    install_the_watcher()
 
     if save_to:
         bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(save_to))

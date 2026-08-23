@@ -174,8 +174,13 @@ def main() -> None:
     source = args[0]
     clips = {}
     for given in args[1:]:
-        name, _, stance = given.partition(":")
-        clips[name] = int(stance) if stance else 5
+        name, _, given_share = given.partition(":")
+        # A SHARE of the cycle, not a count of eighths. `animate_ranger` states it as a
+        # fraction now, because a jog's 0.333 duty is not a whole number of eighths - see
+        # WALK_SHARE there. Values above 1 are read as the old eighths so an existing
+        # command line still means what it used to.
+        share = float(given_share) if given_share else 0.625
+        clips[name] = share / 8.0 if share > 1.0 else share
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.gltf(filepath=source)
@@ -344,7 +349,7 @@ def main() -> None:
         return 0.0 if straight < 1e-9 else 1.0 - (thigh - ankle).length / straight
 
     refused, scored = [], {}
-    for name, stance in clips.items():
+    for name, share in clips.items():
         action = bpy.data.actions.get(name)
         if action is None:
             refused.append(f"{name}: no such clip in the file")
@@ -463,15 +468,15 @@ def main() -> None:
         # It is also the quantity that sets the stride: contact length divided by the
         # stance fraction is how far a cycle carries the body, so it is worth reporting
         # whether or not anything is refused on it.
-        # Two stance windows of `stance` poses each, out of eight. They overlap when
-        # stance is above four, which is what makes a gait a walk.
-        duty = 2.0 * stance / 8.0
+        # Two stance windows of `share` of the cycle each. They overlap when share is
+        # above a half, which is what makes a gait a walk.
+        duty = 2.0 * share
         flies = duty < ALWAYS_ON_THE_GROUND
 
-        # The right foot is authored down over poses 0 to stance-1, which on a clip of
-        # `span` frames with eight poses puts that window between these two frames.
+        # The right foot is authored down over the closed interval [0, share] of the
+        # cycle, which on a clip of `span` frames is this many frames from the first.
         planted_from = frames[0]["frame"]
-        planted_to = frames[0]["frame"] + round((stance - 1) * span / 8)
+        planted_to = frames[0]["frame"] + round(share * span)
         window = [f for f in frames if planted_from <= f["frame"] <= planted_to]
         contact_travel = (
             window[0]["along"]["R"] - window[-1]["along"]["R"] if len(window) > 1 else 0.0
@@ -507,7 +512,7 @@ def main() -> None:
             # instead put swing frames inside the window, and a swinging foot is
             # supposed to depart from a straight line - so the metric punished the
             # gaits with the shortest stance hardest, reporting 1.34 for the sprint.
-            downs = round((stance - 1) * span / 8) + 1
+            downs = round(share * span) + 1
             start = 0 if side == "R" else span // 2
             walked = [path[i % span] for i in range(start, start + downs)]
             if len(walked) < 3:
@@ -603,7 +608,7 @@ def main() -> None:
             # half the two feet's combined spread instead was an approximation, and it
             # disagreed with a line fitted to the whole cycle by 20 to 55%.
             "contact_length_m": round(1.7 * abs(contact_travel), 3),
-            "covers_implied_m": round(1.7 * abs(contact_travel) / (stance / 8.0), 3),
+            "covers_implied_m": round(1.7 * abs(contact_travel) / share, 3),
             "leans_forward_deg": round(leans, 2),
             # At the contact, where the foot is flat and the number means something.
             "toe_out_deg": round(contact["toes"][front], 1),
@@ -646,30 +651,45 @@ def main() -> None:
                 )
 
         # --- And the asymmetries a global sign flip cannot survive.
-        if not flies:
-            # A walk: heel down in front, up on the toes behind.
-            if contact["pitch"][front] < A_REAL_PITCH:
-                refused.append(
-                    f"{name}: the leading ({front}) foot is not presenting its heel - "
-                    f"its pitch is {contact['pitch'][front]:+.3f} off rest where "
-                    f"toes-up wants at least +{A_REAL_PITCH}. A front foot landing "
-                    f"toe-first is the cleanest tell that the cycle runs backwards."
-                )
-            if contact["pitch"][back] > -A_REAL_PITCH:
-                refused.append(
-                    f"{name}: the trailing ({back}) foot is not up on its toes - pitch "
-                    f"{contact['pitch'][back]:+.3f} off rest, wanting at most "
-                    f"-{A_REAL_PITCH}. A trailing foot pushing off heel-first is the "
-                    f"same tell from the other side."
-                )
-        elif contact["pitch"][front] > A_REAL_PITCH:
-            # A run: the leading foot must NOT be presenting a heel. Toes level or
-            # pointed is right; toes up means it is landing like a walk.
+        #
+        # What these catch is a REVERSED cycle - the fault that shipped three times and
+        # was caught by the person playing the game, never by a number. The tell is the
+        # ORDER of the two feet, not the absolute strike, and that distinction was got
+        # wrong here for a long time: the flying branch used to assert that a leading
+        # foot must NOT present a heel, "because a run lands on the forefoot".
+        #
+        # That is a style claim wearing a correctness check's clothes, and it is not even
+        # true at jog pace - Breine found ZERO forefoot strikers among 52 runners at
+        # 3.2 m/s, and 81% rearfoot. Worse, asserting the strike meant the flying clips
+        # had no reversal check at all: a backwards run lands toes-down at the front,
+        # which is exactly what that branch was demanding.
+        #
+        # So the strike itself is now an AUTHORED choice (see the LEG tables), and what
+        # is checked is the thing no legitimate gait can violate: the leading foot is
+        # more toes-up than the trailing one, and the trailing one is genuinely pushing
+        # off its toes. True of the walk (+8 front, -22 back), the jog (+8, -32) and the
+        # sprint (-18, -34) alike, and false the moment the cycle runs backwards.
+        if contact["pitch"][front] <= contact["pitch"][back]:
             refused.append(
-                f"{name}: this clip has a flight phase, so it is a run - but its "
-                f"leading ({front}) foot lands with the toes {contact['pitch'][front]:+.3f} "
-                f"UP, which is a walk's heel strike. A run lands on the forefoot with "
-                f"the knee already flexed."
+                f"{name}: the leading ({front}) foot is at {contact['pitch'][front]:+.3f} "
+                f"and the trailing ({back}) at {contact['pitch'][back]:+.3f}, so the "
+                f"front foot is no more toes-up than the back one. The foot roll has no "
+                f"direction, which is the cleanest tell that the cycle runs backwards."
+            )
+        if contact["pitch"][back] > -A_REAL_PITCH:
+            refused.append(
+                f"{name}: the trailing ({back}) foot is not up on its toes - pitch "
+                f"{contact['pitch'][back]:+.3f} off rest, wanting at most "
+                f"-{A_REAL_PITCH}. A trailing foot pushing off heel-first is the "
+                f"same tell from the other side."
+            )
+        if not flies and contact["pitch"][front] < A_REAL_PITCH:
+            # A WALK always heel-strikes - there is no walking gait that does not, so
+            # here the absolute strike really is a correctness check.
+            refused.append(
+                f"{name}: the leading ({front}) foot is not presenting its heel - "
+                f"its pitch is {contact['pitch'][front]:+.3f} off rest where "
+                f"toes-up wants at least +{A_REAL_PITCH}."
             )
         # --- How far the planted foot points away from the line of travel.
         #

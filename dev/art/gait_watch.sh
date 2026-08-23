@@ -64,4 +64,8 @@ assert not balls, f'{len(balls)} bones still wear sphere widgets'" \
 
 echo
 echo "opening $scene - press space to play."
-"$blender" "$(win "$scene")"
+echo "leave it open: it watches the file and reloads itself when a clip is rebuilt."
+# --enable-autoexec so the registered reload watcher inside the .blend runs. It is a
+# per-session flag and changes nothing in anyone's preferences. See WATCHER in
+# gait_watch.py for what it does and why.
+"$blender" --enable-autoexec "$(win "$scene")"

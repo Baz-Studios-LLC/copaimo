@@ -52,12 +52,9 @@ def main() -> None:
     bpy.ops.import_scene.gltf(filepath=src)
 
     rig = next((o for o in bpy.data.objects if o.type == "ARMATURE"), None)
-    skin = next(
-        (o for o in bpy.data.objects
-         if o.type == "MESH"
-         and (o.vertex_groups or any(m.type == "ARMATURE" for m in o.modifiers))),
-        None,
-    )
+    # The BODY specifically: the backpack is a separate skinned object now, and taking
+    # the first match could hand the repair a 370-vertex bag.
+    skin = prepare_rig.the_body()
     if rig is not None and skin is not None:
         prepare_rig.make_the_import_readable(rig, skin)
     if rig is not None:

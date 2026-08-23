@@ -550,6 +550,144 @@ def make_the_import_readable(rig, mesh):
         refuse(f"{len(left)} bones still wear a widget ({left[:3]})")
 
 
+def the_body(objects=None):
+    """The character's own mesh, out of however many skinned meshes are in the scene.
+
+    Every tool that opens the GLB used to take the FIRST skinned mesh it found. That was
+    fine while there was one. Splitting the backpack out makes two, and "first" is
+    whatever order the importer happened to use - so a tool could measure the ranger's
+    gait against a 370-vertex bag. Largest wins instead, which is 7261 against 370 and
+    needs no names: glTF suffixes duplicate names on round trip, so a name test would rot.
+    """
+    skinned = [
+        o for o in (objects if objects is not None else bpy.data.objects)
+        if o.type == "MESH"
+        and (o.vertex_groups or any(m.type == "ARMATURE" for m in o.modifiers))
+    ]
+    if not skinned:
+        refuse("no skinned mesh in this scene")
+    return max(skinned, key=lambda o: len(o.data.vertices))
+
+
+def split_out_the_backpack(rig, mesh):
+    """Separates the backpack into its own object, rigidly bound to one bone.
+
+    # Why it is separate
+
+    Asked for directly - swappable bags for players later - and it also fixes a measured
+    fault. The pack was skinned across `Spine01` (49%), `Spine02` (20%), `Waist` and even
+    `Head`, and a RIGID object spread over four bones that rotate differently has to
+    shear: measured, its own bounding diagonal changed 3.25 cm on a 73 cm object, 4.4%,
+    over the run. That is what read as the pack moving oddly. Bound to a single bone it
+    cannot deform at all, only be carried.
+
+    # What it selects, and what it deliberately leaves
+
+    Vertices the SPINE chain owns that sit behind the spine in the torso band, then the
+    faces all of whose corners are in that set. Checked by rendering both halves before
+    this was written: the pack comes away as a recognisable bag and the jacket back is
+    left INTACT, no hole - the pack is additive geometry over the garment rather than a
+    panel cut into it.
+
+    The STRAPS stay on the body. They go over the shoulders and round the front, so they
+    are not separable by "behind the spine", and for a first pass a fixed harness with a
+    swappable pack is a normal way to build this. Moving them onto the bag is garment work
+    for a paint tool, like the jacket weights above.
+    """
+    CARRIES = ("Waist", "Spine01", "Spine02", "NeckTwist", "Clavicle")
+    BEHIND = 0.055
+    HOLDS_IT = "Spine02"
+
+    rest_the_pose(rig)
+    _, forward, _ = body_frame(rig)
+    forward = mathutils.Vector((forward.x, forward.y, 0.0)).normalized()
+    spine = rig.data.bones["Spine02"].head_local
+    names = {g.index: g.name for g in mesh.vertex_groups}
+
+    chosen = set()
+    for vertex in mesh.data.vertices:
+        spot = mesh.matrix_world @ vertex.co
+        best, who = 0.0, ""
+        for group in vertex.groups:
+            if group.weight > best:
+                best, who = group.weight, names.get(group.group, "")
+        if not any(part in who for part in CARRIES):
+            continue
+        if (spot - spine).dot(forward) < -BEHIND and 0.45 <= spot.z <= 0.92:
+            chosen.add(vertex.index)
+    faces = [
+        f.index for f in mesh.data.polygons if all(i in chosen for i in f.vertices)
+    ]
+    print(f"  {len(chosen)} vertices behind the spine, {len(faces)} whole faces")
+    if len(faces) < 100:
+        refuse(f"only {len(faces)} faces look like a backpack; the rule has drifted")
+
+    was = len(mesh.data.vertices)
+    stem = mesh.name
+    bpy.ops.object.select_all(action="DESELECT")
+    mesh.select_set(True)
+    bpy.context.view_layer.objects.active = mesh
+    # The DESELECT has to go through the edit-mode operator, not through
+    # `polygon.select = False`. Clearing the polygon flags in object mode leaves the
+    # VERTEX selection untouched, and `separate(SELECTED)` reads that - so a freshly
+    # imported mesh, which arrives fully selected, separates whole. Measured: the pack
+    # came out with 7578 vertices and the body with 0.
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="DESELECT")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    for index in faces:
+        mesh.data.polygons[index].select = True
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.separate(type="SELECTED")
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    made = [
+        o for o in bpy.data.objects
+        if o.type == "MESH" and o is not mesh and o.name.startswith(stem.split(".")[0])
+    ]
+    if not made:
+        refuse("the separate produced no new object")
+    pack = min(made, key=lambda o: len(o.data.vertices))
+    pack.name = pack.data.name = "Backpack"
+
+    # RIGID: one group, weight 1, everything else cleared. That is the whole point - a
+    # single bone cannot shear what it carries.
+    for group in list(pack.vertex_groups):
+        pack.vertex_groups.remove(group)
+    held = pack.vertex_groups.new(name=HOLDS_IT)
+    held.add(list(range(len(pack.data.vertices))), 1.0, "REPLACE")
+    astray = sum(
+        1 for v in pack.data.vertices
+        if abs(sum(g.weight for g in v.groups) - 1.0) > 1e-6
+    )
+    print(f"  Backpack: {len(pack.data.vertices)} vertices, rigid on {HOLDS_IT}, "
+          f"{astray} not summing to 1; the body keeps {len(mesh.data.vertices)}")
+    if astray:
+        refuse(f"{astray} backpack vertices are not rigidly bound")
+    # Not equality: `separate` DUPLICATES the seam, so every vertex shared between a kept
+    # face and a separated one ends up in both objects. Measured here as 47 extra on 7578,
+    # which is the boundary of the pack and exactly what should happen. What must never
+    # happen is LOSS, and the total can only grow by the seam.
+    together = len(mesh.data.vertices) + len(pack.data.vertices)
+    if together < was:
+        refuse(
+            f"the split lost geometry: {len(mesh.data.vertices)} + "
+            f"{len(pack.data.vertices)} against {was}"
+        )
+    if together > was + len(chosen):
+        refuse(
+            f"the split grew by {together - was} vertices, more than the "
+            f"{len(chosen)}-vertex selection could have on its boundary"
+        )
+    print(f"  the seam duplicated {together - was} vertices into both halves")
+    if len(pack.data.vertices) >= len(mesh.data.vertices):
+        refuse(
+            f"the 'backpack' has {len(pack.data.vertices)} vertices against the body's "
+            f"{len(mesh.data.vertices)} - the separate went the wrong way"
+        )
+    return pack
+
+
 def check_the_skin(mesh):
     """Checks the skin. Deliberately does NOT weld the coincident vertices.
 
@@ -1320,9 +1458,13 @@ def main():
     # is what made this step look necessary in the first place.
     print("\nhow well the rig fits the mesh:")
     report_the_fit(rig, mesh)
+    # LAST, so every step above sees one whole mesh and nothing upstream has to know
+    # about the split. Everything downstream picks the character with `the_body`.
+    print("\nsplitting out the backpack:")
+    pack = split_out_the_backpack(rig, mesh)
 
     for obj in bpy.data.objects:
-        obj.select_set(obj in (rig, mesh))
+        obj.select_set(obj in (rig, mesh, pack))
     bpy.ops.export_scene.gltf(
         filepath=out,
         export_format="GLB",

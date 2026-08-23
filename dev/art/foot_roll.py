@@ -49,6 +49,45 @@ import ik_gait
 import mathutils
 
 
+def make_the_landmarks_mirrors(landmarks, facing, up):
+    """One set of foot OFFSETS for both sides, so the motion cannot inherit the mesh's
+    left-right asymmetry.
+
+    The two shoes sit about 4 cm differently on their bones - a sculpting matter, and the
+    user's to fix. What is not acceptable is that difference reaching the MOTION. Each
+    ankle is derived from its ball plus that foot's own `ankle_from_ball`, so an asymmetric
+    mesh placed the two ankles differently and the clip limped: measured, the sprint's two
+    thighs disagreed 8.25 degrees half a cycle apart where 6.0 passes, and its hips failed
+    to repeat by 42%. The bones were already made mirrors by
+    `prepare_rig.put_the_ball_where_the_shoe_bends`, which shares ONE station between the
+    sides for exactly this reason - the landmarks simply were not.
+
+    Averaged with the LATERAL component reflected, because a mirrored pair has a negated
+    lateral component; averaging the raw vectors would cancel the sideways part to nothing
+    instead of mirroring it. The absolute positions (`ankle`, `ball`, `tip`, `sole`) are
+    left alone: those are where each foot actually is, and only the offsets between them
+    are shared.
+    """
+    forward, across = facing
+    for key in ("ball_above_sole", "heel_behind_ball", "toe_ahead_of_ball"):
+        shared = (landmarks["L"][key] + landmarks["R"][key]) / 2.0
+        for side in "LR":
+            landmarks[side][key] = shared
+    for key in ("ankle_from_ball", "rest_direction"):
+        ahead = sideways = above = 0.0
+        for side, hand in (("L", 1.0), ("R", -1.0)):
+            offset = landmarks[side][key]
+            ahead += offset.dot(forward) / 2.0
+            sideways += offset.dot(across) * hand / 2.0
+            above += offset.dot(up) / 2.0
+        for side, hand in (("L", 1.0), ("R", -1.0)):
+            shared = forward * ahead + across * (sideways * hand) + up * above
+            if key == "rest_direction":
+                shared = shared.normalized()
+            landmarks[side][key] = shared
+    return landmarks
+
+
 def foot_landmarks(rig, mesh, feet, side: str):
     """Where the ankle, the ball and the sole are, with the foot as it rests.
 
@@ -200,13 +239,38 @@ def rest_the_shoe_on_the_floor(rig, mesh, feet, targets, ground, planted, tilts,
             }
         finally:
             evaluated.to_mesh_clear()
+        # How far each sole hangs below its own ankle, and the average of the two.
+        #
+        # The two shoes sit about 4 cm differently on their bones - a sculpting matter,
+        # and not this function's to fix. What IS this function's business is that the
+        # difference was reaching the MOTION: an airborne foot is corrected from its own
+        # measured sole, so for the same ankle height the lower-sitting shoe got pushed up
+        # further, and the two legs stopped matching. Measured on the sprint, the thighs
+        # disagreed 7.99 deg half a cycle apart while every other frame in the cycle
+        # matched to 0.00, and ankle FORWARD and SIDEWAYS placement were identical to the
+        # digit - only HEIGHT differed, by up to 5.14 cm.
+        #
+        # A planted foot must use its own sole: it is resting on the actual floor and the
+        # actual shoe is what touches. An AIRBORNE one only has to not go through, so
+        # precision there buys nothing and symmetry buys everything. So the airborne
+        # branch predicts the sole from the ankle and the SHARED drop instead of reading
+        # its own.
+        drop = {
+            side: (rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head).z
+            - lowest[side]
+            for side in "LR"
+        }
+        shared_drop = (drop["L"] + drop["R"]) / 2.0
         worst = 0.0
         for side in "LR":
             if planted.get(side):
                 off = ground - lowest[side]
             else:
-                # Airborne: only stop it going THROUGH, never pull it down to touch.
-                off = max(0.0, ground - lowest[side])
+                # Airborne: only stop it going THROUGH, never pull it down to touch -
+                # and judged against the shared drop, so the two legs are corrected
+                # alike.
+                ankle = (rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head).z
+                off = max(0.0, ground - (ankle - shared_drop))
             worst = max(worst, abs(off))
             targets[side].location = targets[side].location + mathutils.Vector(
                 (0.0, 0.0, off)

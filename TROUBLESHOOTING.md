@@ -1751,6 +1751,164 @@ most time, every time.
 | An A-pose lost mid-build | A live session someone is also clicking in is for finding numbers, never a build substrate. Builds run from source via a script that re-derives everything |
 | `action.fcurves` raising `AttributeError` | Blender 5 moved it: slots → layers → strips → channelbags, via `anim_utils.action_ensure_channelbag_for_slot` |
 
+## The jog and the sprint, issue by issue
+
+The walk's list above is mostly poses; this one is mostly FRAMES OF REFERENCE. Half of
+these were a rotation authored against the wrong thing, or a ruler measuring against
+something that moved with what it measured. None showed up as a wrong number — they showed
+up as a correct number describing the wrong quantity.
+
+### Frames of reference: the recurring fault
+
+| Issue | Solution |
+| --- | --- |
+| "compressed back foot" on frames 9–12, while the shoe measured rigid (0.7 mm of length lost) and unyawed (0.0°) | `RUN_LEG` authors sole pitch against the FLOOR. Right while planted — the floor is what the sole rests on — and wrong in swing, where the shank sweeps most of a right angle and a near-flat sole leaves the ANKLE JOINT to absorb the difference. Measured +65° of dorsiflexion against a human running range of about −25..+30: the toes hauled up into the shin. The swing entries went from −14/−12/−6/−2 to −30/−36/−34/−18, each set by subtracting the dorsiflexion that frame was carrying |
+| "forearms are more outward" instead of across the front | The elbow folded about `FOLDS_THE_ELBOW`, a FIXED armature axis, so the hinge plane did not follow where the upper arm pointed — with the arm hanging out to the side, folding threw the hand laterally. An elbow is a hinge and cannot carry the hand inward; shoulder INTERNAL ROTATION does. The axis is derived per frame now as `upper × heads`. Hands went 24.9–27.0 cm out from the midline to 8.1–13.6. See `FOREARMS_TUCK_IN` |
+| The hand visibly twisted the moment the elbow fold went from 62 to 88 | `PALM_IN` rotated the hand about a fixed world axis, which stops being pronation and becomes a twist once the elbow folds. About the FOREARM's own axis instead. Fixed in the gait path and MISSED in the idle path — the same bug in two places, hidden because the idle's elbow barely bends |
+| "the elbows dont go back far enough", and more arm swing barely moved them | The elbow sits one upper-arm length from the shoulder, so its travel is capped at 26 cm — it was already at 25.8, 99% of the geometric limit. What was missing is that the TORSO never rotated at all. `WALK_TWIST`/`RUN_TWIST`/`SPRINT_TWIST` on Spine02 at 5/10/18°, applied BEFORE the arms are aimed so their angles are unchanged and only their origin moves |
+| A 3 cm change in elbow travel that read as EXACTLY zero | The elbow was measured against the SHOULDER, and counter-rotation carries shoulder and elbow together, so that offset is blind to it. Against the PELVIS, which does not twist, the same change reads 8.9 → 13.4 cm. **A ruler fixed to the thing it measures cannot see what you added** |
+| "something still seems off about the characters balance" | The gait leaned `Waist` and `Spine01` and countered nothing above them, so the head inherited the whole lean and led the body by 8.7 cm. `HEAD_HOLDS_BACK` takes 65% back out at the neck. The idle ALREADY did this — Spine01 +1.0 against NeckTwist01 −0.8 — so the gait was the outlier |
+| The lean bending him at the ribs rather than tilting him | It was 40% waist / 60% chest. A runner does not curl forward; the whole body tilts from low down and the trunk stays a straight line. `LEAN_AT_THE_WAIST` 0.8 / `LEAN_AT_THE_CHEST` 0.2 |
+
+### The flight phase, and why it needed a structural change
+
+| Issue | Solution |
+| --- | --- |
+| The jog read as a fast walk: flight 12.5% where the reference wants 25%, feet 1.3 cm off the floor on the airborne frames | The DURATION was right and the HEIGHT was not. `fill_in_the_flight` and `RUN_BOUND` — a 3.7 cm ballistic arc — had been defined and never called since a `gait()` rewrite orphaned them |
+| Wiring the arc in made it LIMP, hips failing to repeat by 20% | The cycle wraps and a list does not. `fill_in_the_flight` arcs between KNOWN indices, so the airborne stretch straddling the seam had no known index after it, fell through to "hold the nearest", and got no arc at all — one bound of the cycle got its full arc and the other none. Filled over two cycles, taking the FIRST copy (the second has its own unfilled tail) |
+| The arc then made a 2.73 cm one-frame hip step, refused as a bounce | With only 2 airborne frames per stretch a parabola cannot be a parabola: it plateaus and then drops off a cliff. `fill_in_the_flight`'s own comment warns of exactly this |
+| Only 4 airborne frames, and no way to get more | `share = stance / POSES` could only say 0.375 or 0.25 in whole eighths, and a jog's duty is 0.333. At 0.375 the closed stance interval covers 10 of 24 frames per foot, leaving 4 airborne. Stance is given as a SHARE now, not a count of poses: `RUN_SHARE = 1/3` gives 9 planted and 6 airborne, which is both the reference shape and the room the arc needed. `verify_gait` takes a share too, and still accepts the old eighths |
+| Tracking the reach ceiling per frame — which looked like the principled fix — was far worse | Hips rose 5.7 cm ABOVE bind height, moved 5.59 cm in one frame, halves disagreed by 92%. The ceiling also jumps at LANDING, not only where nothing is down, and tracking it inherits the mesh's left-right asymmetry that a fitted curve averages away. A fitted cosine PLUS the arc, not the ceiling |
+
+### Fixed by fixing what a number meant
+
+| Issue | Solution |
+| --- | --- |
+| "the leg locks at 0.3°" at contact | It did not. That was a whole-cycle MINIMUM and it was picking up toe-off, where a straight leg is correct — that is the push. The knee at contact measured 14.3° against Heiderscheit's 17.8 ± 4.0, and always had. The metric reports the LANDING knee now |
+| `verify_gait` refusing a heel strike on any clip with a flight phase | It asserted "a run lands on the forefoot", which is a style claim wearing a correctness check's clothes — and false at jog pace (Breine: zero forefoot strikers in 52 runners at 3.2 m/s). Worse, asserting the strike left flying clips with NO reversal check, since a backwards run lands toes-down at the front, which is what the branch demanded. It checks that the leading foot is more toes-up than the trailing one — true of walk, jog and sprint, false the moment the cycle reverses |
+| The sprint's elbow refusing as "folds backwards", and TIGHTENING the elbow making it worse | The intuition is that an arm thrown too far BEHIND causes it. Measured per frame, it was the FORWARD arm: 15.05 cm behind the line at the back extreme and 1.69 cm in FRONT at the forward one, because `elbow_swing` ADDS at the front. The crossing sits near 106° of fold — 105.9 put the elbow 1.32 cm behind, 107.3 put it 0.94 in front. `SPRINT_ELBOW_HELD` 94 ± 4 |
+| Frame 1 with nothing touching the floor, its ball 9.5 cm off the path the other stance frames sat on | `close_the_loop` copied frame `span+1` onto frame 1 because "the last frame is computed with everything in place" — but a later change had made `span+1` a verbatim copy of frame 1's pre-bake targets, so the copy laundered frame 1's own cold solve back onto itself. Replaced by `LEAD_IN` frames of run-up before frame 1, discarded after the bake: the phase formula wraps for negative frames, so frame 0 and frame `span` are the same pose and the seam closes by construction |
+
+### The backpack
+
+| Issue | Solution |
+| --- | --- |
+| The pack moving oddly through the cycle | Skinned across `Spine01` (49%), `Spine02` (20%), `Waist` and `Head`. A RIGID object spread over four bones that rotate differently must shear: measured, 3.25 cm on a 73 cm diagonal, 4.4%. Split into its own object, rigid on one bone; distortion is now 0.000% |
+| Whether it could be a separate object at all | Checked by rendering both halves BEFORE cutting: the pack comes away as a recognisable bag and the jacket back is INTACT, because the pack is additive geometry over the garment rather than a panel cut into it. There was no hole to patch. It is not its own connected shell though — the mesh is 1442 shells over 7584 vertices — so it needs a selection rule, not a topological split. `split_out_the_backpack` |
+| The separate went BACKWARDS: pack 7578 vertices, body 0 | `polygon.select = False` in object mode leaves the VERTEX selection untouched, and `separate(SELECTED)` reads that — a freshly imported mesh arrives fully selected and separates whole. The deselect must go through the edit-mode operator |
+| A conservation guard refusing a correct split: 7255 + 370 against 7578 | `separate` DUPLICATES the seam into both objects — 47 vertices, exactly the pack's boundary. Correct behaviour, wrong guard. It refuses on LOSS, and on growth beyond what the selection's boundary could account for |
+| Several tools would now hand a 370-vertex bag to code measuring the ranger | They took the FIRST skinned mesh, which was fine while there was one. `prepare_rig.the_body()` — largest wins, no name test, because glTF suffixes duplicate names on round trip. `animate_ranger` already did this; `gait_watch` and `ranger_blend` did not; `verify_gait` turned out to work purely off bones |
+
+### The sprint limp, and three wrong guesses
+
+**Status: open.** Worth its own entry because the diagnosis is solid and the fix is not applied.
+
+Two refusals survive: the thighs disagree 7.99° half a cycle apart, and the hips fail to
+repeat by 42%. Three hypotheses were tried, and the first two were wrong:
+
+* **Foot landmarks carrying the mesh asymmetry.** Shared them between the sides
+  (`make_the_landmarks_mirrors`) — 8.25 → 7.97°. Kept, because the motion should not
+  inherit mesh asymmetry either way, but it was not the cause.
+* **Pole-angle quantisation.** The pole is searched once per side on a 36-step grid, so each
+  leg carried a standing error of up to 5° in whichever direction its own grid point fell.
+  Refined to 1° — 7.97 → 7.99. Kept, and equally not the cause.
+* **Solver history.** `LEAD_IN` from 3 to 12 frames changed it by nothing at all.
+
+Traced rather than guessed, the answer was unambiguous. The authored motion matches to
+**0.00° on 20 of 24 frames**; ankle FORWARD and SIDEWAYS placement are identical to the
+digit; only ankle HEIGHT differs, by up to 5.14 cm. On airborne frames that height is set
+by `rest_the_shoe_on_the_floor`, which reads each shoe's own deformed sole — and the two
+shoes sit about 4 cm differently on their bones.
+
+**The fix, when someone wants it:** share the sole clearance between the sides for AIRBORNE
+feet only, keeping each foot's own geometry while planted. An airborne foot only needs to
+not penetrate the floor, so precision there buys nothing; a planted one needs its real
+sole. That removes the asymmetry from exactly the frames it appears on. It touches the
+floor solve, which all three clips depend on, which is why it is written down rather than
+done.
+
+**The lesson, which is this whole section's lesson:** three code changes were made before
+anything was traced. Two were harmless, one was wasted effort. Trace first — the shape of
+the divergence names the cause, and here it named it in a single measurement.
+
+### ISSUE: the head bob measured exactly no effect, before and after every change
+
+**What you see.** The run reads stiff — reported as "from the side the run resembles the
+old 'scooby doo character' run". The named cause is a lack of overlapping action: when the
+torso twist, head bob and limbs all ride one phase, a character reads as a rigid toy rather
+than as alive. So a head bob was added, with a follow-through form so the head trails the
+chest instead of riding along with it. Head travel measured **6.29 cm**. The amplitude was
+raised. Still 6.29 cm. Changed to a different formulation. Still **exactly** 6.29 cm.
+
+**What it actually was.** Nothing to do with the maths. `key()` in `animate_ranger.py`
+inserts a `rotation_quaternion` keyframe for every pose bone but only inserts `location`
+for a named few:
+
+```python
+if posed.name in ("Hip", "Root"):
+    posed.keyframe_insert("location", frame=frame)
+```
+
+`head.location` was being set on the pose and then thrown away — never keyed, so never
+exported. The 6.29 cm was the head being carried by the hip and the spine, which is why it
+did not move when the head's own term did.
+
+**What changed.** `"Head"` added to that set. Head travel went 6.29 → 13.50 cm, and the
+head's peak moved to frame 10 where the hip's is at 11 — the overlap the term was for.
+
+**The principle.** *A number that does not move when you change its input means the knob is
+not connected.* Identical output across three different formulations is not weak effect, it
+is no effect, and the next place to look is the plumbing rather than the model. This is the
+second instance of exactly this fault in this file — see the pelvis sway measuring 0.00 cm
+because `Pelvis` is a connected bone and Blender ignores `location` on those. Both times
+the code read correctly and nothing reached the file.
+
+**The test.** None yet, and it should have one: a guard that every bone the authoring code
+writes `location` to is also in `key()`'s list would have caught both instances. Worth
+adding, because the failure mode is silent by construction.
+
+### ISSUE: the jog felt "like running through water", and the bound existed three times
+
+**What you see.** In-game movement reads sluggish, repeatedly, across several tuning passes.
+Every authored speed gain got given back somewhere else.
+
+**What it actually was.** Two things, and the second is why the first kept happening.
+
+`JOG_SPEED` was pinned just under the run's handover ceiling, and that ceiling came from
+`CHURNS_ABOVE`, which was the **human** running band of 150–200 steps a minute. So the
+speed was not a tuning value at all — it was whatever a human cadence band permitted. It
+could not be raised without the guard refusing it, and the guard was enforcing realism in a
+fantasy game about collecting and raising monsters.
+
+Worse, that band existed in **three** places with three different values:
+`CHURNS_ABOVE` said 140/200/260; the churn test carried its own `(90,140)/(150,200)/
+(220,260)`; and `each_clip_is_authored_near_the_time_its_stride_takes` bounded `stretch` to
+`(0.4..2.5)` — which, since `stretch` is exactly `lasts * cadence / 120`, is a magic 300
+steps a minute in disguise. Raising one refused on another.
+
+**What changed.** One table, `CHURNS_BETWEEN`, which the ceilings and both guards derive
+from. Its tops were then raised as a deliberate stylistic choice — run to 235, sprint to
+290 — and the speeds moved with them: jog 2.39 → **2.81 m/s**, sprint 4.10 → **4.58 m/s**.
+
+Note what was NOT needed: stride warping. Research pointed at it, and it is the wrong fix
+here — `playback_rate` is already unclamped and driven by measured `covers`, so it absorbs
+the whole mismatch and the correct stride scale today is exactly 1.0. Adding `actual /
+authored` on top would have multiplied, 2.40 × 2.40 at the sprint.
+
+**The principle.** *A bound that exists twice is a bound that drifts*, and a bound that
+exists three times will refuse a legitimate change from a copy you forgot about. Derive
+guards from one another so they agree by construction rather than by a coincidence of
+factors — the same argument already written on `hands_over_above`.
+
+**The test.** `the_gaits_churn_like_a_person_at_the_speeds_they_are_driven` and
+`each_clip_is_authored_near_the_time_its_stride_takes`, both now reading `CHURNS_BETWEEN`.
+The first says the band it came from; the second reports the multiple *and* the range its
+cadence band allows.
+
+**The lever still on the table.** Cadence and stride multiply into speed, and stride is the
+higher-quality half — it buys speed without churning the legs faster. That is an authoring
+change in `animate_ranger.py`, not a constant, and it has not been done.
+
 ## Keeping this honest
 
 Add an entry when a bug took **more than one attempt** to fix, or when the symptom

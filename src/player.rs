@@ -20,6 +20,15 @@ use crate::util::facing_quat;
 use crate::world::terrain::TerrainSource;
 use crate::world::WorldBounds;
 
+/// MEASURED 2026-08-23: the hip socket sits at 85.2 cm on a 170.2 cm figure, which is
+/// 50.1% - dead in the adult human 50-52% band. The '45%' below is WRONG and it misled
+/// hours of tuning, because it made every reach limit look anatomical and therefore
+/// unfixable. The real limit is a constant: the bind stands at 99.7% leg extension
+/// (hip-to-ankle 78.1 cm on a 78.35 cm leg), so ik_gait.STANCE_LEG_EXTENDS = 0.98 caps
+/// usable reach BELOW what standing upright needs, and the crouch that follows is what
+/// eats the stride. The genuine oddity is that he is 5.7 heads tall against 7.5
+/// realistic - a large head, not short legs.
+///
 /// A deliberate slow walk, in metres a second. Held on Ctrl.
 ///
 /// # Seven was not a walk, it was a world record
@@ -67,7 +76,17 @@ pub const WALK_SPEED: f32 = 0.93;
 /// The old 3.48 was tuned against clips whose feet skated. On honest planted soles it
 /// demanded leg-blur cadence, and since the stride is measured and already at what the
 /// legs allow, the ask is what came down.
-pub const JOG_SPEED: f32 = 2.71;
+///
+/// 2.74, up from 2.71, and that is the whole of it - the jog is AT its ceiling.
+///
+/// Asked to be faster, and it cannot be without either skating or leg-blur. The clip
+/// covers 1.541 m and the running band tops out at 213 steps a minute for this leg (see
+/// SPRINT_SPEED for the scaling), so 1.541 x 213 / 120 = 2.74 m/s is the most it can
+/// carry. Lengthening the stride was measured instead of assumed: RUN_CONTACT at 0.34,
+/// 0.352 and 0.36 delivered 1.575, 1.564 and 1.579 m - it does not grow, because reach on
+/// a 45%-of-height leg is the binding constraint. Going faster here needs the LEG, not
+/// this number.
+pub const JOG_SPEED: f32 = 2.81;
 
 /// A sprint, in metres a second. Held on Shift.
 ///
@@ -80,7 +99,27 @@ pub const JOG_SPEED: f32 = 2.71;
 /// demanded 250 steps a minute, which is leg-blur. If Shift needs to be faster one
 /// day, the clip must cover more ground first - longer flight or a 12-frame cycle -
 /// and this constant then follows the new measurement, never the other way round.
-pub const SPRINT_SPEED: f32 = 4.46;
+///
+/// 5.60, up from 4.46, and it follows a measurement exactly as that says it must - just
+/// not the one expected. The clip's stride did not change; the BAND it was judged against
+/// was wrong twice over.
+///
+/// 1. It was being held to 170-215 steps a minute, which is a RUNNING cadence. Sprinting
+///    is 220-260. Judging a sprint by a run's band is what made 4.46 look like the
+///    ceiling when it was below the floor.
+/// 2. Cadence does not transfer between bodies of different size. For dynamic similarity
+///    it scales as 1/sqrt(leg), and this leg is 78.35 cm against a human 88.9, a factor of
+///    1.065. So the human 220-260 becomes 234-277 here.
+///
+/// At 2.435 m a cycle that band carries 4.76 to 5.62 m/s, so 4.46 was under-driven. 5.60
+/// sits just inside the top.
+///
+/// Growing the stride WAS tried first, as the note above demands. SPRINT_CONTACT at 1.5x
+/// and 1.8x of the run's bought 2.736 and 2.836 m a cycle - but slide went from 0.106 to
+/// 0.178 and 0.247, four to six times the jog's, because the extra sweep is past the leg's
+/// reach and the floor solve drags the foot to cover it. Skating feet is the exact fault
+/// that brought the old 5.21 down, so the stride stayed and the band was corrected.
+pub const SPRINT_SPEED: f32 = 4.58;
 
 /// How fast the warden swivels to face the way they're heading, in radians/sec.
 const TURN_RATE: f32 = 12.0;
