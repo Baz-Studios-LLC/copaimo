@@ -27,6 +27,38 @@ const ZOOM_SPEED: f32 = 2.5;
 /// Height on the warden the camera aims at — roughly the shoulders, so the
 /// horizon sits where you'd expect rather than at their feet.
 pub const LOOK_HEIGHT: f32 = 1.5;
+/// How wide the view is, in radians. Bevy's default is a quarter turn - 45 degrees - and
+/// that was the setting, which is the narrowest of the three reasons movement read as slow.
+///
+/// Speed is judged from OPTICAL FLOW: how fast the world sweeps across the view, which is
+/// strongest at the edges and near zero at the centre. A narrow view throws the edges away,
+/// so it throws away the cue. It is why the same run reads quick in one game and sluggish
+/// in another at identical metres a second, and it is why raising the number is the first
+/// thing to try rather than raising the speed.
+///
+/// 60 degrees, against Skyrim's ~65 and the 80-90 its players commonly set. Deliberately
+/// short of those: this is a third-person game with the warden filling a good part of the
+/// frame, and past about 65 the lens distortion starts to read on him rather than on the
+/// world going by.
+const SEES: f32 = std::f32::consts::PI / 3.0;
+
+/// Extra view angle at full sprint, in radians - about seven degrees.
+///
+/// The second half of the same idea. A FIXED wide view is wide whether you are standing
+/// still or flat out, so it raises the floor without marking the difference; widening WITH
+/// speed makes the acceleration itself visible, because the edges of the frame stretch as
+/// the warden picks up. Standard practice from racing games through to the sprint kick in
+/// the action games this one is measured against.
+///
+/// It rides `Striding::speed`, the MEASURED and settled one, not `wants` - so it eases in
+/// over the ramp instead of snapping the instant a key goes down, and a warden shoved
+/// against a wall does not get a sprinter's lens.
+const SPEED_WIDENS: f32 = 0.12;
+
+/// How quickly the view angle follows the speed, per second. Slower than the camera's own
+/// follow, because a lens that answers every twitch of the speed is a lens that breathes.
+const WIDENS_AT: f32 = 3.0;
+
 /// How quickly the camera catches up to its ideal position. Higher is tighter.
 const FOLLOW_STIFFNESS: f32 = 14.0;
 /// Minimum clearance the camera keeps above the ground, so backing into a hill
@@ -198,6 +230,7 @@ fn spawn_camera(mut commands: Commands) {
         // Shadows are unaffected; they have their own distance.
         Projection::Perspective(PerspectiveProjection {
             far: SIGHT,
+            fov: SEES,
             ..default()
         }),
         // No distance fog. It used to hide the streaming boundary, but haze
@@ -276,11 +309,25 @@ fn drive_camera(
     orbit: Res<Orbit>,
     terrain: Res<TerrainSource>,
     players: Query<&Transform, (With<Player>, Without<MainCamera>)>,
-    mut cameras: Query<&mut Transform, With<MainCamera>>,
+    striding: Query<&crate::player::Striding, With<Player>>,
+    mut cameras: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
 ) {
-    let Some(mut camera) = cameras.iter_mut().next() else {
+    let Some((mut camera, mut lens)) = cameras.iter_mut().next() else {
         return;
     };
+
+    // Widen the view with speed - see `SPEED_WIDENS`. Against SPRINT_SPEED rather than the
+    // current gait's own top, so the kick is a single continuous ramp across walk, jog and
+    // sprint instead of resetting at each handover.
+    if let Projection::Perspective(ref mut perspective) = *lens {
+        let going = striding
+            .single()
+            .map(|pace| (pace.speed / crate::player::SPRINT_SPEED).clamp(0.0, 1.0))
+            .unwrap_or(0.0);
+        let wanted = SEES + SPEED_WIDENS * going;
+        let t = 1.0 - (-WIDENS_AT * time.delta_secs()).exp();
+        perspective.fov += (wanted - perspective.fov) * t;
+    }
 
     let rotation = Quat::from_euler(EulerRot::YXZ, orbit.yaw, orbit.pitch, 0.0);
     // The direction the rig points; the camera sits back along it.
