@@ -86,7 +86,7 @@ pub const WALK_SPEED: f32 = 0.93;
 /// 0.352 and 0.36 delivered 1.575, 1.564 and 1.579 m - it does not grow, because reach on
 /// a 45%-of-height leg is the binding constraint. Going faster here needs the LEG, not
 /// this number.
-pub const JOG_SPEED: f32 = 3.40;
+pub const JOG_SPEED: f32 = 3.70;
 
 /// A sprint, in metres a second. Held on Shift.
 ///
@@ -119,7 +119,7 @@ pub const JOG_SPEED: f32 = 3.40;
 /// 0.178 and 0.247, four to six times the jog's, because the extra sweep is past the leg's
 /// reach and the floor solve drags the foot to cover it. Skating feet is the exact fault
 /// that brought the old 5.21 down, so the stride stayed and the band was corrected.
-pub const SPRINT_SPEED: f32 = 5.40;
+pub const SPRINT_SPEED: f32 = 5.90;
 
 /// How fast the warden swivels to face the way they're heading, in radians/sec.
 const TURN_RATE: f32 = 12.0;

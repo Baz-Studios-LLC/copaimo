@@ -172,7 +172,7 @@ WALK_CONTACT = 0.34
 # The lesson is the one this file keeps paying for: when a tuning knob does a tenth of
 # what the geometry says it should, stop turning it - something downstream is cancelling
 # it. See TROUBLESHOOTING.md.
-RUN_CONTACT = 0.30
+RUN_CONTACT = 0.36
 SPRINT_CONTACT = RUN_CONTACT * 1.0
 
 # Where each gait's foot lands, as the share of its sweep ahead of the hip. See
