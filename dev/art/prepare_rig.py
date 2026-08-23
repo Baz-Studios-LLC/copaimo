@@ -1163,7 +1163,19 @@ def main():
     # shape into the geometry for good - which is exactly what happened: a flat plate
     # off the left hip, in the bind and in every frame of every clip after it.
     unfuse.unfuse_the_gloves_from_the_pockets(rig, mesh)
-    unfuse.the_spine_owns_the_torso(rig, mesh)
+    # NO TORSO RE-WEIGHT. There was a step here that took the chest back off the
+    # arms - the delivered skin drives it 61% from the upperarm twists and 12% from
+    # Spine02 - on the theory that this was why leaning the spine did not read as a
+    # lean. Measured with the step and without it, the trunk sits in EXACTLY the same
+    # place: head +6.0 cm ahead of the hip either way. The posture came from centring
+    # the skeleton and carrying the pelvis forward, not from the weights.
+    #
+    # And it cost a great deal: the jacket is loose cloth in its own shell, and
+    # splitting its weights between the arm that used to carry it and the spine tore
+    # its front panels into triangles. Rendered at a frame with the arm forward, the
+    # damage is unmistakable. The chest really is arm-driven and that really is odd,
+    # but it is a WEIGHTING decision about a garment, which belongs in a paint tool
+    # with a person looking at it - not in a script inferring it from bone distance.
     print("\nthe shoes:")
     put_the_ball_where_the_shoe_bends(rig, mesh)
     the_feet_own_their_shoes(rig, mesh)

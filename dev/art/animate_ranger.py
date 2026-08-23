@@ -951,7 +951,7 @@ DRIVEN = (
 
 
 def swing_the_arm(rig, side: str, hand: float, phase: float, reach: float,
-                  back: float, elbow_held: float, elbow_swing: float) -> None:
+                  back: float, elbow_held: float, elbow_swing: float, facing) -> None:
     """One arm, for one instant of a cycle: swing, elbow, hang and palm.
 
     In ONE place because it used to be written out twice - once in `pose_the_body` and
@@ -967,10 +967,37 @@ def swing_the_arm(rig, side: str, hand: float, phase: float, reach: float,
     swung = math.cos(2.0 * math.pi * (at - 0.5 - ARM_LAG))
     middle = (reach + back) / 2.0
     half = (reach - back) / 2.0
-    swing(rig, f"{side}_Upperarm", middle + half * swung, REACHES_FORWARD)
-    turn_further(
-        rig, f"{side}_Upperarm",
-        (ARM_HANGS_AT - prepare_rig.ARMS_OUT) * hand, (1.0, 0.0, 0.0),
+    swings_to = middle + half * swung
+
+    # # The arm's direction is STATED, not composed from two turns
+    #
+    # It used to `swing` the fore-aft angle and then `turn_further` the adduction that
+    # brings the arm down from the A-pose bind. Two rotations about different axes do
+    # not add - they couple - so the authored numbers stopped meaning degrees: measured,
+    # 14 forward and 22 back came out as +2.7 and -23, a range compressed to 72% and
+    # shifted 6 degrees back. The hands barely passed the shoulder.
+    #
+    # So the wanted direction is built from the two angles and the arm is turned onto it
+    # by the shortest arc, which is exactly how the feet are aimed and for the same
+    # reason. `swings_to` now means what it says.
+    forward, across = facing
+    down = mathutils.Vector((0.0, 0.0, -1.0))
+    out = math.radians(ARM_HANGS_AT)
+    ahead = math.radians(swings_to)
+    wanted = (
+        down * (math.cos(out) * math.cos(ahead))
+        + across * (hand * math.sin(out) * math.cos(ahead))
+        + forward * math.sin(ahead)
+    ).normalized()
+    posed = rig.pose.bones[f"{side}_Upperarm"]
+    posed.rotation_mode = "QUATERNION"
+    posed.rotation_quaternion = (1.0, 0.0, 0.0, 0.0)
+    bpy.context.view_layer.update()
+    now = (posed.matrix.to_3x3() @ mathutils.Vector((0.0, 1.0, 0.0))).normalized()
+    turn = now.rotation_difference(wanted)
+    frame = posed.matrix.to_3x3()
+    posed.rotation_quaternion = posed.rotation_quaternion @ mathutils.Quaternion(
+        (frame.inverted() @ turn.axis).normalized(), turn.angle
     )
     # The elbow LAST, about the TRUE armature axis, with the upper arm already final.
     # `swing` converts its axis through the forearm's REST basis, which only means
@@ -1173,9 +1200,9 @@ def idle_breathing(rig, facing):
 
 
 def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: float,
-         swing_lift: float, swing_shape: float, lands_ahead: float, reach: float,
-         back: float, elbow_held: float, elbow_swing: float, lean: float,
-         stance: int, bob: float, facing):
+         swing_lift: float, swing_shape: float, lands_ahead: float,
+         arm_forward: float, arm_back: float, elbow_held: float, elbow_swing: float,
+         lean: float, stance: int, bob: float, facing):
     """One cycle, authored by moving the FEET, with IK solving the legs.
 
     Nothing here poses a knee or a hip. The foot's path is stated - planted on the
@@ -1307,12 +1334,22 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
         phase = ((frame - 1) % span) / span
         rest(rig)
 
-        # The body: arms, spine, hands and the ankles. No thigh, no knee.
-        for side, hand in (("L", 1.0), ("R", -1.0)):
-            swing_the_arm(rig, side, hand, phase, reach, back, elbow_held, elbow_swing)
-
+        # The SPINE first, then the arms.
+        #
+        # The arms are aimed in world terms, and the spine is their parent - so leaning
+        # it afterwards carried them with it and every arm ended up 7 degrees behind
+        # where it was asked to be, while its amplitude stayed exactly right. Aiming
+        # after the parent has moved is the whole point of stating a direction: it holds
+        # whatever the chain above it does.
         swing(rig, "Waist", lean * 0.4, LEANS_THE_TORSO_FORWARD)
         swing(rig, "Spine01", lean * 0.6, LEANS_THE_TORSO_FORWARD)
+
+        # The body: arms, hands and the ankles. No thigh, no knee.
+        for side, hand in (("L", 1.0), ("R", -1.0)):
+            swing_the_arm(
+                rig, side, hand, phase, arm_forward, arm_back, elbow_held,
+                elbow_swing, facing,
+            )
 
         # The body's height, on ROOT - which carries no skin weight at all, so moving
         # it cannot shear anything. A deform bone would: translating one away from its
@@ -1362,7 +1399,19 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
         # past its reach, where IK stops tracking and the foot stops meeting the
         # ground. And a hip at its lowest during double support is what a walk does
         # anyway - that is where the pendulum bottoms out.
-        reach = reach_of_leg * ik_gait.STANCE_LEG_EXTENDS
+        # `stance_reach`, and the arm parameters are `arm_forward`/`arm_back`.
+        #
+        # This line used to assign to `reach`, which was ALSO the name of the arm's
+        # forward swing angle in the signature - so from the second frame onward every
+        # arm was posed with 0.45 (a length in model units) instead of the authored 14,
+        # 34 or 46 degrees. The arms still swung, because ARM_BACK was untouched, but
+        # only BEHIND the body: the hands never came forward of the hips in any clip.
+        #
+        # Second shadowed name in this file in one day - the other collided with the
+        # limp check's `rise` and produced a refusal that contradicted itself. Both were
+        # invisible because the code kept running and gave a plausible answer. That is
+        # what a long function buys you, and the names carry their subject now.
+        stance_reach = reach_of_leg * ik_gait.STANCE_LEG_EXTENDS
         socket_z = {
             side: (rig.matrix_world
                    @ rig.pose.bones[f"{side}_Thigh"].bone.matrix_local.translation).z
@@ -1387,7 +1436,9 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
                                   @ rig.pose.bones[f"{side}_Thigh"].bone
                                   .matrix_local.translation).y + flat.y, 0.0)
             ).length
-            up = math.sqrt(max(0.0, reach * reach - across_ground * across_ground))
+            up = math.sqrt(
+                max(0.0, stance_reach * stance_reach - across_ground * across_ground)
+            )
             allowed.append(ankle_here.z + up - socket_z[side])
         # The reach limit is a CEILING, not a target. Tracking it exactly made the hip
         # inherit every wobble in the ankle's height - measured, it spiked from 4 cm
