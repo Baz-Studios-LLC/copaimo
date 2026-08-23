@@ -44,7 +44,7 @@ use crate::world::WorldBounds;
 /// (v²/gL, leg 0.90 m), and the walk-to-run transition sits at Fr ≈ 0.5 — so a real
 /// human at the old "walk" speed would already have broken into a run.
 ///
-/// The walk CLIP natively carries 0.95 m/s, played at 1.00x - nothing stretches,
+/// The walk CLIP natively carries 0.93 m/s, played at 1.00x - nothing stretches,
 /// 120 steps a minute, mid the 90-140 band.
 ///
 /// That is a deliberate amble rather than a brisk walk, and it is the price of
@@ -53,7 +53,7 @@ use crate::world::WorldBounds;
 /// extra centimetre of stride is paid for in crouch. The hip is capped at 6 cm of
 /// drop (ik_gait.HIP_DROPS_AT_MOST) and the stride is whatever fits under that cap.
 /// Walking is the deliberate slow mode here anyway; the default pace is the jog.
-pub const WALK_SPEED: f32 = 0.95;
+pub const WALK_SPEED: f32 = 0.93;
 
 /// The default pace, in metres a second. A jog.
 ///
@@ -61,17 +61,17 @@ pub const WALK_SPEED: f32 = 0.95;
 /// Epic's own authored run 5.00.
 ///
 /// The RUN clip at 200 steps a minute exactly, the top of the 150-200 band a person
-/// runs at. Derived, not chosen: cadence is speed over covers, so 200 x 1.745 / 120
+/// runs at. Derived, not chosen: cadence is speed over covers, so 200 x 1.626 / 120
 /// is the fastest this clip may be asked to carry.
 ///
 /// The old 3.48 was tuned against clips whose feet skated. On honest planted soles it
 /// demanded leg-blur cadence, and since the stride is measured and already at what the
 /// legs allow, the ask is what came down.
-pub const JOG_SPEED: f32 = 2.90;
+pub const JOG_SPEED: f32 = 2.71;
 
 /// A sprint, in metres a second. Held on Shift.
 ///
-/// EXACTLY the sprint clip's native 3.86 m/s (2.253 m a cycle over 0.583 s, 206
+/// EXACTLY the sprint clip's native 4.46 m/s (2.601 m a cycle over 0.583 s, 206
 /// steps a minute): Shift plays it at 1.00x, nothing stretches, nothing skates -
 /// a real 37% jump over the default pace.
 ///
@@ -80,7 +80,7 @@ pub const JOG_SPEED: f32 = 2.90;
 /// demanded 250 steps a minute, which is leg-blur. If Shift needs to be faster one
 /// day, the clip must cover more ground first - longer flight or a 12-frame cycle -
 /// and this constant then follows the new measurement, never the other way round.
-pub const SPRINT_SPEED: f32 = 3.86;
+pub const SPRINT_SPEED: f32 = 4.46;
 
 /// How fast the warden swivels to face the way they're heading, in radians/sec.
 const TURN_RATE: f32 = 12.0;

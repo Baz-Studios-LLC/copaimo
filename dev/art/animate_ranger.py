@@ -63,7 +63,6 @@ import mathutils
 # Blender does not put a --python script's own directory on the path, so a sibling
 # module is not importable without this.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import gather_clips  # noqa: E402
 import unfuse  # noqa: E402
 import prepare_rig  # noqa: E402  (the A-pose numbers; guarded, so importing runs nothing)
 import foot_roll  # noqa: E402
@@ -227,7 +226,17 @@ PREPARED_RIG = "ranger_apose.glb"
 # clip, which is exactly the published breakdown for a 25-frame cycle.
 POSES = 8
 
-# One leg through a full cycle: (thigh, knee, ankle) in degrees at each eighth,
+# One leg's ANKLE PITCH through a full cycle, in degrees at each eighth, positive
+# toes-up. Degrees the sole is tilted off the floor, with the bind pose as the zero.
+#
+# It used to be a (thigh, knee, ankle) triple, and the first two columns are gone: IK
+# solves the thigh and the knee from the foot's path, so nothing ever read them. They
+# were sampled by `pose_the_body`, which had no caller left. The authored values are
+# kept in each row's comment, because they record what the pose was designed to be and
+# that is worth having if the legs are ever hand-posed again - but they are a NOTE now,
+# not data pretending to be used.
+#
+# Originally: one leg through a full cycle,
 # thigh forward-positive, knee fold-positive, ankle toe-up-positive. The other leg
 # reads the same table half a cycle along, which is what makes the two legs
 # genuinely out of phase rather than mirrored — mirroring one step to make the other
@@ -293,25 +302,25 @@ POSES = 8
 # shoe is a 29 cm stylised block, so every degree of toe-up lifts a big visible box:
 # 12 read as an exaggerated heel-first stomp. The read outranks the chart here.
 WALK_LEG = (
-    (38.0, 4.0, 8.0),  # 0     contact - heel strike, toes up, knee nearly straight
-    (26.0, 20.0, 0.0),  # 12.5  down - slapped flat, weight loaded
-    (6.0, 16.0, -8.0),  # 25    passing - HEEL-OFF: it happens at half of stance,
+    8.0,      # 0     contact - heel strike, toes up, knee nearly straight  [thigh 38.0, knee 4.0]
+    0.0,      # 12.5  down - slapped flat, weight loaded  [thigh 26.0, knee 20.0]
+    -8.0,     # 25    passing - HEEL-OFF: it happens at half of stance,  [thigh 6.0, knee 16.0]
     #                       which is a quarter of the cycle here (clinical heel rise
     #                       sits at ~30% of the gait cycle, and this path's stance is
     #                       compressed to half). Holding it flat past this point left
     #                       the trailing heel visibly planted while the other leg
     #                       swung by - a stretched leg on a glued heel.
-    (-10.0, 0.0, -22.0),  # 37.5  up - the heel well up, hips highest
+    -22.0,    # 37.5  up - the heel well up, hips highest  [thigh -10.0, knee 0.0]
     # -22, not -38. The heel lift IS the toe-off, but it raises the ankle: measured at
     # -38 the trailing ankle sat 15.3 cm up with its ball on the floor, which shortens
     # the hip-to-ankle chord and folded that knee 68 degrees where a person is nearer
     # 40. This character cannot have both - its hip is 85.5 cm over a 78 cm leg, so a
     # 40-degree trailing fold at this stride would need the hip ABOVE where it stands
     # at rest. Given the choice, a leg that reads straight beats a deeper heel lift.
-    (-27.0, 24.0, -22.0),  # 50    toe-off - rolling off the creased toes
-    (-6.0, 64.0, -8.0),  # 62.5  initial swing - knee folding to its peak
-    (14.0, 68.0, 0.0),  # 75    mid-swing - clearing the ground
-    (33.0, 22.0, 8.0),  # 87.5  terminal swing - presenting the heel at the strike angle
+    -22.0,    # 50    toe-off - rolling off the creased toes  [thigh -27.0, knee 24.0]
+    -8.0,     # 62.5  initial swing - knee folding to its peak  [thigh -6.0, knee 64.0]
+    0.0,      # 75    mid-swing - clearing the ground  [thigh 14.0, knee 68.0]
+    8.0,      # 87.5  terminal swing - presenting the heel at the strike angle  [thigh 33.0, knee 22.0]
 )
 
 # And a run, which is not a bigger walk. It has a FLIGHT phase, so both feet leave
@@ -324,14 +333,14 @@ WALK_LEG = (
 # shape from the absorption instead - four vertical peaks per cycle where a run has
 # two, and a limp on top.
 RUN_LEG = (
-    (36.0, 12.0, -16.0),  # 0     contact - forefoot lands, knee lightly loaded
-    (2.0, 38.0, -6.0),  # 12.5  mid-stance - deepest absorption, the lowest point
-    (-38.0, 4.0, -32.0),  # 25    push-off - leg extended hard behind, driving back
-    (-30.0, 70.0, -14.0),  # 37.5  early flight - knee folding up behind
-    (-6.0, 100.0, -6.0),  # 50    peak fold - heel toward the buttock
-    (22.0, 92.0, 0.0),  # 62.5  knee drive - thigh coming through high
-    (38.0, 50.0, 4.0),  # 75    reaching - the furthest the leg gets in front
-    (34.0, 26.0, 4.0),  # 87.5  descending - foot coming back under to land
+    -16.0,    # 0     contact - forefoot lands, knee lightly loaded  [thigh 36.0, knee 12.0]
+    -6.0,     # 12.5  mid-stance - deepest absorption, the lowest point  [thigh 2.0, knee 38.0]
+    -32.0,    # 25    push-off - leg extended hard behind, driving back  [thigh -38.0, knee 4.0]
+    -14.0,    # 37.5  early flight - knee folding up behind  [thigh -30.0, knee 70.0]
+    -6.0,     # 50    peak fold - heel toward the buttock  [thigh -6.0, knee 100.0]
+    0.0,      # 62.5  knee drive - thigh coming through high  [thigh 22.0, knee 92.0]
+    4.0,      # 75    reaching - the furthest the leg gets in front  [thigh 38.0, knee 50.0]
+    4.0,      # 87.5  descending - foot coming back under to land  [thigh 34.0, knee 26.0]
 )
 
 # And a sprint, which differs from the run mostly in how LITTLE of it is spent on
@@ -352,14 +361,14 @@ RUN_LEG = (
 # the stride: covers = contact / stance, so a short contact undoes the whole point of
 # a short stance.
 SPRINT_LEG = (
-    (36.0, 12.0, -18.0),  # 0     contact - forefoot, knee lightly loaded
-    (-38.0, 4.0, -34.0),  # 12.5  stance - absorbs and drives through in ONE pose
-    (-30.0, 46.0, -30.0),  # 25    early flight - leaving the ground behind
-    (-34.0, 90.0, -16.0),  # 37.5  flight - knee folding hard
-    (-4.0, 125.0, -6.0),  # 50    peak fold - heel at the buttock
-    (30.0, 112.0, 0.0),  # 62.5  knee drive - thigh through high
-    (48.0, 62.0, 4.0),  # 75    reaching - the furthest in front
-    (44.0, 28.0, 2.0),  # 87.5  descending - coming back under to land
+    -18.0,    # 0     contact - forefoot, knee lightly loaded  [thigh 36.0, knee 12.0]
+    -34.0,    # 12.5  stance - absorbs and drives through in ONE pose  [thigh -38.0, knee 4.0]
+    -30.0,    # 25    early flight - leaving the ground behind  [thigh -30.0, knee 46.0]
+    -16.0,    # 37.5  flight - knee folding hard  [thigh -34.0, knee 90.0]
+    -6.0,     # 50    peak fold - heel at the buttock  [thigh -4.0, knee 125.0]
+    0.0,      # 62.5  knee drive - thigh through high  [thigh 30.0, knee 112.0]
+    4.0,      # 75    reaching - the furthest in front  [thigh 48.0, knee 62.0]
+    2.0,      # 87.5  descending - coming back under to land  [thigh 44.0, knee 28.0]
 )
 
 # --- The arms
@@ -1017,71 +1026,6 @@ def swing_the_arm(rig, side: str, hand: float, phase: float, reach: float,
     swing(rig, f"{side}_Hand", PALM_IN * hand, axis=(0.0, 0.0, 1.0))
 
 
-def pose_the_body(rig, leg, step: int, phase: float, reach: float, back: float,
-                  elbow_held: float, elbow_swing: float, lean: float,
-                  drop: float, facing) -> None:
-    """Sets every bone for one pose, hips excepted.
-
-    Factored out because the hips need TWO passes over the cycle — one to find out
-    where planting puts them, another to key them once the airborne stretches have
-    been filled in — and posing the body twice from one description is the only way
-    those passes can agree about what they are looking at.
-    """
-    rest(rig)
-    for side, hand in (("L", 1.0), ("R", -1.0)):
-        # The right leg leads at phase nought and the left half a cycle later.
-        # `hand` is +1 on the left, so the left reads the table offset by half.
-        at = (step + (POSES // 2 if hand > 0.0 else 0)) % POSES
-        thigh, knee, ankle = leg[at]
-
-        # The pelvis's yaw and obliquity, on this leg. `swinging` runs from -1 when
-        # the leg is planted to +1 when it is carrying itself through, which is a
-        # leg's own half of the cycle: it reads the table at index `at`, so the first
-        # four rows are its stance and the last four its swing.
-        swinging = -1.0 if at < POSES // 2 else 1.0
-        swing(rig, f"{side}_Thigh", thigh + PELVIS_YAW * swinging, REACHES_FORWARD)
-        swing(rig, f"{side}_Calf", knee, FOLDS_THE_KNEE)
-        swing(rig, f"{side}_Foot", ankle, LIFTS_THE_TOE)
-        # And the drop, as adduction: the swinging leg hangs down and in toward the
-        # midline while the standing one holds the hip up.
-        turn_further(rig, f"{side}_Thigh", drop * swinging * hand, (1.0, 0.0, 0.0))
-
-        swing_the_arm(rig, side, hand, phase, reach, back, elbow_held, elbow_swing)
-
-    # Sway ONCE per cycle, toward whichever foot carries the weight: the right at a
-    # quarter, the left at three quarters. This one stays on `Hip` because a pure
-    # translation moves both legs by the same vector, so it cannot make the two
-    # halves differ.
-    shift(rig, "Hip", -PELVIS_SWAY * math.sin(2.0 * math.pi * phase), (0.0, 1.0, 0.0))
-    # And the pelvis LEADS, by a constant. Standing the trunk up by leaning the spine
-    # can only rotate it about the hips, so the hips stay put and the shoulders come
-    # over them; carrying the pelvis forward instead moves the whole body over its
-    # legs, which is what reads as standing up straight. A walker does lead with the
-    # pelvis - it is the first thing that moves when you start walking.
-    shift(rig, "Hip", PELVIS_LEADS, (forward.x, forward.y, 0.0))
-    # The legs stood up under the body and the feet yawed in toward the line of
-    # travel, both measured against what is actually there rather than applied blind,
-    # and both about true armature axes - by this point a foot's own rest frame has
-    # been carried a long way off by its thigh and knee. See `stand_the_leg_up` and
-    # `turn_further_absolutely`.
-    forward, across = facing
-    for side in "LR":
-        bpy.context.view_layer.update()
-        stand_the_leg_up(rig, side, LEGS_SIT_AT, across)
-        bpy.context.view_layer.update()
-        point_the_foot_along(rig, side, TOES_SIT_AT, forward, across)
-
-    # The lean into a run, on the waist and lower spine rather than the hips so the
-    # legs keep their own frame. Spread across two joints so the back curves into it
-    # instead of hinging at one point.
-    #
-    # `LEANS_THE_TORSO_FORWARD`, NOT `REACHES_FORWARD` - see the constant. The spine
-    # points up where a limb points down, so the two need opposite signs to do the
-    # same thing, and using the limb's constant here leant the torso backwards.
-    swing(rig, "Waist", lean * 0.4, LEANS_THE_TORSO_FORWARD)
-    swing(rig, "Spine01", lean * 0.6, LEANS_THE_TORSO_FORWARD)
-
-
 def fill_in_the_flight(lift, bound: float):
     """Fills the airborne poses with a ballistic arc between the planted ones.
 
@@ -1202,7 +1146,7 @@ def idle_breathing(rig, facing):
 def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: float,
          swing_lift: float, swing_shape: float, lands_ahead: float,
          arm_forward: float, arm_back: float, elbow_held: float, elbow_swing: float,
-         lean: float, stance: int, bob: float, facing):
+         lean: float, stance: int, facing):
     """One cycle, authored by moving the FEET, with IK solving the legs.
 
     Nothing here poses a knee or a hip. The foot's path is stated - planted on the
@@ -1233,7 +1177,6 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
     # The cap also silently told the bob every gait was a run; that was patched by
     # passing `duty` separately, which was treating the symptom.
     share = stance / POSES
-    duty = share
     reach_of_leg = (
         rig.matrix_world @ rig.pose.bones["R_Foot"].head
         - rig.matrix_world @ rig.pose.bones["R_Thigh"].head
@@ -1289,13 +1232,13 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
             own = (at + (0.5 if side == "L" else 0.0)) % 1.0
             if own >= share:
                 continue
-            tilt_here = smoothly([row[2] for row in leg], own)
+            tilt_here = smoothly(leg, own)
             balls_here = foot_roll.where_the_balls_go(
                 rig, facing, contact, share, at, reach_of_leg, ground, landmarks,
                 swing_lift, swing_shape, lands_ahead, ball_leads_ankle
             )
             ankle_here, _ = foot_roll.ankle_for(
-                balls_here[side], tilt_here, TOES_SIT_AT, side, facing[0], facing[1],
+                rig, balls_here[side], tilt_here, TOES_SIT_AT, side, facing[0], facing[1],
                 landmarks[side],
             )
             socket = rig.matrix_world @ rig.pose.bones[
@@ -1422,9 +1365,9 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
             own = (phase + (0.5 if side == "L" else 0.0)) % 1.0
             if own >= share:
                 continue
-            tilt_here = smoothly([row[2] for row in leg], own)
+            tilt_here = smoothly(leg, own)
             ankle_here, _ = foot_roll.ankle_for(
-                balls[side], tilt_here, TOES_SIT_AT, side, facing[0], facing[1],
+                rig, balls[side], tilt_here, TOES_SIT_AT, side, facing[0], facing[1],
                 landmarks[side],
             )
             flat = (ankle_here - balls[side])
@@ -1451,7 +1394,23 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
         # leading leg simply reaches its limit - which is a straight leg at heel
         # strike, exactly what a walk wants there. The floor solve then brings its
         # target to the ground, so nothing floats.
-        rides = deepest * (1.0 + math.cos(4.0 * math.pi * phase)) / 2.0
+        # WHERE the bob bottoms out depends on which kind of gait this is, and the two
+        # are opposite - the distinction the deleted `how_high_the_body_rides` used to
+        # carry, and which this lost when the height became derived:
+        #
+        #   a WALK is an inverted pendulum. The body vaults over a straight stance leg,
+        #     so it is LOWEST in double support, which is contact - phase 0 and 0.5.
+        #   a RUN is a spring. The leg compresses under the body, so it is lowest at
+        #     MID-STANCE and highest in flight.
+        #
+        # Using the walk's phasing for everything put the run's and sprint's dips at
+        # phase 0 and 0.5 - and with stance only 0.375 of their cycle, half of every
+        # dip landed while both feet were off the ground, where nothing is compressing.
+        # Duty factor says which kind this is, so it picks the phase.
+        bottoms_at = 0.0 if share > 0.5 else share / 2.0
+        rides = deepest * (
+            1.0 + math.cos(4.0 * math.pi * (phase - bottoms_at))
+        ) / 2.0
         root = rig.pose.bones.get("Root")
         if root is not None:
             axes = root.bone.matrix_local.to_3x3().inverted()
@@ -1506,7 +1465,7 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
         tilts = {}
         for side in "LR":
             own = (phase + (0.5 if side == "L" else 0.0)) % 1.0
-            tilt = smoothly([row[2] for row in leg], own)
+            tilt = smoothly(leg, own)
             # # Toes flat ONLY while planted; airborne toes follow the foot
             #
             # The flat-toe rule used to look at pitch alone, so through early swing
@@ -1524,7 +1483,7 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
                 bend = flat_bend * max(0.0, 1.0 - through / 0.25)
             toes_at = tilt + bend
             spot, aim = foot_roll.ankle_for(
-                balls[side], tilt, TOES_SIT_AT, side, facing[0], facing[1],
+                rig, balls[side], tilt, TOES_SIT_AT, side, facing[0], facing[1],
                 landmarks[side],
             )
             targets[side].location = spot
@@ -1922,9 +1881,8 @@ def main() -> None:
     # walk export into the folder silently threw away every rig repair: the mirroring, the
     # bind pose, the welded mesh, all of it, with nothing in the log to say so.
     #
-    # Preset clips are gathered by `gather_clips.py`, which reads them from wherever they
-    # are and refuses if their rest pose does not match. So nothing here needs the raw
-    # file, and reading it is only ever a mistake.
+    # Nothing here needs the raw export, and reading it is only ever a mistake: its
+    # rest pose is the crouch this rig was repaired out of.
     source = os.path.join(here, PREPARED_RIG)
     out = os.path.join(root, "assets", "models", "person_ranger.glb")
     if not os.path.isfile(source):
@@ -1970,11 +1928,17 @@ def main() -> None:
     # below exists only because the first export happened to have the IDLE preset
     # selected and nobody asked what else was on offer.
     print("looking for the generator's own gaits:")
-    given = gather_clips.take_the_clips(rig, source)
-    if given:
-        gather_clips.how_long_each_is(given)
-    else:
-        print("  none found; the gaits below are authored instead")
+    # NO PRESET-CLIP GATHERING. There was a step here that imported every other .glb
+    # in the project root looking for the generator's own walk and run, and it could
+    # never succeed: it accepts a sibling only if its rest pose matches the primary's to
+    # within half a millimetre, and the primary is the PREPARED rig, whose rest pose was
+    # deliberately mirrored, straightened and A-posed away from every raw export. So it
+    # re-imported 3.5 MB on every build to reject it - a check that can only ever fail.
+    #
+    # Preset clips are still worth having one day, and the honest way is a WORLD-SPACE
+    # retarget: sample each bone's world matrix per frame from the source rig and
+    # replay it against this rest pose. Copying quaternions cannot work across a bind
+    # change, which is what the rejected comparison was correctly refusing to do.
 
     # Which way the body faces, taken once from the rest pose. Everything that needs
     # to know is handed this, rather than working it out from feet that have moved.
@@ -2038,40 +2002,31 @@ def main() -> None:
     # 2.282 over 16 is 3.42, and 3.50 over 14 is 6.00. `src/motion.rs` places each tier
     # at its own clip's native speed for exactly that reason.
     # The idle first: it is the state every other clip blends from.
-    if idle is None and "idle" not in given:
+    if idle is None:
         idle_breathing(rig, facing).use_fake_user = True
 
-    if "walk" in given:
-        print(f"  keeping the walk that came with the model")
-    else:
-        gait(
+    gait(
             rig, body, feet, ground, "walk", WALK_LEG, 24, WALK_CONTACT, WALK_SWING_LIFT, WALK_SWING_SHAPE, WALK_LANDS_AHEAD,
             ARM_FORWARD, ARM_BACK,
             # 2 degrees of trunk lean, not 0. A walk is upright, but dead plumb
             # reads as being carried along rather than walking; a couple of degrees is
             # what a person leans to actually go somewhere.
-            ELBOW_HELD, ELBOW_SWING, WALK_LEAN, WALK_STANCE, ik_gait.WALK_BOB, facing,
+            ELBOW_HELD, ELBOW_SWING, WALK_LEAN, WALK_STANCE, facing,
         ).use_fake_user = True
-    if "run" in given:
-        print(f"  keeping the run that came with the model")
-    else:
-        gait(
+    gait(
             # An EVEN span, always: a cycle is two identical steps, so the half
             # cycle must land exactly on a frame. 15 was tried for the cadence and the
             # verifier refused it - the two halves sample different phases and the
             # hips disagree with themselves by 21%, which is a limp.
             rig, body, feet, ground, "run", RUN_LEG, 16, RUN_CONTACT, RUN_SWING_LIFT, RUN_SWING_SHAPE, RUN_LANDS_AHEAD,
             RUN_ARM_FORWARD, RUN_ARM_BACK,
-            RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_STANCE, ik_gait.RUN_BOB, facing,
+            RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_STANCE, facing,
         ).use_fake_user = True
-    if "sprint" in given:
-        print(f"  keeping the sprint that came with the model")
-    else:
-        gait(
+    gait(
             # 14 frames, not 16: a sprint cycle is ~0.58 s where a run's is ~0.67.
             rig, body, feet, ground, "sprint", SPRINT_LEG, 14, SPRINT_CONTACT, SPRINT_SWING_LIFT, SPRINT_SWING_SHAPE, SPRINT_LANDS_AHEAD,
             SPRINT_ARM_FORWARD, SPRINT_ARM_BACK, RUN_ELBOW_HELD, RUN_ELBOW_SWING, SPRINT_LEAN, SPRINT_STANCE,
-            ik_gait.RUN_BOB, facing,
+            facing,
         ).use_fake_user = True
 
     bpy.ops.export_scene.gltf(

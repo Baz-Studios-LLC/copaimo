@@ -871,12 +871,39 @@ def stand_in_an_a_pose(rig):
     # that axis to whatever the parent handed down, and the sole tilts. The whole
     # orientation is restored instead, so the sole sits exactly as sculpted.
     world3 = rig.matrix_world.to_3x3()
+    # # Holding the bind is not the same as holding the bind's MISTAKES
+    #
+    # This held each foot's bind orientation outright, which fixed the A-pose shearing
+    # the shoes - and quietly stopped TOE_OUT being applied to anything. Measured, the
+    # baked feet toed out 17.65 degrees apiece, 35 between them, while the constant read
+    # 0.0 and the report said so. The flare that was reported twice was never fixed;
+    # a number nothing reads had been set to zero.
+    #
+    # So the bind orientation is held and then YAWED about world up by the difference
+    # between the toe-out it has and the toe-out asked for. Yaw about up cannot tilt a
+    # sole, so the flatness the block exists to preserve is untouched.
+    yaw_by = {}
+    for side in "LR":
+        hand = 1.0 if side == "L" else -1.0
+        ankle = rest_head(rig, f"{side}_Foot")
+        tip = rest_tail(rig, f"{side}_ToeBase")
+        line = tip - ankle
+        line.z = 0.0
+        has = math.degrees(math.atan2(line.dot(across) * hand, line.dot(forward)))
+        yaw_by[side] = mathutils.Quaternion(
+            up, math.radians((TOE_OUT - has) * hand)
+        ).to_matrix()
+        print(f"  the {side} foot is bound {has:+.2f} deg out; yawing it "
+              f"{TOE_OUT - has:+.2f} to reach the {TOE_OUT} asked for")
+
     for side in "LR":
         for part in ("Foot", "ToeBase"):
             posed = rig.pose.bones[f"{side}_{part}"]
             bone = posed.bone
             bpy.context.view_layer.update()
-            target = (world3 @ bone.matrix_local.to_3x3()).to_4x4()
+            target = (
+                yaw_by[side] @ world3 @ bone.matrix_local.to_3x3()
+            ).to_4x4()
             target.translation = posed.matrix.translation
             posed.matrix_basis = bone.convert_local_to_pose(
                 target,
@@ -891,14 +918,14 @@ def stand_in_an_a_pose(rig):
     for side in "LR":
         for part in ("Foot", "ToeBase"):
             posed = rig.pose.bones[f"{side}_{part}"]
-            bound = world3 @ posed.bone.matrix_local.to_3x3()
+            bound = yaw_by[side] @ world3 @ posed.bone.matrix_local.to_3x3()
             now = world3 @ posed.matrix.to_3x3()
             off = max(off, math.degrees(
                 (bound.inverted() @ now).to_quaternion().angle
             ))
-    print(f"  the feet hold their bind orientation to within {off:.4f} deg")
+    print(f"  the feet hold that orientation to within {off:.4f} deg")
     if off > 0.05:
-        refuse(f"the feet are {off:.2f} deg off the orientation they were bound with")
+        refuse(f"the feet are {off:.2f} deg off the orientation they were aimed at")
 
     worst, worst_name = 0.0, ""
     for name, asked in wanted.items():
@@ -1062,6 +1089,17 @@ def bake_the_pose_as_rest(rig, mesh):
     print(f"    the pelvis-to-neck line rests {plumb:+.2f} deg from plumb")
     if abs(plumb) > 0.3:
         refuse(f"the torso still leans {plumb:+.1f} deg in the bind pose")
+
+    # The toe-out, measured on the BAKED bind rather than trusted. This is the check
+    # that was missing while the feet toed out 17.65 degrees and the log said 0.0.
+    for side in "LR":
+        hand = 1.0 if side == "L" else -1.0
+        line = rest_tail(rig, f"{side}_ToeBase") - rest_head(rig, f"{side}_Foot")
+        line.z = 0.0
+        out = math.degrees(math.atan2(line.dot(across) * hand, line.dot(forward)))
+        print(f"    the {side} foot rests {out:+.3f} deg out, asked {TOE_OUT}")
+        if abs(out - TOE_OUT) > 0.1:
+            refuse(f"the baked {side} foot toes out {out:+.2f} deg, not {TOE_OUT}")
 
     left = sole_of(mesh)
     print(f"    the soles rest at {left * SCALE:+.4f} cm with no pose on the rig")

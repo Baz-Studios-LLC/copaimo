@@ -45,6 +45,7 @@ of them being named. That is what a foot roll is.
 import math
 
 import bpy
+import ik_gait
 import mathutils
 
 
@@ -211,20 +212,24 @@ def rest_the_shoe_on_the_floor(rig, mesh, feet, targets, ground, planted, tilts,
     return worst
 
 
-def ankle_for(ball, tilt: float, toe_out: float, side: str, forward, across, landmarks):
+def ankle_for(rig, ball, tilt: float, toe_out: float, side: str, forward, across,
+              landmarks):
     """Where the ankle must be to put the ball THERE with the foot tilted THAT far.
 
     The foot is a rigid body: fix the ball and choose an orientation, and the ankle has
     exactly one place it can be. So the IK target is not authored - it is derived, which
     is the whole point of pivoting on the ball.
     """
-    hand = 1.0 if side == "L" else -1.0
-    yaw = math.radians(toe_out * hand)
-    heading = forward * math.cos(yaw) + across * math.sin(yaw)
-    lift = math.radians(tilt)
-    wanted = (
-        heading * math.cos(lift) + mathutils.Vector((0.0, 0.0, 1.0)) * math.sin(lift)
-    ).normalized()
-
-    turn = landmarks["rest_direction"].rotation_difference(wanted)
-    return ball + (turn @ landmarks["ankle_from_ball"]), wanted
+    # THE SAME turn `point_the_foot` will apply, from the one function that knows it.
+    #
+    # This used to build a target direction from the horizontal and swing the bind onto
+    # it with rotation_difference, while point_the_foot rotated the bind by `pitch`
+    # about the heading's lateral. The two differ by the bind's own pitch - 7.45 degrees
+    # here - so the ankle derived for a tilt did not match the orientation the foot was
+    # then given, and the floor solve spent its passes absorbing the mismatch instead of
+    # resting the shoe. Deriving the ankle is only sound if it is derived from the same
+    # rotation.
+    turn, heading, _ = ik_gait.how_the_foot_turns(
+        rig, side, tilt, toe_out, forward, across
+    )
+    return ball + (turn @ landmarks["ankle_from_ball"]), heading

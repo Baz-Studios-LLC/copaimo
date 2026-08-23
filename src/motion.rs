@@ -57,14 +57,14 @@ const BREAKS_INTO_A_RUN: f32 = 3.4;
 ///
 /// Current clips, measured 2026-08-22 (toe flex, shoe weights owned by the feet,
 /// stride bounded by this character's short legs and a 6 cm cap on hip drop):
-/// walk 0.950 m/s native, run 2.618, sprint 3.863. The
+/// walk 0.926 m/s native, run 2.439, sprint 4.458. The
 /// running sweeps are one leg length apiece - which only fits inside the leg's reach
 /// because the stance window is asymmetric (land ~35% ahead, release ~65% behind,
 /// the art pipeline's LANDS_AHEAD). Measured per VERTEX of the planted sole,
 /// horizontal only: a centroid whose membership shifts as the shoe rolls reads as
 /// slide when nothing slid, and vertical pad lift is not slide either.
-const WALK_COVERS: f32 = 0.950;
-const RUN_COVERS: f32 = 1.745;
+const WALK_COVERS: f32 = 0.926;
+const RUN_COVERS: f32 = 1.626;
 
 /// The moving gaits, slowest first: the word in the clip's name, how far one cycle
 /// carries the warden in metres, and the speed above which the next one takes over.
@@ -127,14 +127,14 @@ const fn hands_over_above(covers: f32, frames: f32) -> f32 {
 
 /// What one sprint cycle carries, measured like the others - see `WALK_COVERS`.
 ///
-/// 2.253 m over fourteen frames is 3.86 m/s natively at 206 steps a minute. The
+/// 2.601 m over fourteen frames is 4.46 m/s natively at 206 steps a minute. The
 /// sprint sweeps the same ground per stance as the run (planted-foot travel stays
 /// near one leg length at every speed - 0.99 +/- 0.08 m from 6.2 to 11.1 m/s) and
 /// buys its speed with a shorter cycle and a longer flight, never by reaching
 /// further. Trying to reach further is why 42 degrees of thigh swing once read as
 /// the splits, and it is also why the first sprint clip came out NATIVELY SLOWER
 /// than the run: it kept the run's cadence and shrank its sweep.
-const SPRINT_COVERS: f32 = 2.253;
+const SPRINT_COVERS: f32 = 2.601;
 
 /// What to hand `set_speed` so a clip plays at the right cadence.
 ///

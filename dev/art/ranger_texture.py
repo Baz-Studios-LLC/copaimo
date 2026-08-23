@@ -112,6 +112,24 @@ def main() -> None:
     source = os.path.join(root, "Ranger_Rig_Idle.glb")
     out = os.path.join(here, "ranger_basecolor.png")
 
+    # # Skipped when nothing it depends on has changed
+    #
+    # Re-encoding a 4096 x 4096 PNG took 5.1 seconds of a 14.9 second build, every
+    # build, from an input that changes about once a month. The pipeline is run dozens
+    # of times in a session and slow feedback caused real mistakes today - a stale
+    # bytecode cache once made a source edit look like a no-op - so a third of the wait
+    # for no work is worth removing.
+    #
+    # The stamp is the source glb AND this script: if either is newer than the output,
+    # the output is stale. Nothing else can change the answer.
+    if os.path.isfile(out):
+        fresh = os.path.getmtime(out)
+        if all(os.path.getmtime(need) <= fresh
+               for need in (source, os.path.abspath(__file__))):
+            print(f"UNCHANGED {os.path.basename(out)} is newer than the export and "
+                  "this script, so the texture is already calm")
+            return
+
     parts = chunks_of(open(source, "rb").read())
     tree = json.loads(parts["JSON"])
     blob = parts["BIN"]
@@ -154,7 +172,9 @@ def main() -> None:
         channel = pixels[:, :, lane]
         channel[sclera] = (channel[sclera] * scale).astype(numpy.int16)
 
-    Image.fromarray(pixels.astype(numpy.uint8)).save(out, "PNG", optimize=True)
+    # No `optimize=True`: it costs seconds of zlib search on a 16-megapixel image to
+    # save space in a DEV INTERMEDIATE that is re-encoded into the glb moments later.
+    Image.fromarray(pixels.astype(numpy.uint8)).save(out, "PNG", compress_level=1)
     print(f"CALMED {int(sclera.sum())} pixels of eye white -> {os.path.basename(out)}")
 
     # Measured out of what was actually written, which is the whole point of doing

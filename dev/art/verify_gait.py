@@ -104,6 +104,14 @@ THIGH_REACHES_BACK = 12.0
 # lurch that started this measured 3.8x, and a healthy walk measures 1.3.
 HIP_STEPS_PAST_SMOOTH = 2.0
 
+# How nearly the two steps of a cycle must match, with the legs swapped, each in its
+# own unit. A limp that reads as one shows up far above these: the one this codebase
+# actually shipped had the two halves bobbing 4.57 cm and 2.95, a 1.6 cm gap in a
+# single quantity. The current clips sit at 1.09 cm and 4.05 deg, which is this asset's
+# own left-right mesh asymmetry coming through the foot landmarks.
+ANKLES_SWAP_WITHIN = 0.02      # model units, about 3.4 cm
+THIGH_SWAP_WITHIN = 6.0        # degrees
+
 # How nearly the first frame must equal the last. They are the same instant.
 SEAM_CLOSES_WITHIN = 0.002
 
@@ -778,6 +786,53 @@ def main() -> None:
                 f"posture, and a walk wants between {-WALK_MAY_LEAN_BACK:+.1f} and "
                 f"{WALK_MAY_LEAN_FORWARD:+.1f}. Leaning BACK is the fault this checks "
                 f"for; a loaded walker leans into the load."
+            )
+
+        # --- THE limp check: the two legs must do the same thing, half a cycle apart.
+        #
+        # A cycle is two steps, and the second is the first with the legs swapped. So
+        # the LEFT leg at frame i must match the RIGHT leg at frame i + half, and the
+        # arms likewise. That is the invariant, and it is measured on the legs.
+        #
+        # The three hip-height checks below cannot do this job any more and are kept
+        # only for the shapes they still catch. The hip is no longer a consequence of
+        # the legs: it is a closed-form cosine of phase, fitted under the reach ceiling,
+        # so its two halves are identical whatever the legs are doing and a limp is
+        # invisible to it. A guard has to watch something that responds to the fault.
+        # In the quantities' OWN units, with a limit for each. A single blended
+        # tolerance was tried first and it is not defensible: 0.01 of "scaled
+        # disagreement" refused all three clips without saying what was wrong, and the
+        # underlying numbers turned out to be 1.09 cm and 4.05 degrees - small, and
+        # explained. This asset's two shoes sit about 4 cm differently on their own
+        # bones, so the per-side foot landmarks differ and the derived ankle with them.
+        # That is the mesh's asymmetry, not a limp in the motion, and it belongs to a
+        # sculpting pass. The limits below are where a person starts to see a hitch.
+        half = span // 2
+        swap = {"ankles": 0.0, "thigh": 0.0}
+        where = {"ankles": "", "thigh": ""}
+        for i in range(len(frames) - half):
+            here, later = frames[i], frames[i + half]
+            for what in swap:
+                off = max(
+                    abs(here[what]["L"] - later[what]["R"]),
+                    abs(here[what]["R"] - later[what]["L"]),
+                )
+                if off > swap[what]:
+                    swap[what] = off
+                    where[what] = f"frame {here['frame']}"
+        scored[name]["ankles_swap_cm"] = round(swap["ankles"] * 100.0, 2)
+        scored[name]["thigh_swap_deg"] = round(swap["thigh"], 2)
+        if swap["ankles"] > ANKLES_SWAP_WITHIN:
+            refused.append(
+                f"{name}: it LIMPS. Swapped half a cycle apart the two ankles disagree "
+                f"by {swap['ankles'] * 100.0:.2f} cm at {where['ankles']}, where "
+                f"{ANKLES_SWAP_WITHIN * 100.0:.1f} cm is the most allowed."
+            )
+        if swap["thigh"] > THIGH_SWAP_WITHIN:
+            refused.append(
+                f"{name}: it LIMPS. Swapped half a cycle apart the two thighs disagree "
+                f"by {swap['thigh']:.2f} deg at {where['thigh']}, where "
+                f"{THIGH_SWAP_WITHIN} is the most allowed."
             )
 
         # A limp, stated as a refusal rather than a score, because a cycle whose two

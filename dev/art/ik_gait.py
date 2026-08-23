@@ -53,8 +53,6 @@ CLEARS_BY = 0.10
 # An INPUT now, which is the whole point of authoring this way round. Real walking
 # oscillates 2.7 to 4.8 cm and running 6 to 9; at 1.7 m scale those are 0.016 to 0.028
 # and 0.035 to 0.053. Twice per cycle for both, lowest just after each foot lands.
-WALK_BOB = 0.020
-RUN_BOB = 0.030
 
 # How far the hips sit below where a straight leg would put them.
 #
@@ -281,30 +279,6 @@ def where_the_soles_go(rig, facing, contact: float, share: float, phase: float,
     return out
 
 
-def how_high_the_body_rides(share: float, phase: float, bob: float) -> float:
-    """How far the body sits above its own average, at this instant.
-
-    Twice per cycle either way, but WHERE the peaks fall depends on which kind of gait
-    this is, and the two kinds are opposite:
-
-      a WALK is an inverted pendulum - the body VAULTS over the straight stance leg, so
-        it is highest at mid-stance and lowest in double support;
-      a RUN is a spring - the leg compresses under the body, so it is LOWEST at
-        mid-stance and highest in flight.
-
-    One formula served both at first, and it was the run's. On the walk that put the
-    body at its highest exactly when both feet were spread on the ground, which drove
-    the trailing leg to full stretch: measured, the trailing knee snapped from 43.5
-    degrees to 0.3 in one frame, at precisely 100.0% of the leg's reach.
-
-    The duty factor already says which kind this is - stance over half the cycle is the
-    definition of a walk - so the share picks the sign.
-    """
-    pendular = share > 0.5
-    swing = math.cos(4.0 * math.pi * (phase - share * 0.5))
-    return (bob if pendular else -bob) * swing
-
-
 def solve_the_target(rig, mesh, feet, targets, wanted, pitches, tries: int = 4,
                      forward=None, across=None, toe_out: float = 0.0):
     """Moves each IK target until the SOLE lands where the path asks.
@@ -375,6 +349,48 @@ TOES_POINT_OUT = 0.0
 TOES_BEND_UP_TO = 50.0
 
 
+def how_the_foot_turns(rig, side: str, pitch: float, toe_out: float, forward, across):
+    """The rotation that takes this foot's BIND orientation to the one asked for.
+
+    One function because two callers need the identical answer and used to compute it
+    two different ways: `point_the_foot` rotated the bind by `pitch` about the heading's
+    lateral, while `foot_roll.ankle_for` built a target direction from the horizontal and
+    swung the bind onto it with `rotation_difference`. Those differ by the bind's own
+    pitch - measured, 7.45 degrees - so the ankle position derived for a given tilt did
+    not match the orientation the foot was then given, and the floor solve spent passes
+    absorbing the difference.
+
+    "Pitch" means degrees the sole is tilted off the floor, positive toes-up, which is
+    what the pose tables state and what the bind is the zero of.
+    """
+    hand = 1.0 if side == "L" else -1.0
+    up = mathutils.Vector((0.0, 0.0, 1.0))
+    yaw = math.radians(toe_out * hand)
+    heading = (forward * math.cos(yaw) + across * math.sin(yaw)).normalized()
+    # heading x up, so POSITIVE degrees lift the toes - the other order inverts every
+    # pitch in every clip, which the verifier refuses on sight.
+    lateral = heading.cross(up).normalized()
+
+    world3 = rig.matrix_world.to_3x3()
+    foot = rig.data.bones[f"{side}_Foot"]
+    toe = rig.data.bones[f"{side}_ToeBase"]
+    rest_line = (
+        rig.matrix_world @ (toe.matrix_local @ mathutils.Vector((0.0, toe.length, 0.0)))
+    ) - (rig.matrix_world @ foot.matrix_local.translation)
+    rest_line.z = 0.0
+    if rest_line.length < 1e-9:
+        return mathutils.Quaternion(), heading, lateral
+    rest_line.normalize()
+    turn_yaw = mathutils.Quaternion(
+        up, math.atan2(rest_line.cross(heading).dot(up), rest_line.dot(heading))
+    )
+    return (
+        mathutils.Quaternion(lateral, math.radians(pitch)) @ turn_yaw,
+        heading,
+        lateral,
+    )
+
+
 def point_the_foot(rig, side: str, pitch: float, toe_out: float, forward, across,
                    toes_at: float = None):
     """Aims one foot outright: heading AND pitch, both stated, neither read back.
@@ -408,32 +424,7 @@ def point_the_foot(rig, side: str, pitch: float, toe_out: float, forward, across
     # the side", visible from the front. So the target is a full frame: the bind
     # orientation yawed to the heading and pitched about the heading's own lateral.
     # Zero bank by construction, whatever the calf did.
-    hand = 1.0 if side == "L" else -1.0
-    yaw = math.radians(toe_out * hand)
-    heading = forward * math.cos(yaw) + across * math.sin(yaw)
-    up = mathutils.Vector((0.0, 0.0, 1.0))
-    # heading x up, not up x heading: the pitch axis must satisfy axis x heading = up
-    # so that POSITIVE degrees lift the toes. The other order is the same line pointed
-    # the other way, and it inverted every pitch in all three clips - leading feet
-    # landing toe-first, trailing feet pushing off heel-first - which the verifier
-    # refused on sight.
-    lateral = heading.cross(up).normalized()
-
-    # The bind's own heading, so the yaw applied is the DIFFERENCE - the bind already
-    # carries its toe-out.
     world3 = rig.matrix_world.to_3x3()
-    foot_bind = rig.data.bones[f"{side}_Foot"]
-    toe_bind = rig.data.bones[f"{side}_ToeBase"]
-    rest_line = (rig.matrix_world @ (toe_bind.matrix_local
-                                     @ mathutils.Vector((0.0, toe_bind.length, 0.0)))
-                 ) - (rig.matrix_world @ foot_bind.matrix_local.translation)
-    rest_line.z = 0.0
-    if rest_line.length < 1e-9:
-        return
-    rest_line.normalize()
-    turn_yaw = mathutils.Quaternion(
-        up, math.atan2(rest_line.cross(heading).dot(up), rest_line.dot(heading))
-    )
 
     # The toes: flat under a rising heel while planted, following the foot when
     # airborne. The caller knows which, so it states the toe pitch; the fallback is
@@ -443,9 +434,8 @@ def point_the_foot(rig, side: str, pitch: float, toe_out: float, forward, across
 
     for name, degrees in ((f"{side}_Foot", pitch), (f"{side}_ToeBase", toes_at)):
         posed = rig.pose.bones[name]
-        turn = (mathutils.Quaternion(lateral, math.radians(degrees)) @ turn_yaw
-                ).to_matrix()
-        target = turn @ (world3 @ posed.bone.matrix_local.to_3x3())
+        turns, _, _ = how_the_foot_turns(rig, side, degrees, toe_out, forward, across)
+        target = turns.to_matrix() @ (world3 @ posed.bone.matrix_local.to_3x3())
         # The parent may just have been re-posed, so the frame is flushed each time
         # or the delta would be solved against a stale matrix.
         bpy.context.view_layer.update()
