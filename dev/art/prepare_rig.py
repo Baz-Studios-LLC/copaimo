@@ -1969,6 +1969,102 @@ def remove_the_hanging_straps(rig, mesh, biggest: int = 120):
         refuse("removing the straps lost the custom split normals")
 
 
+def face_the_right_way_out(rig, mesh):
+    """Flips the faces the generator wound backwards.
+
+    # What they look like, and what they are
+    #
+    # Reported as pale angular shards around the lower back and hip, in game and in a render.
+    # They are faces whose winding is reversed: the surface is in the right place, but it is
+    # facing into the body, so it is lit from behind and reads as a bright shard sitting on
+    # top of the clothing.
+    #
+    # 283 of 4429 faces, clustered at z 90-130 - the torso - with the worst single one 73 cm2.
+    #
+    # # How they are identified without guessing
+    #
+    # A ray each way from the face's own centre. If the OUTWARD direction is blocked by solid
+    # geometry while the inward direction is open, then what the face calls out is in and what
+    # it calls in is out, and it is backwards. The two exclusions matter: an ordinary surface
+    # has its outward side open and its inward side blocked, and a thin garment panel - a
+    # jacket flap, a pocket - is open BOTH ways. Neither can be mistaken for backwards.
+    #
+    # # Why FLIP and not recalculate
+    #
+    # `normals_make_consistent` is the obvious operator and it is the wrong one here. It
+    # recomputes normals from the geometry, which throws away the custom split normals that
+    # encode this mesh's hard edges - the documented shards/melted-shoe fault, traded for the
+    # shards being fixed. Flipping reverses the winding AND carries the stored normal with it,
+    # which is precisely what a backwards face needs and nothing more.
+    """
+    from mathutils.bvhtree import BVHTree
+
+    solid = BVHTree.FromObject(mesh, bpy.context.evaluated_depsgraph_get())
+    step = 0.004
+
+    backwards = []
+    for poly in mesh.data.polygons:
+        centre = mesh.matrix_world @ poly.center
+        out = (mesh.matrix_world.to_3x3() @ poly.normal).normalized()
+        blocked = solid.ray_cast(centre + out * step, out, 2.0)[0] is not None
+        open_behind = solid.ray_cast(centre - out * step, -out, 2.0)[0] is None
+        if blocked and open_behind:
+            backwards.append(poly.index)
+
+    if not backwards:
+        print("  every face is already facing out")
+        return
+
+    area = sum(mesh.data.polygons[i].area for i in backwards) * 170.0 * 170.0
+    print(f"  {len(backwards)} of {len(mesh.data.polygons)} faces are wound backwards, "
+          f"{area:.0f} cm2 between them")
+
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    mesh.select_set(True)
+    bpy.context.view_layer.objects.active = mesh
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_mode(type="FACE")
+    working = bmesh.from_edit_mesh(mesh.data)
+    working.faces.ensure_lookup_table()
+    for face in working.faces:
+        face.select_set(False)
+    for edge in working.edges:
+        edge.select_set(False)
+    for vertex in working.verts:
+        vertex.select_set(False)
+    for index in backwards:
+        working.faces[index].select_set(True)
+    bmesh.update_edit_mesh(mesh.data)
+    bpy.ops.mesh.flip_normals()
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    if not mesh.data.has_custom_normals:
+        refuse(
+            "flipping lost the custom split normals - see the note on why this flips rather "
+            "than recalculating"
+        )
+
+    # Measured again, on the result. A flip that leaves them backwards is a flip that did not
+    # happen, and this file has had several of those.
+    solid = BVHTree.FromObject(mesh, bpy.context.evaluated_depsgraph_get())
+    left = 0
+    for poly in mesh.data.polygons:
+        centre = mesh.matrix_world @ poly.center
+        out = (mesh.matrix_world.to_3x3() @ poly.normal).normalized()
+        if (
+            solid.ray_cast(centre + out * step, out, 2.0)[0] is not None
+            and solid.ray_cast(centre - out * step, -out, 2.0)[0] is None
+        ):
+            left += 1
+    print(f"  {left} still backwards afterwards")
+    if left > len(backwards) // 4:
+        refuse(
+            f"{left} faces are still backwards of {len(backwards)} flipped - the selection "
+            f"did not reach the operator"
+        )
+
+
 def main():
     where = argv()
     if len(where) < 2:
@@ -2026,6 +2122,8 @@ def main():
     # separate, and that is the tearing. Cutting them is modelling work rather than a
     # pipeline step, because the surface behind a fusion does not exist and the hole left
     # would need closing.
+    print("\nturning the backwards faces the right way out:")
+    face_the_right_way_out(rig, mesh)
     print("\nremoving the straps that ended up on the forearms:")
     remove_the_hanging_straps(rig, mesh)
     # NOT CALLED, and it must not be without a narrower test. `cut_the_fusions` HOLED THE
