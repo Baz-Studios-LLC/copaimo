@@ -1707,7 +1707,8 @@ def add_room_where_it_tears(rig, mesh, cuts: int = 1):
         )
 
 
-def cut_the_fusions(rig, mesh, hops: int = 4, times_median: float = 4.0):
+def cut_the_fusions(rig, mesh, hops: int = 4, times_median: float = 4.0,
+                    only=("arm", "trunk")):
     """Cuts the faces where the generator welded a limb to the body, and caps what is left.
 
     # What is being cut, and how it is told apart from real clothing
@@ -1805,12 +1806,36 @@ def cut_the_fusions(rig, mesh, hops: int = 4, times_median: float = 4.0):
     print(f"  the median edge is {median * 170.0:.2f} cm, so 'long' here is over "
           f"{big * 170.0:.2f} cm")
 
+    # # Only between the regions named in `only`
+    #
+    # This is the restriction that was missing when this last ran and holed the trousers. The
+    # long-edge-and-far-apart test is right, but it catches ordinary TROUSER geometry too,
+    # because there are `Waist` weights sitting down at knee height and a single mis-weighted
+    # vertex makes an innocent face look like a bridge. Leg-to-trunk is therefore off limits.
+    #
+    # Arm-to-trunk has no such trap: nothing legitimate spans a forearm and a spine, and these
+    # are the long flat ribbons reported as straps attached to the arm from the back.
+    def region(name):
+        for part in ("Forearm", "Upperarm", "Hand", "Clavicle"):
+            if part in name:
+                return "arm"
+        for part in ("Thigh", "Calf", "Foot", "Toe"):
+            if part in name:
+                return "leg"
+        for part in ("Spine", "Waist", "Hip", "Pelvis", "Neck", "Head"):
+            if part in name:
+                return "trunk"
+        return None
+
     torn = set()
     for edge in mesh.data.edges:
         a, b = edge.vertices
         span = (mesh.data.vertices[a].co - mesh.data.vertices[b].co).length
-        if span > big and apart(owners[a], owners[b]) >= hops:
-            torn.add(edge.key)
+        if span <= big or apart(owners[a], owners[b]) < hops:
+            continue
+        if {region(owners[a]), region(owners[b])} != set(only):
+            continue
+        torn.add(edge.key)
 
     fused = [
         poly.index for poly in mesh.data.polygons
@@ -2322,20 +2347,23 @@ def main():
     # before that ran found nothing to cap, which was correct and useless.
     print("\ncapping the small holes the surgery leaves:")
     close_the_holes_round_the_waist(rig, mesh)
-    # NOT CALLED, and it must not be without a narrower test. `cut_the_fusions` HOLED THE
-    # TROUSERS: it took faces whose corners were 4+ joints apart, and some of those are not
-    # fusions at all - they are ordinary trouser geometry containing a single mis-weighted
-    # vertex, `Waist` weights sitting down at knee height. Cutting them opened a gap on the
-    # thigh you can see skin through and a diamond hole in the shin.
+    # ARM-TO-TRUNK ONLY, which is the whole reason this is called again.
     #
-    # Worse, the render that would have shown this was taken and read wrongly: the dark
-    # angular shapes on the thighs were called trouser design and they were the holes. A cut
-    # has to be checked by LOOKING, and looking means knowing what you expect to see.
+    # The first time it ran unrestricted it HOLED THE TROUSERS: the long-edge-and-far-apart
+    # test also catches ordinary trouser geometry, because there are `Waist` weights sitting
+    # down at knee height and one mis-weighted vertex makes an innocent face look like a
+    # bridge. It opened a gap on the thigh you could see skin through and a diamond hole in
+    # the shin. Worse, the render that would have shown it WAS taken and I read the dark
+    # angular shapes on the thighs as trouser design.
     #
-    # It also bought very little even when it worked - tearing 8.57% to 8.30% of edges past
-    # x1.35 - so there is no case for keeping it in this form. If it comes back it needs a
-    # test that cannot mistake a mis-weighted vertex for a bridge: arm-to-trunk only, or the
-    # face's vertices genuinely far apart in SPACE rather than merely across a long edge.
+    # Leg-to-trunk is therefore off limits, and arm-to-trunk has no equivalent trap: nothing
+    # legitimate spans a forearm and a spine. Those faces are the long flat ribbons reported
+    # as "straps attached to the arm from the back" - 12 of them, 468 cm2, highlighted in red
+    # and agreed before being cut. They render as small patches because most of each blade is
+    # buried inside the body, which is why they are easy to see in a wireframe and easy to
+    # miss in a render.
+    print("\ncutting the arm-to-body blades:")
+    cut_the_fusions(rig, mesh)
     print("\nthe leaf bones:")
     reach_the_ends(rig, mesh)
     print("\nRoot and Hip:")

@@ -88,6 +88,14 @@ SHOTS = (
     # The hand itself, close, from two sides - reported as angled backwards.
     ("hand", 20.0, 0.26, mathutils.Vector((0.0, 0.0, high * 0.56))),
     ("hand_side", 100.0, 0.26, mathutils.Vector((0.0, 0.0, high * 0.56))),
+    # The three areas reported as needing mesh work: the side of the jacket, under the arms,
+    # and the backpack. Close enough to see geometry rather than silhouette.
+    ("jacket_side", 90.0, 0.60, mathutils.Vector((0.0, 0.0, high * 0.66))),
+    ("jacket_side_far", 70.0, 0.75, mathutils.Vector((0.0, 0.0, high * 0.66))),
+    ("underarm", 55.0, 0.40, mathutils.Vector((0.0, 0.0, high * 0.72))),
+    ("underarm_other", -55.0, 0.40, mathutils.Vector((0.0, 0.0, high * 0.72))),
+    ("pack", 180.0, 0.70, mathutils.Vector((0.0, 0.0, high * 0.72))),
+    ("pack_side", 140.0, 0.70, mathutils.Vector((0.0, 0.0, high * 0.72))),
 )
 
 made = []
