@@ -2133,6 +2133,55 @@ Verified rather than assumed: the stamp survives the save, resolves its source, 
 What neither layer can cover is Blender started without `--enable-autoexec`, since then no
 registered script runs at all — no reload and no caption. `gait_watch.sh` always passes it.
 
+### ISSUE: measuring a split mesh as though it were welded
+
+**What you see.** Pale patches round the lower back and hip, and in game the impression that
+"the legs are not connected to the torso".
+
+**What it actually was.** Three small holes in the body, left by `split_out_the_backpack` —
+`bpy.ops.mesh.separate` **moves** the selected faces out, so the body loses that surface and
+you see its interior through the gap.
+
+**Why it took four measurements to find.** Because every early measurement was taken on the
+wrong topology. glTF encodes hard edges by SPLITTING vertices, so on the mesh as it arrives:
+
+| measured on | boundary edges | "loops" | largest loop |
+|---|---|---|---|
+| the split mesh, as imported | 6975 of 10131 | 1362 | 29 verts |
+| welded by position first | **140 of 6710** | **10** | 41 verts |
+
+None of the first row is real. 7062 split vertices are 2302 actual ones, and until they are
+unioned by position the word "boundary" means "hard edge" and every seam counts. The first
+report — 1022 open edges at the waist — was that artefact, and 608 of those 1022 belonged to
+the HANDS, which hang at hip height in an A-pose and are not the waist at all.
+
+Welded, the ten real loops name themselves, and most are **meant** to be open: a 41-vertex
+open chain on `Spine01`/`Spine02` is the jacket's zip, 38 closed vertices at the clavicles is
+the collar, 26 open on `Head` is the hairline. Filling any of those would be a far worse bug
+than the one being fixed. What was left was three closed punctures of 4 to 6 vertices.
+
+**And then the fix went in the wrong place, twice.** The holes were measured on the EXPORTED
+asset and the repair was wired into the top of `prepare_rig`, where it correctly found nothing
+— the RAW export has no waist holes at all, only a collar, a neck and a hairline. Then after
+the strap removal, still nothing. They are made by the very last step before export.
+
+**What changed.** `split_out_the_backpack` now calls `bpy.ops.mesh.duplicate()` before
+`separate`, so the pack is a COPY and the body keeps its surface. Six holes became three, and
+the body renders clean at the back and hip.
+
+**The principle.** *Measure the representation you are actually going to change.* A split
+mesh, a welded mesh, the raw export and the exported asset are four different objects, and
+this bug had a different answer on each of them.
+
+**What is still open, and why it is not simply filled.** Three punctures remain, and
+`fill_holes` cannot close them: it selects all 14 edges and adds 0 faces, because a loop that
+is closed once welded is not a closed loop of real edges in the split mesh. Filling them needs
+either a welded working copy or `edge_face_add` per loop.
+
+**The test.** `close_the_holes_round_the_waist` reports what it finds every build, and
+protects the openings that should stay open by size and closedness alone — the jacket's zip
+is an open chain and the collar is 38 vertices, so neither can be caught by a cap of eight.
+
 ## Keeping this honest
 
 Add an entry when a bug took **more than one attempt** to fix, or when the symptom

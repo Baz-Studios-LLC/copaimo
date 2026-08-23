@@ -638,6 +638,17 @@ def split_out_the_backpack(rig, mesh):
     for index in faces:
         mesh.data.polygons[index].select = True
     bpy.ops.object.mode_set(mode="EDIT")
+    # DUPLICATE first, then separate the copy. Separating alone MOVES the faces out of the
+    # body, and measured that leaves it with six small holes - 0 real open loops before this
+    # step and 6 after - which you then see the interior through, reported as pale patches
+    # round the lower back. The note above says the jacket back is left intact and was
+    # checked by rendering; a render will not show a four-vertex hole, and the topology does.
+    #
+    # Duplicating costs the body a few hundred faces it keeps under the pack, which is
+    # cheaper than the alternatives: capping the rim afterwards needs a closed loop that the
+    # split representation does not provide (fill_holes selected all 30 edges and added 0
+    # faces), and leaving it open is the bug.
+    bpy.ops.mesh.duplicate()
     bpy.ops.mesh.separate(type="SELECTED")
     bpy.ops.object.mode_set(mode="OBJECT")
 
@@ -2065,6 +2076,122 @@ def face_the_right_way_out(rig, mesh):
         )
 
 
+def close_the_holes_round_the_waist(rig, mesh, biggest: int = 8):
+    """Caps the small punctures round the waist and hip that you can see inside through.
+
+    # Why this is capping and not bridging
+    #
+    # It was reported as the legs not being joined to the torso, and asked for as a bridge
+    # across the waist. Measured, that is not the shape of it - and the first two
+    # measurements said otherwise because they were taken on the wrong topology.
+    #
+    # glTF splits vertices to encode hard edges, so on the mesh as it arrives 6975 of 10131
+    # edges look like boundary and there are 1362 "boundary loops", the largest 29 vertices.
+    # None of that is real. Welded by position first - 7062 split vertices are 2302 real ones
+    # - there are 6710 edges of which only 140 are genuinely open, in TEN loops.
+    #
+    # And most of those ten are meant to be open:
+    #
+    #   41 verts, z 92-138, an open chain on Spine01/Spine02  - the jacket's front zip
+    #   38 verts, z 127-143, closed, Clavicle and Neck        - the collar
+    #   26 verts, z 157-160, an open chain on Head            - the hairline
+    #
+    # What is left is three small closed punctures: six vertices at the waist, four at the
+    # hip on L_ThighTwist01, four beside the arm. Those are the holes you see the interior
+    # through, and there is no gap between the leg and the torso to bridge - the trouser
+    # shell has no opening at its top at all.
+    #
+    # So: cap closed loops of at most `biggest` vertices below `below`. The size cap is what
+    # protects the jacket front and the collar, and the height cap keeps the hairline out of
+    # it. Filling the jacket's zip shut would be a far worse bug than the one being fixed.
+    """
+    weld, spot = {}, {}
+    for vertex in mesh.data.vertices:
+        where = (
+            round(vertex.co.x, 5), round(vertex.co.y, 5), round(vertex.co.z, 5)
+        )
+        spot.setdefault(where, len(spot))
+        weld[vertex.index] = spot[where]
+
+    carried = {}
+    for index, welded in weld.items():
+        carried.setdefault(welded, index)
+
+    faces = {}
+    for poly in mesh.data.polygons:
+        ring = [weld[i] for i in poly.vertices]
+        for i in range(len(ring)):
+            a, b = ring[i], ring[(i + 1) % len(ring)]
+            if a != b:
+                faces[tuple(sorted((a, b)))] = faces.get(tuple(sorted((a, b))), 0) + 1
+
+    open_edges = [pair for pair, count in faces.items() if count < 2]
+    beside = {}
+    for a, b in open_edges:
+        beside.setdefault(a, set()).add(b)
+        beside.setdefault(b, set()).add(a)
+
+    seen, wanted = set(), set()
+    loops = 0
+    for start in list(beside):
+        if start in seen:
+            continue
+        group, stack = [], [start]
+        seen.add(start)
+        while stack:
+            here = stack.pop()
+            group.append(here)
+            for there in beside[here]:
+                if there not in seen:
+                    seen.add(there)
+                    stack.append(there)
+        closed = all(len(beside[i]) == 2 for i in group)
+        # Size and closedness alone protect everything that is meant to stay open: the
+        # jacket's zip is a 41-vertex open CHAIN, the collar is closed but 38 vertices and so
+        # far over the cap, and the hairline is a 26-vertex chain. A height limit was in here
+        # as well and was doing no work at all.
+        if closed and len(group) <= biggest:
+            loops += 1
+            for i in group:
+                for j in beside[i]:
+                    wanted.add(tuple(sorted((i, j))))
+
+    if not wanted:
+        print("  no small closed holes down here to cap")
+        return
+
+    print(f"  {loops} small closed holes, {len(wanted)} welded edges between them")
+
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    mesh.select_set(True)
+    bpy.context.view_layer.objects.active = mesh
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_mode(type="EDGE")
+    working = bmesh.from_edit_mesh(mesh.data)
+    for face in working.faces:
+        face.select_set(False)
+    for vertex in working.verts:
+        vertex.select_set(False)
+    picked = 0
+    for edge in working.edges:
+        pair = tuple(sorted((
+            weld[edge.verts[0].index], weld[edge.verts[1].index]
+        )))
+        take = pair in wanted
+        edge.select_set(take)
+        picked += 1 if take else 0
+    bmesh.update_edit_mesh(mesh.data)
+    faces_before = len(mesh.data.polygons)
+    bpy.ops.mesh.fill_holes(sides=biggest)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    print(f"  {picked} split edges selected, {len(mesh.data.polygons) - faces_before} "
+          f"faces added")
+
+    if not mesh.data.has_custom_normals:
+        refuse("capping the holes lost the custom split normals")
+
+
 def main():
     where = argv()
     if len(where) < 2:
@@ -2126,6 +2253,13 @@ def main():
     face_the_right_way_out(rig, mesh)
     print("\nremoving the straps that ended up on the forearms:")
     remove_the_hanging_straps(rig, mesh)
+    # AFTER the surgery, not before it. The raw export has only three open loops and every one
+    # of them is the collar, the neck or the hairline - there are no holes at the waist as it
+    # arrives. They are made HERE: removing a forearm strap takes with it any face that
+    # bridged the strap to the arm, and the backpack split leaves a rim of its own. Capping
+    # before that ran found nothing to cap, which was correct and useless.
+    print("\ncapping the small holes the surgery leaves:")
+    close_the_holes_round_the_waist(rig, mesh)
     # NOT CALLED, and it must not be without a narrower test. `cut_the_fusions` HOLED THE
     # TROUSERS: it took faces whose corners were 4+ joints apart, and some of those are not
     # fusions at all - they are ordinary trouser geometry containing a single mis-weighted
@@ -2192,6 +2326,19 @@ def main():
     # about the split. Everything downstream picks the character with `the_body`.
     print("\nsplitting out the backpack:")
     pack = split_out_the_backpack(rig, mesh)
+
+    # AFTER the split, because the split is what makes the holes. `mesh.separate` duplicates
+    # the seam into both objects, so the body is left with a rim where the pack used to join
+    # it - and that rim is what you see the interior through, reported as pale patches round
+    # the lower back and as "the legs not connected to the torso".
+    #
+    # It took three goes to put this call in the right place, and the reason is worth keeping:
+    # the holes were measured on the EXPORTED asset and the fix was first wired into the top
+    # of this pipeline, where it correctly found nothing, because the raw export has no holes
+    # at the waist at all - only a collar, a neck and a hairline. Measuring one artefact and
+    # fixing another is easy to do when both are called "the mesh".
+    print("\ncapping the holes the split leaves:")
+    close_the_holes_round_the_waist(rig, mesh)
 
     for obj in bpy.data.objects:
         obj.select_set(obj in (rig, mesh, pack))
