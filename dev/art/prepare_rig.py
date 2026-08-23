@@ -1383,6 +1383,206 @@ def report_the_fit(rig, mesh):
           f"bones are mirror-exact")
 
 
+def whole_shells(mesh):
+    """Every connected piece, after a VIRTUAL weld.
+
+    glTF splits vertices to encode hard edges, so edge connectivity alone calls almost
+    every face its own island - it reports 1396 pieces for a mesh that has 19. Unioning by
+    POSITION first is what `unfuse` already does to find garment pieces, and it is the only
+    way a "shell" here means what it sounds like.
+    """
+    import collections
+
+    at = collections.defaultdict(list)
+    for vertex in mesh.data.vertices:
+        at[(round(vertex.co.x, 5), round(vertex.co.y, 5), round(vertex.co.z, 5))].append(
+            vertex.index
+        )
+    parent = list(range(len(mesh.data.vertices)))
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    def join(a, b):
+        a, b = find(a), find(b)
+        if a != b:
+            parent[a] = b
+
+    for together in at.values():
+        for other in together[1:]:
+            join(together[0], other)
+    for edge in mesh.data.edges:
+        join(edge.vertices[0], edge.vertices[1])
+
+    shells = collections.defaultdict(set)
+    for vertex in mesh.data.vertices:
+        shells[find(vertex.index)].add(vertex.index)
+    return list(shells.values())
+
+
+def make_the_shoes_mirrors(rig, mesh):
+    """Replaces the right shoe with a mirrored copy of the left.
+
+    # Why the shoes and not the whole mesh
+    #
+    # `mesh_audit.py` measures the body at a median 1.32 cm from its own mirror image, and
+    # the worst of it is the feet: ToeBase 3.29 cm, CalfTwist01 2.73, Foot 2.37. That is the
+    # asymmetry with consequences - it is the reason `foot_roll` has to SHARE its landmarks
+    # between the sides to stop the clips limping, and the reason the reach ceiling cannot be
+    # tracked per frame. Elsewhere the asymmetry is either small or deliberate: the jacket's
+    # zip, its pockets and the shoulder logo are meant to be one-sided.
+    #
+    # # Why a mirrored duplicate, and not the two obvious repairs
+    #
+    # Both were tried and measured in `shoe_symmetry_trial.py`, and both are worse than the
+    # fault:
+    #
+    # * Moving each vertex onto its mirror PARTNER. The shoes are differently tessellated -
+    #   179 right vertices find their nearest partner among only 41 of the left's 190 - so
+    #   77% of the mapping collides and the shoe collapses onto a fortieth of its detail.
+    # * Projecting each vertex onto the mirrored SURFACE, which does not care about
+    #   tessellation. It distorts instead: median travel 1.96 cm, and edge lengths running
+    #   x0.17 to x3.15 with 28 edges past half or double.
+    #
+    # A mirrored duplicate has neither problem, because the new shoe carries the LEFT's
+    # topology rather than trying to fit the right's to a new shape. It is available at all
+    # only because each shoe is a self-contained shell: 318 vertices on the left and 311 on
+    # the right, each its own shoe plus its ankle cuff and nothing else. Nothing has to be
+    # stitched back to a trouser leg.
+    #
+    # # Why this is done with object operators rather than bmesh
+    #
+    # The custom split normals. This mesh's hardest-won rule is that glTF encodes hard edges
+    # by splitting vertices, so normals that stop describing the surface light the character
+    # as a different shape - shoes read as shards - and NO geometry guard can see it.
+    # Blender's own mirror-and-apply maintains those normals and the winding through the
+    # transform; hand-rolled bmesh surgery would mean tracking every loop's normal myself and
+    # mirroring it, which is exactly the bookkeeping that goes wrong quietly.
+    #
+    # Runs after `centre_the_skeleton`, because the midline it mirrors about is the one that
+    # establishes, and before `put_the_ball_where_the_shoe_bends`, which reads shoe geometry.
+    """
+    across, _, _ = body_frame(rig)
+    lateral = max(range(3), key=lambda i: abs(across[i]))
+
+    def owns(vertex):
+        best, who = 0.0, ""
+        for group in vertex.groups:
+            if group.weight > best:
+                best, who = group.weight, mesh.vertex_groups[group.group].name
+        return who
+
+    def shoe_shell(side):
+        wanted = {
+            v.index for v in mesh.data.vertices
+            if owns(v).startswith(f"{side}_")
+            and ("Foot" in owns(v) or "ToeBase" in owns(v))
+        }
+        hit = [shell for shell in whole_shells(mesh) if shell & wanted]
+        if len(hit) != 1:
+            refuse(
+                f"the {side} shoe spreads over {len(hit)} shells, so it is not the "
+                f"separable piece this depends on"
+            )
+        return hit[0]
+
+    keep, drop = shoe_shell("L"), shoe_shell("R")
+    if keep & drop:
+        refuse("the two shoes share vertices, so one cannot be replaced without the other")
+    print(f"  the left shoe is {len(keep)} vertices, the right {len(drop)}")
+
+    # # Only ever ONE object in edit mode
+    #
+    # The first attempt deleted the entire body - 7264 vertices down to 318 - because
+    # `bpy.ops.mesh.*` acts on every selected object at once. Blender enters MULTI-OBJECT
+    # edit mode when more than one is selected, and a duplicate is left selected alongside
+    # its original, so a delete meant for the right shoe took the whole mesh with it. The
+    # operators reported success throughout.
+    #
+    # So every edit-mode block below is fenced: deselect everything, select one, make it
+    # active, and check the vertex count afterwards against what was asked for. A destructive
+    # operator with no count check is how a mesh gets quietly emptied.
+    def alone(obj):
+        bpy.ops.object.mode_set(mode="OBJECT")
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+
+    def cut_down_to(obj, wanted, why):
+        """Deletes everything except `wanted`, and refuses if the count is not what it should be."""
+        before = len(obj.data.vertices)
+        alone(obj)
+        for vertex in obj.data.vertices:
+            vertex.select = vertex.index not in wanted
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.delete(type="VERT")
+        bpy.ops.object.mode_set(mode="OBJECT")
+        after = len(obj.data.vertices)
+        if after != len(wanted):
+            refuse(
+                f"{why}: asked to keep {len(wanted)} of {before} vertices and ended with "
+                f"{after} - the selection did not do what it said"
+            )
+        return after
+
+    alone(mesh)
+    bpy.ops.object.duplicate()
+    copy = bpy.context.view_layer.objects.active
+    if copy is mesh:
+        refuse("the duplicate did not become the active object, so nothing can be trusted")
+
+    # On the copy, keep ONLY the left shoe.
+    cut_down_to(copy, keep, "trimming the copy to the left shoe")
+
+    # Mirror it, and apply - which is where Blender takes care of the normals and the
+    # winding that a negative scale would otherwise leave inside out.
+    alone(copy)
+    scale = [1.0, 1.0, 1.0]
+    scale[lateral] = -1.0
+    copy.scale = scale
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.flip_normals()
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    # It is a LEFT shoe wearing left weights; it has to become a right one.
+    swapped = 0
+    for group in copy.vertex_groups:
+        if group.name.startswith("L_"):
+            group.name = "R_" + group.name[2:]
+            swapped += 1
+    print(f"  {swapped} vertex groups renamed from L_ to R_ on the copy")
+
+    # Now take the old right shoe out of the body - keep everything that is NOT it.
+    body = {v.index for v in mesh.data.vertices} - drop
+    cut_down_to(mesh, body, "cutting the old right shoe out of the body")
+
+    # And put the mirrored one in its place.
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    copy.select_set(True)
+    mesh.select_set(True)
+    bpy.context.view_layer.objects.active = mesh
+    bpy.ops.object.join()
+
+    print(f"  the body is now {len(mesh.data.vertices)} vertices, "
+          f"split normals {mesh.data.has_custom_normals}")
+    if len(mesh.data.vertices) != len(body) + len(keep):
+        refuse(
+            f"after joining, the body has {len(mesh.data.vertices)} vertices where "
+            f"{len(body)} + {len(keep)} were expected"
+        )
+    if not mesh.data.has_custom_normals:
+        refuse(
+            "the join lost the custom split normals, which is the fault that makes the "
+            "shoes read as shards - see the note on welding"
+        )
+
+
 def main():
     where = argv()
     if len(where) < 2:
@@ -1410,6 +1610,17 @@ def main():
     make_the_sides_mirrors(rig)
     print("\ncentring the skeleton on the mesh:")
     centre_the_skeleton(rig, mesh)
+    # NOT CALLED YET. `make_the_shoes_mirrors` is written below and its approach is measured
+    # and sound, but the operator-driven surgery is not landing the selection it asks for, so
+    # it refuses rather than guessing. A refusing build is worse than an unfinished feature,
+    # so the call waits here until two things are solved:
+    #
+    #   1. `bpy.ops.mesh.delete` is not removing what the object-mode select flags say. The
+    #      multi-object edit-mode trap is fenced off already and was not the whole of it.
+    #   2. Custom split normals need REFLECTING, not flipping. Mirroring geometry across a
+    #      plane wants the normal with its lateral component negated; `flip_normals` negates
+    #      all three, and those are different vectors. Getting it wrong is the documented
+    #      shards/melted-shoe fault that no geometry guard can see.
     print("\nthe leaf bones:")
     reach_the_ends(rig, mesh)
     print("\nRoot and Hip:")
