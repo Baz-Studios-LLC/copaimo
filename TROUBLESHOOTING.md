@@ -911,6 +911,17 @@ The lesson is the one this file keeps relearning from the other direction: **one
 failure is a data point, not a rule.** Promoting it to a rule cost more than the bug
 did, because a written-down impossibility stops anyone trying again.
 
+**And then it happened again, with this entry already written.** A new viewer
+(`gait_watch.py`) was written starting with `read_homefile(use_empty=True)`, hit exactly
+the failure described above — `armature_display` dying on
+`bpy.data.collections[...].objects.link(bpy.context.object)` — and opened an empty
+window, reported as "there is nothing in blender that I can see to verify". The entry
+was correct and simply had not been read. Two things follow. Check this file for the
+step you are about to write, not only for the bug you already have. And prefer the
+shape that cannot fail: build the scene in `--background`, save a .blend, and open
+that — which is what `ranger_blend.sh` and `gait_watch.sh` both now do, each verifying
+the saved file before handing it over.
+
 **Two ways in, then.**
 
 * `dev/art/ranger_blend.sh` writes `dev/art/ranger.blend` — the model, the rig and all
@@ -1537,6 +1548,208 @@ is belongs to whoever painted it.
 
 **The tell:** if a threshold has to move every time a new legitimate case appears, it
 is measuring taste rather than correctness.
+
+### The skeleton is a bag of spheres, and the bones stop short of the hands and head
+
+**What you see.** "no human has spherical bones". "Bones should reach the top of the
+head and ends of feet and hands, they dont". "what is this long angled bone". All three
+have now been reported, fixed, and reported again.
+
+**What it actually was.** None of it is in the file, and none of it can be. glTF stores
+joint POSITIONS and nothing else — no lengths, no display — so the importer invents all
+of it, on **every** import:
+
+* `armature_display` builds an `Icosphere` and assigns it as `custom_shape` to all 41
+  bones. A custom shape overrides `display_type`, so setting OCTAHEDRAL does nothing.
+  Hiding the Icosphere OBJECT also does nothing — bones reference the datablock.
+* Leaf bones get an invented length. Measured: `Head` 2.6 cm on a 27.8 cm head, both
+  `Hand`s 8 cm past the fingertips, each `ToeBase` 15.9 cm where the geometry it drives
+  is 6.7.
+* `Root` and `Hip` arrive 85.0 cm. That one is *not* invented — `Root` sits on the floor
+  and its only child is at the pelvis, so its tail genuinely spans the body.
+
+Because the repair cannot be exported, this is not a bug to fix once. Every tool that
+opens a GLB has to redo it — and the reason it kept coming back is that each tool did
+its own subset. `ranger_blend.py` was saving a .blend containing all 41 spheres and the
+2.6 cm head bone.
+
+**What changed.** One function, `prepare_rig.make_the_import_readable(rig, mesh)`, doing
+all three, called by `ranger_blend.py` and `gait_watch.py`. Ordering is part of its
+contract: it disposes of the Icosphere by deleting unskinned meshes, so a floor or a
+reference prop must be added AFTER it, never before.
+
+It is safe on an animated file, and the reason matters. It only ever changes bone
+LENGTHS, which are stored apart from `matrix_local`. REDIRECTING a bone rotates
+`matrix_local`, and that is the basis the importer already converted the clip's keys
+into — so a redirect after import silently corrupts the pose. Hence two versions of the
+Root/Hip fix: `sane_root_and_hip` redirects and is for the BUILD only;
+`shorten_the_controls` changes length alone and is for anything opening an animated file.
+
+**The test.** Both length steps re-read every direction and roll afterwards and refuse
+if a skinning basis moved — they report `0.000000 deg`.
+`make_the_import_readable` refuses if any bone still wears a widget, and
+`gait_watch.sh` reopens the saved .blend and asserts `widgets=0` before handing it over.
+
+### A stance boundary that lands on a keyframe reads as airborne
+
+**What you see.** Peak thigh extension a few degrees short of what the clip used to
+reach, hips looking slightly ahead of the feet, and nothing refusing.
+
+**What it actually was.** `planted` was `own < share` — half-open. Stance is the CLOSED
+interval `[0, share]`: `share` *is* toe-off, and the sole is still down at that instant.
+For the walk `share` is 5/8 over a span of 24, so own phase 0.6250 is exactly frame 16 —
+a real keyframe, and the most extended pose in the cycle. It read as airborne, so
+`rest_the_shoe_on_the_floor` **pushed its sole 1.61 cm up off the ground** instead of
+pulling it down. Peak thigh extension measured −17.71 deg where the geometry allowed
+−19.41.
+
+What makes it a bug rather than a choice is that the code already disagreed with itself:
+`where_the_balls_go` computes `lift = 0` and the same `along` from either branch at
+`own == share`, so the PATH intended ground contact while the planted test denied it.
+The test was written out **three times inline**, which is how the divergence survived.
+
+The same discretisation was costing every clip its authored duty factor — the run
+delivered 0.250 per foot against an intended 0.375, a jog running on a sprint's duty.
+
+**What changed.** One function, `ik_gait.the_foot_is_down(own, share)`, closed at the
+boundary with a float tolerance, used at all six sites. All three clips now deliver
+their authored duty exactly: walk 1.25, run 0.75, sprint 0.5 — each 2× its share.
+
+**The test.** `verify_gait.py` reports `duty_factor` per clip. Note that it did NOT
+catch this: `THIGH_REACHES_BACK` is 12.0, the anatomical floor, so a fall from 22 to 17
+sailed through. **A guard set at the bottom of a legitimate range cannot see a
+regression inside it.**
+
+### Fixing a systematic error mistunes everything built on top of it
+
+**What you see.** A measured, correct fix to one thing, and an unrelated-looking number
+gets worse. Here: the foot-turn convention was unified, every foot angle then measured
+right, and thigh extension quietly fell from −22.4 to −17.7 deg.
+
+**What it actually was.** The old `ankle_for` applied *pitch + 7.45 deg* — it silently
+added the bind's own dip to every foot angle. Every value in the pose tables had been
+tuned AGAINST that error, so the numbers carried the bug as compensation. Removing it
+made the maths right and the tuning wrong in the same instant. The corrected derivation
+moves the ankle 1.13 cm forward and 1.73 cm up; that shortens the hip-to-ankle chord and
+folds the knee, and a bent knee's offset from that line goes forward, pulling the thigh
+angle forward again. Two effects, same direction, 4.7 deg.
+
+**The principle.** When a systematic error is removed, everything tuned on top of it is
+mistuned by exactly the amount removed. Re-measure what is DOWNSTREAM of the change, not
+only the thing changed. The failure here was checking the foot angles, seeing them
+correct, and stopping.
+
+Also: the −22.4 that looked like the target was itself partly an artifact of the
+over-rotation, which sat the ankle further back and lower. **A number measured under a
+broken instrument is not a specification.**
+
+**The test.** None that catches this class. The nearest practice is to re-run the whole
+`verify_gait.py` score after any change to shared geometry code and diff it, rather than
+measuring only the quantity you touched.
+
+### A foot angle that cannot be fixed by changing the foot angle
+
+**What you see.** The jog lands on its forefoot with the heel 6.5 cm up and never puts
+it down — closest approach 2.32 cm, all cycle. The obvious lever is the ankle-pitch
+table, `RUN_LEG[0] = -16.0`, whose own comment calls it a forefoot landing.
+
+**What it actually is.** Not a decision. At touchdown the stance leg is at **100.000%
+extension** — hip-to-ankle 78.35 cm against a 78.35 cm maximum reach — with the knee at
+0.28 deg where that row of the table asks for 12. A flat foot needs the ankle 7.05 cm
+above the sole, and at that hip height the leg reaches only 10.83 cm forward. The clip
+demands 28.41 cm. There is **17.58 cm of forward reach that does not exist**, and the
+plantarflexion is buying it. The ankle is the last joint with anything left to give.
+
+So editing the foot angle toward a heel strike cannot be neutral: with the leg saturated
+it must either lift the forefoot clear of the floor or demand a hip drop the cap forbids.
+The upstream levers are the forward reach (`RUN_CONTACT × RUN_LANDS_AHEAD` = 35.97 cm of
+ball ahead of the hip), knee flexion at contact, or `HIP_DROPS_AT_MOST`.
+
+The same shape explains why the run's hips barely travel. Of 9.2 cm of chord shortening
+at mid-stance only 4.08 cm becomes hip drop; 4.9 cm is spent lifting the ankle, because
+the heel is up. The table annotates mid-stance as `[thigh 2.0, knee 38.0]`, and 38 deg is
+precisely what a 4.08 cm drop needs WITH THE ANKLE AT REST HEIGHT — the figure assumed a
+flat foot and the clip has a raised one. The stance knee is already 56–59 deg against a
+human jog's 40–45, so raising the cap would put it past human range: the walk's crouch
+trap re-entered from the other side.
+
+**The lesson, now recorded twice.** Five rounds of foot-pitch tuning were once lost to a
+ball joint in the wrong place. This is the same shape. When the same fault survives three
+measured fixes, stop tuning and question the STRUCTURE.
+
+**Status.** Open. The forefoot landing and the missing bob are ONE fault, not two — fix
+the reach and the heel comes down and the hips travel for free.
+
+**The test.** None. `verify_gait.py` passes this clip.
+
+## The walk, issue by issue
+
+Getting one 24-frame walk to read as walking took most of a working day and about thirty
+distinct faults. This is the index: every issue as it was actually seen, and the thing
+that fixed it. Several have fuller write-ups above; this exists so none of it has to be
+rediscovered, and so **the same list can be checked against the jog before tuning it.**
+
+The column that matters is the second one. Roughly a third of these were fixed by
+tuning a number, and two thirds were structural — the wrong joint, the wrong basis, or
+two pieces of code disagreeing. Tuning against a structural fault is what burned the
+most time, every time.
+
+### The rest pose — before a single frame was authored
+
+| Issue | Solution |
+| --- | --- |
+| "no human has spherical bones" — every joint drawn as a ball | The importer's `armature_display` hangs an Icosphere on all 41 bones as `custom_shape`, which overrides `display_type`. Clear the shapes; hiding the Icosphere OBJECT does nothing because bones reference the datablock. `prepare_rig.drop_the_widgets` |
+| "Bones should reach the top of the head and ends of feet and hands, they dont" | glTF stores joint positions and no lengths, so leaves get invented ones (`Head` 2.6 cm on a 27.8 cm head). Set each leaf to the geometry it drives, ONE length per L/R pair or the sides desynchronise. `prepare_rig.reach_the_ends` |
+| "what is this long angled bone" | `Root` and `Hip` span 85 cm because Root sits on the floor and its child is at the pelvis. Shorten to 20/12 cm. `sane_root_and_hip` in the build; `shorten_the_controls` for animated files, where redirecting would corrupt the imported keys |
+| "the skeleton isnt centered on the mesh… the blue is what I see and the red is whats there" | The spine sat 1.67 cm off the mesh midline, so every spine rotation swung the torso about the wrong axis. Move central bones onto the limb midline, then shift ALL bones onto the mesh's silhouette centre. `centre_the_skeleton` |
+| The two sides 5.45 cm from mirrored | Average each pair across the midline, rolls last — an unmirrored roll hands its children a mirrored head and a wrong basis. `make_the_sides_mirrors`, now 0.0000 |
+| A 17.5° crouch baked into the bind | A-pose it and bake as rest, with `KNEE_EASE` 2° of forward fold — a dead-straight chain is IK-singular. `stand_in_an_a_pose` + `bake_the_pose_as_rest` |
+| Soles not on the floor | `put_it_on_the_floor` |
+| Feet visibly toed out while the log said 0.0° | Holding each foot's bind orientation meant nothing ever read `TOE_OUT`; they baked 17.65° out apiece. Yaw the bind about world up to reach the target, and guard the BAKED heading per side |
+| "the backpack straps attached to the arms", gloves fused to pockets | Cross-limb weight repair, shared by the build and the animator. `unfuse.unfuse_the_gloves_from_the_pockets` |
+| Shoes reading as "just chunky", mesh torn into shards | Welding coincident vertices destroyed glTF's split-vertex hard-edge encoding, leaving custom split normals describing a topology that no longer existed. Every numeric check passed while it looked destroyed. Weld removed; `unfuse.cloth_pieces` welds virtually instead |
+
+### The feet — the single biggest time sink
+
+| Issue | Solution |
+| --- | --- |
+| "there are no separate toes so the walk goes heel → false toes, but there is no bend because toes dont exist" | Give `ToeBase` a real joint at the ball, and flex it |
+| "We're still heel walking" — after five separate rounds of pitch tuning | **The pitch was never the problem.** `ToeBase` ran horizontally at ankle height, its head at 46% (L) and 33% (R) along the shoe, 8.4 cm up — so the foot see-sawed about its own arch. The ball is the 1st MTP joint at 70–79% of foot length. Move it there, a third up the shoe's own section, tail at 97%. `put_the_ball_where_the_shoe_bends` |
+| "The back foot isnt using toes, both feet need to go heel → flat → toe" | Toes held flat while planted (`flat_bend`, capped by `ik_gait.TOES_BEND_UP_TO`), easing out over the first quarter of swing so the foot leaves pointed |
+| "feet still angle oddly to the side" | Two foot conventions differing by 7.45° — the bind's own dip. One shared `ik_gait.how_the_foot_turns` |
+| "the knees bend inward" | Pole-target search scored on the knee tracking over the toe |
+| A planted foot sliding 13.6 mm per cycle | Bezier auto-handles overshoot between keys, and the exporter resamples the overshoot. Force LINEAR. `animate_ranger.make_it_linear` (0.92 mm) |
+| Every foot reading as planted on every frame, silently eating every arc fix layered on top | A 0…1 phase float was passed where a 0…7 pose STEP was expected, and every float is below any stance count |
+| Peak thigh extension short by 1.7°, nothing refusing | `own < share` is half-open, so the boundary — which IS a keyframe, and the most extended pose — read as airborne and its sole was pushed 1.61 cm off the floor. `ik_gait.the_foot_is_down`, and it also restored all three clips' authored duty factor |
+
+### The motion
+
+| Issue | Solution |
+| --- | --- |
+| "the torso is still a bit leaning back" (reported three times, while the number said forward) | Lean the spine BEFORE aiming the arms — aiming first meant the parent then carried them 7° back. And a loaded walker leans into the load: the backpack's mass sits behind him, so upright reads as reclining |
+| "the left arm is jumping" | A local named `reach` (the arm angle) was rebound to a leg length, killing all forward swing. Name locals for their SUBJECT. Plus `close_the_loop` to make frame 1 identical to the last |
+| Arms at 72% of their authored range, 14° arriving as +2.7° | Composing rotations about different axes COUPLES them; authored degrees stop meaning degrees. State the target direction and turn onto it by shortest arc |
+| "both knees are in front of the hips so there's no way he'd be balanced" | Drove hip-ahead-of-both-feet to 0 frames of 25 |
+| "The character is sliding backwards" | The feet barely left the ground; per-gait `swing_lift` and a `swing_shape` that skews where the arc peaks |
+| "There's a bounce and jitter first" | Ride height was hand-set and the reach limit was treated as a TARGET rather than a ceiling, so the hip lurched 16 cm in one frame. Derive it: a cosine fitted under the ceiling's deepest point, floored at `HIP_DROPS_AT_MOST`. Worst step 1.02 cm |
+| Double support missing entirely from the walk | `share` was capped at 0.5, which is the definition of a run. Cap removed |
+| "the legs are a bit too bent, make him slightly more upright" | `ik_gait.STANCE_LEG_EXTENDS` 0.98 |
+| "Movement is far too fast" | `set_speed` is a MULTIPLE of a clip's natural rate, not a rate — and the multiple depends on the clip's own frame count. Measure what a cycle covers off the planted foot |
+| A clip left the rig posed, and the next clip inherited it | Rest the pose at the top of every frame |
+
+### The instruments — which is where most of the real time went
+
+| Issue | Solution |
+| --- | --- |
+| A bake produced bones in A-pose and mesh in crouch, and the guard passed | The guard compared the result against its own INPUT. Every guard now compares against the SPECIFICATION — soles at 0, arms at 45° |
+| A guard reporting "the chest is now 73% spine" while the jacket tore into triangles | Numeric guards cannot see shading or silhouette. Render the pose that exercises the change and LOOK |
+| Two fixes in a row not moving a number at all | The number wasn't connected to the knob — stale pycache, a clamped share, a wrong parameter type. Stop tuning and trace it |
+| A flatness guard failing three rebuilds at a constant 0.86 cm | Its radius reached the OTHER shoe. A constant residual across code changes means the guard measures something else |
+| A refusal contradicting itself — "one half bobs 0.0224 and the other 0.0224, a ratio of 0.02" | A shadowed local again (`rise`). Second one in a day |
+| A threshold refusing the sprint while suiting the walk | An absolute per-frame hip limit can't work across gaits; compare against the bob's own SHAPE |
+| A 22°→17° regression sailing through | `THIGH_REACHES_BACK` is 12.0, the anatomical floor. A guard at the bottom of a legitimate range cannot see a regression inside it |
+| An A-pose lost mid-build | A live session someone is also clicking in is for finding numbers, never a build substrate. Builds run from source via a script that re-derives everything |
+| `action.fcurves` raising `AttributeError` | Blender 5 moved it: slots → layers → strips → channelbags, via `anim_utils.action_ensure_channelbag_for_slot` |
 
 ## Keeping this honest
 

@@ -110,7 +110,11 @@ def where_the_balls_go(rig, facing, contact: float, share: float, phase: float,
         # the same sweep landed short and released long fits inside it - which is how
         # real runners sweep a full leg length per stance (0.99 +/- 0.08 m at every
         # speed, Weyand).
-        if own < share:
+        # Both branches give the same `along` and a zero lift at exactly `own == share`,
+        # so which one runs there is a no-op TODAY. It uses the shared test anyway, so
+        # that a future change to the swing arc cannot quietly reintroduce the boundary
+        # disagreement that `the_foot_is_down` exists to document.
+        if ik_gait.the_foot_is_down(own, share):
             along = contact * (lands_ahead - own / share)
             lift = 0.0
         else:

@@ -16,6 +16,10 @@ desktop.ini
 # delete the script that made it — a generator and a hand-edited file cannot
 # both be the source of truth.
 /dev/art/*.blend
+# And Blender's own rolling backup of one, which is the same intermediate a save
+# older. This rule was missing, so a handful of *.blend1 are already tracked
+# (cover_blade, cover_flower, cover_petals) — untracking those is a separate tidy.
+/dev/art/*.blend1
 /cover_patch.ply
 
 # Scratch worktrees the workflow tool makes for parallel agents. They are full

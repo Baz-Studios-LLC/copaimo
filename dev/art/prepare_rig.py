@@ -467,6 +467,89 @@ def sane_root_and_hip(rig, mesh):
           f"pointing forward; Hip {rig.data.bones['Hip'].length * SCALE:.1f} cm up the spine")
 
 
+def shorten_the_controls(rig, mesh):
+    """Takes Root and Hip down to a sane length, without changing where they point.
+
+    `sane_root_and_hip` is the version for the BUILD, and it redirects them. This one is
+    for anything that opens an already-animated file, where redirecting is unsafe:
+    changing a bone's direction rotates `matrix_local`, and that is the basis the glTF
+    importer has already converted the clip's keys into, so a redirect after import
+    silently corrupts the pose. Length is stored apart from `matrix_local`, so shortening
+    along a bone's own axis cannot.
+
+    Both bones arrive 85.0 cm long, which is not the importer inventing: `Root` sits on
+    the floor and its only child is at the pelvis, so its tail genuinely reaches the
+    whole way up. It is still unreadable, which is the "what is this long angled bone".
+    """
+    names = {g.index: g.name for g in mesh.vertex_groups}
+    driven = {}
+    for vertex in mesh.data.vertices:
+        for group in vertex.groups:
+            name = names.get(group.group)
+            if name and group.weight >= 0.001:
+                driven[name] = driven.get(name, 0) + 1
+
+    wanted = {"Root": 20.0 / SCALE, "Hip": 12.0 / SCALE}
+    before = {}
+    for name in wanted:
+        if name not in rig.data.bones:
+            continue
+        if driven.get(name):
+            print(f"  NOT shortening {name}: it drives {driven[name]} vertices, so its "
+                  "length is not free to change here")
+            continue
+        bone = rig.data.bones[name]
+        before[name] = (
+            bone.matrix_local.to_3x3().col[1].normalized().copy(), bone.length
+        )
+
+    with in_edit_mode(rig) as edit:
+        for name in before:
+            edit[name].length = wanted[name]
+
+    worst = 0.0
+    for name, (direction, was) in before.items():
+        now = rig.data.bones[name].matrix_local.to_3x3().col[1].normalized()
+        worst = max(worst, math.degrees(direction.angle(now)))
+        print(f"  {name}: {was * SCALE:.1f} -> "
+              f"{rig.data.bones[name].length * SCALE:.1f} cm")
+    print(f"  the two controls kept their direction to within {worst:.6f} deg")
+    if worst > BASIS_MUST_NOT_MOVE:
+        refuse(f"shortening the controls turned one by {worst:.6f} deg")
+
+
+def make_the_import_readable(rig, mesh):
+    """Everything a fresh glTF import needs before a person can look at the skeleton.
+
+    THE POINT OF THIS FUNCTION IS THAT IT IS ONE FUNCTION. Every tool that opens a GLB
+    needs all of it, none of it is optional, and it has to be redone on EVERY import
+    because none of it can be exported - glTF stores joint positions and nothing else.
+    Two of these faults have now been reported, fixed, and reported again:
+
+      the sphere widgets - the importer's own `armature_display` builds an Icosphere and
+        hangs it off all 41 bones, and a custom shape overrides `display_type`, so the
+        skeleton reads as a bag of balls whatever the armature says;
+      the leaf lengths - `Head` arrives 2.6 cm on a 27.8 cm head and both hands arrive
+        8 cm past the fingertips, which is "the bones don't reach the top of the head
+        and the ends of the feet and hands";
+      and Root and Hip at 85 cm, which is "what is this long angled bone".
+
+    Order is not free: `drop_the_widgets` disposes of the Icosphere by deleting meshes
+    with no vertex groups, so anything else unskinned in the scene - a floor, marker
+    bars, a reference prop - must be added AFTER this runs, not before.
+
+    Safe on animated files: every step here changes bone LENGTHS or a display flag, and
+    the two that touch lengths each re-read the directions afterwards and refuse if any
+    skinning basis moved.
+    """
+    drop_the_widgets(rig)
+    reach_the_ends(rig, mesh)
+    shorten_the_controls(rig, mesh)
+    left = [b.name for b in rig.pose.bones if b.custom_shape is not None]
+    if left:
+        refuse(f"{len(left)} bones still wear a widget ({left[:3]})")
+
+
 def check_the_skin(mesh):
     """Checks the skin. Deliberately does NOT weld the coincident vertices.
 

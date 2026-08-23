@@ -1230,7 +1230,7 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
         allow = []
         for side in "LR":
             own = (at + (0.5 if side == "L" else 0.0)) % 1.0
-            if own >= share:
+            if not ik_gait.the_foot_is_down(own, share):
                 continue
             tilt_here = smoothly(leg, own)
             balls_here = foot_roll.where_the_balls_go(
@@ -1363,7 +1363,7 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
         allowed = []
         for side in "LR":
             own = (phase + (0.5 if side == "L" else 0.0)) % 1.0
-            if own >= share:
+            if not ik_gait.the_foot_is_down(own, share):
                 continue
             tilt_here = smoothly(leg, own)
             ankle_here, _ = foot_roll.ankle_for(
@@ -1476,7 +1476,7 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
             # swing, so the foot leaves pointed - the push-off flick - and is rigid
             # again long before it presents the heel.
             flat_bend = min(-tilt, foot_roll_cap) if tilt < 0.0 else 0.0
-            if own < share:
+            if ik_gait.the_foot_is_down(own, share):
                 bend = flat_bend
             else:
                 through = (own - share) / max(1e-6, 1.0 - share)
@@ -1499,7 +1499,9 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
         # the ground. That one mismatch was the whole family of straight-swing-leg
         # refusals - and it silently erased every arc change made while it stood.
         planted = {
-            side: ((phase + (0.5 if side == "L" else 0.0)) % 1.0) < share
+            side: ik_gait.the_foot_is_down(
+                (phase + (0.5 if side == "L" else 0.0)) % 1.0, share
+            )
             for side in "LR"
         }
         clamped = max(

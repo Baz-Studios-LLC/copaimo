@@ -237,6 +237,32 @@ def ankle_rests_above_the_sole(rig, mesh, feet, side: str) -> float:
     return (rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head).z - sole
 
 
+def the_foot_is_down(own: float, share: float) -> bool:
+    """Whether a foot at this own-phase is carrying weight. The ONE definition.
+
+    Stance is the closed interval [0, share]: `share` is the instant of toe-off, and at
+    toe-off the sole is still on the floor. The half-open `own < share` that this
+    replaces excluded it, and the cost was measured rather than guessed - on the walk,
+    own phase 0.6250 IS a keyframe (frame 16 of 24, since share is 5/8), so the most
+    extended pose in the whole cycle read as airborne and
+    `rest_the_shoe_on_the_floor` PUSHED its sole 1.61 cm up off the ground instead of
+    pulling it down. Peak thigh extension measured -17.71 deg there.
+
+    What makes it a bug rather than a choice is that the code already disagreed with
+    itself: `where_the_balls_go` computes `lift = 0` and the same `along` from either
+    branch at exactly `own == share`, so the PATH intends ground contact at the
+    boundary while the planted test denied it. Three separate inline copies of this
+    test is how that divergence survived - hence one function.
+
+    Not every clip has a frame on the boundary: the sprint's share is 2/8 over 14
+    frames, so 0.25 falls between samples and this changes nothing for it. That is a
+    discretisation cost still owed, not something this fixes.
+    """
+    # Tolerance because `own` is built by float division and a modulo, and an exact
+    # boundary that misses by one ulp is the whole fault this exists to prevent.
+    return own <= share + 1e-9
+
+
 def where_the_soles_go(rig, facing, contact: float, share: float, phase: float,
                        leg_length: float, ground: float):
     """Where each ankle should be at this instant, in armature space.
@@ -254,7 +280,7 @@ def where_the_soles_go(rig, facing, contact: float, share: float, phase: float,
     for side in "LR":
         own = (phase + (0.5 if side == "L" else 0.0)) % 1.0
         socket = rig.matrix_world @ rig.pose.bones[f"{side}_Thigh"].head
-        if own < share:
+        if the_foot_is_down(own, share):
             # Planted: front to back, linearly, on the ground.
             along = contact * (0.5 - own / share)
             lift = 0.0
