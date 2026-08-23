@@ -220,7 +220,15 @@ SPRINT_LANDS_AHEAD = RUN_LANDS_AHEAD
 # lift more is that a 171 cm character seen at game distance needs the swing to be
 # legible, and 0.14 gives about 11 cm.
 WALK_SWING_LIFT = 0.14
-RUN_SWING_LIFT = 0.24
+# 0.34, up from 0.24. The legs half of "both the arms and legs need more movement".
+#
+# Williams' pass position has the swing knee well up in front with the heel tucked, and ours
+# sits low - which reads as shuffling rather than running. This was tried once before and
+# judged a failure because foot SEPARATION dropped, 49.9 to 42.3 cm. That was the wrong
+# test: a high knee with a folded heel is meant to bring the foot closer to the body, and
+# measuring how far apart the feet get penalises exactly the pose being asked for. The knee
+# drove to +40.6 degrees, which is the thing that was wanted.
+RUN_SWING_LIFT = 0.34
 SPRINT_SWING_LIFT = RUN_SWING_LIFT * 1.15
 
 # Where each arc peaks - the exponent on the swing's progress inside its sine, see
@@ -511,8 +519,25 @@ ARM_BACK = -22.0
 # under-swinging (0.46 of the legs' travel) without moving the hand back much. Shifting
 # the WINDOW keeps the amplitude and moves the mean, exactly as LANDS_AHEAD does for the
 # legs.
-RUN_ARM_FORWARD = 21.0
-RUN_ARM_BACK = -29.0
+# 38 and -55, up from 21 and -29. Reported against the run cycle in The Animator's
+# Survival Kit: "note the arms in the second image, they swing more than our character",
+# and then "both the arms and legs need more movement".
+#
+# Measured, the old pair gave 50.8 degrees of upper-arm swing and - the telling number - the
+# hand never got BEHIND the shoulder at all, travelling +1.6 to +27.7 cm and staying in
+# front for every frame of the cycle. Williams' run has the trailing arm swept clearly back
+# with the elbow past the hip, and a contact sheet of ours next to it shows both hands in
+# front in all seven poses, with the arms barely changing shape across the row. That is the
+# single biggest reason it read weak: a run is driven by the arms as much as the legs, and
+# ours were held still in front of the chest.
+#
+# 93 degrees of swing now, which is Williams' territory. Worth noting what this measurement
+# caught on the way: the SPRINT was already right at 118.7 degrees and got behind the body
+# properly. It only got there by accident, through multipliers of 1.9 and 2.7 on values
+# that were far too small - so the two clips disagreed by more than a factor of two, and
+# the one that was reported as wrong was the one with the honest numbers.
+RUN_ARM_FORWARD = 38.0
+RUN_ARM_BACK = -55.0
 
 # A sprint drives the arms harder still, and the check in `verify_gait.py` refuses a
 # clip whose hands cover less than a quarter of what its feet do - which a sprint's
@@ -522,7 +547,12 @@ RUN_ARM_BACK = -29.0
 # in FRONT of the shoulder-to-wrist line and refused. That was with the elbow held at 62,
 # leaving 44 degrees of fold at the back extreme; at 88 it keeps 70, so there is more room
 # now than there was - but the refusal is the thing to watch if this goes higher.
-SPRINT_ARM_FORWARD = RUN_ARM_FORWARD * 1.9
+# 1.1 and 1.55, down from 1.9 and 2.7. These were not chosen, they were compensation: the
+# run's own values were less than half what they should have been, so the sprint needed a
+# huge multiple to look like a sprint. Now that the run is honest, the same multiples would
+# put the sprint at 72 and -148 degrees. Retuned to hold the sprint at the 42/-85 that
+# measured well - about 127 degrees of swing against the run's 93.
+SPRINT_ARM_FORWARD = RUN_ARM_FORWARD * 1.1
 # The BACK swing is scaled harder than the forward one, and separately from it.
 #
 # Reported as "the elbows dont go back far enough". They can be pushed on their own: what
@@ -531,7 +561,7 @@ SPRINT_ARM_FORWARD = RUN_ARM_FORWARD * 1.9
 # 15.05 cm BEHIND that line there, and travelled only 21.6 cm behind the shoulder.
 # A sprinter's arms are asymmetric anyway: the drive back is the powerful half and the
 # forward recovery is shorter.
-SPRINT_ARM_BACK = RUN_ARM_BACK * 2.7
+SPRINT_ARM_BACK = RUN_ARM_BACK * 1.55
 
 # How far the arm extremes fall BEHIND the leg extremes, as a share of the cycle.
 #
@@ -897,11 +927,21 @@ SPRINT_BOUND = 0.022
 # because a big lean belongs to acceleration - 45 degrees at a sprinter's block exit,
 # nearly nothing at top speed. Keeping the sprint a shade under the jog is what stops
 # it reading as a permanent launch.
-RUN_LEAN = 9.0
+# 15, up from 9. Straight off the caption on the reference this was matched against:
+# "here's the same thing with a bit more vitality - MORE LEAN - bigger arm swing". The arm
+# swing was the half that got reported out loud, but Williams names lean first, and measured
+# ours sat at 8.4 degrees where his figure is nearer 15. Lean is what makes a run read as
+# driving forward rather than bouncing on the spot, and it costs nothing in reach because
+# it pitches the trunk, not the legs.
+RUN_LEAN = 15.0
 # 2.3, up from 1.55: the reference range for a SPRINT is 15-30 degrees of trunk lean and
 # 1.55 delivered 13.01, which read as under-committed. verify_gait has a floor on forward
 # lean and no ceiling for a flying gait, so the only bound here is taste.
-SPRINT_LEAN = RUN_LEAN * 2.3
+# 1.45, down from 2.3 - the third multiplier found to be compensation rather than a choice,
+# after the two on the arms. It was tuned when RUN_LEAN was 9, so it had to be large to make
+# a sprint look like one; against an honest 15 the same factor asks for 34.5 degrees, which
+# is a fall rather than a lean. Held at about 22, which is sprinter territory.
+SPRINT_LEAN = RUN_LEAN * 1.45
 
 # The arms hang a little OUT and the palms turn IN, in every frame, so the hands
 # clear the pockets. The generator's bind pose parks them ON the pockets — glove and
