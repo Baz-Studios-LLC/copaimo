@@ -306,19 +306,33 @@ restore()
 # captions drew over each other into an unreadable smear. The handle is parked in
 # `driver_namespace`, which is the one place that survives a file load, so the previous one
 # can be removed before adding this one.
-KEY = "gait_watch_caption"
-old = bpy.app.driver_namespace.get(KEY)
-if old is not None:
+# The handle is parked in `sys.modules`, which is the only place that survives what has to
+# be survived here. A draw handler added to SpaceView3D outlives a file load, but
+# `bpy.app.driver_namespace` is CLEARED by one - so the first attempt at this stored the
+# handle somewhere that vanished while the handler it referred to did not, and every revert
+# added another caption on top of the last until they were an unreadable smear. Twice.
+#
+# `sys.modules` is process-global: it lasts as long as Blender does, which is exactly the
+# lifetime of the thing being tracked.
+import sys
+
+KEPT = "gait_watch_caption_state"
+state = sys.modules.get(KEPT)
+if state is None:
+    state = type(sys)(KEPT)
+    sys.modules[KEPT] = state
+if getattr(state, "handle", None) is not None:
     try:
-        bpy.types.SpaceView3D.draw_handler_remove(old, "WINDOW")
+        bpy.types.SpaceView3D.draw_handler_remove(state.handle, "WINDOW")
     except Exception:
         pass
+    state.handle = None
 try:
-    bpy.app.driver_namespace[KEY] = bpy.types.SpaceView3D.draw_handler_add(
+    state.handle = bpy.types.SpaceView3D.draw_handler_add(
         say_so, (), "WINDOW", "POST_PIXEL"
     )
 except Exception:
-    pass
+    state.handle = None
 bpy.app.timers.register(tick, first_interval=2.0)
 '''
 
