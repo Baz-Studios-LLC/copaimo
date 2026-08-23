@@ -1909,6 +1909,92 @@ cadence band allows.
 higher-quality half — it buys speed without churning the legs faster. That is an authoring
 change in `animate_ranger.py`, not a constant, and it has not been done.
 
+### ISSUE: the warden jitters while running, "the frames are horribly messed up"
+
+**What you see.** In game the run stutters badly, as though the animation frames were
+corrupt. The clips themselves are fine — every loop seam measures **0.000 deg** and
+**0.000 cm** last-frame-to-first on all three, so nothing was wrong with the authoring.
+
+**What it actually was.** `Striding::speed` was measured like this:
+
+```rust
+let went = transform.translation.distance(before);
+pace.speed = went / time.delta_secs();
+```
+
+Two faults in one line, and then a third that turned them into a visible stutter.
+
+1. **It was a 3D distance.** The warden is planted on the terrain every frame, so `went`
+   included the vertical travel of climbing or descending. On any slope the measured speed
+   read *higher* than the ground speed.
+2. **It was unsmoothed.** Frame-time wobble, a step clamped by `bounds`, and a step refused
+   by `may_step` and retried per-axis all land in it as spikes.
+3. **The gait SELECTION read it.** `find(|gait| pace.speed <= gait.upto)` — so a noisy
+   number was choosing the clip. `JOG_SPEED` had just been set to 2.81 against a run
+   handover of 2.83, a 0.7% margin, so on a slope the speed crossed the ceiling and
+   uncrossed it on consecutive frames. Each crossing calls `moves.play(..)` with a `BLEND`,
+   restarting a transition every frame. The playback rate was fed the same noisy number, so
+   the clip's tempo flickered too.
+
+**What changed.** The two jobs got separated. `Striding` now carries `wants` — the ASKED
+speed, exactly one of three constants — alongside `speed`, the measured one. Selection reads
+`wants`, so it cannot chatter by construction. The playback rate still reads `speed`, which
+is what a measured speed is actually good for, but that is now **horizontal** (`.xz()`) and
+settled at `SPEED_SETTLES = 16.0` per second, with a `BLOCKED_STILL_RUNS` floor so a warden
+shoved against a wall keeps running in place instead of freezing on one pose.
+
+**The principle.** *Choose from intent, scale by measurement.* This is also how the games
+this one is measured against do it — Genshin Impact drives locomotion from a discrete
+movement state and only uses velocity to scale the clip once the state has picked it. And
+separately: a threshold and the value it is compared against should never be tuned to
+within a percent of each other, because anything noisy in between becomes a per-frame flip.
+
+**The test.** `every_handover_separates_the_speeds_it_sits_between` — it demands each
+handover sit clear of both speeds it divides by a fifth of the gap, so the 2.81-against-2.83
+arrangement is now a build failure rather than a stutter to be discovered in game.
+
+### ISSUE: "still VERY slow moving" — the speed was never a knob
+
+**What you see.** Movement stays sluggish across pass after pass of tuning. Raising a speed
+gets refused by a test, or gets given back somewhere else.
+
+**What it actually was.** The speeds were *derived*, not chosen. `GAITS` set each tier's
+ceiling with `hands_over_above(covers, CHURNS_ABOVE.n)` — the speed at which cadence would
+leave a believable band — and then `JOG_SPEED` was set just under that ceiling. So the
+driven speed was not a design decision at any point. It was whatever a **human** cadence
+band permitted, and every attempt to raise it hit a guard enforcing realism in a fantasy
+game about collecting and raising monsters.
+
+**What changed.** The dependency was inverted.
+
+* `player::WALK_SPEED` / `JOG_SPEED` / `SPRINT_SPEED` are now the primary knobs, chosen by
+  feel against Genshin Impact as the reference for movement and fluidity.
+* `halfway()` replaced `hands_over_above()`: a handover is simply the midpoint between the
+  two speeds it separates, which also gives the widest possible margin either side.
+* `CHURNS_BETWEEN` stopped being a speed gate and became an **absurdity** bound, widened to
+  60-180 / 140-330 / 200-400 so it has no opinion about a chosen speed. Its remaining job is
+  catching a broken `covers`: cadence is `speed / covers`, so a mis-measured stride shows up
+  as an impossible cadence. 60 or 400 steps a minute is a bug; 300 is a choice.
+
+Jog 2.39 → **3.40 m/s**, sprint 4.10 → **5.40 m/s**.
+
+**What this costs, stated plainly.** Cadence and stride multiply into speed, and only
+cadence moved. The jog now churns at **287 steps a minute** and the sprint at **346**,
+playing their clips at 2.50x and 3.00x the authored rate. Fast legs are not the same thing
+as fluid movement, so if it reads busy the fix is not another cadence bump — it is
+**stride**, which buys speed without churning: `covers` is `foot travel during stance /
+stance share`, so a bigger fore-aft leg swing in `RUN_LEG` raises it directly. Going from
+1.419 m to about 2.04 m a cycle would carry 4.08 m/s at a calm 240 steps a minute. That is
+an authoring pass in `animate_ranger.py`, not a constant, and it has not been done.
+
+**The principle.** *A value you cannot raise without a guard refusing it is not a knob, it
+is an output.* When tuning keeps failing, check which direction the dependency runs before
+tuning again.
+
+**The test.** `the_gaits_churn_like_a_person_at_the_speeds_they_are_driven` and
+`each_clip_is_authored_near_the_time_its_stride_takes`, both reading `CHURNS_BETWEEN` — now
+as sanity bounds rather than gates.
+
 ## Keeping this honest
 
 Add an entry when a bug took **more than one attempt** to fix, or when the symptom

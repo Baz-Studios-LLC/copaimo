@@ -86,7 +86,7 @@ pub const WALK_SPEED: f32 = 0.93;
 /// 0.352 and 0.36 delivered 1.575, 1.564 and 1.579 m - it does not grow, because reach on
 /// a 45%-of-height leg is the binding constraint. Going faster here needs the LEG, not
 /// this number.
-pub const JOG_SPEED: f32 = 2.81;
+pub const JOG_SPEED: f32 = 3.40;
 
 /// A sprint, in metres a second. Held on Shift.
 ///
@@ -119,10 +119,23 @@ pub const JOG_SPEED: f32 = 2.81;
 /// 0.178 and 0.247, four to six times the jog's, because the extra sweep is past the leg's
 /// reach and the floor solve drags the foot to cover it. Skating feet is the exact fault
 /// that brought the old 5.21 down, so the stride stayed and the band was corrected.
-pub const SPRINT_SPEED: f32 = 4.58;
+pub const SPRINT_SPEED: f32 = 5.40;
 
 /// How fast the warden swivels to face the way they're heading, in radians/sec.
 const TURN_RATE: f32 = 12.0;
+
+/// How quickly the MEASURED speed settles onto what was just measured, per second.
+///
+/// Only the playback rate reads it, and a rate that jumps around reads as a stutter, so
+/// this exists to take the spikes out without adding lag a player would feel: at 16 a
+/// step change is most of the way there inside a tenth of a second. It deliberately does
+/// NOT smooth what the warden actually asks for - input stays instant, which is the whole
+/// point of the intent/measurement split in `Striding`.
+const SPEED_SETTLES: f32 = 16.0;
+
+/// The least of the asked speed a blocked warden's clip still plays at - see the note
+/// where it is used.
+const BLOCKED_STILL_RUNS: f32 = 0.2;
 /// Standing eye-to-toe height, used to keep the body clear of the ground.
 /// The steepest rise the warden can WALK up, in metres climbed per metre
 /// travelled. One-in-one is a 45° scramble and still walking; this is a little
@@ -167,15 +180,30 @@ fn may_step(terrain: &crate::world::terrain::Terrain, from: Vec3, to: Vec3) -> b
 #[derive(Component)]
 pub struct Player;
 
-/// How fast the warden is actually travelling, in metres a second.
+/// How fast the warden is travelling, in metres a second - both what they got and
+/// what they asked for, because the two answer different questions.
 ///
-/// The ASKED speed is not it: a step into deep water or up a cliff is refused, and
-/// a warden pressed against a canyon wall is not walking however hard the key is
-/// held. So this is measured from where they ended up, which is what a walk cycle
-/// has to match or the feet skate.
+/// `speed` is MEASURED, because the asked speed is not it: a step into deep water or
+/// up a cliff is refused, and a warden pressed against a canyon wall is not walking
+/// however hard the key is held. That is what a walk cycle has to match or the feet
+/// skate, so it drives the playback rate.
+///
+/// `wants` is what was ASKED, and it exists because using the measured speed to CHOOSE
+/// the clip made the warden jitter. Measured speed is noisy - it was a 3D distance, so
+/// it picked up the vertical travel from being planted on the terrain every frame and
+/// read high on any slope, and it moves with frame time and with clamped steps. Choosing
+/// a gait from a noisy number means that whenever the number sits near a handover
+/// ceiling, the choice flips back and forth every frame, and each flip restarts a blend.
+/// `wants` is exactly one of three constants, so it can never sit near a boundary and
+/// can never chatter.
+///
+/// This is also how the games this one is measured against do it. Genshin Impact drives
+/// locomotion from a discrete movement STATE, not from a velocity magnitude; velocity
+/// only ever scales the clip once the state has chosen it. Same split as here.
 #[derive(Component, Default)]
 pub struct Striding {
     pub speed: f32,
+    pub wants: f32,
 }
 
 pub struct PlayerPlugin;
@@ -411,6 +439,7 @@ pub fn move_player(
     let direction = input.normalize_or_zero();
     if direction == Vec3::ZERO {
         pace.speed = 0.0;
+        pace.wants = 0.0;
     }
     if direction != Vec3::ZERO {
         // Jogging is the DEFAULT and walking is the deliberate choice, which is the
@@ -441,13 +470,25 @@ pub fn move_player(
         if let Some(to) = step {
             transform.translation = to;
         }
-        // From what actually happened, not from what was asked.
-        let went = transform.translation.distance(before);
-        pace.speed = if time.delta_secs() > 0.0 {
+        // From what actually happened, not from what was asked - but HORIZONTALLY, and
+        // settled. The 3D distance was wrong twice over: it counted the vertical travel
+        // from planting the feet on the terrain, so a slope read as extra ground speed,
+        // and it inherited every frame-time wobble and clamped step as a spike. Feeding
+        // that to the playback rate made the clip's tempo flicker frame to frame, which
+        // is half of what the jitter was.
+        let went = transform.translation.xz().distance(before.xz());
+        let measured = if time.delta_secs() > 0.0 {
             went / time.delta_secs()
         } else {
             0.0
         };
+        let settles = (SPEED_SETTLES * time.delta_secs()).clamp(0.0, 1.0);
+        pace.speed += (measured - pace.speed) * settles;
+        // A warden shoved against a wall measures nearly nothing, and a clip played at
+        // nearly nothing is a frozen pose. Keep enough of the asked speed to carry on
+        // running in place, which is what it looks like from outside anyway.
+        pace.speed = pace.speed.max(speed * BLOCKED_STILL_RUNS);
+        pace.wants = speed;
 
         // Ease into the new facing instead of snapping, so quick direction
         // changes read as a turn rather than a teleport.

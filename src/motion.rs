@@ -87,8 +87,8 @@ const RUN_COVERS: f32 = 1.419;
 /// / stance fraction`. See `WALK_COVERS` for why the obvious `2 x foot swing` is
 /// wrong by 45% on anything with a flight phase.
 const GAITS: &[(&str, f32, f32)] = &[
-    ("walk", WALK_COVERS, hands_over_above(WALK_COVERS, CHURNS_ABOVE.0)),
-    ("run", RUN_COVERS, hands_over_above(RUN_COVERS, CHURNS_ABOVE.1)),
+    ("walk", WALK_COVERS, halfway(crate::player::WALK_SPEED, crate::player::JOG_SPEED)),
+    ("run", RUN_COVERS, halfway(crate::player::JOG_SPEED, crate::player::SPRINT_SPEED)),
     ("sprint", SPRINT_COVERS, f32::INFINITY),
 ];
 
@@ -131,30 +131,28 @@ const LEGS_SHORTER_BY: f32 = 1.019;
 /// were two copies that disagreed (140/200/260 here against 90-140/150-200/220-260 in the
 /// test) and a bound that exists twice is a bound that drifts.
 ///
-/// These are STYLISED bands, not human ones. A person walks at 90-140, runs at 150-200 and
-/// sprints at 220-260, and holding this character to that is what made the jog feel, in the
-/// user's words, like running through water: the jog speed was pinned just under a human
-/// ceiling, so every metre per second had to be bought from a band that would not sell it.
-/// This is a fantasy game about collecting and raising monsters, and its reference class is
-/// stylised action animation, where characters cover ground faster than a person would. So
-/// the tops are pushed past life deliberately - run to 235, sprint to 290.
+/// These are ABSURDITY bounds, not realism ones, and the distinction is the whole point.
 ///
-/// The lever this does NOT touch is stride. Cadence and stride multiply into speed, and a
-/// longer stride is the higher-quality half: it buys speed without churning the legs
-/// faster. That is the next pass, and it is an authoring change, not a constant.
+/// They were human bands - 90-140 walking, 150-200 running, 220-260 sprinting - and they
+/// were being used as a speed GATE: each driven speed got pinned just under the ceiling its
+/// band allowed, so the speeds were never chosen, they were whatever realism permitted.
+/// That is what made the jog feel, in the user's words, like running through water, and no
+/// amount of tuning fixed it because the tuning knob was downstream of the gate.
 ///
-/// Still scaled by `LEGS_SHORTER_BY`, which is not a realism concession - it is this
-/// character's legs being genuinely shorter than the figure the band was written for, and
-/// a short leg does need to churn faster to cover the same ground.
-const CHURNS_BETWEEN: [(f32, f32); 3] = [(90.0, 150.0), (150.0, 235.0), (220.0, 290.0)];
-
-/// The same table as `CHURNS_BETWEEN`, scaled to this character and flattened to the
-/// ceilings the gait selection wants.
-const CHURNS_ABOVE: (f32, f32, f32) = (
-    CHURNS_BETWEEN[0].1 * LEGS_SHORTER_BY,
-    CHURNS_BETWEEN[1].1 * LEGS_SHORTER_BY,
-    CHURNS_BETWEEN[2].1 * LEGS_SHORTER_BY,
-);
+/// This is a fantasy game about collecting and raising monsters, and the standard it is
+/// held to for movement is Genshin Impact, not a gait laboratory. So realism is not a
+/// constraint here at all: `player::JOG_SPEED` and friends are chosen by FEEL, and these
+/// bands were widened until they no longer have an opinion about them.
+///
+/// What they still catch, and the only reason they survive, is a broken `covers`. Cadence
+/// is `speed / covers`, so if a stride measurement goes wrong - the wrong mesh measured,
+/// the stance fraction misread, a clip re-authored without re-measuring - the cadence lands
+/// somewhere impossible and these say so. 60 or 400 steps a minute is a bug. 300 is a
+/// choice.
+///
+/// Scaled by `LEGS_SHORTER_BY`, which is not a realism concession - it is this character's
+/// legs being genuinely shorter than the figure the numbers were written for.
+const CHURNS_BETWEEN: [(f32, f32); 3] = [(60.0, 180.0), (140.0, 330.0), (200.0, 400.0)];
 
 /// What a clip carries at its own natural rate, in metres a second.
 #[allow(dead_code)]
@@ -162,28 +160,34 @@ const fn natively_carries(covers: f32, frames: f32) -> f32 {
     covers * FPS / frames
 }
 
-/// The speed above which a clip should give way to the next tier up: the speed at which
-/// its CADENCE would leave the believable band.
+/// The speed at which one tier hands over to the next: halfway between the two speeds
+/// they are actually driven at.
 ///
-/// Two wrong versions preceded this, and both were wrong in an instructive way.
+/// Three versions preceded this and each was wrong in a way worth keeping.
 ///
 /// It was `natively_carries(covers, frames) * STRETCHES_TO`, which assumes `frames / FPS`
-/// IS the intended cycle duration. That held while the run was sixteen frames and broke the
-/// day it became twenty-four: frame count is chosen for sampling density and tempo comes
-/// from the playback rate, so a longer clip is not a slower gait. It dropped the run's
-/// ceiling from 3.05 to 1.97 m/s - below JOG_SPEED - so the selection fell through the run
-/// and played the sprint at jog speed.
+/// IS the intended cycle duration. That held while the run was sixteen frames and broke
+/// the day it became twenty-four: frame count is chosen for sampling density and tempo
+/// comes from the playback rate, so a longer clip is not a slower gait.
 ///
-/// The fix for that was `design_speed * STRETCHES_TO`, which selects correctly and is still
-/// wrong: 25% more speed on a fixed stride is 25% more cadence, so any tier sitting near
-/// the top of its band churns at its own ceiling. Measured, the run's ceiling came out at
-/// 267 steps a minute.
+/// Then `design_speed * STRETCHES_TO`, which selects correctly and is still wrong: 25%
+/// more speed on a fixed stride is 25% more cadence, so any tier near the top of its band
+/// churns at its own ceiling.
 ///
-/// Cadence is the quantity that actually goes wrong, so it is the one to bound. Handing
-/// over exactly where cadence reaches `CHURNS_ABOVE` makes the selection and the churn test
-/// agree by construction instead of by a coincidence of factors. Two steps to a cycle.
-const fn hands_over_above(covers: f32, churns_above: f32) -> f32 {
-    covers * churns_above / 120.0
+/// Then `covers * churns_above / 120.0` - the speed at which CADENCE would leave a
+/// believable band. That was right for as long as the selection read a measured speed that
+/// could land anywhere, because then a tier really could be asked to carry every speed up
+/// to its ceiling. It stopped being right in two steps. `Striding::wants` made the
+/// selection read INTENT, so each tier now carries exactly one speed and a ceiling bounds
+/// nothing; and the bands were dropped as a speed gate, because pinning the driven speed
+/// just under a cadence ceiling is what made the jog feel slow - the speed was never a
+/// choice, it was whatever a human band permitted.
+///
+/// So the speeds are the knobs now, chosen by feel, and this is only the line between
+/// them. Halfway gives the widest margin either side, which matters because a ceiling
+/// sitting a fraction under a driven speed is exactly the fragility that bit last time.
+const fn halfway(slower: f32, faster: f32) -> f32 {
+    (slower + faster) / 2.0
 }
 
 /// What one sprint cycle carries, measured like the others - see `WALK_COVERS`.
@@ -408,15 +412,20 @@ pub fn match_the_clip_to_the_walking(
     let Ok(pace) = striding.single() else {
         return;
     };
-    // Below this a warden is standing: a hair of drift from a clamped step should
-    // not start the feet going.
-    let moving = pace.speed > 0.05;
+    // Both of these read `wants`, the ASKED speed, and not the measured one. Measured
+    // speed is noisy enough to sit either side of a handover ceiling on consecutive
+    // frames - it counted terrain climb as ground speed until this was fixed - and every
+    // crossing restarted a blend, which is what made the warden jitter while running.
+    // `wants` is one of three constants, so the choice is stable by construction. The
+    // measured speed still sets the RATE below, which is the thing it is actually good
+    // for. Choose from intent, scale by measurement.
+    let moving = pace.wants > 0.05;
     // The slowest gait whose ceiling this speed is still under. The list is ordered
     // and its last entry catches everything, so this always finds one.
     let gait = motions
         .gaits
         .iter()
-        .find(|gait| pace.speed <= gait.upto)
+        .find(|gait| pace.wants <= gait.upto)
         .unwrap_or_else(|| motions.gaits.last().expect("never empty"));
 
     for (mut player, mut moves) in &mut players {
@@ -592,40 +601,42 @@ mod pacing {
         );
     }
 
-    /// And every gait in the table plays at a believable cadence at the speed that
-    /// selects it — not just the two that used to have named constants.
+    /// Every handover sits clear of the two speeds it separates.
+    ///
+    /// This used to assert that a gait does not churn at its own CEILING, which was the
+    /// right invariant while the selection read a measured speed: a tier could then be
+    /// asked to carry anything up to its ceiling, so the ceiling was the worst case. Under
+    /// `Striding::wants` each tier carries exactly ONE speed, so that version was measuring
+    /// a case the game cannot produce - the same fault its own comment warned about two
+    /// tests down. Cadence at the driven speeds is covered by
+    /// `the_gaits_churn_like_a_person_at_the_speeds_they_are_driven`.
+    ///
+    /// What a ceiling does now is pick a clip from an intent, so what can go wrong is one
+    /// landing on the wrong side of a speed, which silently plays a walk at sprint pace or
+    /// skips a tier. Margin is demanded rather than mere ordering, because a ceiling a
+    /// fraction under a driven speed is exactly what bit last time: `JOG_SPEED` 2.81
+    /// against a 2.83 ceiling, close enough that a noisy measured speed crossed it every
+    /// frame on a slope and restarted a blend each time.
     #[test]
-    fn no_gait_in_the_table_churns_at_its_own_ceiling() {
-        let mut floor = 0.0f32;
-        for (called, covers, upto) in GAITS {
-            // The fastest speed this gait is asked to carry: its own ceiling, or the
-            // sprint if it is the open-topped one at the top.
-            let fastest = if upto.is_infinite() {
-                crate::player::SPRINT_SPEED
-            } else {
-                *upto
-            };
-            let steps = fastest / covers * 120.0;
-            // Against `CHURNS_ABOVE`, not a second copy of the bands kept here.
-            //
-            // This held its own `60..=250` with "95 to 140 walking and 150 to 200
-            // running" in the message, and that is the duplication that let the two
-            // diverge: the shared bands were scaled for a 78 cm leg and given the sprint
-            // a sprint's range, while this test went on judging a sprint by a run's -
-            // and failed a clip the rest of the file considers correct. One tolerance for
-            // the very top tier, since it is open-ended by design.
-            let ceiling = match *called {
-                "walk" => CHURNS_ABOVE.0,
-                "run" => CHURNS_ABOVE.1,
-                _ => CHURNS_ABOVE.2,
-            };
+    fn every_handover_separates_the_speeds_it_sits_between() {
+        let driven = [
+            crate::player::WALK_SPEED,
+            crate::player::JOG_SPEED,
+            crate::player::SPRINT_SPEED,
+        ];
+        for (tier, (called, _, upto)) in GAITS.iter().enumerate() {
+            if upto.is_infinite() {
+                continue;
+            }
+            let (mine, next) = (driven[tier], driven[tier + 1]);
+            let clear = (next - mine) * 0.2;
             assert!(
-                steps <= ceiling + 1.0,
-                "the {called} gait carries {fastest} m/s over {covers} m a cycle, which                  is {steps:.0} steps a minute, past the {ceiling:.0} its band allows.                  It needs a longer stride or another tier - see CHURNS_ABOVE."
+                *upto > mine + clear && *upto < next - clear,
+                "the {called} tier hands over at {upto} m/s, which is not clear of the \
+                 {mine} m/s it plays at or the {next} m/s above it. A handover within a \
+                 fifth of either speed is close enough to select the wrong clip."
             );
-            floor = fastest;
         }
-        assert!(floor > 0.0, "no gait carried anything");
     }
 
     /// The cadence must not depend on how long the clip was authored.
