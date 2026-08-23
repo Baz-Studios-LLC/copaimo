@@ -695,6 +695,13 @@ TRUNK_PITCHES = 2.5
 # ribs at 127 - the two multiply rather than add. So the tuck now shrinks as the swing grows.
 # How much the arm swing DWELLS at its extremes rather than gliding sinusoidally through
 # them - see the note in swing_the_arm. 1.0 is a plain cosine. Only the sprint pumps.
+# Extra degrees of inward tuck at the top of the forward swing, and how far ahead of the
+# apex that peak lands, as a fraction of a cycle. See the note in swing_the_arm.
+WALK_CROSSES_IN = 6.0
+RUN_CROSSES_IN = 16.0
+SPRINT_CROSSES_IN = 11.0
+CROSS_LEADS = 0.045
+
 WALK_PUMPS = 1.0
 RUN_PUMPS = 1.0
 SPRINT_PUMPS = 0.55
@@ -1528,7 +1535,7 @@ DRIVEN = (
 
 def swing_the_arm(rig, side: str, hand: float, phase: float, reach: float,
                   back: float, elbow_held: float, elbow_swing: float, tuck_in: float,
-                  pumps: float, facing) -> None:
+                  crosses_in: float, pumps: float, facing) -> None:
     """One arm, for one instant of a cycle: swing, elbow, hang and palm.
 
     In ONE place because it used to be written out twice - once in `pose_the_body` and
@@ -1602,7 +1609,25 @@ def swing_the_arm(rig, side: str, hand: float, phase: float, reach: float,
     # it toward `heads`, which is the fold wanted. A constant axis cannot do this because
     # it does not know where the upper arm ended up.
     upper = (posed.matrix.to_3x3() @ mathutils.Vector((0.0, 1.0, 0.0))).normalized()
-    tuck = math.radians(tuck_in)
+    # The tuck GROWS as the arm comes forward, peaking just before the forward apex, so the
+    # hand arcs in toward the sternum rather than tracking a plane parallel to the body all
+    # the way round. Suggested from watching it, and the biomechanics agrees: arm swing is
+    # "characterised primarily by arm flexion/extension in the sagittal plane", but "the arms
+    # don't move in parallel paths, rather in a coordinated pattern that helps stabilise the
+    # torso and regulate rotational motion around the body's longitudinal axis". So a cross
+    # belongs, as a SECONDARY component - which is why this is added on top of `tuck_in`
+    # rather than replacing it, and why the sprint gets less of it than the jog despite
+    # swinging further.
+    #
+    # `CROSS_LEADS` puts the peak a frame or so ahead of the apex. That is the half of the
+    # suggestion that makes it read as motion rather than as a wider pose: the hand is already
+    # arcing inward while it is still travelling forward, and unwinds as it goes back.
+    # `max` keeps it to the forward half only, so nothing pulls the trailing arm across.
+    swings_in = max(
+        0.0,
+        math.cos(2.0 * math.pi * (at + CROSS_LEADS - 0.5 - ARM_LAG)),
+    )
+    tuck = math.radians(tuck_in + crosses_in * swings_in)
     heads = (forward * math.cos(tuck) - across * (hand * math.sin(tuck))).normalized()
     hinge = upper.cross(heads)
     # With the upper arm lying along `heads` there is no plane; fall back rather than
@@ -1747,7 +1772,8 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
          swing_lift: float, swing_shape: float, lands_ahead: float,
          arm_forward: float, arm_back: float, elbow_held: float, elbow_swing: float,
          lean: float, share: float, sinks: float, leads: float, bound: float,
-         absorbs: float, tuck_in: float, pumps: float, twist: float, pelvis, facing):
+         absorbs: float, tuck_in: float, crosses_in: float, pumps: float,
+         twist: float, pelvis, facing):
     """One cycle, authored by moving the FEET, with IK solving the legs.
 
     Nothing here poses a knee or a hip. The foot's path is stated - planted on the
@@ -2037,7 +2063,7 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
         for side, hand in (("L", 1.0), ("R", -1.0)):
             swing_the_arm(
                 rig, side, hand, phase, arm_forward, arm_back, elbow_held,
-                elbow_swing, tuck_in, pumps, facing,
+                elbow_swing, tuck_in, crosses_in, pumps, facing,
             )
 
         # The body's height, on ROOT - which carries no skin weight at all, so moving
@@ -2918,7 +2944,7 @@ def main() -> None:
             # 2 degrees of trunk lean, not 0. A walk is upright, but dead plumb
             # reads as being carried along rather than walking; a couple of degrees is
             # what a person leans to actually go somewhere.
-            ELBOW_HELD, ELBOW_SWING, WALK_LEAN, WALK_SHARE, WALK_SINKS, WALK_LEADS, WALK_BOUND, WALK_ABSORBS, WALK_TUCK_IN, WALK_PUMPS, WALK_TWIST, WALK_PELVIS, facing,
+            ELBOW_HELD, ELBOW_SWING, WALK_LEAN, WALK_SHARE, WALK_SINKS, WALK_LEADS, WALK_BOUND, WALK_ABSORBS, WALK_TUCK_IN, WALK_CROSSES_IN, WALK_PUMPS, WALK_TWIST, WALK_PELVIS, facing,
         ).use_fake_user = True
     gait(
             # An EVEN span, always: a cycle is two identical steps, so the half
@@ -2927,13 +2953,13 @@ def main() -> None:
             # hips disagree with themselves by 21%, which is a limp.
             rig, body, feet, ground, "run", RUN_LEG, 24, RUN_CONTACT, RUN_SWING_LIFT, RUN_SWING_SHAPE, RUN_LANDS_AHEAD,
             RUN_ARM_FORWARD, RUN_ARM_BACK,
-            RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_SHARE, RUN_SINKS, RUN_LEADS, RUN_BOUND, RUN_ABSORBS, RUN_TUCK_IN, RUN_PUMPS, RUN_TWIST, RUN_PELVIS, facing,
+            RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_SHARE, RUN_SINKS, RUN_LEADS, RUN_BOUND, RUN_ABSORBS, RUN_TUCK_IN, RUN_CROSSES_IN, RUN_PUMPS, RUN_TWIST, RUN_PELVIS, facing,
         ).use_fake_user = True
     gait(
             # 14 frames, not 16: a sprint cycle is ~0.58 s where a run's is ~0.67.
             rig, body, feet, ground, "sprint", SPRINT_LEG, 24, SPRINT_CONTACT, SPRINT_SWING_LIFT, SPRINT_SWING_SHAPE, SPRINT_LANDS_AHEAD,
             SPRINT_ARM_FORWARD, SPRINT_ARM_BACK, SPRINT_ELBOW_HELD, SPRINT_ELBOW_SWING, SPRINT_LEAN, SPRINT_SHARE,
-            SPRINT_SINKS, SPRINT_LEADS, SPRINT_BOUND, SPRINT_ABSORBS, SPRINT_TUCK_IN, SPRINT_PUMPS, SPRINT_TWIST, SPRINT_PELVIS, facing,
+            SPRINT_SINKS, SPRINT_LEADS, SPRINT_BOUND, SPRINT_ABSORBS, SPRINT_TUCK_IN, SPRINT_CROSSES_IN, SPRINT_PUMPS, SPRINT_TWIST, SPRINT_PELVIS, facing,
         ).use_fake_user = True
 
     bpy.ops.export_scene.gltf(
