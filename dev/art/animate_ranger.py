@@ -561,7 +561,16 @@ SPRINT_ARM_FORWARD = RUN_ARM_FORWARD * 1.1
 # 15.05 cm BEHIND that line there, and travelled only 21.6 cm behind the shoulder.
 # A sprinter's arms are asymmetric anyway: the drive back is the powerful half and the
 # forward recovery is shorter.
-SPRINT_ARM_BACK = RUN_ARM_BACK * 1.55
+# 1.15, down from 1.55. Reported: "the hands go behind the back in sprint". Measured, the
+# hand reached 44.4 cm behind the shoulder, which on a 170 cm figure is past the spine rather
+# than past the hip - so it read as the arms wrapping round the back. -63 degrees now instead
+# of -85. The run keeps its -55, which measured 28.0 cm behind and was not reported.
+# 1.0 - the sprint swings its arms no further back than the run does. Trimming 1.55 to 1.15
+# left the hand 34.6 cm behind the shoulder, which is still past the back surface on a 170 cm
+# figure and still the thing that was reported. The run's -55 measured 28.0 cm and drew no
+# complaint, so that is the limit, and the sprint distinguishes itself by cadence and lean
+# rather than by putting the hands somewhere an arm does not go.
+SPRINT_ARM_BACK = RUN_ARM_BACK * 1.0
 
 # How far the arm extremes fall BEHIND the leg extremes, as a share of the cycle.
 #
@@ -591,6 +600,9 @@ ARM_LAG = 0.03
 # Small numbers on purpose. Overlap is a delay, not a wobble - too much and the segments
 # visibly fight each other instead of flowing.
 CHEST_LAGS_THE_HIPS = 0.04
+# Unused since the head's translation was removed - it was that term's phase offset and had
+# no other consumer. Kept at its measured value rather than deleted, because the head's
+# follow-through is worth restoring if it can ever be done by rotation.
 HEAD_LAGS_THE_CHEST = 0.10
 
 # How much the trunk PITCHES across the cycle, in degrees either side of `lean`.
@@ -614,23 +626,10 @@ TRUNK_PITCHES = 2.5
 # The hips already rise and fall; the head followed them rigidly because nothing else
 # touched it. A real head lags the body's bob and settles after it, which is follow-through
 # - and the head is the part an eye tracks, so this is the cheapest liveliness there is.
-# 0.005, down from 0.014. Reported: "the head bob is extreme". It was, and the number is
-# not what changed - keying it is. `key()` only wrote a `location` channel for Hip and Root,
-# so the head term was set on the pose and thrown away, and every value tried measured the
-# same 6.29 cm of travel. Adding "Head" to that list connected a knob that had been turned
-# up blind, and travel jumped to 13.50 cm at once. This is what it should have been set to
-# had it ever been measurable.
-HEAD_BOBS = 0.005
-
-# How much of the hips vertical the head cancels. 0.85 lands the head near 65% of the
-# what the pelvis does, which is the right way round - see `head_rides_less` at the point of
-# use for why it was the wrong way round before.
-# 1.10, up from 0.85. Not because the ratio was wrong - it held at 0.56 - but because the
-# hip bob nearly doubled when `absorbs` and `bound` gave the run a real DOWN and UP, and a
-# constant ratio against a bigger hip means a bigger head. 0.56 of 18.11 cm is 10.05, and
-# the complaint that started this was 14.74. So the damping is raised to hold the head near
-# 7 cm in absolute terms, which is what was actually being asked for.
-HEAD_RIDES_LESS = 1.10
+# There is deliberately NO head-bob constant. Two were tried - an amplitude and a damping
+# gain - and both had to go for one reason: any translation of `Head` stretches the neck it
+# is attached to. See the long note where the head is posed. A head bob comes from the hips
+# or it does not come at all.
 
 # How far the forearms are tucked ACROSS the front of the body, in degrees.
 #
@@ -947,13 +946,25 @@ WALK_BOUND = 0.0
 # These could not be raised before without the head bob going with them, and the head bob
 # had just been reported as extreme. It rides at 0.43 of the hips now that its damping is
 # in the right basis, so the two are no longer in conflict.
-RUN_BOUND = 0.030
-SPRINT_BOUND = 0.040
+# 0.022 and 0.030, back from 0.030 and 0.040. They were raised on the strength of a head
+# damping that turned out to stretch the neck, so the bob they bought was never actually
+# affordable - with the head rigid on the neck again, hip travel IS head travel, and 18.1 cm
+# of it is well past the 14.74 that was called extreme.
+# 0.017 and 0.023. With the neck rigid, hip travel IS head travel - there is no damping
+# left to hide behind - so the vertical has to be set to what the HEAD can carry. At absorbs
+# 0.010 and bound 0.022 the hip rose 14.21 cm and the head 15.27, which is past the 14.74
+# that was called extreme in the first place. This lands the head near 12, below where the
+# complaint started, while keeping a real rise and fall.
+RUN_BOUND = 0.017
+SPRINT_BOUND = 0.023
 
 # How much deeper than the reach ceiling the hips dip at the landing - see `deepest`.
 WALK_ABSORBS = 0.0
-RUN_ABSORBS = 0.026
-SPRINT_ABSORBS = 0.034
+# Nought for the run. Absorption is the more expensive half of the vertical - it deepens the
+# landing without the flight arc's payoff in shape - so when the budget had to shrink it went
+# first, and the run keeps its DOWN from the reach ceiling alone.
+RUN_ABSORBS = 0.0
+SPRINT_ABSORBS = 0.006
 
 # How far the torso leans forward, in degrees, spread over the waist and lower spine.
 #
@@ -1865,22 +1876,35 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
                       * (phase - 0.5 - ARM_LAG - CHEST_LAGS_THE_HIPS)
                   ),
                   (0.0, 0.0, 1.0))
-        # The head: a bob that FOLLOWS the body's, lagged again - see HEAD_BOBS. The head
-        # is what an eye tracks, so it is the cheapest liveliness available.
+        # # The head is NOT translated, and that is the point
+        #
+        # There was a lift here that damped the hips' vertical, on the reasoning that a
+        # runner's head is the most stabilised part of the body. The reasoning is right and
+        # the method was not: `Head` has skin between it and `NeckTwist02`, so translating it
+        # does not hold the head steady, it pulls it off the neck and stretches what is in
+        # between. Measured, the joint gap went from 2.59 cm at rest to 12.61 cm on the run -
+        # a 386% stretch - and it was reported exactly as it looks: "the body moves up and
+        # down during the jog giving the player a long neck".
+        #
+        # It very likely explains the ORIGINAL "the head bob is extreme" too. The term was
+        # already live then, in the wrong basis, so the head was being displaced arbitrarily
+        # against the neck. What read as a bobbing head was a detaching one. A body that
+        # rises and falls as one rigid piece reads as bounce, which is what a run should do.
+        #
+        # A vertical offset cannot be spent as rotation, so there is no clever version of
+        # this. The head's calm is bought at the SOURCE instead, by not bobbing the hips so
+        # far - `absorbs` and `bound` were pulled back to pay for it.
+        #
+        # This does cost the head its own follow-through, which was the head's share of the
+        # overlapping action: `HEAD_LAGS_THE_CHEST` had no other consumer. The chest keeps
+        # its lag against the hips, which is the larger half of that effect and is carried
+        # by rotation, so it moves no skin.
+        #
+        # Zeroed explicitly rather than left alone, so a value from an earlier pass cannot
+        # survive into the export.
         head = rig.pose.bones.get("Head")
-        if head is not None and HEAD_BOBS:
-            axes = head.bone.matrix_local.to_3x3().inverted()
-            behind = phase - CHEST_LAGS_THE_HIPS - HEAD_LAGS_THE_CHEST
-            # The DIFFERENCE between where the body is and where the head has got to,
-            # not a bob of its own. A lagged wave ADDED to the body's just rides along
-            # with it - measured, the head went on peaking at frame 11 with the hip
-            # however far it was delayed, because 1 cm of extra bob cannot move the peak
-            # of a 5.8 cm ride. Subtracting the body's own phase and adding the lagged
-            # one is what a follow-through actually is: the head is held back while the
-            # body rises, and catches up after. Zero-mean, so it changes when the head
-            # arrives rather than how high it goes.
-            # Set further down, once the hip's own vertical is known - the head has to
-            # DAMP that rather than be authored blind against it. See `head_rides_less`.
+        if head is not None:
+            head.location = mathutils.Vector((0.0, 0.0, 0.0))
 
         # # The pelvis, on all three axes - see WALK_PELVIS
         #
@@ -2043,40 +2067,7 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
                 + mathutils.Vector((0.0, 0.0, max(rides, -sinks - absorbs)))
             )
 
-        # # The head rides LESS than the hips
-        #
-        # Reported: "the head bob is extreme". Measured, head travel was 14.74 cm against a
-        # hip rise of 11.6 - the head was AMPLIFYING the hip, when the head is the most
-        # stabilised part of a running body. A runner's gaze holds steady while the pelvis
-        # does the work; the spine and neck spend the difference. So the head gets a
-        # negative gain on the hip's own vertical, and it has to be applied here rather than
-        # up with the rest of the head work, because `rides` does not exist yet up there.
-        # Authoring a damping term without the thing it damps is how it came out amplifying.
-        #
-        # The zero-mean follow-through stays: it changes WHEN the head arrives, which is the
-        # overlapping-action part, and is a different job from how far it travels.
-        if head is not None:
-            # `axes` is NOT the right basis here, and using it is why raising
-            # HEAD_RIDES_LESS from 0.4 to 0.85 moved head travel 12.08 cm to 11.76 - a
-            # knob doing a twentieth of what it should. A pose bone's `location` is in its
-            # OWN rest space, and `axes` was built for Root; applied to the Head it pushes
-            # in some arbitrary direction that happens to be nearly horizontal. The lift
-            # has to be expressed in the head's own basis, so build it from world up and
-            # take it there.
-            amount = (
-                HEAD_BOBS * (
-                    math.cos(4.0 * math.pi * (behind - share / 2.0))
-                    - math.cos(4.0 * math.pi * (phase - share / 2.0))
-                )
-                - HEAD_RIDES_LESS * max(rides, -sinks)
-            )
-            skyward = rig.matrix_world.to_3x3().inverted() @ mathutils.Vector(
-                (0.0, 0.0, 1.0)
-            )
-            head.location = (
-                head.bone.matrix_local.to_3x3().inverted()
-                @ (skyward.normalized() * amount)
-            )
+
         bpy.context.view_layer.update()
         if os.environ.get("DIAG") and frame == 1:
             bpy.context.view_layer.update()
