@@ -295,6 +295,114 @@ const SUN_STEP: f32 = 0.01;
 
 #[cfg(test)]
 mod tests {
+    /// The warden's position reaches the grass, and settles rather than snapping.
+    ///
+    /// Every piece of this existed and none of it was guarded, which is the same shape as
+    /// half a dozen faults found in the gait this week: a chain of five links - `Wades` on
+    /// the warden, `part_the_grass` in Update, `CoverMaterial` as the one handle, the tufts
+    /// wearing that handle, the shader branching on `bending.x` - where breaking any one of
+    /// them leaves grass that simply stands still. Nothing panics and nothing looks wrong
+    /// anywhere except in the game.
+    ///
+    /// This holds the CPU end of it: that a mover's position and reach arrive in the
+    /// uniform, that `count` is reported so the shader knows how many to read, and that the
+    /// disturbance TRAILS the mover instead of being pinned to it, which is the springiness.
+    #[test]
+    fn the_grass_is_told_where_the_warden_is() {
+        let mut app = App::new();
+        app.add_plugins(bevy::asset::AssetPlugin::default())
+            .init_asset::<Shaded>()
+            .init_asset::<Image>()
+            .init_resource::<Time>()
+            .add_systems(Update, part_the_grass);
+
+        let handle = app
+            .world_mut()
+            .resource_mut::<Assets<Shaded>>()
+            .add(shaded(StandardMaterial::default()));
+        app.insert_resource(crate::world::cover::CoverMaterial(handle.clone()));
+
+        let stood_at = Vec3::new(12.0, 3.0, -7.0);
+        app.world_mut().spawn((
+            GlobalTransform::from_translation(stood_at),
+            Wades { reach: 1.8 },
+        ));
+
+        // A long first step, so the lerp lands essentially on the mover and the arrival can
+        // be checked without the settle muddying it.
+        {
+            let mut time = app.world_mut().resource_mut::<Time>();
+            time.advance_by(std::time::Duration::from_secs_f32(2.0));
+        }
+        app.update();
+
+        let material = app.world().resource::<Assets<Shaded>>().get(&handle).unwrap();
+        let bending = material.extension.bending;
+        assert_eq!(bending.x, 1.0, "the cover has to be marked as a thing that bends");
+        assert_eq!(bending.z, 1.0, "one mover was spawned, so one should be reported");
+        assert!(bending.y > 0.0, "grass that leans nowhere is grass that does not part");
+
+        let told = material.extension.movers[0];
+        assert!(
+            told.truncate().distance(stood_at) < 0.05,
+            "the grass was told {told:?}, and the warden is at {stood_at:?}"
+        );
+        assert!(
+            (told.w - 1.8).abs() < 1.0e-6,
+            "the reach has to survive the trip, or the parting has no size"
+        );
+
+        // And the TRAIL: a short step from a standing start must fall short of the mover,
+        // because the disturbance follows rather than teleporting. Without this the lerp
+        // could be replaced by a plain copy and nothing would notice.
+        let mut app = App::new();
+        app.add_plugins(bevy::asset::AssetPlugin::default())
+            .init_asset::<Shaded>()
+            .init_asset::<Image>()
+            .init_resource::<Time>()
+            .add_systems(Update, part_the_grass);
+        let handle = app
+            .world_mut()
+            .resource_mut::<Assets<Shaded>>()
+            .add(shaded(StandardMaterial::default()));
+        app.insert_resource(crate::world::cover::CoverMaterial(handle.clone()));
+        app.world_mut().spawn((
+            GlobalTransform::from_translation(Vec3::ZERO),
+            Wades { reach: 1.8 },
+        ));
+        {
+            let mut time = app.world_mut().resource_mut::<Time>();
+            time.advance_by(std::time::Duration::from_secs_f32(1.0 / 60.0));
+        }
+        app.update();
+        // First frame from empty: the trail starts AT the mover, so this only proves the
+        // second frame lags. Move the mover and step again.
+        let moved = Vec3::new(4.0, 0.0, 0.0);
+        let who = app
+            .world_mut()
+            .query_filtered::<Entity, With<Wades>>()
+            .single(app.world())
+            .unwrap();
+        app.world_mut()
+            .entity_mut(who)
+            .insert(GlobalTransform::from_translation(moved));
+        app.update();
+
+        let lagged = app
+            .world()
+            .resource::<Assets<Shaded>>()
+            .get(&handle)
+            .unwrap()
+            .extension
+            .movers[0]
+            .truncate();
+        assert!(
+            lagged.distance(moved) > 0.5,
+            "the parting landed at {lagged:?} for a mover that jumped to {moved:?} - it is \
+             being pinned to them rather than trailing, so the grass has no give"
+        );
+    }
+
     use super::*;
     use crate::config::{CLOUDS, CLOUD_SCALE};
 
