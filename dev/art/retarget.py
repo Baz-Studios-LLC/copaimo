@@ -1,0 +1,220 @@
+"""Moves a clip from the generator's own rig onto the prepared one.
+
+Imported by `animate_ranger.py`, and runnable on its own to look at the result:
+
+    dev/art/see_the_retarget.sh                       # walk, in a Blender window
+    dev/art/see_the_retarget.sh --clip run
+
+# Why a clip cannot simply be copied
+
+The deliveries in `assets/models/Ranger-*.glb` carry the generator's preset clips, authored
+against the generator's own rest pose. `prepare_rig` has moved ours a long way from that: the two
+sides were 5.45 cm from mirrored and were mirrored, the legs were bent 17.5 degrees at rest and
+were straightened, the arms were put in an A-pose, and the whole pose was baked as the new rest.
+
+A pose bone's rotation is stored RELATIVE TO ITS REST. So the same quaternion means a different
+thing on the two rigs, and copying it across produces a body that is wrong by exactly the
+difference between the binds - which on this rig is a crouch and a twist. `animate_ranger` has
+carried a note saying so since before the preset clips existed: "a clip cannot be copied across a
+bind change, only retargeted", and "the honest way is a WORLD-SPACE" one.
+
+So this reads where each bone POINTS IN THE WORLD on the source, and turns the matching bone on
+the target until it points there too. What a bone's rest pose happens to be then drops out
+entirely, which is the whole idea.
+
+# What is carried, and what is not
+
+ROTATION for every bone the two rigs share by name. TRANSLATION only for the bones that carry the
+body through space, because on every other bone a translation is a bone sliding out of its socket
+rather than a motion - and the generator's clips do key some of them.
+
+Bones the target has and the source does not - the thirty finger bones - are left alone, at rest.
+That is correct rather than a compromise: the preset has nothing to say about fingers, and
+`animate_ranger` puts the relaxed curl on them afterwards.
+"""
+import math
+import os
+import sys
+
+import bpy
+import mathutils
+
+ART = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, ART)
+
+SCALE = 170.0
+
+# The bones whose translation is real motion rather than a joint coming apart. `animate_ranger`
+# keys exactly these, and for the same reason.
+CARRIES_THE_BODY = ("Root", "Hip")
+
+# How far a retargeted bone may end up from where the source had it, in degrees, before the
+# result is refused. Not zero: the two rigs' rest poses differ, and a joint at the end of a chain
+# accumulates its parents' small differences. Anything past this is not accumulation, it is a
+# bone that did not track.
+TRACKS_WITHIN = 0.75
+
+
+def refuse(why):
+    raise SystemExit(f"REFUSED: {why}")
+
+
+def in_hierarchy_order(rig, names):
+    """Parents before children.
+
+    Setting `pose_bone.matrix` asks Blender to work out the local rotation that puts the bone
+    where you said, and it does that against the parent's CURRENT pose. Do a child first and it
+    is solved against a parent that has not moved yet, then the parent moves and takes the child
+    with it. The order is not a detail; out of order the whole limb is wrong.
+    """
+    depth = {}
+
+    def deep(bone):
+        if bone.name not in depth:
+            depth[bone.name] = 0 if bone.parent is None else deep(bone.parent) + 1
+        return depth[bone.name]
+
+    for bone in rig.data.bones:
+        deep(bone)
+    return sorted(names, key=lambda name: depth.get(name, 0))
+
+
+def shared_bones(source, target):
+    both = [b.name for b in source.data.bones if b.name in target.data.bones]
+    if not both:
+        refuse("the two rigs share no bone names at all, so nothing can be matched")
+    return in_hierarchy_order(target, both)
+
+
+def retarget(source, target, called, talk=True):
+    """Bakes the source's current action onto the target as a new action of the same name."""
+    if source.animation_data is None or source.animation_data.action is None:
+        refuse(f"the source rig has no action to take {called} from")
+    clip = source.animation_data.action
+    first, last = (int(round(v)) for v in clip.frame_range)
+    names = shared_bones(source, target)
+    missing = [b.name for b in target.data.bones if b.name not in names]
+
+    if target.animation_data is None:
+        target.animation_data_create()
+    made = bpy.data.actions.new(called)
+    target.animation_data.action = made
+
+    # Where each carrying bone rests, so its translation can be carried as a DIFFERENCE. The two
+    # rigs' rests sit in different places - `prepare_rig` centred the skeleton and put the soles
+    # on the floor - so copying an absolute position would move the body by the gap between them.
+    source_rest = {n: source.data.bones[n].matrix_local.translation.copy()
+                   for n in CARRIES_THE_BODY if n in source.data.bones}
+    target_rest = {n: target.data.bones[n].matrix_local.translation.copy()
+                   for n in CARRIES_THE_BODY if n in target.data.bones}
+
+    worst, worst_at = 0.0, ""
+    for frame in range(first, last + 1):
+        bpy.context.scene.frame_set(frame)
+        bpy.context.view_layer.update()
+
+        # Read the SOURCE first, all of it, before touching the target. Reading and writing in
+        # the same pass would have the target's own updates racing the source's evaluation.
+        wanted = {}
+        for name in names:
+            posed = source.pose.bones[name]
+            wanted[name] = (source.matrix_world @ posed.matrix).to_3x3().normalized()
+        moved = {}
+        for name in CARRIES_THE_BODY:
+            if name in source.pose.bones and name in target.pose.bones:
+                here = source.pose.bones[name].matrix.translation
+                moved[name] = here - source_rest[name]
+
+        for name in names:
+            posed = target.pose.bones[name]
+            posed.rotation_mode = "QUATERNION"
+            held = posed.matrix.copy()
+            where = held.translation.copy()
+            if name in moved:
+                where = target_rest[name] + moved[name]
+            posed.matrix = (
+                mathutils.Matrix.Translation(where) @ wanted[name].to_4x4()
+            )
+            bpy.context.view_layer.update()
+
+        # Check it tracked, on this frame, before writing the key. A retarget that quietly does
+        # not track is the failure worth catching: it looks like an animation, just the wrong one.
+        for name in names:
+            got = (target.matrix_world @ target.pose.bones[name].matrix).to_3x3().normalized()
+            off = math.degrees(
+                got.to_quaternion().rotation_difference(wanted[name].to_quaternion()).angle
+            )
+            if off > worst:
+                worst, worst_at = off, f"{name} on frame {frame}"
+
+        for name in names:
+            posed = target.pose.bones[name]
+            posed.keyframe_insert("rotation_quaternion", frame=frame)
+            if name in moved:
+                posed.keyframe_insert("location", frame=frame)
+
+    if talk:
+        print(f"  {called}: {last - first + 1} frames, {len(names)} bones matched, "
+              f"{len(missing)} left at rest")
+        print(f"    worst tracking error {worst:.3f} deg ({worst_at})")
+    if worst > TRACKS_WITHIN:
+        refuse(
+            f"{worst_at} ended up {worst:.2f} degrees from where the source had it, past "
+            f"{TRACKS_WITHIN}. The pose is not being reproduced, so the clip would be a "
+            f"different animation wearing the same name."
+        )
+    return made
+
+
+def main():
+    import prepare_rig
+
+    args = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+    def flag(name, fallback=None):
+        return args[args.index(name) + 1] if name in args else fallback
+
+    root = os.path.dirname(os.path.dirname(ART))
+    which = flag("--clip", "walk")
+    delivery = flag("--from", os.path.join(
+        root, "assets", "models", f"Ranger-{which.capitalize()}.glb"))
+    prepared = flag("--onto", os.path.join(ART, "ranger_apose.glb"))
+    save_to = flag("--save")
+
+    for stale in list(bpy.data.objects):
+        bpy.data.objects.remove(stale, do_unlink=True)
+
+    bpy.ops.import_scene.gltf(filepath=prepared.replace("\\", "/"))
+    target = next(o for o in bpy.data.objects if o.type == "ARMATURE")
+    target.name = "prepared"
+    mesh = prepare_rig.the_body()
+    prepare_rig.reach_the_ends(target, mesh)
+    prepare_rig.drop_the_widgets(target)
+
+    before = {o for o in bpy.data.objects}
+    bpy.ops.import_scene.gltf(filepath=delivery.replace("\\", "/"))
+    fresh = [o for o in bpy.data.objects if o not in before]
+    source = next(o for o in fresh if o.type == "ARMATURE")
+    source.name = "delivered"
+    print(f"retargeting {os.path.basename(delivery)} onto {os.path.basename(prepared)}")
+    print(f"  source {len(source.data.bones)} bones, target {len(target.data.bones)}")
+
+    made = retarget(source, target, which)
+    made.use_fake_user = True
+
+    # The source out of the way, so the window shows the character that matters.
+    for thing in fresh:
+        thing.hide_viewport = True
+        thing.hide_render = True
+
+    scene = bpy.context.scene
+    scene.frame_start, scene.frame_end = (int(round(v)) for v in made.frame_range)
+    scene.render.fps = 24
+    scene.frame_set(scene.frame_start)
+
+    if save_to:
+        bpy.ops.wm.save_as_mainfile(filepath=save_to)
+        print(f"saved {save_to}")
+
+
+if __name__ == "__main__":
+    main()
