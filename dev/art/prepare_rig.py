@@ -47,6 +47,7 @@ this mesh into spikes. Only Root and Hip are redirected here, and only because b
 measured to drive zero vertices.
 """
 
+import json
 import math
 import os
 import sys
@@ -2279,6 +2280,79 @@ def close_the_holes_round_the_waist(rig, mesh, biggest: int = 8):
         refuse("capping the holes lost the custom split normals")
 
 
+PICKED_JUNK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "junk_to_remove.json")
+
+
+def remove_the_picked_junk(rig, mesh):
+    """Deletes the vertices picked by hand in `pick_the_junk.sh`.
+
+    # Why by hand and not by rule
+
+    Five rules were written to find the generator's stray geometry - by shell size, by bone
+    ownership, by face area, by long edges between distant bones, by distance from the limb
+    axis - and three of them removed real parts of the character: the trouser leg, the sleeve
+    cuffs, and a chunk of the shoulder. They were not badly tuned. "A long thin face spanning
+    bones that are far apart" IS a hanging strap, and it is also a SHOULDER, where one quad
+    legitimately runs from the clavicle out to the upper arm. Nothing in the geometry tells
+    the two apart, so no threshold can, and each attempt cost a rebuild and a piece of him.
+
+    So the junk is named once, by eye, in Blender, and removed by identity from then on.
+
+    # Identity is POSITION, not index
+
+    Indices shift the moment anything is deleted. Positions do not, and the pick is taken on
+    the RAW export, which is exactly what this sees - so this runs FIRST, before mirroring,
+    centring, the A-pose or the bake move anything.
+
+    An absent list is the ordinary case for a fresh checkout and is not news.
+    """
+    if not os.path.exists(PICKED_JUNK):
+        print("  no junk_to_remove.json - nothing has been picked yet")
+        return
+
+    with open(PICKED_JUNK) as handle:
+        wanted = {tuple(spot) for spot in json.load(handle)["positions"]}
+    if not wanted:
+        print("  the pick list is empty")
+        return
+
+    going = [
+        v.index for v in mesh.data.vertices
+        if tuple(round(c, 5) for c in v.co) in wanted
+    ]
+    print(f"  {len(wanted)} positions picked, {len(going)} found in this mesh")
+    if not going:
+        refuse(
+            "none of the picked positions are in this mesh - the pick was taken against a "
+            "different file, so it would silently remove nothing"
+        )
+
+    before = len(mesh.data.vertices)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    mesh.select_set(True)
+    bpy.context.view_layer.objects.active = mesh
+    bpy.ops.object.mode_set(mode="EDIT")
+    working = bmesh.from_edit_mesh(mesh.data)
+    working.verts.ensure_lookup_table()
+    for face in working.faces:
+        face.select_set(False)
+    for edge in working.edges:
+        edge.select_set(False)
+    for vertex in working.verts:
+        vertex.select_set(False)
+    bmesh.ops.delete(working, geom=[working.verts[i] for i in going], context="VERTS")
+    bmesh.update_edit_mesh(mesh.data)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    went = before - len(mesh.data.vertices)
+    print(f"  {went} vertices removed; the body is {len(mesh.data.vertices)}")
+    if went != len(going):
+        refuse(f"asked to remove {len(going)} vertices and {went} went")
+    if not mesh.data.has_custom_normals:
+        refuse("removing the picked junk lost the custom split normals")
+
+
 def main():
     where = argv()
     if len(where) < 2:
@@ -2299,6 +2373,12 @@ def main():
     print(f"{source}: {len(rig.data.bones)} bones, {len(mesh.data.vertices)} vertices")
     rest_the_pose(rig)
     print(f"  as delivered the soles sit {sole_of(mesh) * SCALE:+.2f} cm against z=0")
+
+    # FIRST, before anything moves a vertex. The pick is taken on the raw export, so this is
+    # the only point where the positions in it still mean what they meant when they were
+    # picked - mirroring, centring, the A-pose and the bake all move things afterwards.
+    print("\nthe junk picked by hand:")
+    remove_the_picked_junk(rig, mesh)
 
     print("\nthe sphere widgets:")
     drop_the_widgets(rig)
@@ -2362,8 +2442,20 @@ def main():
     # and agreed before being cut. They render as small patches because most of each blade is
     # buried inside the body, which is why they are easy to see in a wireframe and easy to
     # miss in a render.
-    print("\ncutting the arm-to-body blades:")
-    cut_the_fusions(rig, mesh)
+    # NOT CALLED, and it should not be again in this form.
+    #
+    # Restricting it to arm-and-trunk did keep the trousers whole, but it took part of the ARM
+    # instead - a chunk out of the shoulder - and left the hanging straps behind. That is
+    # three times a rule over faces has removed real geometry here: the trouser leg, the
+    # sleeve cuffs, and now the shoulder.
+    #
+    # The lesson is about the METHOD and not the thresholds. "A long edge between distant
+    # bones" describes a strap, and it equally describes a SHOULDER, where one big quad
+    # legitimately spans from the clavicle out to the upper arm. A rule that cannot tell a
+    # strap from a deltoid will not be fixed by tightening it, and every attempt costs a
+    # rebuild and a piece of the character.
+    #
+    # What these need is to be NAMED once, by eye, and removed by identity afterwards.
     print("\nthe leaf bones:")
     reach_the_ends(rig, mesh)
     print("\nRoot and Hip:")
