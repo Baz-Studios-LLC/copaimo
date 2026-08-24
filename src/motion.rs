@@ -74,8 +74,18 @@ const BREAKS_INTO_A_RUN: f32 = 3.4;
 /// the art pipeline's LANDS_AHEAD). Measured per VERTEX of the planted sole,
 /// horizontal only: a centroid whose membership shifts as the shoe rolls reads as
 /// slide when nothing slid, and vertical pad lift is not slide either.
-const WALK_COVERS: f32 = 0.970;
-const RUN_COVERS: f32 = 2.496;
+// Re-measured 2026-08-24 for the DELIVERED clips, which replaced the authored walk and run.
+// The old figures were 0.970 and 2.496 and belonged to different animations entirely - leaving
+// them would have been the "running through water" fault again, from the same cause: a covers
+// value that no longer describes the clip it divides.
+//
+// The run's measurement is trustworthy - the per-frame spread of the planted sole's velocity is
+// 0.00, which is how you know the rate really is constant. The WALK's spread is 2.68 cm a frame,
+// meaning its planted foot does not hold a constant velocity: it slides. That is one of the
+// twenty-two things verify_gait is refusing about these clips, and this number will move again
+// when it is fixed.
+const WALK_COVERS: f32 = 1.256;
+const RUN_COVERS: f32 = 3.270;
 
 /// The moving gaits, slowest first: the word in the clip's name, how far one cycle
 /// carries the warden in metres, and the speed above which the next one takes over.
@@ -116,9 +126,9 @@ const GAITS: &[(&str, f32, f32)] = &[
 #[allow(dead_code)]
 const FPS: f32 = 24.0;
 #[allow(dead_code)]
-const WALK_FRAMES: f32 = 24.0;
+const WALK_FRAMES: f32 = 27.0;
 #[allow(dead_code)]
-const RUN_FRAMES: f32 = 24.0;
+const RUN_FRAMES: f32 = 16.0;
 #[allow(dead_code)]
 const SPRINT_FRAMES: f32 = 24.0;
 
@@ -600,13 +610,15 @@ mod pacing {
         let file = std::fs::read("assets/models/person_ranger.glb")
             .expect("the ranger's own file, which the game loads");
         let model = crate::models::inspect(&file).expect("a readable GLB");
+        // 0.0 for a tier the file has no clip for, which the caller skips. There is no sprint
+        // delivery and none is faked.
         let lasts = |gait: &str| -> f32 {
             model
                 .clips
                 .iter()
                 .find(|(name, _)| name.to_lowercase().contains(gait))
                 .map(|(_, seconds)| *seconds)
-                .unwrap_or_else(|| panic!("no {gait} clip in {:?}", model.clips))
+                .unwrap_or(0.0)
         };
 
         // In steps a minute, because that is the unit the evidence is in and "cycles
@@ -648,6 +660,7 @@ mod pacing {
         // The sprint's was also the wrong KIND of band: 170-215 is a running cadence,
         // and sprinting is 220-260. Held to a run's band, a sprint reads as churning
         // at any speed worth having.
+        let mut checked = 0;
         for (what, speed, covers, gait, tier) in [
             ("walk", crate::player::WALK_SPEED, WALK_COVERS, "walk", 0),
             ("jog", crate::player::JOG_SPEED, RUN_COVERS, "run", 1),
@@ -658,6 +671,13 @@ mod pacing {
                 CHURNS_BETWEEN[tier].1 * LEGS_SHORTER_BY,
             );
             let cadence = steps(speed, covers, gait);
+            // A tier with no clip has no cadence to be wrong. `lasts` hands back 0.0 for one the
+            // file does not carry, which makes this NaN - and a NaN is not "outside the band", it
+            // is an absent measurement, so it is skipped and counted rather than failed.
+            if !cadence.is_finite() {
+                continue;
+            }
+            checked += 1;
             assert!(
                 (band.0..=band.1).contains(&cadence),
                 "the {what} plays at {cadence:.0} steps a minute at {speed} m/s, and \
@@ -667,6 +687,11 @@ mod pacing {
                 band.1
             );
         }
+        assert!(
+            checked >= 2,
+            "only {checked} tier(s) had a clip whose cadence could be checked - a model file \
+             with nothing in it must not pass this by having nothing to test"
+        );
     }
 
     /// The gait table has to be ordered, positive, and open at the top.
@@ -778,17 +803,25 @@ mod pacing {
         let file = std::fs::read("assets/models/person_ranger.glb")
             .expect("the ranger's own file, which the game loads");
         let model = crate::models::inspect(&file).expect("a readable GLB");
+        let mut checked = 0;
         for (gait, frames) in [
             ("walk", WALK_FRAMES),
             ("run", RUN_FRAMES),
             ("sprint", SPRINT_FRAMES),
         ] {
-            let lasts = model
+            // A tier may have no clip. There is no sprint delivery and none is faked -
+            // `find_the_clips` skips the tier and the one below carries the speed, which the
+            // module doc has said all along. Counted below, so a file with NO clips at all
+            // cannot pass this by checking nothing.
+            let Some(lasts) = model
                 .clips
                 .iter()
                 .find(|(name, _)| name.to_lowercase().contains(gait))
                 .map(|(_, seconds)| *seconds)
-                .unwrap_or_else(|| panic!("no {gait} clip in {:?}", model.clips));
+            else {
+                continue;
+            };
+            checked += 1;
             // A cycle of `frames` is written with a closing seam key, so the exported
             // duration runs to `frames + 1`. Tolerance of one frame either way rather
             // than an exact match, because that off-by-one is the exporter's business and
@@ -807,6 +840,11 @@ mod pacing {
                 ),
             );
         }
+        // At least the walk and the run, or this checked nothing and said nothing.
+        assert!(
+            checked >= 2,
+            "only {checked} clip(s) were found to check, out of walk, run and sprint - a model              file with nothing in it must not pass this by having nothing to test"
+        );
     }
 
     #[test]
@@ -819,17 +857,25 @@ mod pacing {
         // run had to cover everything above the walk. There is a sprint clip now, so that
         // pairing was measuring a case the game no longer produces - and it only passed
         // before because the run was sixteen frames rather than twenty-four.
+        let mut checked = 0;
         for (gait, speed, covers, tier) in [
             ("walk", crate::player::WALK_SPEED, WALK_COVERS, 0),
             ("run", crate::player::JOG_SPEED, RUN_COVERS, 1),
             ("sprint", crate::player::SPRINT_SPEED, SPRINT_COVERS, 2),
         ] {
-            let lasts = model
+            // A tier may have no clip. There is no sprint delivery and none is faked -
+            // `find_the_clips` skips the tier and the one below carries the speed, which the
+            // module doc has said all along. Counted below, so a file with NO clips at all
+            // cannot pass this by checking nothing.
+            let Some(lasts) = model
                 .clips
                 .iter()
                 .find(|(name, _)| name.to_lowercase().contains(gait))
                 .map(|(_, seconds)| *seconds)
-                .unwrap_or_else(|| panic!("no {gait} clip in {:?}", model.clips));
+            else {
+                continue;
+            };
+            checked += 1;
             let a_stride_takes = covers / speed;
             let stretch = lasts / a_stride_takes;
             // The bound is DERIVED from CHURNS_BETWEEN rather than written out, because
@@ -854,5 +900,10 @@ mod pacing {
                 allows.1
             );
         }
+        // At least the walk and the run, or this checked nothing and said nothing.
+        assert!(
+            checked >= 2,
+            "only {checked} clip(s) were found to check, out of walk, run and sprint - a model              file with nothing in it must not pass this by having nothing to test"
+        );
     }
 }

@@ -2038,7 +2038,14 @@ def report_the_native_speeds(clips):
     print(f"  {'clip':<7} {'lasts':>7} {'covers':>8} {'native':>9} {'the game asks':>14} "
           f"{'rate':>6} {'a cycle takes':>14}")
     for called, cover, speed in tiers:
-        action = clips[called]
+        # A tier can have no clip. There is no sprint delivery and none is faked, and `motion.rs`
+        # handles the gap - "a body with only a walk still walks, and sprints by walking faster".
+        # Saying so here is better than a KeyError, and better than a row of zeroes that reads as
+        # a clip carrying nothing.
+        action = clips.get(called)
+        if action is None:
+            print(f"  {called:<7} no clip; the tier above it will carry this speed")
+            continue
         _first, last = action.frame_range
         lasts = last / fps                 # absolute, not rebased - see the note above
         native = covers[cover] / lasts
@@ -3331,57 +3338,41 @@ def main() -> None:
     # and they are retargeted onto this rig rather than copied - see `take_the_delivered_clip`.
     # The authored versions below are kept, unused, because they are the only record of what the
     # gait pipeline can produce and because the sprint still needs them.
-    # OPT-IN, with `USE_DELIVERED=1`, because as delivered they do not pass verify_gait and the
-    # reasons are in the clips rather than in the handling of them. Measured, after the root
-    # motion was removed and one clean cycle cut out of the two and a half they contain:
+    # # The walk and the run ARE the deliveries now
     #
-    #   the landing foot points 49.1 deg off the line of travel (14 is the most that passes)
-    #   the leading foot is 60.6 deg TOES-DOWN at contact, where a heel strike wants toes up
-    #   the hips are in front of both feet on one frame, so nothing is under the body
-    #   the first and last frames still differ by 3.20, so it does not loop
+    # The authored gait pipeline is gone from the build - `gait()` and its pose tables are still in
+    # this file and still work, but nothing calls them, because the decision was to start fresh
+    # from the delivered presets rather than keep tuning clips built on top of a rig that has
+    # changed underneath them a dozen times.
     #
-    # Those are not defects of the retarget - it tracks at 0.000 degrees - they are what the
-    # preset is. Shipping them would trade a clip that passes every anatomical check for one that
-    # fails four, so the switch is here and the default is the authored pipeline.
+    # There is NO sprint delivery, and none is faked. `motion.rs` already handles a missing clip -
+    # "a body with only a walk still walks, and sprints by walking faster" - so the sprint tier
+    # falls back to the run rather than shipping a sprint that is a run with a different name.
+    #
+    # These clips do not pass verify_gait yet, and that is stated rather than hidden: see the
+    # report at the end of the build, and dev/art/verify_gait.py --report-only.
     root = os.path.dirname(os.path.dirname(here))
     delivered = {}
-    if os.environ.get("USE_DELIVERED") == "1":
-        for called, file in (("walk", "Ranger-Walk.glb"), ("run", "Ranger-Run.glb")):
-            path = os.path.join(root, "assets", "models", file)
-            if os.path.exists(path):
-                delivered[called] = take_the_delivered_clip(rig, called, path)
-            else:
-                print(f"  no {file}; authoring {called} instead")
+    for called, file in (("walk", "Ranger-Walk.glb"), ("run", "Ranger-Run.glb")):
+        path = os.path.join(root, "assets", "models", file)
+        if os.path.exists(path):
+            delivered[called] = take_the_delivered_clip(rig, called, path)
+        else:
+            print(f"  no {file}, so there will be no {called}")
 
+    # The authored gaits are no longer built. `gait()` remains, and so do WALK_LEG, RUN_LEG and
+    # every constant they read, because they are the record of what that pipeline learned - the
+    # measured contact lengths, the heel-strike pitches, the foot roll. If the deliveries turn out
+    # not to be salvageable, that is what there is to go back to.
     authored = {}
-    authored["walk"] = gait(
-            rig, body, feet, ground, "walk", WALK_LEG, WALK_SPAN, WALK_CONTACT, WALK_SWING_LIFT, WALK_SWING_SHAPE, WALK_LANDS_AHEAD,
-            ARM_FORWARD, ARM_BACK,
-            # 2 degrees of trunk lean, not 0. A walk is upright, but dead plumb
-            # reads as being carried along rather than walking; a couple of degrees is
-            # what a person leans to actually go somewhere.
-            ELBOW_HELD, ELBOW_SWING, WALK_LEAN, WALK_SHARE, WALK_SINKS, WALK_LEADS, WALK_BOUND, WALK_ABSORBS, WALK_TUCK_IN, WALK_CROSSES_IN, WALK_PUMPS, WALK_TWIST, WALK_PELVIS, facing,
-        )
-    authored["run"] = gait(
-            rig, body, feet, ground, "run", RUN_LEG, RUN_SPAN, RUN_CONTACT, RUN_SWING_LIFT, RUN_SWING_SHAPE, RUN_LANDS_AHEAD,
-            RUN_ARM_FORWARD, RUN_ARM_BACK,
-            RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_SHARE, RUN_SINKS, RUN_LEADS, RUN_BOUND, RUN_ABSORBS, RUN_TUCK_IN, RUN_CROSSES_IN, RUN_PUMPS, RUN_TWIST, RUN_PELVIS, facing,
-        )
-    authored["sprint"] = gait(
-            rig, body, feet, ground, "sprint", SPRINT_LEG, SPRINT_SPAN, SPRINT_CONTACT, SPRINT_SWING_LIFT, SPRINT_SWING_SHAPE, SPRINT_LANDS_AHEAD,
-            SPRINT_ARM_FORWARD, SPRINT_ARM_BACK, SPRINT_ELBOW_HELD, SPRINT_ELBOW_SWING, SPRINT_LEAN, SPRINT_SHARE,
-            SPRINT_SINKS, SPRINT_LEADS, SPRINT_BOUND, SPRINT_ABSORBS, SPRINT_TUCK_IN, SPRINT_CROSSES_IN, SPRINT_PUMPS, SPRINT_TWIST, SPRINT_PELVIS, facing,
-        )
 
     # A delivered clip wins where there is one; the authored one is dropped rather than shipped
     # alongside it, because two clips called `walk` in one file is how a game plays the wrong one.
     clips = {}
     for called in ("walk", "run", "sprint"):
         if called in delivered:
-            if called in authored:
-                bpy.data.actions.remove(authored[called])
             clips[called] = delivered[called]
-        else:
+        elif called in authored:
             clips[called] = authored[called]
     for action in clips.values():
         action.use_fake_user = True

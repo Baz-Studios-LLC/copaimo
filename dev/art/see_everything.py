@@ -91,17 +91,23 @@ for clip in bpy.data.actions:
 names = sorted(a.name for a in bpy.data.actions)
 print(f"  {len(names)} clips in the file: " + ", ".join(names))
 
-# Open on the AUTHORED walk, not a delivered one.
+# Open on the DELIVERED walk, which is the one that keeps being asked for.
 #
-# It opened on `delivered_walk` first, on the reasoning that it was the thing most recently asked
-# about. That was wrong: verify_gait refuses that clip on four counts - the leading foot 60 degrees
-# toes-down at contact, the landing foot 49 degrees off the line of travel - so the window came up
-# showing motion already known to be bad, and it was reported back as the character being broken.
-# Which it was, in that clip. Opening on the clip that passes every check means what is on screen
-# is the state of the game, and the delivered ones are a keystroke away in the Action Editor for
-# comparison.
-wanted = next((a for a in bpy.data.actions if a.name == "walk"),
-              next(iter(bpy.data.actions), None))
+# This flipped twice and it is worth saying why. It opened on `delivered_walk`, then a screenshot
+# of it came back reporting the character as broken, so it was changed to the authored walk on the
+# reasoning that verify_gait refuses the delivered one - the leading foot 60 degrees toes-down at
+# contact, the landing foot 49 degrees off the line of travel.
+#
+# That was the wrong lesson. What made the screenshot unreadable was an 85 cm bone spike through
+# the body from Root and Hip, which this viewer had failed to shorten. Hiding the clip somebody
+# had twice asked to see, in order to avoid showing them a fault that was somewhere else, is not
+# a fix. The spike is fixed; the clip is shown.
+#
+# `walk` and the rest are in the Action Editor alongside it. Which of them should end up in the
+# game is a decision for eyes, and eyes need it on screen.
+wanted = next((a for a in bpy.data.actions if a.name == "delivered_walk"),
+              next((a for a in bpy.data.actions if a.name == "walk"),
+                   next(iter(bpy.data.actions), None)))
 if wanted is not None:
     if rig.animation_data is None:
         rig.animation_data_create()
