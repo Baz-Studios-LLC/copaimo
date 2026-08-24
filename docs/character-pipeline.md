@@ -43,18 +43,21 @@ rather than baked into a clip.
 
 ## The build order
 
-### 00 - Instruments before subjects  (part done)
+### 00 - Instruments before subjects  (DONE 2026-08-24)
 
 Every day lost on the previous character was a measurement failure. A shoe was reshaped seven
 times because no render stripped the texture off it, and a guard refused an ankle at 2.2 cm on a
 mesh that already carried 7.96 cm edges there.
 
 * `inspect_glb.py` - reads a file's own JSON, so it reports what the FILE says rather than what
-  an importer made of it. **Exists.**
-* Clay renderer - every material stripped to grey. A textured render cannot show form.
-* Character audit - joints against a standard biped, mesh health, skin limits, in one run.
-* Pose-loop measure - local bone rotation, not world position. **Exists.**
-* Contact sheet - every past state of a thing on one labelled image, for a fault reported twice.
+  an importer made of it.
+* `render_clay.sh` - every material stripped to grey, plus `--silhouette`. A textured render
+  cannot show form. Clay is the default and `--textured` is the exception.
+* `audit_character.sh` - surface, skeleton, skin and clips in one run, welded by position.
+  The pose-loop measure lives in here.
+* `see_the_character.sh` - one Blender window, all clips in the Action Editor, skeleton in
+  front. A render is one angle at one instant; half of what is wrong only shows when it moves.
+* Contact sheet - **still to do**, for a fault reported twice.
 
 *Unblocks:* everything. No later stage may claim a result one of these did not print.
 *Refuses when:* a claim in a commit message has no measurement behind it.
