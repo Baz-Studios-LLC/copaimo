@@ -1681,6 +1681,8 @@ DRIVEN = (
     "Waist",
     "Spine01",
     "Spine02",
+    # the chest, which is what the old Spine02 became when a joint was inserted below it
+    "Chest",
     "L_Thigh",
     "R_Thigh",
     "L_Calf",
@@ -1956,7 +1958,9 @@ def idle_breathing(rig, facing):
                 (1.0, 0.0, 0.0),
             )
         swing(rig, "Spine01", 1.0 * breath, LEANS_THE_TORSO_FORWARD)
-        swing(rig, "Spine02", 0.7 * math.sin(2.0 * math.pi * phase - 0.5),
+        # The CHEST, not Spine02. `add_spine` put a new joint between them, and this line
+        # means the upper torso - which is the bone that carries the arms and the head.
+        swing(rig, "Chest", 0.7 * math.sin(2.0 * math.pi * phase - 0.5),
               LEANS_THE_TORSO_FORWARD)
         # The head stays level while the chest moves under it.
         swing(rig, "NeckTwist01", -0.8 * breath, LEANS_THE_TORSO_FORWARD)
@@ -2325,7 +2329,9 @@ def gait(rig, mesh, feet, ground: float, name: str, leg, span: int, contact: flo
         # SPRINT_TWIST. LAGGED behind the pelvis by CHEST_LAGS_THE_HIPS, which is what
         # makes it overlapping action rather than two parts moving as one piece.
         if twist:
-            swing(rig, "Spine02",
+            # The CHEST. The shoulders hang off it, so it is the bone a shoulder twist belongs
+            # on; `Spine02` is a mid-back joint now - see dev/art/add_spine.py.
+            swing(rig, "Chest",
                   twist * math.cos(
                       2.0 * math.pi
                       * (phase - 0.5 - ARM_LAG - CHEST_LAGS_THE_HIPS)

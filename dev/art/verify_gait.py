@@ -300,7 +300,10 @@ def main() -> None:
         perfectly good twenty degrees of chest travel, purely because it started from
         behind.
         """
-        along = head("Spine02") - head("Hip")
+        # Hip to CHEST: the trunk's whole length, which is what a lean is measured over.
+        # `Spine02` is a mid-back joint now - see dev/art/add_spine.py - and measuring to it
+        # would report about half the lean the clip actually has.
+        along = head("Chest") - head("Hip")
         return math.degrees(math.atan2(along.dot(forward), max(1e-6, along.z)))
 
     def under(side):

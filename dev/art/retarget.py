@@ -79,11 +79,30 @@ def in_hierarchy_order(rig, names):
     return sorted(names, key=lambda name: depth.get(name, 0))
 
 
+# Bones the two rigs call different things, source name to target name.
+#
+# `dev/art/add_spine.py` put a joint into the middle of the back and renamed the bone above it,
+# because that bone carries both clavicles and the neck and is therefore a chest. The delivery
+# still calls it Spine02. Matching purely by name would then hand the delivery's CHEST motion to
+# our MID-BACK - a plausible-looking clip with the torso bending in the wrong place.
+#
+# The new mid-back has no counterpart in the delivery and stays at rest, which is fine: the
+# clavicles are set from the source's own world orientation, so they land where the source had
+# them whatever happens between.
+CALLED_SOMETHING_ELSE = {"Spine02": "Chest"}
+
+
 def shared_bones(source, target):
-    both = [b.name for b in source.data.bones if b.name in target.data.bones]
+    both = []
+    for bone in source.data.bones:
+        name = CALLED_SOMETHING_ELSE.get(bone.name, bone.name)
+        if name in target.data.bones:
+            both.append((bone.name, name))
     if not both:
         refuse("the two rigs share no bone names at all, so nothing can be matched")
-    return in_hierarchy_order(target, both)
+    order = {name: n for n, name in enumerate(in_hierarchy_order(target, [t for _, t in both]))}
+    both.sort(key=lambda pair: order[pair[1]])
+    return both
 
 
 def retarget(source, target, called, talk=True):
@@ -92,8 +111,9 @@ def retarget(source, target, called, talk=True):
         refuse(f"the source rig has no action to take {called} from")
     clip = source.animation_data.action
     first, last = (int(round(v)) for v in clip.frame_range)
-    names = shared_bones(source, target)
-    missing = [b.name for b in target.data.bones if b.name not in names]
+    pairs = shared_bones(source, target)
+    landed = {t for _, t in pairs}
+    missing = [b.name for b in target.data.bones if b.name not in landed]
 
     if target.animation_data is None:
         target.animation_data_create()
@@ -116,16 +136,16 @@ def retarget(source, target, called, talk=True):
         # Read the SOURCE first, all of it, before touching the target. Reading and writing in
         # the same pass would have the target's own updates racing the source's evaluation.
         wanted = {}
-        for name in names:
-            posed = source.pose.bones[name]
-            wanted[name] = (source.matrix_world @ posed.matrix).to_3x3().normalized()
+        for from_name, to_name in pairs:
+            posed = source.pose.bones[from_name]
+            wanted[to_name] = (source.matrix_world @ posed.matrix).to_3x3().normalized()
         moved = {}
         for name in CARRIES_THE_BODY:
             if name in source.pose.bones and name in target.pose.bones:
                 here = source.pose.bones[name].matrix.translation
                 moved[name] = here - source_rest[name]
 
-        for name in names:
+        for _, name in pairs:
             posed = target.pose.bones[name]
             posed.rotation_mode = "QUATERNION"
             held = posed.matrix.copy()
@@ -139,7 +159,7 @@ def retarget(source, target, called, talk=True):
 
         # Check it tracked, on this frame, before writing the key. A retarget that quietly does
         # not track is the failure worth catching: it looks like an animation, just the wrong one.
-        for name in names:
+        for _, name in pairs:
             got = (target.matrix_world @ target.pose.bones[name].matrix).to_3x3().normalized()
             off = math.degrees(
                 got.to_quaternion().rotation_difference(wanted[name].to_quaternion()).angle
@@ -147,14 +167,14 @@ def retarget(source, target, called, talk=True):
             if off > worst:
                 worst, worst_at = off, f"{name} on frame {frame}"
 
-        for name in names:
+        for _, name in pairs:
             posed = target.pose.bones[name]
             posed.keyframe_insert("rotation_quaternion", frame=frame)
             if name in moved:
                 posed.keyframe_insert("location", frame=frame)
 
     if talk:
-        print(f"  {called}: {last - first + 1} frames, {len(names)} bones matched, "
+        print(f"  {called}: {last - first + 1} frames, {len(pairs)} bones matched, "
               f"{len(missing)} left at rest")
         print(f"    worst tracking error {worst:.3f} deg ({worst_at})")
     if worst > TRACKS_WITHIN:
