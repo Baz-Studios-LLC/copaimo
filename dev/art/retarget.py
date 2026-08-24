@@ -105,12 +105,59 @@ def shared_bones(source, target):
     return both
 
 
+def one_cycle_of(source, first, last, talk=True):
+    """The frame range of a single gait cycle: one left contact to the next.
+
+    # Why this is needed at all
+
+    The delivered presets are not one cycle. Counting foot plants: the walk has three left
+    contacts and two right over 57 frames, the run two and three over 31 - about two and a half
+    cycles each. Everything phase-based then fails, and it fails confusingly rather than loudly:
+    `verify_gait` compares each frame with the one half a CLIP later, which on two and a half
+    cycles is the wrong leg, and it reported the walk limping by 36.84 cm.
+
+    Two and a half cycles also cannot loop. The first and last frames are at different phases, so
+    every repetition crosses a step change - measured, 11.88 on the run before the root motion
+    came off and 0.03 after.
+
+    A cycle is contact to the NEXT contact of the SAME foot, so that is what is cut.
+    """
+    lowest = []
+    for frame in range(first, last + 1):
+        bpy.context.scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        lowest.append(
+            (source.matrix_world @ source.pose.bones["L_ToeBase"].tail).z
+        )
+    floor = min(lowest) + (max(lowest) - min(lowest)) * 0.15
+    down, was = [], False
+    for n, z in enumerate(lowest):
+        now = z <= floor
+        if now and not was:
+            down.append(first + n)
+        was = now
+    if len(down) < 2:
+        refuse(
+            f"only {len(down)} left-foot contact(s) found in frames {first}..{last}, so there is "
+            f"no cycle to cut - the clip may not be a walk or a run at all"
+        )
+    # The LONGEST gap between successive contacts, because a preset often begins or ends
+    # mid-stride and the short end pieces are not cycles.
+    gaps = [(down[i + 1] - down[i], down[i], down[i + 1]) for i in range(len(down) - 1)]
+    span, from_frame, to_frame = max(gaps)
+    if talk:
+        print(f"    left contacts at {down}; taking {from_frame}..{to_frame} "
+              f"({span} frames) as one cycle")
+    return from_frame, to_frame
+
+
 def retarget(source, target, called, talk=True):
     """Bakes the source's current action onto the target as a new action of the same name."""
     if source.animation_data is None or source.animation_data.action is None:
         refuse(f"the source rig has no action to take {called} from")
     clip = source.animation_data.action
-    first, last = (int(round(v)) for v in clip.frame_range)
+    whole_first, whole_last = (int(round(v)) for v in clip.frame_range)
+    first, last = one_cycle_of(source, whole_first, whole_last, talk)
     pairs = shared_bones(source, target)
     landed = {t for _, t in pairs}
     missing = [b.name for b in target.data.bones if b.name not in landed]
@@ -128,6 +175,40 @@ def retarget(source, target, called, talk=True):
     target_rest = {n: target.data.bones[n].matrix_local.translation.copy()
                    for n in CARRIES_THE_BODY if n in target.data.bones}
 
+    # # The travel comes off first
+    #
+    # These presets carry ROOT MOTION: the body walks forward through the clip, so its last frame
+    # is metres from its first. This game moves the character in CODE and plays the clip in place -
+    # see docs/animation.md on root motion against in-place - so a clip that also travels is
+    # counted twice and never loops. Measured on the delivered run, the first and last frames were
+    # 11.88 apart, and verify_gait refused it for exactly that.
+    #
+    # Removed as a straight-line TREND rather than by zeroing the horizontal outright, because the
+    # sway is real and worth keeping: a walking body shifts side to side over its stance foot, and
+    # deleting that with the travel would flatten the clip into something that slides.
+    travel = {}
+    for name in CARRIES_THE_BODY:
+        if name not in source.pose.bones or name not in target.pose.bones:
+            continue
+        held = []
+        for frame in range(first, last + 1):
+            bpy.context.scene.frame_set(frame)
+            bpy.context.view_layer.update()
+            held.append(source.pose.bones[name].matrix.translation - source_rest[name])
+        # A line through the first and last, so the ends meet and the loop closes.
+        drift = held[-1] - held[0]
+        span = max(1, len(held) - 1)
+        travel[name] = [
+            mathutils.Vector((
+                one.x - drift.x * (n / span),
+                one.y - drift.y * (n / span),
+                one.z,
+            ))
+            for n, one in enumerate(held)
+        ]
+        print(f"    {name} travelled {drift.length * SCALE:.1f} cm over the clip; "
+              f"taken out, its vertical bob kept")
+
     worst, worst_at = 0.0, ""
     for frame in range(first, last + 1):
         bpy.context.scene.frame_set(frame)
@@ -139,11 +220,7 @@ def retarget(source, target, called, talk=True):
         for from_name, to_name in pairs:
             posed = source.pose.bones[from_name]
             wanted[to_name] = (source.matrix_world @ posed.matrix).to_3x3().normalized()
-        moved = {}
-        for name in CARRIES_THE_BODY:
-            if name in source.pose.bones and name in target.pose.bones:
-                here = source.pose.bones[name].matrix.translation
-                moved[name] = here - source_rest[name]
+        moved = {name: held[frame - first] for name, held in travel.items()}
 
         for _, name in pairs:
             posed = target.pose.bones[name]
@@ -169,9 +246,10 @@ def retarget(source, target, called, talk=True):
 
         for _, name in pairs:
             posed = target.pose.bones[name]
-            posed.keyframe_insert("rotation_quaternion", frame=frame)
+            at = frame - first + 1
+            posed.keyframe_insert("rotation_quaternion", frame=at)
             if name in moved:
-                posed.keyframe_insert("location", frame=frame)
+                posed.keyframe_insert("location", frame=at)
 
     if talk:
         print(f"  {called}: {last - first + 1} frames, {len(pairs)} bones matched, "

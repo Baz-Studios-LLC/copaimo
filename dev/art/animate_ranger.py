@@ -2060,6 +2060,36 @@ def report_the_native_speeds(clips):
           "`covers`\n  costs - see docs/animation.md on stride warping")
 
 
+def take_the_delivered_clip(rig, called, delivery):
+    """Retargets one of the generator's preset clips onto the prepared rig.
+
+    The deliveries in assets/models carry the generator's own walk and run, authored against the
+    generator's own rest pose. Ours has been mirrored, straightened and A-posed away from that, so
+    the clips are RETARGETED rather than copied - see dev/art/retarget.py for why a copy would be
+    wrong by exactly the difference between the two binds.
+
+    The source is imported, read, and then removed entirely. Leaving it in the scene would export
+    a second skeleton and a second body inside the game's own model file.
+    """
+    import retarget
+
+    before = set(bpy.data.objects)
+    known = set(bpy.data.actions)
+    bpy.ops.import_scene.gltf(filepath=delivery.replace("\\", "/"))
+    fresh = [o for o in bpy.data.objects if o not in before]
+    source = next((o for o in fresh if o.type == "ARMATURE"), None)
+    if source is None:
+        raise SystemExit(f"REFUSED: no armature in {delivery}")
+
+    made = retarget.retarget(source, rig, called)
+
+    for thing in fresh:
+        bpy.data.objects.remove(thing, do_unlink=True)
+    for spare in [a for a in bpy.data.actions if a not in known and a is not made]:
+        bpy.data.actions.remove(spare)
+    return made
+
+
 def gripping(rig, facing):
     """Authors `grip`: the hands closing to a fist and opening again.
 
@@ -3295,7 +3325,36 @@ def main() -> None:
     # Before the gaits, for the same reason the idle is: `gait` takes over the active action.
     gripping(rig, facing).use_fake_user = True
 
-    clips["walk"] = gait(
+    # # The walk and the run come from the DELIVERIES now
+    #
+    # assets/models/Ranger-Walk.glb and Ranger-Run.glb carry the generator's own preset clips,
+    # and they are retargeted onto this rig rather than copied - see `take_the_delivered_clip`.
+    # The authored versions below are kept, unused, because they are the only record of what the
+    # gait pipeline can produce and because the sprint still needs them.
+    # OPT-IN, with `USE_DELIVERED=1`, because as delivered they do not pass verify_gait and the
+    # reasons are in the clips rather than in the handling of them. Measured, after the root
+    # motion was removed and one clean cycle cut out of the two and a half they contain:
+    #
+    #   the landing foot points 49.1 deg off the line of travel (14 is the most that passes)
+    #   the leading foot is 60.6 deg TOES-DOWN at contact, where a heel strike wants toes up
+    #   the hips are in front of both feet on one frame, so nothing is under the body
+    #   the first and last frames still differ by 3.20, so it does not loop
+    #
+    # Those are not defects of the retarget - it tracks at 0.000 degrees - they are what the
+    # preset is. Shipping them would trade a clip that passes every anatomical check for one that
+    # fails four, so the switch is here and the default is the authored pipeline.
+    root = os.path.dirname(os.path.dirname(here))
+    delivered = {}
+    if os.environ.get("USE_DELIVERED") == "1":
+        for called, file in (("walk", "Ranger-Walk.glb"), ("run", "Ranger-Run.glb")):
+            path = os.path.join(root, "assets", "models", file)
+            if os.path.exists(path):
+                delivered[called] = take_the_delivered_clip(rig, called, path)
+            else:
+                print(f"  no {file}; authoring {called} instead")
+
+    authored = {}
+    authored["walk"] = gait(
             rig, body, feet, ground, "walk", WALK_LEG, WALK_SPAN, WALK_CONTACT, WALK_SWING_LIFT, WALK_SWING_SHAPE, WALK_LANDS_AHEAD,
             ARM_FORWARD, ARM_BACK,
             # 2 degrees of trunk lean, not 0. A walk is upright, but dead plumb
@@ -3303,17 +3362,27 @@ def main() -> None:
             # what a person leans to actually go somewhere.
             ELBOW_HELD, ELBOW_SWING, WALK_LEAN, WALK_SHARE, WALK_SINKS, WALK_LEADS, WALK_BOUND, WALK_ABSORBS, WALK_TUCK_IN, WALK_CROSSES_IN, WALK_PUMPS, WALK_TWIST, WALK_PELVIS, facing,
         )
-    clips["run"] = gait(
+    authored["run"] = gait(
             rig, body, feet, ground, "run", RUN_LEG, RUN_SPAN, RUN_CONTACT, RUN_SWING_LIFT, RUN_SWING_SHAPE, RUN_LANDS_AHEAD,
             RUN_ARM_FORWARD, RUN_ARM_BACK,
             RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_SHARE, RUN_SINKS, RUN_LEADS, RUN_BOUND, RUN_ABSORBS, RUN_TUCK_IN, RUN_CROSSES_IN, RUN_PUMPS, RUN_TWIST, RUN_PELVIS, facing,
         )
-    clips["sprint"] = gait(
+    authored["sprint"] = gait(
             rig, body, feet, ground, "sprint", SPRINT_LEG, SPRINT_SPAN, SPRINT_CONTACT, SPRINT_SWING_LIFT, SPRINT_SWING_SHAPE, SPRINT_LANDS_AHEAD,
             SPRINT_ARM_FORWARD, SPRINT_ARM_BACK, SPRINT_ELBOW_HELD, SPRINT_ELBOW_SWING, SPRINT_LEAN, SPRINT_SHARE,
             SPRINT_SINKS, SPRINT_LEADS, SPRINT_BOUND, SPRINT_ABSORBS, SPRINT_TUCK_IN, SPRINT_CROSSES_IN, SPRINT_PUMPS, SPRINT_TWIST, SPRINT_PELVIS, facing,
         )
 
+    # A delivered clip wins where there is one; the authored one is dropped rather than shipped
+    # alongside it, because two clips called `walk` in one file is how a game plays the wrong one.
+    clips = {}
+    for called in ("walk", "run", "sprint"):
+        if called in delivered:
+            if called in authored:
+                bpy.data.actions.remove(authored[called])
+            clips[called] = delivered[called]
+        else:
+            clips[called] = authored[called]
     for action in clips.values():
         action.use_fake_user = True
     report_the_native_speeds(clips)

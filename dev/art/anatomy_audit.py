@@ -104,6 +104,31 @@ for side in "LR":
     else:
         print(f"  {side}: bone points {bone_yaw:+6.1f} deg off travel; no shoe vertices found")
 
+# --- The shoes, against what a foot is a proportion of.
+#
+# Reported as "very bulky", which is a judgement - but a judgement about a proportion, and a
+# proportion is measurable. An adult foot is about 15% of standing height long and roughly 40% of
+# its own length across. Those are the numbers a bulky shoe is bulky AGAINST, so they are stated
+# here rather than left as an impression.
+print("SHOES - size against the proportions a foot usually has")
+tall = max(p.z for group in owned.values() for p in group) - min(
+    p.z for group in owned.values() for p in group)
+for side in "LR":
+    shoe = owned.get(f"{side}_ToeBase", []) + owned.get(f"{side}_Foot", [])
+    if not shoe:
+        continue
+    long_way, _, _ = principal(shoe, ignoring=up)
+    if long_way.dot(forward) < 0:
+        long_way = -long_way
+    wide_way = up.cross(long_way).normalized()
+    length = max(p.dot(long_way) for p in shoe) - min(p.dot(long_way) for p in shoe)
+    width = max(p.dot(wide_way) for p in shoe) - min(p.dot(wide_way) for p in shoe)
+    deep = max(p.z for p in shoe) - min(p.z for p in shoe)
+    print(f"  {side}: {length * SCALE:5.1f} cm long, {width * SCALE:5.1f} wide, "
+          f"{deep * SCALE:5.1f} tall")
+    print(f"      length is {length / tall * 100:4.1f}% of height (a foot is about 15), "
+          f"width is {width / length * 100:4.1f}% of its own length (about 40)")
+
 # --- The hands.
 print("\nHANDS - which way the palm faces (toward the thigh is what was asked for)")
 for side, inward in (("L", -1.0), ("R", 1.0)):

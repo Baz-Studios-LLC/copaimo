@@ -585,6 +585,17 @@ def main():
         print(f"  the ground slides {covers:.3f} m a cycle "
               "(a planted foot should hold one marker)")
 
+    # EVERY clip kept, not just the one being watched.
+    #
+    # The file carries all of them - walk, run, sprint, idle, grip - but Blender drops an action
+    # nothing points at when the .blend is saved, so the saved scene arrived with one. Marking
+    # them all means the Action Editor lists the lot and any of them can be picked without
+    # rebuilding: press the clip name in the dope sheet's Action Editor to switch.
+    for spare in bpy.data.actions:
+        spare.use_fake_user = True
+    print(f"  kept {len(bpy.data.actions)} clips in the file: "
+          + ", ".join(sorted(a.name for a in bpy.data.actions)))
+
     scene.frame_set(scene.frame_start)
     if hands:
         # On the LEFT hand, close enough to read a knuckle. Framed from the bones rather than
