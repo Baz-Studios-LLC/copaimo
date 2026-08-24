@@ -63,6 +63,23 @@ if os.environ.get("LOOK_CLAY") == "1":
     if not mesh.material_slots:
         mesh.data.materials.append(clay)
 
+# A POSE, not just the rest stance. Everything here rendered the A-pose, so a fault that only
+# shows while a clip is playing could not be looked at - and "the shoes look like UGGs" is
+# reported while a clip is playing.
+if os.environ.get("LOOK_CLIP"):
+    wanted = os.environ["LOOK_CLIP"]
+    clip = next((a for a in bpy.data.actions if a.name == wanted), None)
+    if clip is None:
+        raise SystemExit(f"REFUSED: no clip called {wanted} in this file; there is "
+                         + ", ".join(sorted(a.name for a in bpy.data.actions)))
+    if rig.animation_data is None:
+        rig.animation_data_create()
+    rig.animation_data.action = clip
+    at = int(os.environ.get("LOOK_FRAME", int(clip.frame_range[0])))
+    bpy.context.scene.frame_set(at)
+    bpy.context.view_layer.update()
+    print(f"  posed by '{clip.name}' at frame {at}")
+
 sun = bpy.data.objects.new("sun", bpy.data.lights.new("sun", type="SUN"))
 bpy.context.scene.collection.objects.link(sun)
 sun.data.energy = 3.5

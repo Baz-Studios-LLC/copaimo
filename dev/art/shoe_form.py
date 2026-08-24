@@ -1,4 +1,25 @@
-"""Gives the shoes the shape of shoes.
+"""Gives the shoes the shape of shoes. NOT CALLED - it made them worse. Read this first.
+
+# Why this is not in the build
+
+Rendered textured, in order, against every earlier state of the shoe, this pass is plainly the
+worst of them: the toe curls up, the slab sole flattens out, and a chunky trainer reads as
+something soft. Reported as "both look like UGGs".
+
+The mistake is not in the code below, which does what it says. It is in what the code was
+measured AGAINST. A toe spring of 1-2 cm and a tapering toe box are real shoe-last proportions
+and they are correct for a real shoe. This is a STYLISED chunky trainer, and its whole design
+is a blunt full toe box on a thick slab sole - the two things a toe spring and a taper sand
+off. Judged against an anthropometric table it improved; judged by how it READS it got worse,
+and how it reads is the only thing that matters here.
+
+That is the same fault as the three passes that slimmed the footprint before it. Each time the
+shoe was compared against the wrong thing.
+
+The measurements are kept because they are true and were expensive: 64 welded vertices, the
+split count that hides it, the two mechanical bugs below. Anyone reaching for a toe spring on
+this character should find out here rather than after four rounds.
+
 
     blender --background --python shoe_form.py -- [--dry-run] [--cuts 2]
 
