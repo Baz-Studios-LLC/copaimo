@@ -69,8 +69,10 @@ pub struct Model {
     /// half of the cadence. `motion.rs` divides the warden's speed by how far a
     /// stride carries them to get cycles per second, and then hands that to
     /// `set_speed`, which is a MULTIPLE of the clip's own rate. So the arithmetic is
-    /// only right when a clip happens to last exactly one second, and the run lasted
-    /// 0.708 — it played 41% too fast and the feet skated for it.
+    /// only right when a clip happens to last exactly one second. It was found when the
+    /// run was sixteen frames and lasted 0.708 — it played 41% too fast and the feet skated
+    /// for it. All three gaits are twenty-four frames now and every clip lasts 1.042 s, so
+    /// the duration still has to come from the file rather than be assumed.
     pub clips: Vec<(String, f32)>,
 }
 

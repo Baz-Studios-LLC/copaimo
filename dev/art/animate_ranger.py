@@ -1992,17 +1992,30 @@ def from_the_game(where: str, *names):
 A_RUN_IS_AUTHORED_OVER = (12, 16)
 
 
-def report_the_native_speeds(spans):
+def report_the_native_speeds(clips):
     """Prints each clip's native speed and what the game will actually ask of it.
 
-    The one speed at which a clip's feet do not slide unaided is `covers x fps / frames`.
-    Everything else is `playback_rate` making up the difference, and how big that difference
-    is decides how much a wrong `covers` costs - which on this project was the character
-    appearing to run through water, from a figure 28% understated.
+    Takes the AUTHORED ACTIONS and reads each one's duration off its own frame range, because
+    the duration is what `src/motion.rs::playback_rate` multiplies by, and getting it from the
+    frame count needs two corrections that are easy to miss.
 
-    Derived from src/motion.rs and src/player.rs so it cannot go stale. The comment this
-    replaces stated the table by hand and was wrong in four ways at once: the frame counts,
-    both native speeds, and the claim that each tier sits at its clip's native speed.
+    A cycle of N frames is written with a closing SEAM key, so the action holds N+1 keys. And
+    glTF stores ABSOLUTE keyframe times without rebasing to zero, so Blender frame 25 exports
+    at 25/24 s rather than 24/24 - which makes the clip's stated duration `last / fps`, not
+    `(last - first) / fps` and not `frames / fps`.
+
+    Two wrong versions of this line, both checked against the exported file in the end:
+    `frames / fps` and `(last - first) / fps` each gave 1.000 s where the GLB says 1.0417,
+    understating every rate by the seam - the run read 1.48x where the game really asks
+    1.54x. `the_declared_frame_counts_match_the_clips` in motion.rs had it right all along at
+    `(frames + 1) / FPS`. A table derived from the wrong rule is no better than the
+    hand-written one it replaced, and this is the second time on this file that frames and
+    seconds have been swapped for one another.
+
+    Note `a cycle takes` is `covers / speed` and so does not depend on the duration at all -
+    which is why that column was right even while the rate beside it was not.
+
+    Covers, speeds and fps come from the game's own source, so they cannot drift.
     """
     covers = from_the_game("src/motion.rs", "WALK_COVERS", "RUN_COVERS", "SPRINT_COVERS")
     fps = from_the_game("src/motion.rs", "FPS")["FPS"]
@@ -2012,23 +2025,29 @@ def report_the_native_speeds(spans):
              ("sprint", "SPRINT_COVERS", "SPRINT_SPEED"))
 
     print(f"\nwhat each clip carries, at {fps:.0f} fps - covers and speeds read from the game:")
-    print(f"  {'clip':<7} {'frames':>6} {'covers':>8} {'native':>9} {'the game asks':>14} "
-          f"{'rate':>6} {'effective':>10}")
+    print(f"  {'clip':<7} {'lasts':>7} {'covers':>8} {'native':>9} {'the game asks':>14} "
+          f"{'rate':>6} {'a cycle takes':>14}")
     for called, cover, speed in tiers:
-        frames = spans[called]
-        native = covers[cover] * fps / frames
-        rate = speeds[speed] / native
-        effective = frames / rate if rate else float("inf")
+        action = clips[called]
+        _first, last = action.frame_range
+        lasts = last / fps                 # absolute, not rebased - see the note above
+        native = covers[cover] / lasts
+        rate = lasts * speeds[speed] / covers[cover]      # exactly motion.rs::playback_rate
+        takes = lasts / rate if rate else float("inf")
         note = ""
         if called in ("run", "sprint"):
             low, high = A_RUN_IS_AUTHORED_OVER
-            if not low <= effective <= high:
-                note = f"  <- outside the {low}-{high} a run is usually authored over"
-        print(f"  {called:<7} {frames:6} {covers[cover]:7.3f}m {native:8.2f}m/s "
-              f"{speeds[speed]:13.2f}m/s {rate:5.2f}x {effective:9.1f}f{note}")
-    print("  a rate far from 1.00x means the authored span is long and playback_rate is "
-          "carrying it,\n  which is also how much a wrong `covers` costs - see "
-          "docs/animation.md on stride warping")
+            # A frame either side before saying anything. The run lands at 16.2 against a
+            # band of 12-16, and flagging a fifth of a frame is crying wolf on soft craft
+            # guidance - which is worse than silence, because a warning nobody acts on
+            # trains everybody to skip the whole report.
+            if not low - 1.0 <= takes * fps <= high + 1.0:
+                note = f"  <- outside the {low}-{high} frames a run is usually authored over"
+        print(f"  {called:<7} {lasts:6.3f}s {covers[cover]:7.3f}m {native:8.2f}m/s "
+              f"{speeds[speed]:13.2f}m/s {rate:5.2f}x {takes * fps:8.1f} frames{note}")
+    print("  the rate is what playback_rate will return; far from 1.00x means the authored\n"
+          "  span is long and the rate is carrying it, which is also how much a wrong "
+          "`covers`\n  costs - see docs/animation.md on stride warping")
 
 
 def gripping(rig, facing):
@@ -3257,31 +3276,35 @@ def main() -> None:
     # it from the source is the fix; a comment cannot be kept honest by intending to.
     #
     # The idle first: it is the state every other clip blends from.
-    report_the_native_speeds({"walk": WALK_SPAN, "run": RUN_SPAN, "sprint": SPRINT_SPAN})
+    clips = {}
     if idle is None:
         idle_breathing(rig, facing).use_fake_user = True
 
     # Before the gaits, for the same reason the idle is: `gait` takes over the active action.
     gripping(rig, facing).use_fake_user = True
 
-    gait(
+    clips["walk"] = gait(
             rig, body, feet, ground, "walk", WALK_LEG, WALK_SPAN, WALK_CONTACT, WALK_SWING_LIFT, WALK_SWING_SHAPE, WALK_LANDS_AHEAD,
             ARM_FORWARD, ARM_BACK,
             # 2 degrees of trunk lean, not 0. A walk is upright, but dead plumb
             # reads as being carried along rather than walking; a couple of degrees is
             # what a person leans to actually go somewhere.
             ELBOW_HELD, ELBOW_SWING, WALK_LEAN, WALK_SHARE, WALK_SINKS, WALK_LEADS, WALK_BOUND, WALK_ABSORBS, WALK_TUCK_IN, WALK_CROSSES_IN, WALK_PUMPS, WALK_TWIST, WALK_PELVIS, facing,
-        ).use_fake_user = True
-    gait(
+        )
+    clips["run"] = gait(
             rig, body, feet, ground, "run", RUN_LEG, RUN_SPAN, RUN_CONTACT, RUN_SWING_LIFT, RUN_SWING_SHAPE, RUN_LANDS_AHEAD,
             RUN_ARM_FORWARD, RUN_ARM_BACK,
             RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_SHARE, RUN_SINKS, RUN_LEADS, RUN_BOUND, RUN_ABSORBS, RUN_TUCK_IN, RUN_CROSSES_IN, RUN_PUMPS, RUN_TWIST, RUN_PELVIS, facing,
-        ).use_fake_user = True
-    gait(
+        )
+    clips["sprint"] = gait(
             rig, body, feet, ground, "sprint", SPRINT_LEG, SPRINT_SPAN, SPRINT_CONTACT, SPRINT_SWING_LIFT, SPRINT_SWING_SHAPE, SPRINT_LANDS_AHEAD,
             SPRINT_ARM_FORWARD, SPRINT_ARM_BACK, SPRINT_ELBOW_HELD, SPRINT_ELBOW_SWING, SPRINT_LEAN, SPRINT_SHARE,
             SPRINT_SINKS, SPRINT_LEADS, SPRINT_BOUND, SPRINT_ABSORBS, SPRINT_TUCK_IN, SPRINT_CROSSES_IN, SPRINT_PUMPS, SPRINT_TWIST, SPRINT_PELVIS, facing,
-        ).use_fake_user = True
+        )
+
+    for action in clips.values():
+        action.use_fake_user = True
+    report_the_native_speeds(clips)
 
     bpy.ops.export_scene.gltf(
         filepath=out,

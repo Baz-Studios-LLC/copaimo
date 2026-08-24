@@ -34,10 +34,13 @@ drive zero vertices, which is checked below rather than assumed.
 
 # The rate
 
-The clips are authored at 24 fps (`src/motion.rs` FPS), so the run's sixteen frames are
-one cycle in 0.667 s - 180 steps a minute. But the game does not play it at its own
-rate: it hands `set_speed` a multiple so the clip carries the player's speed, and at
-JOG_SPEED against RUN_COVERS that multiple is 1.111, which is 200 steps a minute.
+The clips are authored at 24 fps (`src/motion.rs` FPS) and all three gaits are
+twenty-four frames, so each one exports at 1.042 s - the cycle plus its closing seam key,
+timed absolutely, which is why it is not 1.000. At its own rate the run is therefore one
+cycle in 1.042 s. But the game does not play it at its own rate: it hands `set_speed` a
+multiple so the clip carries the player's speed, and at JOG_SPEED against RUN_COVERS that
+multiple is 1.54x. `animate_ranger.py::report_the_native_speeds` prints the whole table on
+every build rather than it being restated here.
 
 `--rate game` (the default) shows what the game shows. `--rate native` shows what was
 authored. The difference is the point: 200 is fast for a jog, and it is worth being able

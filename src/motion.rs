@@ -228,10 +228,18 @@ const SPRINT_COVERS: f32 = 3.283;
 /// duration — and not a rate. So playing `speed / covers` cycles a second means
 /// asking for that many multiplied by however long the clip happens to be.
 ///
-/// Leaving the duration out is a bug that hides: the walk lasts 1.042 s, near enough
-/// to one that nothing looked wrong, while the run lasts 0.708 and played 41% too
-/// fast. The property that catches it is that the cadence must come out the SAME
-/// whatever the clip's length, which is what the test asserts.
+/// Leaving the duration out is a bug that hides. It was found when the run was authored
+/// over sixteen frames and so lasted 0.708 s, where the walk lasted 1.042 - near enough to
+/// one that nothing looked wrong there, while the run played 41% too fast. All three gaits
+/// are twenty-four frames now and every clip lasts 1.042 s, so the same bug would be
+/// invisible today; the property that catches it regardless is that cadence must come out
+/// the SAME whatever the clip's length, which is what the test asserts.
+///
+/// 1.042 and not 1.000 for two reasons worth stating, because both have been got wrong:
+/// a cycle of N frames carries a closing SEAM key so the action holds N+1, and glTF stores
+/// absolute keyframe times without rebasing to zero, so the last key of a 24-frame cycle
+/// exports at 25/24 s. The duration is `(frames + 1) / FPS`, which is what
+/// `the_declared_frame_counts_match_the_clips` expects and what the file actually says.
 fn playback_rate(speed: f32, covers: f32, clip_lasts: f32) -> f32 {
     clip_lasts * speed / covers
 }
@@ -262,9 +270,9 @@ pub struct Motions {
     /// `speed / duration` — and handing it `strides_a_second` alone silently assumes
     /// every clip lasts exactly one second.
     ///
-    /// The walk very nearly does, at 1.042 s. The run lasts 0.708, because it is
-    /// authored over sixteen frames rather than twenty-four, so it played 41% too
-    /// fast and the feet skated for it. Nothing in the cadence test could catch that,
+    /// Every clip lasts 1.042 s today, all three being twenty-four frames. It was found
+    /// when the run was sixteen frames and so lasted 0.708, which played 41% too fast and
+    /// the feet skated for it while the walk looked fine. Nothing in the cadence test caught it,
     /// because the test checked the number being ASKED for rather than the one the
     /// player would produce.
     idle_lasts: f32,
@@ -512,7 +520,7 @@ mod pacing {
     ///
     /// This test used to assert on `speed / covers` — the number the game ASKS for —
     /// and passed while the run played 41% too fast, because `set_speed` is a
-    /// multiple of a clip's natural rate and the run is authored over sixteen frames
+    /// multiple of a clip's natural rate and the run was authored over sixteen frames
     /// rather than twenty-four. Checking the request rather than the result is how a
     /// test agrees with the code about something they are both wrong about.
     ///
