@@ -45,6 +45,7 @@ mod editor;
 mod tools;
 #[cfg(feature = "tools")]
 mod hud;
+mod ik;
 /// How a warden looks, and painting it onto the model.
 mod look;
 mod menu;

@@ -3321,4 +3321,10 @@ def main() -> None:
     print("clips:", [a.name for a in bpy.data.actions])
 
 
-main()
+# Guarded, so the helpers and the tuning constants here can be IMPORTED without running the
+# whole build. `prepare_rig` has carried this guard and the reason for it from the start; this
+# file did not, and importing it to borrow two functions silently re-authored every clip and
+# rewrote assets/models/person_ranger.glb - then invalidated the caller's own scene references
+# on the way out, which is how it was noticed at all.
+if __name__ == "__main__":
+    main()
