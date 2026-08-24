@@ -337,11 +337,17 @@ LEAD_IN = 3
 #    for the sprint, which at 180 steps a minute carry 3.53 and 5.28 m/s - against
 #    Palworld's 3.50 jog and Skyrim's 5.29 run.
 #
-#    Worth recording that this character's leg is 0.774 m hip to ankle, not the 0.90 a
-#    1.7 m human has: a stylised build with proportionally short legs, 45% of its
-#    height against a human's 52%. "Contact length is about one leg length" therefore
-#    means 0.774 m HERE, and 0.880 is already reaching 14% past it. That is a
-#    stylisation, stated rather than stumbled into.
+#    Worth recording that this character's leg is 0.774 m hip to ANKLE, not the 0.90 a
+#    1.7 m human has, so "contact length is about one leg length" means 0.774 m HERE and
+#    0.880 is already reaching 14% past it.
+#
+#    That is a difference in LANDMARK, not a short leg, and this note used to draw the
+#    wrong conclusion from it - "a stylised build with proportionally short legs, 45% of
+#    its height against a human's 52%". Hip-to-ankle against a human hip-to-FLOOR is not a
+#    comparison. Measured hip joint to floor for both, his leg is 85.2 cm on a 170.2 cm
+#    figure: 50.1% of height, inside the ordinary adult 50-52% band. See
+#    `motion::LEGS_SHORTER_BY`, where the same mistake made every cadence ceiling 4% too
+#    generous - the direction that lets a too-fast gait pass.
 #
 # 7. The ankle at a running CONTACT is plantarflexed, -16 for the jog and -18 for the
 #    sprint, where a walk's is +12. A run lands on the forefoot and a walk on the heel,

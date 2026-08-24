@@ -56,10 +56,20 @@ const BREAKS_INTO_A_RUN: f32 = 3.4;
 /// of a ROLLING shoe also advances heel-to-toe through stance, which the sole
 /// tracking sees and bone-based estimates did not - it is worth about 10% here.
 ///
-/// Current clips, measured 2026-08-22 (toe flex, shoe weights owned by the feet,
-/// stride bounded by this character's short legs and a 6 cm cap on hip drop):
-/// walk 0.926 m/s native, run 2.439, sprint 4.458. The
-/// running sweeps are one leg length apiece - which only fits inside the leg's reach
+/// The three constants below ARE the measurement, and what each clip's native speed works out
+/// to is printed on every asset build by `animate_ranger::report_the_native_speeds`, read from
+/// these values and from the tier speeds in `player`.
+///
+/// It used to be written out here as "current clips, measured 2026-08-22 ... walk 0.926 m/s
+/// native, run 2.439, sprint 4.458", against constants that by then read 0.970, 2.496 and
+/// 3.283. A table restated in prose beside the numbers it describes is the single most repeated
+/// fault in this codebase - eight instances found in two days - and the cure is always the same:
+/// derive it or delete it. Two other claims in that sentence were wrong as well, and both were
+/// load-bearing arguments elsewhere: the hip drop cap is not 6 cm (`ik_gait.HIP_DROPS_AT_MOST`),
+/// and this character's legs are not short (50.1% of height, measured hip joint to floor for
+/// both him and the human figure he was being compared against - see `LEGS_SHORTER_BY`).
+///
+/// The running sweeps are one leg length apiece - which only fits inside the leg's reach
 /// because the stance window is asymmetric (land ~35% ahead, release ~65% behind,
 /// the art pipeline's LANDS_AHEAD). Measured per VERTEX of the planted sole,
 /// horizontal only: a centroid whose membership shifts as the shoe rolls reads as
@@ -213,13 +223,16 @@ const fn halfway(slower: f32, faster: f32) -> f32 {
 ///
 /// What one sprint cycle carries, measured like the others - see `WALK_COVERS`.
 ///
-/// 2.601 m over fourteen frames is 4.46 m/s natively at 206 steps a minute. The
-/// sprint sweeps the same ground per stance as the run (planted-foot travel stays
-/// near one leg length at every speed - 0.99 +/- 0.08 m from 6.2 to 11.1 m/s) and
-/// buys its speed with a shorter cycle and a longer flight, never by reaching
-/// further. Trying to reach further is why 42 degrees of thigh swing once read as
-/// the splits, and it is also why the first sprint clip came out NATIVELY SLOWER
-/// than the run: it kept the run's cadence and shrank its sweep.
+/// The sprint sweeps the same ground per stance as the run - planted-foot travel stays near one
+/// leg length at every running speed, 0.99 +/- 0.08 m from 6.2 to 11.1 m/s (Weyand) - and buys
+/// its speed with a shorter cycle and a longer flight, never by reaching further. Trying to
+/// reach further is why 42 degrees of thigh swing once read as the splits, and it is also why
+/// the first sprint clip came out NATIVELY SLOWER than the run: it kept the run's cadence and
+/// shrank its sweep.
+///
+/// This used to open with "2.601 m over fourteen frames is 4.46 m/s natively at 206 steps a
+/// minute", every figure of which is now wrong - the clip is twenty-four frames and carries the
+/// value below. The build prints the live table; see `WALK_COVERS`.
 const SPRINT_COVERS: f32 = 3.283;
 
 /// What to hand `set_speed` so a clip plays at the right cadence.

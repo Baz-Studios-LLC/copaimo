@@ -194,6 +194,21 @@ pub fn reach(chain: Chain, target: Vec3, bends_toward: Vec3) -> Chain {
 /// Applied on the LEFT of a bone's current world rotation, so a caller does not have to know
 /// which local axis the bone runs along — the export's convention drops out. Returns identity
 /// rather than a NaN when either direction is degenerate.
+/// The same rotation, but no further than `degrees`.
+///
+/// For laying a foot on the ground: a slope is something a foot follows, a cliff is not, and past
+/// some angle a shoe rotated to match the ground reads as a broken ankle rather than as standing
+/// on a hill.
+pub fn at_most(turn: Quat, degrees: f32) -> Quat {
+    let (axis, angle) = turn.to_axis_angle();
+    let capped = degrees.to_radians();
+    if angle <= capped || !axis.is_finite() {
+        return turn;
+    }
+    Quat::from_axis_angle(axis, capped)
+}
+
+/// The rotation that turns a bone pointing `was` into one pointing `wants`, in world space.
 pub fn aim(was: Vec3, wants: Vec3) -> Quat {
     if was.length() < NO_DIRECTION || wants.length() < NO_DIRECTION {
         return Quat::IDENTITY;
@@ -216,6 +231,18 @@ pub const GROUND_REACHES: f32 = 0.35;
 /// is a different quantity - that one sets how far a stride can reach, this one only rescues a
 /// foot that the ground has moved away from. 0.20 m is about a quarter of this leg.
 pub const HIPS_DROP_AT_MOST: f32 = 0.20;
+
+/// How far the foot may tilt to lie along the ground, in degrees.
+///
+/// A foot follows a slope; it does not follow a cliff. Past this the ground under one foot is not
+/// something a foot can be flat on, and a shoe rotated to match it reads as a broken ankle.
+pub const FOOT_TILTS_AT_MOST: f32 = 30.0;
+
+/// How far either side of a foot to sample the heightfield for its ground normal, in metres.
+///
+/// About a foot's width. Tighter picks up single-vertex noise in the sculpted edits and makes the
+/// shoe twitch; wider averages away the slope the foot is actually standing on.
+const A_FOOT_WIDE: f32 = 0.12;
 
 /// How fast the hip drop follows the ground, as a share closed per second.
 ///
@@ -338,8 +365,8 @@ pub struct Leg {
     pub calf: Entity,
     /// Its head is the ankle — the point being placed.
     pub foot: Entity,
-    /// What was last written to the thigh and the calf, in that order.
-    held: [Held; 2],
+    /// What was last written to the thigh, the calf and the foot, in that order.
+    held: [Held; 3],
 }
 
 /// Both legs, and the bone the whole body hangs from.
@@ -507,7 +534,7 @@ pub fn plant_the_feet(
     // correction is computed from an already-corrected pose and compounds, which measured 57 cm
     // of drift over 40 frames when nothing else was writing the bones.
     for side in [legs.left, legs.right] {
-        for (slot, bone) in [side.thigh, side.calf].into_iter().enumerate() {
+        for (slot, bone) in [side.thigh, side.calf, side.foot].into_iter().enumerate() {
             if let Ok((mut local, _)) = placed.get_mut(bone) {
                 local.rotation = side.held[slot].base(local.rotation);
             }
@@ -518,10 +545,16 @@ pub fn plant_the_feet(
     // writing any of them invalidates the ones below it.
     let read = |leg: &Leg| {
         let placed = &placed.as_readonly();
+        let foot = world_of(leg.foot, base, placed)?;
         Some((
             world_of(leg.thigh, base, placed)?.translation.into(),
             world_of(leg.calf, base, placed)?.translation.into(),
-            world_of(leg.foot, base, placed)?.translation.into(),
+            foot.translation.into(),
+            // The foot's world ORIENTATION as the animation left it, captured before anything is
+            // written. This is what the sole is aimed relative to, and taking it now is what
+            // makes the aiming a plain assignment rather than a delta composed out of the two
+            // turns above it - see the note where it is used.
+            foot.to_scale_rotation_translation().1,
         ))
     };
     let (Some(left), Some(right)) = (read(&legs.left), read(&legs.right)) else {
@@ -535,13 +568,13 @@ pub fn plant_the_feet(
         .map(|(local, _)| local.translation.y)
         .unwrap_or(0.0);
     let undropped = |p: Vec3| p - Vec3::Y * held;
-    let sides: [(Leg, (Vec3, Vec3, Vec3)); 2] = [
-        (legs.left, (undropped(left.0), undropped(left.1), undropped(left.2))),
-        (legs.right, (undropped(right.0), undropped(right.1), undropped(right.2))),
+    let sides: [(Leg, (Vec3, Vec3, Vec3, Quat)); 2] = [
+        (legs.left, (undropped(left.0), undropped(left.1), undropped(left.2), left.3)),
+        (legs.right, (undropped(right.0), undropped(right.1), undropped(right.2), right.3)),
     ];
 
     // How far each foot has to move to meet the ground it is over.
-    let grounds = sides.map(|(_, (_, _, ankle))| terrain.height(ankle.x, ankle.z));
+    let grounds = sides.map(|(_, (_, _, ankle, _))| terrain.height(ankle.x, ankle.z));
     let shifts = [
         shift_to_ground(grounds[0], feet_at),
         shift_to_ground(grounds[1], feet_at),
@@ -567,7 +600,7 @@ pub fn plant_the_feet(
     // forward".
     let forward = standing.rotation * Vec3::NEG_Z;
 
-    for (slot, (leg, (hip, knee, ankle))) in sides.into_iter().enumerate() {
+    for (slot, (leg, (hip, knee, ankle, sole_was))) in sides.into_iter().enumerate() {
         let put = plant_one(hip, knee, ankle, grounds[slot], feet_at, dropped, forward);
         // The thigh first, then the calf - and the calf's STARTING direction has to account
         // for the thigh having just moved, because the calf is its child and went with it.
@@ -582,9 +615,29 @@ pub fn plant_the_feet(
             turns_thigh * (put.was.end - put.was.joint),
             put.now.end - put.now.joint,
         );
+        // # The foot, which is the half of foot IK that was missing
+        //
+        // `_Foot` is a CHILD of `_Calf`, so every degree the knee bends carries the foot with it
+        // - and the correction bends the knee on EVERY frame, because this bind stands at 99.9%
+        // extension against a 98% cap. In game that read as the warden standing on his toes with
+        // legs that would not bend, which is exactly what a shoe pitched toe-down by its own
+        // shin looks like.
+        //
+        // The research said this and I built half of it: apply two-bone IK to the hip-knee-ankle
+        // chain so the foot is at the right HEIGHT, *and* aim the ankle so it is aligned to the
+        // ground. So the foot gets what the leg did to it undone, and is then laid along the
+        // slope it is standing on.
+        //
+        // Measured from world +Y rather than from any axis of the bone, because the clip has the
+        // sole flat on a level floor - so once the leg's rotation is undone, LEVEL is the foot's
+        // own reference and the export's axis convention never enters into it.
+        let slope = terrain.normal(ankle.x, ankle.z, A_FOOT_WIDE);
+        let lies = at_most(aim(Vec3::Y, slope), FOOT_TILTS_AT_MOST);
+
         let held = [
             turn_a_bone(&mut placed, base, leg.thigh, turns_thigh),
             turn_a_bone(&mut placed, base, leg.calf, turns_calf),
+            point_a_bone(&mut placed, base, leg.foot, lies * sole_was),
         ];
         let mine = if slot == 0 { &mut legs.left } else { &mut legs.right };
         for (into, got) in mine.held.iter_mut().zip(held) {
@@ -602,6 +655,38 @@ pub fn plant_the_feet(
     if let Ok((mut local, _)) = placed.get_mut(legs.body) {
         local.translation.y = dropped;
     }
+}
+
+/// Puts one bone at an ABSOLUTE world orientation, whatever its parents have done.
+///
+/// For the foot, where the wanted orientation is known outright - the sole as the animation
+/// authored it, tilted onto the ground - rather than as a change from where it is now.
+///
+/// The first version composed a delta instead: undo the turns the thigh and calf had just
+/// carried the foot through, then apply the tilt. Every part of that was measured and correct in
+/// isolation - the carried rotation matched the calf's world rotation to a tenth of a degree -
+/// and the sole still came out 36 degrees wrong. Assigning the orientation has no composition in
+/// it to be wrong, so there is nothing left to debug: the foot ends up where it was told.
+fn point_a_bone(
+    placed: &mut Query<(&mut Transform, Option<&ChildOf>), Without<Player>>,
+    warden: Affine3A,
+    bone: Entity,
+    wanted: Quat,
+) -> Option<Held> {
+    let parent = placed
+        .get(bone)
+        .ok()
+        .and_then(|(_, above)| above.map(|p| p.parent()))?;
+    let above = world_of(parent, warden, &placed.as_readonly())?;
+    let (_, upright, _) = above.to_scale_rotation_translation();
+    let (mut local, _) = placed.get_mut(bone).ok()?;
+    let authored = local.rotation;
+    // world = parent * local, so the local that yields `wanted` in world is parent-inverse.
+    local.rotation = upright.inverse() * wanted;
+    Some(Held {
+        authored,
+        left: local.rotation,
+    })
 }
 
 /// Turns one bone so the segment it drives points where the solver put it.
@@ -1139,6 +1224,72 @@ mod tests {
         }
     }
 
+    /// THE SOLE LIES ALONG THE GROUND, and is not pitched by the knee that bent above it.
+    ///
+    /// This is the half of foot IK that was missing and it showed in game: the warden stood on
+    /// his toes. `_Foot` is a child of `_Calf`, the correction bends the knee on every frame
+    /// because the bind is 99.9% extended against a 98% cap, and every degree of that bend
+    /// carried the shoe toe-down with it.
+    ///
+    /// Asserted on where the sole's own up-direction ends up, against the terrain's normal. In
+    /// the fixture the foot bone starts unrotated, so its world up after correction is exactly
+    /// the tilt that was applied - which is what makes the claim checkable without knowing the
+    /// export's axis convention.
+    #[test]
+    fn the_sole_lies_along_the_ground_it_stands_on() {
+        use crate::world::terrain::Terrain;
+
+        let terrain = Terrain::new();
+        // The steepest spot in a sweep, so the normal is meaningfully off vertical.
+        let (mut spot, mut steepest) = (Vec3::ZERO, 0.0);
+        for step in 0..80 {
+            let at = Vec3::new(37.0 * step as f32, 0.0, 23.0 * step as f32);
+            let off = terrain.normal(at.x, at.z, A_FOOT_WIDE).dot(Vec3::Y);
+            if 1.0 - off > steepest {
+                steepest = 1.0 - off;
+                spot = at;
+            }
+        }
+        spot.y = terrain.height(spot.x, spot.z);
+        assert!(steepest > 1e-4, "found nowhere with any slope at all");
+
+        let (mut app, warden) = a_warden_standing_at(spot);
+        run_for(&mut app, 40);
+        let legs = *app.world().entity(warden).get::<Legs>().expect("legs");
+
+        for (name, leg) in [("left", legs.left), ("right", legs.right)] {
+            let placed = app
+                .world()
+                .entity(leg.foot)
+                .get::<GlobalTransform>()
+                .expect("propagated");
+            let sole_up = placed.rotation() * Vec3::Y;
+            let ankle = placed.translation();
+            let slope = terrain.normal(ankle.x, ankle.z, A_FOOT_WIDE);
+            let wanted = at_most(aim(Vec3::Y, slope), FOOT_TILTS_AT_MOST) * Vec3::Y;
+            let apart = sole_up.angle_between(wanted).to_degrees();
+            assert!(
+                apart < 2.0,
+                "{name} sole faces {sole_up:?} where the ground asks for {wanted:?}, {apart:.1} \
+                 degrees apart - a knee bending above it must not pitch the shoe"
+            );
+        }
+    }
+
+    #[test]
+    fn a_foot_follows_a_slope_but_not_a_cliff() {
+        // Straight up needs no tilt at all.
+        assert!(at_most(aim(Vec3::Y, Vec3::Y), FOOT_TILTS_AT_MOST).is_near_identity());
+        // A wall's normal is 90 degrees off vertical; the foot goes as far as it may and stops.
+        let sheer = at_most(aim(Vec3::Y, Vec3::X), FOOT_TILTS_AT_MOST);
+        let (_, angle) = sheer.to_axis_angle();
+        assert!(
+            (angle.to_degrees() - FOOT_TILTS_AT_MOST).abs() < 1e-3,
+            "a sheer face tilted the foot {:.1} degrees, past the {FOOT_TILTS_AT_MOST} cap",
+            angle.to_degrees()
+        );
+    }
+
     /// The drop is SET, never added. Running many frames with nothing animating the skeleton must
     /// not walk the warden into the floor - which an `+=` on a channel the animation owns does.
     #[test]
@@ -1246,3 +1397,4 @@ mod tests {
         println!("SOLVED_LEG_JSON_END");
     }
 }
+

@@ -16,9 +16,14 @@
 /// How wide the world is, in meters, east to west. This is *the* scale knob.
 ///
 /// The north–south size is derived from the map image's aspect ratio, so a
-/// 2:1 map at 8192 m wide is 4096 m deep. At the player's 7 m/s jog that's
-/// about 20 minutes corner to corner — long enough for towns to sit between
-/// cities and still feel like a journey.
+/// 2:1 map at 8192 m wide is 4096 m deep — a corner-to-corner diagonal of about
+/// 9.2 km. At `player::JOG_SPEED` that is on the order of half an hour, which is
+/// long enough for towns to sit between cities and still feel like a journey.
+///
+/// Deliberately no minute count written here. It said "at the player's 7 m/s jog
+/// that's about 20 minutes", and the jog has been 3.70 and is now 5.90 — it was
+/// never 7. A traversal time restated in prose drifts every time the pace is
+/// tuned; the distance does not.
 pub const WORLD_WIDTH: f32 = 8192.0;
 
 /// Aspect ratio (width / depth) assumed if no map image is present and we fall

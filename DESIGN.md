@@ -333,8 +333,13 @@ open sea, and has already caught this exact failure once.
 ### Scale
 
 One knob: `WORLD_WIDTH` in `src/config.rs`, currently **8192 m**. North–south
-extent is derived from the map image's aspect ratio. At the warden's 7 m/s jog,
-that's roughly **20 minutes** east to west on a 2:1 map.
+extent is derived from the map image's aspect ratio, so a 2:1 map is 4096 m deep
+and about **9.2 km corner to corner**. At `player::JOG_SPEED` that is on the
+order of half an hour.
+
+The distance is stated rather than a traversal time. This said "at the warden's
+7 m/s jog, roughly 20 minutes"; the jog has been 3.70 and is now 5.90, and was
+never 7. A time restated in prose drifts every time the pace is tuned.
 
 Emptiness is not a concern at this stage — smaller towns between larger cities,
 trainers, terrain and puzzles fill it in later.
