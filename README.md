@@ -73,6 +73,14 @@ game did when it was BROKEN, arranged by symptom. If something looks wrong on
 screen, look there first — most of the hard bugs in this project have been one of
 six recurring shapes, and the entry names the test that was meant to stop it.
 
+**[docs/](docs/README.md)** is the reference library — how games are actually
+made, from outside this project. Rigging standards and bone budgets, locomotion
+techniques for the foot-sliding problem, Blender and glTF rules that fail
+silently, what studios commit versus derive, and where an AI is weak on this kind
+of work. Started because too much of what went wrong here was already solved and
+written down by somebody else; each claim is marked as an industry **standard**, a
+**measured** figure from this project, or **open**.
+
 ## Tests
 
 ```bash
