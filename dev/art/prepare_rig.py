@@ -2374,12 +2374,6 @@ def main():
     rest_the_pose(rig)
     print(f"  as delivered the soles sit {sole_of(mesh) * SCALE:+.2f} cm against z=0")
 
-    # FIRST, before anything moves a vertex. The pick is taken on the raw export, so this is
-    # the only point where the positions in it still mean what they meant when they were
-    # picked - mirroring, centring, the A-pose and the bake all move things afterwards.
-    print("\nthe junk picked by hand:")
-    remove_the_picked_junk(rig, mesh)
-
     print("\nthe sphere widgets:")
     drop_the_widgets(rig)
     print("\nmirroring the two sides:")

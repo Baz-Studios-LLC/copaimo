@@ -704,7 +704,17 @@ TRUNK_PITCHES = 2.5
 # is the gap between the arm angle now and a fortieth of a cycle ago. At 26 it produced only
 # 4.6 deg of actual wrist travel, which still read as a dead hand; 70 gives about 13, which
 # is a runner wrist rather than a flick.  Nothing at the extremes either way.
-HAND_LAGS_THE_ARM_BY = 70.0
+# ZERO, on research rather than taste. A wrist drag was added here on the animation principle
+# of follow-through - "looser or heavier elements lag behind the main mass" - and for a running
+# arm that is the wrong principle. Sprint coaching is explicit the other way: "you need to
+# choose a hand position that keeps the WRIST LOCKED... you can't let your hands flop around
+# when sprinting because you lose the power of the armswing, and in sprinting the arms work
+# like levers".
+#
+# So the hand is held, not dragged. Kept as a constant at nought rather than deleted, because
+# the drag is right for a WALK and for an idle - it is the sprint that wants it locked - and
+# whoever comes to make it per-gait should find the machinery still here.
+HAND_LAGS_THE_ARM_BY = 0.0
 HAND_LAGS_THE_ARM = 0.025
 
 WALK_CROSSES_IN = 6.0

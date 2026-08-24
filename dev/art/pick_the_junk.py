@@ -1,4 +1,4 @@
-"""Opens the RAW export for you to select the junk, and reads back what you picked.
+"""Opens the BUILT character for you to select the junk, and reads back what you picked.
 
     dev/art/pick_the_junk.sh          # opens Blender; select, save, close
     dev/art/pick_the_junk.sh --read   # writes what you selected into junk_to_remove.json
@@ -15,12 +15,15 @@ separates them, so no threshold can.
 What separates them is looking at it. So this stops guessing: the junk gets named once, by
 eye, and removed by identity on every build afterwards.
 
-# Why the RAW export and not the built asset
+# Why the BUILT asset and not the raw export
 
-`prepare_rig` mirrors, centres, A-poses and bakes, so a vertex is in a different place at the
-end than at the start. A list of positions picked off the finished asset would not match
-anything at the point where the removal has to happen. Picked off the raw export, the
-positions are exactly what the first step of the pipeline sees.
+The first attempt used the raw export, so that picked positions would still be valid at the
+first pipeline step. It was unusable: it shows the ORIGINAL model, with every fault already
+fixed still in it, and asks you to spot new junk among old junk.
+
+The removal therefore runs LATE in `prepare_rig` instead - after mirroring, centring, the
+A-pose and the bake - where the geometry is what this file shows. Every build reaches that
+same state, so the positions keep meaning the same thing.
 
 Identity is POSITION, rounded to a hundredth of a millimetre, not index. Indices shift the
 moment anything is deleted; positions do not.
@@ -32,7 +35,17 @@ import sys
 import bpy
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-RAW = os.path.join(HERE, "..", "..", "Ranger_Rig_Idle.glb")
+# The BUILT asset, not the raw export.
+#
+# The first version opened `Ranger_Rig_Idle.glb` so that picked positions would still be
+# valid at the very first pipeline step, before anything moves a vertex. That is sound about
+# identity and useless in practice: it puts the ORIGINAL model on screen, with every fault
+# already fixed still present, and asks you to find new junk among old junk.
+#
+# So the pick is taken on what you actually look at, and `remove_the_picked_junk` runs LATE
+# instead - after the mirroring, centring, A-pose and bake, where the geometry matches this
+# file exactly. It is stable across builds because every build reaches that same state.
+BUILT = os.path.join(HERE, "..", "..", "assets", "models", "person_ranger.glb")
 PICKED = os.path.join(HERE, "junk_to_remove.json")
 ROUND = 5
 
@@ -49,10 +62,10 @@ def the_body():
 def build():
     """A scene holding the raw mesh, ready to select in."""
     bpy.ops.wm.read_factory_settings(use_empty=True)
-    bpy.ops.import_scene.gltf(filepath=os.path.abspath(RAW))
+    bpy.ops.import_scene.gltf(filepath=os.path.abspath(BUILT))
     mesh = the_body()
     if mesh is None:
-        raise SystemExit("REFUSED: no skinned mesh in the raw export")
+        raise SystemExit("REFUSED: no skinned mesh in the built asset")
 
     # Anything already on the list starts selected, so a pick can be added to or trimmed
     # rather than started from nothing each time.
