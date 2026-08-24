@@ -128,6 +128,8 @@ mod tests {
         let _ = fs::remove_file(&road);
     }
 
+    // Gated with the tools, like the painting tests in world/terrain.rs.
+    #[cfg(feature = "tools")]
     #[test]
     fn sculpting_survives_the_game_being_shut() {
         // The bench once had a writer, a passing round-trip test, and nothing

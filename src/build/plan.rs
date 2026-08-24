@@ -364,6 +364,8 @@ impl Mark {
 mod tests {
     use super::*;
 
+    // Gated with the tools, like the painting tests in world/terrain.rs.
+    #[cfg(feature = "tools")]
     #[test]
     fn every_form_writes_a_word_its_own_reader_takes_back() {
         // The whole reason `word` sits beside `read`. Cut and Hip wrote a comma

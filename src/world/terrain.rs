@@ -1862,6 +1862,12 @@ mod tests {
         );
     }
 
+    // Gated with the tools themselves: a release is built --no-default-features, and this
+    // asserts something about the terrain BRUSH, which is not in that build to be asserted
+    // about. Left ungated it does not fail, it fails to COMPILE, and the release workflow
+    // runs `cargo test --release` as a step - so this is the difference between a release
+    // and no release.
+    #[cfg(feature = "tools")]
     #[test]
     fn a_painted_country_overrules_the_generated_one() {
         // The point of the whole layer. Five rounds of "the desert is in the
@@ -1935,6 +1941,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tools")]
     #[test]
     fn a_painted_cell_never_holds_a_country_nobody_chose() {
         // The invariant the layer rests on. Marks are NAMES — 1, 2, 3 — so any
@@ -1973,6 +1980,7 @@ mod tests {
         assert!(seen.contains(&terrain_core::region::Country::Snow), "the snow did not take");
     }
 
+    #[cfg(feature = "tools")]
     #[test]
     fn a_painted_boundary_blends_without_a_seam() {
         // The choppy join the maker photographed, measured the way the eye sees
@@ -2020,6 +2028,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tools")]
     #[test]
     fn painting_a_country_over_itself_draws_no_boundary() {
         use terrain_core::region::Country;
@@ -2087,6 +2096,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "tools")]
     #[test]
     fn a_coastline_survives_whatever_is_painted_behind_it() {
         // Reported from the game: painting a biome took the coastlines with it.

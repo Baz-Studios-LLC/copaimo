@@ -37,10 +37,17 @@ OUT = os.path.join(ROOT, "assets", "models", "person_ranger.glb")
 
 # The delivered file, and what the game calls the clip in it. `lookAround` becomes the idle.
 DELIVERED = (
-    ("lookAround.glb", "idle"),
+    ("idle.glb", "idle"),
+    ("lookAround.glb", "look_around"),
     ("walk.glb", "walk"),
     ("run.glb", "run"),
 )
+
+# Which clips are supposed to carry the character somewhere. Everything else is a standing
+# motion, and a standing motion with no travel is correct rather than broken - the refusal below
+# is there to catch a gait whose channels never bound, which is what an unbound action slot
+# looks like from the outside.
+TRAVELS = ("walk", "run")
 
 # How far two rest transforms may differ before the skeletons are called different. Tight: this
 # asks whether two exports of the same rig agree, not whether two rigs are similar.
@@ -253,22 +260,25 @@ def main():
     print(f"\n  a {(high - low) * 100:.1f} cm figure at scene scale")
 
     print("\n  clips, measured off the file:")
-    for called in ("idle", "walk", "run"):
+    for _, called in DELIVERED:
         clip = wanted[called]
         first, last = clip.frame_range
         lasts = (last - first) / scene.render.fps
         hips, foot = travels(base_rig, clip, scene)
+        # Named, and printed AFTER its own summary. It read the other way round, and a clip with
+        # no travel prints no line at all - so every remaining line sat above the clip it was
+        # about and the whole column looked shifted by one. It was not; it was unlabelled.
+        print(f"    {called:<12s} frames {first:.0f}..{last:.0f}, {lasts:.4f} s at "
+              f"{scene.render.fps} fps; hips travel {hips * 100:.1f} cm, "
+              f"the furthest foot {foot * 100:.1f} cm")
         covers, who = stand_still(base_rig, clip, scene)
         if covers:
             after, _ = travels(base_rig, clip, scene)
-            print(f"    {'':5s} carried {covers:.4f} units on {who}; taken out, the root now "
+            print(f"    {called:<12s} carried {covers:.4f} units on {who}; taken out, the root "
                   f"moves {after:.4f} -> COVERS = {covers:.4f}")
-        elif called != "idle":
+        elif called in TRAVELS:
             refuse(f"the {called} clip has no travel to take out, which means either it is "
                    f"already in place or the channel carrying it was not found")
-        print(f"    {called:5s} frames {first:.0f}..{last:.0f}, {lasts:.4f} s at "
-              f"{scene.render.fps} fps; hips travel {hips * 100:.1f} cm, "
-              f"the furthest foot {foot * 100:.1f} cm")
         if called in ("walk", "run") and foot < 0.05:
             refuse(f"the {called} clip moves its feet {foot * 100:.1f} cm, which is not a "
                    f"gait - either the clip is empty or it is not driving the rig")
