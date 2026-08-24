@@ -53,8 +53,10 @@ recorded once where it was measured rather than re-derived at each call site. Th
 the whole fix: `bend the knee 40 degrees` cannot be written backwards.
 """
 
+import io
 import math
 import os
+import re
 import sys
 
 import bpy
@@ -149,6 +151,21 @@ LEANS_THE_TORSO_FORWARD = (0.0, 1.0, 0.0)
 #
 # The forward knee travel that goes with +30 degrees of flexion - about 20 cm in front
 # of the hip at heel strike - is what a real stride looks like on a 42 cm thigh.
+# --- How many frames each cycle is authored over.
+#
+# Named rather than typed into the `gait` calls, so `report_the_native_speeds` can work the
+# table out from them instead of a comment restating it. They also have to stay EVEN: a cycle
+# is two identical steps, so the half cycle must land exactly on a frame. 15 was tried for the
+# run and verify_gait refused it - the two halves sample different phases and the hips
+# disagree with themselves by 21%, which is a limp.
+#
+# `src/motion.rs` declares the same three counts and
+# `the_declared_frame_counts_match_the_clips` compares them against the built file, so a change
+# here without a change there is caught rather than silently believed.
+WALK_SPAN = 24
+RUN_SPAN = 24
+SPRINT_SPAN = 24
+
 WALK_CONTACT = 0.34
 # One leg length (0.46 units), for the run and the sprint alike: planted-foot travel is
 # about a leg at EVERY running speed (0.99 +/- 0.08 m, Weyand), and the speeds differ by
@@ -1944,6 +1961,76 @@ def idle_breathing(rig, facing):
     return action
 
 
+def from_the_game(where: str, *names):
+    """Reads Rust constants out of the game's own source.
+
+    So a number can be stated once and read where it is needed, rather than typed again and
+    left to drift. animate_ranger.sh already does this in the other direction - it greps the
+    stance shares out of THIS file for the verifier - after the day the two copies disagreed
+    and the verifier measured a planted window the clip does not have.
+
+    Refuses on a missing name rather than skipping it, because a constant that has been
+    renamed is exactly the case where quietly carrying on is worst.
+    """
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    text = io.open(os.path.join(root, where), encoding="utf-8").read()
+    found = {}
+    for name in names:
+        hit = re.search(rf"^(?:pub )?const {name}: f32 = ([0-9.]+);", text, re.M)
+        if hit is None:
+            raise SystemExit(
+                f"REFUSED: no `const {name}: f32` in {where}. It has been renamed or moved, "
+                f"and the native speed table is derived from it."
+            )
+        found[name] = float(hit.group(1))
+    return found
+
+
+# What an animator would author a run cycle at, in frames, at 24 fps - see docs/animation.md.
+# Reported against, never enforced: it is craft guidance, not a limit, and a band that can
+# refuse a tuning value turns that value into an output instead of a knob.
+A_RUN_IS_AUTHORED_OVER = (12, 16)
+
+
+def report_the_native_speeds(spans):
+    """Prints each clip's native speed and what the game will actually ask of it.
+
+    The one speed at which a clip's feet do not slide unaided is `covers x fps / frames`.
+    Everything else is `playback_rate` making up the difference, and how big that difference
+    is decides how much a wrong `covers` costs - which on this project was the character
+    appearing to run through water, from a figure 28% understated.
+
+    Derived from src/motion.rs and src/player.rs so it cannot go stale. The comment this
+    replaces stated the table by hand and was wrong in four ways at once: the frame counts,
+    both native speeds, and the claim that each tier sits at its clip's native speed.
+    """
+    covers = from_the_game("src/motion.rs", "WALK_COVERS", "RUN_COVERS", "SPRINT_COVERS")
+    fps = from_the_game("src/motion.rs", "FPS")["FPS"]
+    speeds = from_the_game("src/player.rs", "WALK_SPEED", "JOG_SPEED", "SPRINT_SPEED")
+    tiers = (("walk", "WALK_COVERS", "WALK_SPEED"),
+             ("run", "RUN_COVERS", "JOG_SPEED"),
+             ("sprint", "SPRINT_COVERS", "SPRINT_SPEED"))
+
+    print(f"\nwhat each clip carries, at {fps:.0f} fps - covers and speeds read from the game:")
+    print(f"  {'clip':<7} {'frames':>6} {'covers':>8} {'native':>9} {'the game asks':>14} "
+          f"{'rate':>6} {'effective':>10}")
+    for called, cover, speed in tiers:
+        frames = spans[called]
+        native = covers[cover] * fps / frames
+        rate = speeds[speed] / native
+        effective = frames / rate if rate else float("inf")
+        note = ""
+        if called in ("run", "sprint"):
+            low, high = A_RUN_IS_AUTHORED_OVER
+            if not low <= effective <= high:
+                note = f"  <- outside the {low}-{high} a run is usually authored over"
+        print(f"  {called:<7} {frames:6} {covers[cover]:7.3f}m {native:8.2f}m/s "
+              f"{speeds[speed]:13.2f}m/s {rate:5.2f}x {effective:9.1f}f{note}")
+    print("  a rate far from 1.00x means the authored span is long and playback_rate is "
+          "carrying it,\n  which is also how much a wrong `covers` costs - see "
+          "docs/animation.md on stride warping")
+
+
 def gripping(rig, facing):
     """Authors `grip`: the hands closing to a fist and opening again.
 
@@ -3143,18 +3230,34 @@ def main() -> None:
         f"it would sink that far if the rest pose were taken as the ground"
     )
 
-    # Twenty-four frames a cycle for a walk, sixteen for a run. Eight poses either
-    # way: a run is not a walk with bigger numbers, but it does have the same four
-    # poses per step.
-    # Twenty-four frames a cycle for a walk and sixteen for both the jog and the
-    # sprint. Eight poses each way: a run is not a walk with bigger numbers, but it
-    # does have the same four poses per step.
+    # # Twenty-four frames a cycle, all three gaits
     #
-    # The frame counts are what set each clip's NATIVE speed, which is the one speed at
-    # which its feet do not slide - `covers x fps / frames`. 1.935 over 24 is 1.93 m/s,
-    # 2.282 over 16 is 3.42, and 3.50 over 14 is 6.00. `src/motion.rs` places each tier
-    # at its own clip's native speed for exactly that reason.
+    # Eight poses each way: a run is not a walk with bigger numbers, but it does have the
+    # same four poses per step - contact, down, passing, up.
+    #
+    # A frame count sets the clip's NATIVE speed - the one speed at which its feet do not
+    # slide unaided, `covers x fps / frames`. Everything past that is `playback_rate` making
+    # up the difference. `report_the_native_speeds` prints the whole table below, read from
+    # src/motion.rs and src/player.rs, and it is deliberately NOT restated here.
+    #
+    # Because it was, and it was wrong in four ways at once for a long time: it claimed
+    # "sixteen frames for both the jog and the sprint" while every call passes 24, worked
+    # both native speeds from those wrong counts, and said motion.rs "places each tier at
+    # its own clip's native speed" when the run and sprint tiers sit well above theirs. The
+    # paragraph was also present twice, slightly reworded.
+    #
+    # Nothing was broken by it - playback_rate keeps a foot planted at any rate provided
+    # `covers` is right - but a stale comment in THIS file is not harmless. It is the file
+    # where `covers` being 28% understated read as the character running through water, and
+    # it took weeks to find while a comment nearby quietly disagreed with the code.
+    #
+    # A number stated in two places will disagree with itself, and this project has now hit
+    # that three times: the stance shares (fixed by animate_ranger.sh grepping them out of
+    # this file), the frame counts (caught by a test in motion.rs), and this table. Printing
+    # it from the source is the fix; a comment cannot be kept honest by intending to.
+    #
     # The idle first: it is the state every other clip blends from.
+    report_the_native_speeds({"walk": WALK_SPAN, "run": RUN_SPAN, "sprint": SPRINT_SPAN})
     if idle is None:
         idle_breathing(rig, facing).use_fake_user = True
 
@@ -3162,7 +3265,7 @@ def main() -> None:
     gripping(rig, facing).use_fake_user = True
 
     gait(
-            rig, body, feet, ground, "walk", WALK_LEG, 24, WALK_CONTACT, WALK_SWING_LIFT, WALK_SWING_SHAPE, WALK_LANDS_AHEAD,
+            rig, body, feet, ground, "walk", WALK_LEG, WALK_SPAN, WALK_CONTACT, WALK_SWING_LIFT, WALK_SWING_SHAPE, WALK_LANDS_AHEAD,
             ARM_FORWARD, ARM_BACK,
             # 2 degrees of trunk lean, not 0. A walk is upright, but dead plumb
             # reads as being carried along rather than walking; a couple of degrees is
@@ -3170,17 +3273,12 @@ def main() -> None:
             ELBOW_HELD, ELBOW_SWING, WALK_LEAN, WALK_SHARE, WALK_SINKS, WALK_LEADS, WALK_BOUND, WALK_ABSORBS, WALK_TUCK_IN, WALK_CROSSES_IN, WALK_PUMPS, WALK_TWIST, WALK_PELVIS, facing,
         ).use_fake_user = True
     gait(
-            # An EVEN span, always: a cycle is two identical steps, so the half
-            # cycle must land exactly on a frame. 15 was tried for the cadence and the
-            # verifier refused it - the two halves sample different phases and the
-            # hips disagree with themselves by 21%, which is a limp.
-            rig, body, feet, ground, "run", RUN_LEG, 24, RUN_CONTACT, RUN_SWING_LIFT, RUN_SWING_SHAPE, RUN_LANDS_AHEAD,
+            rig, body, feet, ground, "run", RUN_LEG, RUN_SPAN, RUN_CONTACT, RUN_SWING_LIFT, RUN_SWING_SHAPE, RUN_LANDS_AHEAD,
             RUN_ARM_FORWARD, RUN_ARM_BACK,
             RUN_ELBOW_HELD, RUN_ELBOW_SWING, RUN_LEAN, RUN_SHARE, RUN_SINKS, RUN_LEADS, RUN_BOUND, RUN_ABSORBS, RUN_TUCK_IN, RUN_CROSSES_IN, RUN_PUMPS, RUN_TWIST, RUN_PELVIS, facing,
         ).use_fake_user = True
     gait(
-            # 14 frames, not 16: a sprint cycle is ~0.58 s where a run's is ~0.67.
-            rig, body, feet, ground, "sprint", SPRINT_LEG, 24, SPRINT_CONTACT, SPRINT_SWING_LIFT, SPRINT_SWING_SHAPE, SPRINT_LANDS_AHEAD,
+            rig, body, feet, ground, "sprint", SPRINT_LEG, SPRINT_SPAN, SPRINT_CONTACT, SPRINT_SWING_LIFT, SPRINT_SWING_SHAPE, SPRINT_LANDS_AHEAD,
             SPRINT_ARM_FORWARD, SPRINT_ARM_BACK, SPRINT_ELBOW_HELD, SPRINT_ELBOW_SWING, SPRINT_LEAN, SPRINT_SHARE,
             SPRINT_SINKS, SPRINT_LEADS, SPRINT_BOUND, SPRINT_ABSORBS, SPRINT_TUCK_IN, SPRINT_CROSSES_IN, SPRINT_PUMPS, SPRINT_TWIST, SPRINT_PELVIS, facing,
         ).use_fake_user = True
