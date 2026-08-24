@@ -608,4 +608,8 @@ def main():
         print("open it and press space to play.")
 
 
-main()
+# Guarded, so the reload watcher and the scene stamp can be IMPORTED by other viewers without
+# running this one's whole build. `animate_ranger` carried the same unguarded call until
+# importing it to borrow two helpers silently re-authored every clip.
+if __name__ == "__main__":
+    main()

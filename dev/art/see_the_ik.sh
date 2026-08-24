@@ -78,4 +78,7 @@ echo "opening $scene"
 echo "  RIGHT ARROW / LEFT ARROW steps through the cases, one per frame."
 echo "  cyan is what src/ik.rs solved, grey is the leg at rest, RED is the target it was asked"
 echo "  for - a red ball away from the cyan chain is a miss, and two of the cases are."
-"$blender" "$(win "$scene")"
+echo "  leave it open: it watches the file and reloads itself when this is rebuilt."
+# --enable-autoexec so the reload watcher stored in the .blend runs. Per-session flag; it
+# changes nothing in anyone's preferences. See WATCHER in gait_watch.py.
+"$blender" --enable-autoexec "$(win "$scene")"

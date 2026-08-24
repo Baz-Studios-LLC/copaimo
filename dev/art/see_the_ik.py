@@ -402,5 +402,17 @@ if STILLS:
     print(f"wrote ik_{SIDE}_<case>.png to {OUT}")
 
 if SAVE_TO:
+    # The reload watcher from gait_watch, so an open window is never showing stale work.
+    #
+    # This is the fourth time on this project that a report came back about something already
+    # fixed, because the window was built before the fix - the sphere widgets being the most
+    # recent, reported twice. A viewer that cannot tell you it is out of date is worse than no
+    # viewer, because it makes everything you say about it unreliable and neither side can see
+    # that. gait_watch has carried the watcher for exactly this; it only needed importing, which
+    # in turn needed its own `main()` guarding.
+    import gait_watch  # noqa: E402
+
+    gait_watch.stamp_the_scene(GLB, f"ik cases, {SIDE} leg")
+    gait_watch.install_the_watcher()
     bpy.ops.wm.save_as_mainfile(filepath=SAVE_TO)
     print(f"saved {SAVE_TO}")
