@@ -50,6 +50,11 @@ import retarget  # noqa: E402
 mesh = prepare_rig.the_body()
 prepare_rig.reach_the_ends(rig, mesh)
 prepare_rig.drop_the_widgets(rig)
+# And shorten Root and Hip, which glTF gives no lengths for so the importer invents them - 85 cm
+# each, drawn straight out through the body as a huge spike with a joint ball on the end. Reported
+# as "the long angled bone is back", and it was: gait_watch has always called this and the new
+# viewer did not.
+prepare_rig.shorten_the_controls(rig, mesh)
 print(f"loaded {os.path.basename(BUILT)}: {len(rig.data.bones)} bones, "
       f"{len(bpy.data.actions)} clips")
 
@@ -86,9 +91,17 @@ for clip in bpy.data.actions:
 names = sorted(a.name for a in bpy.data.actions)
 print(f"  {len(names)} clips in the file: " + ", ".join(names))
 
-# Open on a delivered clip if there is one, since that is the thing most recently asked about.
-wanted = next((a for a in bpy.data.actions if a.name == "delivered_walk"),
-              next((a for a in bpy.data.actions if a.name == "walk"), None))
+# Open on the AUTHORED walk, not a delivered one.
+#
+# It opened on `delivered_walk` first, on the reasoning that it was the thing most recently asked
+# about. That was wrong: verify_gait refuses that clip on four counts - the leading foot 60 degrees
+# toes-down at contact, the landing foot 49 degrees off the line of travel - so the window came up
+# showing motion already known to be bad, and it was reported back as the character being broken.
+# Which it was, in that clip. Opening on the clip that passes every check means what is on screen
+# is the state of the game, and the delivered ones are a keystroke away in the Action Editor for
+# comparison.
+wanted = next((a for a in bpy.data.actions if a.name == "walk"),
+              next(iter(bpy.data.actions), None))
 if wanted is not None:
     if rig.animation_data is None:
         rig.animation_data_create()
