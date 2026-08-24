@@ -125,7 +125,8 @@ def main() -> None:
     if os.path.isfile(out):
         fresh = os.path.getmtime(out)
         if all(os.path.getmtime(need) <= fresh
-               for need in (source, os.path.abspath(__file__))):
+               for need in (source, os.path.abspath(__file__),
+                            os.path.join(here, "sneaker_paint.py"))):
             print(f"UNCHANGED {os.path.basename(out)} is newer than the export and "
                   "this script, so the texture is already calm")
             return
@@ -172,9 +173,38 @@ def main() -> None:
         channel = pixels[:, :, lane]
         channel[sclera] = (channel[sclera] * scale).astype(numpy.int16)
 
+    # # The sneakers get a strip of their own at the bottom
+    #
+    # Measured by rasterising every UV triangle, this atlas is 90.5% covered and the
+    # largest genuinely empty square anywhere in it is 224 px - and freeing the old
+    # shoe's islands does not help, because its 3.7% of UV area is scattered over the
+    # whole sheet rather than sitting in one block. There was nowhere to put a shoe.
+    #
+    # So the sheet grows downward and everything already on it moves up into the top
+    # 4096 rows. `sneaker_mesh.make_room_in_the_atlas` applies the matching move to the
+    # mesh's UVs, and both read the strip's height from `sneaker_paint.STRIP` so the
+    # two halves cannot drift apart.
+    #
+    # Growing rather than shrinking the existing content into 3584 rows: that would
+    # cost 12.5% of the resolution on the whole character to save a non-power-of-two
+    # dimension that nothing in this pipeline minds.
+    sys.path.insert(0, here)
+    import sneaker_paint
+
+    strip = sneaker_paint.paint(numpy)
+    grown = numpy.zeros((pixels.shape[0] + strip.shape[0], pixels.shape[1], 3),
+                        dtype=numpy.uint8)
+    grown[: pixels.shape[0]] = pixels.astype(numpy.uint8)
+    grown[pixels.shape[0]:] = strip
+    print(f"GREW the atlas to {grown.shape[1]}x{grown.shape[0]}, with the bottom "
+          f"{strip.shape[0]} rows painted as sneakers")
+
     # No `optimize=True`: it costs seconds of zlib search on a 16-megapixel image to
     # save space in a DEV INTERMEDIATE that is re-encoded into the glb moments later.
-    Image.fromarray(pixels.astype(numpy.uint8)).save(out, "PNG", compress_level=1)
+    Image.fromarray(grown).save(out, "PNG", compress_level=1)
+    pixels = grown.astype(numpy.int16)
+    sclera = numpy.vstack([sclera, numpy.zeros((strip.shape[0], sclera.shape[1]),
+                                               dtype=bool)])
     print(f"CALMED {int(sclera.sum())} pixels of eye white -> {os.path.basename(out)}")
 
     # Measured out of what was actually written, which is the whole point of doing
