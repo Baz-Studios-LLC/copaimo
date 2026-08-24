@@ -22,7 +22,16 @@ root="$(cd "$here/../.." && pwd)"
 . "$here/blender.sh"
 
 blender=$(find_blender) || { echo "Blender not found." >&2; exit 1; }
+# Which model. Defaults to the built asset; `--model PATH` points it at anything else, which is
+# how a fresh delivery gets looked at before any decision is taken about it. The Python side has
+# always taken the path as an argument; only this line was fixed.
 glb="$root/assets/models/person_ranger.glb"
+prev=""
+for token in "$@"; do
+  [ "$prev" = "--model" ] && glb="$token"
+  prev="$token"
+done
+case "$glb" in /*|[A-Za-z]:*) ;; *) glb="$root/$glb" ;; esac
 [ -f "$glb" ] || { echo "No $glb - run dev/art/animate_ranger.sh first." >&2; exit 1; }
 
 out="${TMPDIR:-/tmp}/gait_watch"
@@ -31,16 +40,31 @@ mkdir -p "$out"
 # Named per clip, so the walk and the jog can be open in two windows and compared
 # rather than one overwriting the other.
 named="run"
+prev=""
 for token in "$@"; do
   case "$token" in
     --*) ;;
-    *) named="$token"; break ;;
+    *) if [ "$prev" != "--model" ]; then named="$token"; break; fi ;;
   esac
+  prev="$token"
 done
-scene="$out/gait_watch_$named.blend"
+# A file name is not a clip name, so a scene per model as well as per clip.
+tag="$(basename "$glb" .glb)"
+
+# Everything EXCEPT `--model PATH`, to hand on to the Python. Passing "$@" wholesale fed the model
+# path back in as a positional, and the Python takes the second positional as the clip name - so
+# it went looking for a clip called `assets/models/Ranger-Walk.glb`.
+rest=()
+skip=0
+for token in "$@"; do
+  if [ "$skip" = "1" ]; then skip=0; continue; fi
+  if [ "$token" = "--model" ]; then skip=1; continue; fi
+  rest+=("$token")
+done
+scene="$out/gait_watch_${tag}_$named.blend"
 
 "$blender" --background --python-exit-code 1 --python "$here/gait_watch.py" -- \
-  "$(win "$glb")" --save "$(win "$scene")" "$@" \
+  "$(win "$glb")" --save "$(win "$scene")" "${rest[@]}" \
   2>&1 | grep -vE "^(Fra:|INFO|Blender [0-9]|Read prefs|Warning: )"
 
 [ -f "$scene" ] || { echo "The scene was not written." >&2; exit 1; }

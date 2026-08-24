@@ -334,23 +334,28 @@ restore()
 # lifetime of the thing being tracked.
 import sys
 
+# NOT `state`, which is already the watcher's [mtime, settling] list a few lines up. Binding a
+# MODULE over that list broke `tick` on its very next run - "'module' object is not
+# subscriptable" - so the window silently stopped reloading itself and went stale, which is the
+# one thing this whole script exists to prevent. Two unrelated things sharing a name in one
+# script, and the shadowing is invisible because they are hundreds of lines apart.
 KEPT = "gait_watch_caption_state"
-state = sys.modules.get(KEPT)
-if state is None:
-    state = type(sys)(KEPT)
-    sys.modules[KEPT] = state
-if getattr(state, "handle", None) is not None:
+caption = sys.modules.get(KEPT)
+if caption is None:
+    caption = type(sys)(KEPT)
+    sys.modules[KEPT] = caption
+if getattr(caption, "handle", None) is not None:
     try:
-        bpy.types.SpaceView3D.draw_handler_remove(state.handle, "WINDOW")
+        bpy.types.SpaceView3D.draw_handler_remove(caption.handle, "WINDOW")
     except Exception:
         pass
-    state.handle = None
+    caption.handle = None
 try:
-    state.handle = bpy.types.SpaceView3D.draw_handler_add(
+    caption.handle = bpy.types.SpaceView3D.draw_handler_add(
         say_so, (), "WINDOW", "POST_PIXEL"
     )
 except Exception:
-    state.handle = None
+    caption.handle = None
 bpy.app.timers.register(tick, first_interval=2.0)
 '''
 
