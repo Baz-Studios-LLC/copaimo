@@ -55,6 +55,7 @@ import math
 import os
 import sys
 
+import bmesh
 import bpy
 import mathutils
 
@@ -91,8 +92,130 @@ WEIGHTS_ADD_UP_WITHIN = 0.001
 CARRIES_INFLUENCES = 4         # what glTF stores; a fifth vanishes silently
 
 
+# How many times to cut the finger faces before weighting them. Three bones a digit needs
+# vertices for each to move, and the sculpt arrives with barely one ring per bone - a closed
+# fist read as a handful of blocks hinged in three places. Cutting does not change the
+# silhouette at all with smoothness at zero; it only gives the skinning something to work with.
+CUT_THE_FINGERS = 2
+
+
 def refuse(why):
     raise SystemExit(f"REFUSED: {why}")
+
+
+def start_clean(rig, mesh):
+    """Takes out any finger rig already present, so this can be run again.
+
+    Without this the second run refuses on `L_Thumb1 already exists`, which makes every
+    iteration a hunt through git for the asset as it was before the last one. The weights go
+    back onto the hand rather than being dropped - those vertices are all well past the wrist,
+    so the hand is where they belong when there is nothing finer to hold them.
+    """
+    known = [f"{side}_{digit}{number}"
+             for side in "LR" for digit in (THUMB_NAME,) + FINGER_NAMES
+             for number in range(1, len(PHALANX_SHARES) + 1)]
+    present = [name for name in known if name in rig.data.bones]
+    if not present:
+        return 0
+
+    for side in "LR":
+        hand = mesh.vertex_groups.get(f"{side}_Hand")
+        if hand is None:
+            continue
+        mine = [mesh.vertex_groups[n] for n in known
+                if n.startswith(f"{side}_") and n in mesh.vertex_groups]
+        for vertex in mesh.data.vertices:
+            owed = sum(g.weight for g in vertex.groups
+                       if any(g.group == one.index for one in mine))
+            if owed > 0.0:
+                held = sum(g.weight for g in vertex.groups if g.group == hand.index)
+                hand.add([vertex.index], min(1.0, held + owed), "REPLACE")
+    for name in known:
+        group = mesh.vertex_groups.get(name)
+        if group is not None:
+            mesh.vertex_groups.remove(group)
+    with prepare_rig.in_edit_mode(rig) as edit:
+        for name in present:
+            bone = edit.get(name)
+            if bone is not None:
+                edit.remove(bone)
+    print(f"  removed {len(present)} finger bones from a previous run; their weights went "
+          f"back to the hands")
+    return len(present)
+
+
+def add_room_in_the_fingers(mesh, digits_by_side, cuts=CUT_THE_FINGERS):
+    """Cuts up the finger faces so three bones a digit have vertices to move.
+
+    The rig works without this - both hands close, measured - but a fist reads as a handful of
+    blocks, because a bone with one ring of vertices in it can only swing that ring. Cutting at
+    smoothness zero adds density and moves nothing: the original vertices stay exactly where
+    they are, which is checked below.
+
+    Only the faces whose every corner belongs to a digit, so the palm and the wrist are left
+    alone. And ONLY THIS OBJECT is selected first: `bpy.ops.mesh.*` acts on everything in edit
+    mode, and taking that for granted once deleted this entire body, 7264 vertices down to 318.
+    """
+    wanted = set()
+    for side, digits in digits_by_side.items():
+        for one in digits:
+            wanted |= set(one["all"])
+    if not wanted:
+        refuse("no finger vertices to cut")
+
+    faces = [p.index for p in mesh.data.polygons if all(v in wanted for v in p.vertices)]
+    if not faces:
+        refuse("no face has all its corners in a finger, so there is nothing to cut")
+
+    before = len(mesh.data.vertices)
+    kept = [mesh.matrix_world @ v.co.copy() for v in mesh.data.vertices]
+
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    bpy.context.view_layer.objects.active = mesh
+    mesh.select_set(True)
+
+    # Selected through BMESH, in edit mode, rather than by setting `poly.select` in object
+    # mode. Object-mode face selection is DERIVED from the vertex selection, so setting it
+    # there does not survive the mode switch - the first version of this did exactly that and
+    # subdivided the entire body, 7534 vertices to 34037, while reporting "293 finger faces
+    # cut". Nothing in the numbers said fingers; only the total did.
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_mode(type="FACE")
+    working = bmesh.from_edit_mesh(mesh.data)
+    working.faces.ensure_lookup_table()
+    for element in list(working.verts) + list(working.edges) + list(working.faces):
+        element.select = False
+    for i in faces:
+        working.faces[i].select = True
+    working.select_flush(True)
+    bmesh.update_edit_mesh(mesh.data)
+    picked = sum(1 for f in working.faces if f.select)
+    if picked != len(faces):
+        refuse(f"asked for {len(faces)} faces and the mesh has {picked} selected, so the "
+               f"selection did not take")
+
+    bpy.ops.mesh.subdivide(number_cuts=cuts, smoothness=0.0)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    after = len(mesh.data.vertices)
+    print(f"  {len(faces)} finger faces cut {cuts}x: {before} vertices to {after}")
+    if after <= before:
+        refuse(f"the cut added nothing - {before} vertices before and {after} after - so the "
+               f"selection never reached the operator")
+    if not mesh.data.has_custom_normals:
+        refuse("cutting the fingers lost the custom split normals, which lights the character "
+               "as a different shape - see the note on welding in prepare_rig")
+
+    # Linear subdivision leaves every original vertex exactly where it was, so this is an
+    # absolute check and not a comparison against its own input: every position the mesh had
+    # before must still be a position the mesh has.
+    now = {(round(p.x, 6), round(p.y, 6), round(p.z, 6))
+           for p in (mesh.matrix_world @ v.co for v in mesh.data.vertices)}
+    lost = [p for p in kept if (round(p.x, 6), round(p.y, 6), round(p.z, 6)) not in now]
+    if lost:
+        refuse(f"{len(lost)} vertices moved while being cut; the shape must not change")
+    return after - before
 
 
 def argv():
@@ -118,7 +241,7 @@ def spread_along(points, ignoring):
     return mathutils.Vector(axes[0]).normalized(), straightness
 
 
-def hand_frame(digits, spots, across):
+def hand_frame(digits, spots, across, wrist, known=None):
     """Names the digits and derives the hand's own axes, from the four fingers.
 
     Three directions, and each one comes from the fingers rather than from the body:
@@ -151,26 +274,85 @@ def hand_frame(digits, spots, across):
         told.append({"nodes": lump, "base": base, "tip": tip,
                      "way": line.normalized(), "length": line.length})
 
-    thumbs = [one for one in told if abs(one["way"].dot(across)) >= A_THUMB_POINTS_ASIDE]
-    if len(thumbs) != 1:
-        refuse(f"{len(thumbs)} digits point across the palm; exactly one should - the thumb")
-    thumb = thumbs[0]
-    thumb["name"] = THUMB_NAME
+    # # Which one is the thumb
+    #
+    # Established ONCE, on the mesh as delivered, and then carried by position - never worked
+    # out again on a mesh that has been cut up. That is the whole lesson of this function, and
+    # it cost four discriminators to learn, so they are all recorded: each was argued from
+    # numbers, each looked clean somewhere, and every one of them was wrong.
+    #
+    #   THE DIGIT POINTING ACROSS THE PALM. Correct on both hands as delivered, and by a wide
+    #   margin - 0.96 against 0.49 for the next. It is the test kept below. It broke only when
+    #   the finger faces were subdivided, because a watershed branch's direction depends on
+    #   where the branch stopped, and that moves with the density: the left thumb went from
+    #   0.96 to 0.41 and no digit was lateral enough to be one.
+    #
+    #   THE DIGIT REACHING LEAST FAR. Wrong. The pinky is shorter - 12.2 cm against the thumb's
+    #   14.0 - so this names the pinky.
+    #
+    #   THE DIGIT WHOSE KNUCKLE IS NEAREST THE WRIST. Wrong, and for the same reason: the
+    #   pinky's knuckle is shallower, 9.5 cm against 11.0.
+    #
+    #   THE DIGIT MOST OPPOSED TO THE OTHERS. Wrong again - the pinky splays further, 25.2
+    #   degrees against 23.3.
+    #
+    #   THE DIGIT WHOSE REMOVAL LEAVES THE OTHERS IN A LINE. Wrong, and the most plausible of
+    #   the lot. Dropping the LONGEST finger from a fan straightens what remains more than
+    #   dropping the thumb does: 14.69:1 without the middle finger against 5.56:1 without the
+    #   thumb.
+    #
+    # A thumb is not the short one, the splayed one, or the odd one out - a pinky is all three.
+    # Rendering the five digits in five colours is what settled it, after all four arguments;
+    # looking took one render.
+    if known:
+        for one in told:
+            one["name"] = min(known, key=lambda k: (k[0] - one["tip"]).length)[1]
+        given = sorted(one["name"] for one in told)
+        if given != sorted((THUMB_NAME,) + FINGER_NAMES):
+            refuse(f"carrying the names over by position gave {given}, so two digits claimed "
+                   f"the same name and the tips did not match up")
+        thumb = next(one for one in told if one["name"] == THUMB_NAME)
+    else:
+        thumbs = [one for one in told if abs(one["way"].dot(across)) >= A_THUMB_POINTS_ASIDE]
+        if len(thumbs) != 1:
+            refuse(f"{len(thumbs)} digits point across the palm; exactly one should - "
+                   f"the thumb")
+        thumb = thumbs[0]
+        thumb["name"] = THUMB_NAME
 
     rest = [one for one in told if one is not thumb]
     if len(rest) != len(FINGER_NAMES):
         refuse(f"{len(rest)} fingers beside the thumb; expected {len(FINGER_NAMES)}")
 
+    # One path from here, whether the names were just worked out or carried in. The two used to
+    # derive the frame separately and they disagreed: `out` came out negated and the right
+    # hand's index and pinky swapped, which the mirror check caught at 173.7 degrees.
     down = sum((one["way"] for one in rest), mathutils.Vector()).normalized()
-    knuckle_line, straightness = spread_along([one["base"] for one in rest], down)
+    # From the TIPS, not the branch bases: a tip is where the sculpt ends and does not move when
+    # the mesh is cut up, where a branch base is wherever the watershed happened to stop.
+    knuckle_line, straightness = spread_along([one["tip"] for one in rest], down)
     if straightness < 1.8:
-        refuse(f"the four finger bases are not in a line - they spread {straightness:.2f} times "
-               f"as far one way as the other - so there is no knuckle line to read")
-    if (thumb["base"] - rest[0]["base"]).dot(knuckle_line) < 0.0:
+        refuse(f"the four fingertips are not spread along a line - {straightness:.2f} times as "
+               f"far one way as the other - so there is no knuckle line to read")
+
+    # Pointed at the thumb from the MIDDLE of the four fingers. Pointing it from `rest[0]`
+    # instead made the whole frame depend on which finger happened to be first in a list, and
+    # that order is not fixed - it flipped `out` between two runs of the same code.
+    middle = sum((one["tip"] for one in rest), mathutils.Vector()) / len(rest)
+    if (thumb["tip"] - middle).dot(knuckle_line) < 0.0:
         knuckle_line = -knuckle_line
-    rest.sort(key=lambda one: -one["base"].dot(knuckle_line))
-    for one, name in zip(rest, FINGER_NAMES):
-        one["name"] = name
+    rest.sort(key=lambda one: -one["tip"].dot(knuckle_line))
+
+    if known:
+        # The carried names must still run in the order the hand does. If they do not, the tips
+        # were matched to the wrong digits and everything downstream is mislabelled.
+        carried = [one["name"] for one in rest]
+        if carried != list(FINGER_NAMES):
+            refuse(f"the carried names run {carried} across the hand, not {list(FINGER_NAMES)}, "
+                   f"so a tip was matched to the wrong digit")
+    else:
+        for one, name in zip(rest, FINGER_NAMES):
+            one["name"] = name
 
     out = down.cross(knuckle_line)
     if out.length < 1e-9:
@@ -348,6 +530,78 @@ def deformed_now(mesh):
     return spots
 
 
+def discover(rig, mesh, side, across, forward, up, known=None):
+    """Everything about one hand that the bones and weights are built from.
+
+    Its own function because it runs TWICE: once on the mesh as delivered, to learn
+    which faces belong to fingers and so which to cut, and again afterwards on the
+    denser mesh, where every index has changed and the digits have to be found afresh.
+    """
+    digits, spots, far = fingers.separate(rig, mesh, side, talk=False)
+
+    mine = fingers.hand_vertices(mesh, side)
+    canon = fingers.welded(mesh, mine)
+    touching = fingers.graph(mesh, canon)
+    nodes = set(canon.values())
+    node_at = {c: mesh.matrix_world @ mesh.data.vertices[c].co for c in nodes}
+    wrist = rig.matrix_world @ rig.pose.bones[f"{side}_Hand"].head
+
+    named, out, knuckle_line, straightness = hand_frame(
+        digits, spots, across, wrist, known)
+    # `out` comes from DOWN crossed with a knuckle line already pointed at the thumb, and
+    # the thumb is on opposite sides of the two hands - so this is mirror-consistent by
+    # construction rather than by a per-side sign anybody had to choose. It is checked
+    # against the other hand below, and seen curling in the viewer, because a flexion axis
+    # flipped on one hand only would open one fist while closing the other.
+    print(f"\n{side} hand: thumb points {named[0]['way'].dot(across):+.2f} across; "
+          f"knuckles in line to {straightness:.1f}:1; out of the palm is "
+          f"fwd {out.dot(forward):+.2f} lat {out.dot(across):+.2f} up {out.dot(up):+.2f}")
+
+    # The full digits, by geodesic Voronoi against the wrist.
+    wrist = rig.matrix_world @ rig.pose.bones[f"{side}_Hand"].head
+    sources = {"palm": min(nodes, key=lambda c: (node_at[c] - wrist).length)}
+    for one in named:
+        sources[one["name"]] = one["nodes"][-1]
+    owner = voronoi(node_at, touching, sources)
+
+    canon_of = collections.defaultdict(list)
+    for original, c in canon.items():
+        canon_of[c].append(original)
+
+    # The knuckle is the SEAM: the middle of the digit's own vertices that touch a vertex
+    # the palm won. Taking the point furthest from the tip instead let a single stray node
+    # the Voronoi handed over drag the knuckle deep into the hand, which is how a ring
+    # finger came out 10.4 cm on one hand and 6.3 cm on its mirror.
+    for one in named:
+        one["own"] = [c for c in nodes if owner.get(c) == one["name"]]
+        if len(one["own"]) < 3:
+            refuse(f"{side} {one['name']} won only {len(one['own'])} vertices")
+        one["seam"] = [c for c in one["own"]
+                       if any(owner.get(n) == "palm" for n in touching[c])]
+
+    # A digit hemmed in by its neighbours touches no palm at all - the middle finger, on
+    # both hands. Knuckles sit at much the same distance from the wrist, so the fallback is
+    # the others' typical seam distance rather than that digit's own far end, which is a
+    # measurement of where the Voronoi boundary happened to land.
+    seam_far = sorted(far[c] for one in named for c in one["seam"])
+    typical = seam_far[len(seam_far) // 2] if seam_far else 0.0
+    for one in named:
+        if one["seam"]:
+            one["knuckle"] = sum((node_at[c] for c in one["seam"]),
+                                 mathutils.Vector()) / len(one["seam"])
+            how = ""
+        else:
+            near = min(one["own"], key=lambda c: abs(far[c] - typical))
+            one["knuckle"] = node_at[near]
+            how = f"  (hemmed in by its neighbours; knuckle set at the usual depth)"
+        # Every ORIGINAL vertex of the digit, split copies and all, which is what the cutting
+        # step selects faces from and what the weighting writes to.
+        one["all"] = [v for c in one["own"] for v in canon_of[c]]
+        print(f"    {one['name']:<7} {len(one['own']):3} nodes, {len(one['all']):3} vertices, "
+              f"{(one['tip'] - one['knuckle']).length * SCALE:5.1f} cm knuckle to tip{how}")
+    return named, out, canon_of
+
+
 def main():
     args = [a for a in argv() if not a.startswith("--")]
     dry = "--dry-run" in argv()
@@ -363,73 +617,35 @@ def main():
 
     print(f"reading {source}")
     print(f"  {len(rig.data.bones)} bones before")
+    start_clean(rig, mesh)
+
+    # Find the digits on the mesh as it stands, to learn which faces are finger, then cut those
+    # and find them again. Two passes rather than one because cutting renumbers every vertex -
+    # the same trap that made deleting faces reshuffle the indices a later step was holding.
+    print("\n  finding the fingers, to know what to cut:")
+    found = {side: discover(rig, mesh, side, across, forward, up)[0] for side in "LR"}
+    # The NAMES are settled here, on the mesh as delivered, and carried through the cut by tip
+    # position. Tips do not move when the mesh is subdivided - measured, 14.0 cm before and
+    # 14.0 cm after - whereas every test that re-derives which digit is the thumb from the cut
+    # mesh has been wrong. See hand_frame for the four of them.
+    named_by_tip = {side: [(one["tip"], one["name"]) for one in digits]
+                    for side, digits in found.items()}
+    add_room_in_the_fingers(mesh, found)
+
+    # AFTER the cut, because the cut deliberately changes the vertex count and this guard
+    # compares vertex against vertex. The cut has its own absolute check: every position the
+    # mesh had before is still a position it has.
     was = deformed_now(mesh)
 
     everything, hands = [], {}
     for side in "LR":
-        digits, spots, far = fingers.separate(rig, mesh, side, talk=False)
-
-        mine = fingers.hand_vertices(mesh, side)
-        canon = fingers.welded(mesh, mine)
-        touching = fingers.graph(mesh, canon)
-        nodes = set(canon.values())
-        node_at = {c: mesh.matrix_world @ mesh.data.vertices[c].co for c in nodes}
-
-        named, out, knuckle_line, straightness = hand_frame(digits, spots, across)
-        # `out` comes from DOWN crossed with a knuckle line already pointed at the thumb, and
-        # the thumb is on opposite sides of the two hands - so this is mirror-consistent by
-        # construction rather than by a per-side sign anybody had to choose. It is checked
-        # against the other hand below, and seen curling in the viewer, because a flexion axis
-        # flipped on one hand only would open one fist while closing the other.
-        print(f"\n{side} hand: thumb points {named[0]['way'].dot(across):+.2f} across; "
-              f"knuckles in line to {straightness:.1f}:1; out of the palm is "
-              f"fwd {out.dot(forward):+.2f} lat {out.dot(across):+.2f} up {out.dot(up):+.2f}")
-
-        # The full digits, by geodesic Voronoi against the wrist.
-        wrist = rig.matrix_world @ rig.pose.bones[f"{side}_Hand"].head
-        sources = {"palm": min(nodes, key=lambda c: (node_at[c] - wrist).length)}
-        for one in named:
-            sources[one["name"]] = one["nodes"][-1]
-        owner = voronoi(node_at, touching, sources)
-
-        canon_of = collections.defaultdict(list)
-        for original, c in canon.items():
-            canon_of[c].append(original)
-
-        # The knuckle is the SEAM: the middle of the digit's own vertices that touch a vertex
-        # the palm won. Taking the point furthest from the tip instead let a single stray node
-        # the Voronoi handed over drag the knuckle deep into the hand, which is how a ring
-        # finger came out 10.4 cm on one hand and 6.3 cm on its mirror.
-        for one in named:
-            one["own"] = [c for c in nodes if owner.get(c) == one["name"]]
-            if len(one["own"]) < 3:
-                refuse(f"{side} {one['name']} won only {len(one['own'])} vertices")
-            one["seam"] = [c for c in one["own"]
-                           if any(owner.get(n) == "palm" for n in touching[c])]
-
-        # A digit hemmed in by its neighbours touches no palm at all - the middle finger, on
-        # both hands. Knuckles sit at much the same distance from the wrist, so the fallback is
-        # the others' typical seam distance rather than that digit's own far end, which is a
-        # measurement of where the Voronoi boundary happened to land.
-        seam_far = sorted(far[c] for one in named for c in one["seam"])
-        typical = seam_far[len(seam_far) // 2] if seam_far else 0.0
-        for one in named:
-            if one["seam"]:
-                one["knuckle"] = sum((node_at[c] for c in one["seam"]),
-                                     mathutils.Vector()) / len(one["seam"])
-                how = ""
-            else:
-                near = min(one["own"], key=lambda c: abs(far[c] - typical))
-                one["knuckle"] = node_at[near]
-                how = f"  (hemmed in by its neighbours; knuckle set at the usual depth)"
-            print(f"    {one['name']:<7} {len(one['own']):3} nodes, "
-                  f"{(one['tip'] - one['knuckle']).length * SCALE:5.1f} cm knuckle to tip{how}")
-        hands[side] = {"named": named, "out": out}
-
+        named, out, canon_of = discover(rig, mesh, side, across, forward, up,
+                                        known=named_by_tip[side])
         made = build(rig, side, named, out)
         touched = weigh(mesh, rig, side, named, out, canon_of)
         print(f"  {touched} vertices moved onto the finger bones")
         everything.append((side, named, made))
+        hands[side] = {"named": named, "out": out}
 
     # The two hands should be a mirrored pair, so comparing them checks the WHOLE derivation
     # at once - the naming, the palm plane and the knuckle seam - against something no step of
