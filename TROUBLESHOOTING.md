@@ -1195,6 +1195,9 @@ a figure's visual centre, and the eye reads that as translation.
 
 ## Fixing a generated texture
 
+*The script this section describes, `ranger_texture.py`, went with the character on 2026-08-24.
+The lesson did not: it is about where pixel work belongs, and it applies to whatever comes next.*
+
 ### White lines under a character's eyes
 
 **Symptom.** Bright lines under the eyes on a face at walking distance.
@@ -1682,578 +1685,63 @@ the reach and the heel comes down and the hips travel for free.
 
 **The test.** None. `verify_gait.py` passes this clip.
 
-## The walk, issue by issue
+## The ranger was replaced, and this is what carried over
+
+On **2026-08-24** the ranger's mesh, rig, clips and its whole asset pipeline were deleted, to be
+rebuilt from new source files. Everything that used to be written here about that character -
+its walk, its jog and sprint, its shoes, the four passes spent reshaping a shoe that was already
+right - described measurements of a mesh that no longer exists, and a log that names things that
+are gone is worse than no log. It is in git: `git show ed006b9:TROUBLESHOOTING.md`.
+
+What survives is the part that was never about that character.
+
+**Weld before asking a topology question.** glTF stores one set of attributes per vertex, so
+every UV seam and every hard edge duplicates the vertices along it. On the ranger, 9190 stored
+vertices were 3655 real ones and 1438 apparent shells were 18. `is_boundary` on a mesh like that
+calls every edge a boundary and answers no question at all - it produced a confident, wrong claim
+that a shoe could not be lowered without leaving the ankle in mid-air. Positions survive an
+export; connectivity does not.
+
+**Never weld the mesh itself.** Those split vertices ARE the hard-edge encoding, and the custom
+split normals riding on them describe a topology that merging destroys. The character is then
+lit as a shape it is not, and no geometry measurement sees it. Weld VIRTUALLY - round coordinates
+into buckets, union across edges - and leave the mesh alone.
+
+**Custom split normals carry all of the smooth shading.** On a fully split mesh there is no
+connectivity to smooth across, so any operation that adds geometry has to rebuild them over the
+region it touched. Subdivision interpolates them instead, and interpolating a normal field
+authored for one topology across a finer one gives mush - a surface that looks melted and
+measures perfect.
+
+**Look at form in CLAY.** Render with every material replaced by plain grey. A textured render
+cannot show shape, because the paint hides the thing it is painted on: a 64-vertex blob read as
+a trainer in every textured render taken of it, and as a sock the moment the texture came off.
+
+**A texture authored for one shape is a limit on how far that shape may change.** Painted detail
+sits at fixed places in UV space and only lines up while the geometry keeps its proportions. Any
+non-uniform reshape slides it off.
+
+**A guard must compare against the SPEC, not against its own input, and it must know its
+baseline.** Two failures of this in one afternoon: a check that refused an ankle junction at an
+absolute 2.2 cm on a mesh that already carried 7.96 cm edges there, and a "has this already run"
+test written as a ratio that was already satisfied before anything happened.
+
+**Object-mode selection does not survive into edit mode.** 226 faces selected in object mode
+arrive as 7139, so `bpy.ops.mesh.subdivide` cuts the whole mesh. Pick faces through bmesh once
+edit mode is open, and count afterwards.
+
+**Confirm which object is being looked at before changing any of them.** Delivered animation
+files can carry their own copy of the character. For several rounds one side reported on one
+mesh while the other measured a different one, and neither said so.
+
+**Two tests before believing a negative result.** An attempt to rule normals out wrote zero
+vectors instead of removing the layer; the render came back unchanged and that was read as
+"not the normals". Check that a negative test actually did the thing it claims to have done.
+
+**A fault reported twice means the model of the problem is wrong**, not that the fix was too
+timid. By the second report, put every state the thing has been in on one labelled contact sheet
+and ask which one is right.
 
-Getting one 24-frame walk to read as walking took most of a working day and about thirty
-distinct faults. This is the index: every issue as it was actually seen, and the thing
-that fixed it. Several have fuller write-ups above; this exists so none of it has to be
-rediscovered, and so **the same list can be checked against the jog before tuning it.**
-
-The column that matters is the second one. Roughly a third of these were fixed by
-tuning a number, and two thirds were structural — the wrong joint, the wrong basis, or
-two pieces of code disagreeing. Tuning against a structural fault is what burned the
-most time, every time.
-
-### The rest pose — before a single frame was authored
-
-| Issue | Solution |
-| --- | --- |
-| "no human has spherical bones" — every joint drawn as a ball | The importer's `armature_display` hangs an Icosphere on all 41 bones as `custom_shape`, which overrides `display_type`. Clear the shapes; hiding the Icosphere OBJECT does nothing because bones reference the datablock. `prepare_rig.drop_the_widgets` |
-| "Bones should reach the top of the head and ends of feet and hands, they dont" | glTF stores joint positions and no lengths, so leaves get invented ones (`Head` 2.6 cm on a 27.8 cm head). Set each leaf to the geometry it drives, ONE length per L/R pair or the sides desynchronise. `prepare_rig.reach_the_ends` |
-| "what is this long angled bone" | `Root` and `Hip` span 85 cm because Root sits on the floor and its child is at the pelvis. Shorten to 20/12 cm. `sane_root_and_hip` in the build; `shorten_the_controls` for animated files, where redirecting would corrupt the imported keys |
-| "the skeleton isnt centered on the mesh… the blue is what I see and the red is whats there" | The spine sat 1.67 cm off the mesh midline, so every spine rotation swung the torso about the wrong axis. Move central bones onto the limb midline, then shift ALL bones onto the mesh's silhouette centre. `centre_the_skeleton` |
-| The two sides 5.45 cm from mirrored | Average each pair across the midline, rolls last — an unmirrored roll hands its children a mirrored head and a wrong basis. `make_the_sides_mirrors`, now 0.0000 |
-| A 17.5° crouch baked into the bind | A-pose it and bake as rest, with `KNEE_EASE` 2° of forward fold — a dead-straight chain is IK-singular. `stand_in_an_a_pose` + `bake_the_pose_as_rest` |
-| Soles not on the floor | `put_it_on_the_floor` |
-| Feet visibly toed out while the log said 0.0° | Holding each foot's bind orientation meant nothing ever read `TOE_OUT`; they baked 17.65° out apiece. Yaw the bind about world up to reach the target, and guard the BAKED heading per side |
-| "the backpack straps attached to the arms", gloves fused to pockets | Cross-limb weight repair, shared by the build and the animator. `unfuse.unfuse_the_gloves_from_the_pockets` |
-| Shoes reading as "just chunky", mesh torn into shards | Welding coincident vertices destroyed glTF's split-vertex hard-edge encoding, leaving custom split normals describing a topology that no longer existed. Every numeric check passed while it looked destroyed. Weld removed; `unfuse.cloth_pieces` welds virtually instead |
-
-### The feet — the single biggest time sink
-
-| Issue | Solution |
-| --- | --- |
-| "there are no separate toes so the walk goes heel → false toes, but there is no bend because toes dont exist" | Give `ToeBase` a real joint at the ball, and flex it |
-| "We're still heel walking" — after five separate rounds of pitch tuning | **The pitch was never the problem.** `ToeBase` ran horizontally at ankle height, its head at 46% (L) and 33% (R) along the shoe, 8.4 cm up — so the foot see-sawed about its own arch. The ball is the 1st MTP joint at 70–79% of foot length. Move it there, a third up the shoe's own section, tail at 97%. `put_the_ball_where_the_shoe_bends` |
-| "The back foot isnt using toes, both feet need to go heel → flat → toe" | Toes held flat while planted (`flat_bend`, capped by `ik_gait.TOES_BEND_UP_TO`), easing out over the first quarter of swing so the foot leaves pointed |
-| "feet still angle oddly to the side" | Two foot conventions differing by 7.45° — the bind's own dip. One shared `ik_gait.how_the_foot_turns` |
-| "the knees bend inward" | Pole-target search scored on the knee tracking over the toe |
-| A planted foot sliding 13.6 mm per cycle | Bezier auto-handles overshoot between keys, and the exporter resamples the overshoot. Force LINEAR. `animate_ranger.make_it_linear` (0.92 mm) |
-| Every foot reading as planted on every frame, silently eating every arc fix layered on top | A 0…1 phase float was passed where a 0…7 pose STEP was expected, and every float is below any stance count |
-| Peak thigh extension short by 1.7°, nothing refusing | `own < share` is half-open, so the boundary — which IS a keyframe, and the most extended pose — read as airborne and its sole was pushed 1.61 cm off the floor. `ik_gait.the_foot_is_down`, and it also restored all three clips' authored duty factor |
-
-### The motion
-
-| Issue | Solution |
-| --- | --- |
-| "the torso is still a bit leaning back" (reported three times, while the number said forward) | Lean the spine BEFORE aiming the arms — aiming first meant the parent then carried them 7° back. And a loaded walker leans into the load: the backpack's mass sits behind him, so upright reads as reclining |
-| "the left arm is jumping" | A local named `reach` (the arm angle) was rebound to a leg length, killing all forward swing. Name locals for their SUBJECT. Plus `close_the_loop` to make frame 1 identical to the last |
-| Arms at 72% of their authored range, 14° arriving as +2.7° | Composing rotations about different axes COUPLES them; authored degrees stop meaning degrees. State the target direction and turn onto it by shortest arc |
-| "both knees are in front of the hips so there's no way he'd be balanced" | Drove hip-ahead-of-both-feet to 0 frames of 25 |
-| "The character is sliding backwards" | The feet barely left the ground; per-gait `swing_lift` and a `swing_shape` that skews where the arc peaks |
-| "There's a bounce and jitter first" | Ride height was hand-set and the reach limit was treated as a TARGET rather than a ceiling, so the hip lurched 16 cm in one frame. Derive it: a cosine fitted under the ceiling's deepest point, floored at `HIP_DROPS_AT_MOST`. Worst step 1.02 cm |
-| Double support missing entirely from the walk | `share` was capped at 0.5, which is the definition of a run. Cap removed |
-| "the legs are a bit too bent, make him slightly more upright" | `ik_gait.STANCE_LEG_EXTENDS` 0.98 |
-| "Movement is far too fast" | `set_speed` is a MULTIPLE of a clip's natural rate, not a rate — and the multiple depends on the clip's own frame count. Measure what a cycle covers off the planted foot |
-| A clip left the rig posed, and the next clip inherited it | Rest the pose at the top of every frame |
-
-### The instruments — which is where most of the real time went
-
-| Issue | Solution |
-| --- | --- |
-| A bake produced bones in A-pose and mesh in crouch, and the guard passed | The guard compared the result against its own INPUT. Every guard now compares against the SPECIFICATION — soles at 0, arms at 45° |
-| A guard reporting "the chest is now 73% spine" while the jacket tore into triangles | Numeric guards cannot see shading or silhouette. Render the pose that exercises the change and LOOK |
-| Two fixes in a row not moving a number at all | The number wasn't connected to the knob — stale pycache, a clamped share, a wrong parameter type. Stop tuning and trace it |
-| A flatness guard failing three rebuilds at a constant 0.86 cm | Its radius reached the OTHER shoe. A constant residual across code changes means the guard measures something else |
-| A refusal contradicting itself — "one half bobs 0.0224 and the other 0.0224, a ratio of 0.02" | A shadowed local again (`rise`). Second one in a day |
-| A threshold refusing the sprint while suiting the walk | An absolute per-frame hip limit can't work across gaits; compare against the bob's own SHAPE |
-| A 22°→17° regression sailing through | `THIGH_REACHES_BACK` is 12.0, the anatomical floor. A guard at the bottom of a legitimate range cannot see a regression inside it |
-| An A-pose lost mid-build | A live session someone is also clicking in is for finding numbers, never a build substrate. Builds run from source via a script that re-derives everything |
-| `action.fcurves` raising `AttributeError` | Blender 5 moved it: slots → layers → strips → channelbags, via `anim_utils.action_ensure_channelbag_for_slot` |
-
-## The jog and the sprint, issue by issue
-
-The walk's list above is mostly poses; this one is mostly FRAMES OF REFERENCE. Half of
-these were a rotation authored against the wrong thing, or a ruler measuring against
-something that moved with what it measured. None showed up as a wrong number — they showed
-up as a correct number describing the wrong quantity.
-
-### Frames of reference: the recurring fault
-
-| Issue | Solution |
-| --- | --- |
-| "compressed back foot" on frames 9–12, while the shoe measured rigid (0.7 mm of length lost) and unyawed (0.0°) | `RUN_LEG` authors sole pitch against the FLOOR. Right while planted — the floor is what the sole rests on — and wrong in swing, where the shank sweeps most of a right angle and a near-flat sole leaves the ANKLE JOINT to absorb the difference. Measured +65° of dorsiflexion against a human running range of about −25..+30: the toes hauled up into the shin. The swing entries went from −14/−12/−6/−2 to −30/−36/−34/−18, each set by subtracting the dorsiflexion that frame was carrying |
-| "forearms are more outward" instead of across the front | The elbow folded about `FOLDS_THE_ELBOW`, a FIXED armature axis, so the hinge plane did not follow where the upper arm pointed — with the arm hanging out to the side, folding threw the hand laterally. An elbow is a hinge and cannot carry the hand inward; shoulder INTERNAL ROTATION does. The axis is derived per frame now as `upper × heads`. Hands went 24.9–27.0 cm out from the midline to 8.1–13.6. See `FOREARMS_TUCK_IN` |
-| The hand visibly twisted the moment the elbow fold went from 62 to 88 | `PALM_IN` rotated the hand about a fixed world axis, which stops being pronation and becomes a twist once the elbow folds. About the FOREARM's own axis instead. Fixed in the gait path and MISSED in the idle path — the same bug in two places, hidden because the idle's elbow barely bends |
-| "the elbows dont go back far enough", and more arm swing barely moved them | The elbow sits one upper-arm length from the shoulder, so its travel is capped at 26 cm — it was already at 25.8, 99% of the geometric limit. What was missing is that the TORSO never rotated at all. `WALK_TWIST`/`RUN_TWIST`/`SPRINT_TWIST` on Spine02 at 5/10/18°, applied BEFORE the arms are aimed so their angles are unchanged and only their origin moves |
-| A 3 cm change in elbow travel that read as EXACTLY zero | The elbow was measured against the SHOULDER, and counter-rotation carries shoulder and elbow together, so that offset is blind to it. Against the PELVIS, which does not twist, the same change reads 8.9 → 13.4 cm. **A ruler fixed to the thing it measures cannot see what you added** |
-| "something still seems off about the characters balance" | The gait leaned `Waist` and `Spine01` and countered nothing above them, so the head inherited the whole lean and led the body by 8.7 cm. `HEAD_HOLDS_BACK` takes 65% back out at the neck. The idle ALREADY did this — Spine01 +1.0 against NeckTwist01 −0.8 — so the gait was the outlier |
-| The lean bending him at the ribs rather than tilting him | It was 40% waist / 60% chest. A runner does not curl forward; the whole body tilts from low down and the trunk stays a straight line. `LEAN_AT_THE_WAIST` 0.8 / `LEAN_AT_THE_CHEST` 0.2 |
-
-### The flight phase, and why it needed a structural change
-
-| Issue | Solution |
-| --- | --- |
-| The jog read as a fast walk: flight 12.5% where the reference wants 25%, feet 1.3 cm off the floor on the airborne frames | The DURATION was right and the HEIGHT was not. `fill_in_the_flight` and `RUN_BOUND` — a 3.7 cm ballistic arc — had been defined and never called since a `gait()` rewrite orphaned them |
-| Wiring the arc in made it LIMP, hips failing to repeat by 20% | The cycle wraps and a list does not. `fill_in_the_flight` arcs between KNOWN indices, so the airborne stretch straddling the seam had no known index after it, fell through to "hold the nearest", and got no arc at all — one bound of the cycle got its full arc and the other none. Filled over two cycles, taking the FIRST copy (the second has its own unfilled tail) |
-| The arc then made a 2.73 cm one-frame hip step, refused as a bounce | With only 2 airborne frames per stretch a parabola cannot be a parabola: it plateaus and then drops off a cliff. `fill_in_the_flight`'s own comment warns of exactly this |
-| Only 4 airborne frames, and no way to get more | `share = stance / POSES` could only say 0.375 or 0.25 in whole eighths, and a jog's duty is 0.333. At 0.375 the closed stance interval covers 10 of 24 frames per foot, leaving 4 airborne. Stance is given as a SHARE now, not a count of poses: `RUN_SHARE = 1/3` gives 9 planted and 6 airborne, which is both the reference shape and the room the arc needed. `verify_gait` takes a share too, and still accepts the old eighths |
-| Tracking the reach ceiling per frame — which looked like the principled fix — was far worse | Hips rose 5.7 cm ABOVE bind height, moved 5.59 cm in one frame, halves disagreed by 92%. The ceiling also jumps at LANDING, not only where nothing is down, and tracking it inherits the mesh's left-right asymmetry that a fitted curve averages away. A fitted cosine PLUS the arc, not the ceiling |
-
-### Fixed by fixing what a number meant
-
-| Issue | Solution |
-| --- | --- |
-| "the leg locks at 0.3°" at contact | It did not. That was a whole-cycle MINIMUM and it was picking up toe-off, where a straight leg is correct — that is the push. The knee at contact measured 14.3° against Heiderscheit's 17.8 ± 4.0, and always had. The metric reports the LANDING knee now |
-| `verify_gait` refusing a heel strike on any clip with a flight phase | It asserted "a run lands on the forefoot", which is a style claim wearing a correctness check's clothes — and false at jog pace (Breine: zero forefoot strikers in 52 runners at 3.2 m/s). Worse, asserting the strike left flying clips with NO reversal check, since a backwards run lands toes-down at the front, which is what the branch demanded. It checks that the leading foot is more toes-up than the trailing one — true of walk, jog and sprint, false the moment the cycle reverses |
-| The sprint's elbow refusing as "folds backwards", and TIGHTENING the elbow making it worse | The intuition is that an arm thrown too far BEHIND causes it. Measured per frame, it was the FORWARD arm: 15.05 cm behind the line at the back extreme and 1.69 cm in FRONT at the forward one, because `elbow_swing` ADDS at the front. The crossing sits near 106° of fold — 105.9 put the elbow 1.32 cm behind, 107.3 put it 0.94 in front. `SPRINT_ELBOW_HELD` 94 ± 4 |
-| Frame 1 with nothing touching the floor, its ball 9.5 cm off the path the other stance frames sat on | `close_the_loop` copied frame `span+1` onto frame 1 because "the last frame is computed with everything in place" — but a later change had made `span+1` a verbatim copy of frame 1's pre-bake targets, so the copy laundered frame 1's own cold solve back onto itself. Replaced by `LEAD_IN` frames of run-up before frame 1, discarded after the bake: the phase formula wraps for negative frames, so frame 0 and frame `span` are the same pose and the seam closes by construction |
-
-### The backpack
-
-| Issue | Solution |
-| --- | --- |
-| The pack moving oddly through the cycle | Skinned across `Spine01` (49%), `Spine02` (20%), `Waist` and `Head`. A RIGID object spread over four bones that rotate differently must shear: measured, 3.25 cm on a 73 cm diagonal, 4.4%. Split into its own object, rigid on one bone; distortion is now 0.000% |
-| Whether it could be a separate object at all | Checked by rendering both halves BEFORE cutting: the pack comes away as a recognisable bag and the jacket back is INTACT, because the pack is additive geometry over the garment rather than a panel cut into it. There was no hole to patch. It is not its own connected shell though — the mesh is 1442 shells over 7584 vertices — so it needs a selection rule, not a topological split. `split_out_the_backpack` |
-| The separate went BACKWARDS: pack 7578 vertices, body 0 | `polygon.select = False` in object mode leaves the VERTEX selection untouched, and `separate(SELECTED)` reads that — a freshly imported mesh arrives fully selected and separates whole. The deselect must go through the edit-mode operator |
-| A conservation guard refusing a correct split: 7255 + 370 against 7578 | `separate` DUPLICATES the seam into both objects — 47 vertices, exactly the pack's boundary. Correct behaviour, wrong guard. It refuses on LOSS, and on growth beyond what the selection's boundary could account for |
-| Several tools would now hand a 370-vertex bag to code measuring the ranger | They took the FIRST skinned mesh, which was fine while there was one. `prepare_rig.the_body()` — largest wins, no name test, because glTF suffixes duplicate names on round trip. `animate_ranger` already did this; `gait_watch` and `ranger_blend` did not; `verify_gait` turned out to work purely off bones |
-
-### The sprint limp, and three wrong guesses
-
-**Status: open.** Worth its own entry because the diagnosis is solid and the fix is not applied.
-
-Two refusals survive: the thighs disagree 7.99° half a cycle apart, and the hips fail to
-repeat by 42%. Three hypotheses were tried, and the first two were wrong:
-
-* **Foot landmarks carrying the mesh asymmetry.** Shared them between the sides
-  (`make_the_landmarks_mirrors`) — 8.25 → 7.97°. Kept, because the motion should not
-  inherit mesh asymmetry either way, but it was not the cause.
-* **Pole-angle quantisation.** The pole is searched once per side on a 36-step grid, so each
-  leg carried a standing error of up to 5° in whichever direction its own grid point fell.
-  Refined to 1° — 7.97 → 7.99. Kept, and equally not the cause.
-* **Solver history.** `LEAD_IN` from 3 to 12 frames changed it by nothing at all.
-
-Traced rather than guessed, the answer was unambiguous. The authored motion matches to
-**0.00° on 20 of 24 frames**; ankle FORWARD and SIDEWAYS placement are identical to the
-digit; only ankle HEIGHT differs, by up to 5.14 cm. On airborne frames that height is set
-by `rest_the_shoe_on_the_floor`, which reads each shoe's own deformed sole — and the two
-shoes sit about 4 cm differently on their bones.
-
-**The fix, when someone wants it:** share the sole clearance between the sides for AIRBORNE
-feet only, keeping each foot's own geometry while planted. An airborne foot only needs to
-not penetrate the floor, so precision there buys nothing; a planted one needs its real
-sole. That removes the asymmetry from exactly the frames it appears on. It touches the
-floor solve, which all three clips depend on, which is why it is written down rather than
-done.
-
-**The lesson, which is this whole section's lesson:** three code changes were made before
-anything was traced. Two were harmless, one was wasted effort. Trace first — the shape of
-the divergence names the cause, and here it named it in a single measurement.
-
-### ISSUE: the head bob measured exactly no effect, before and after every change
-
-**What you see.** The run reads stiff — reported as "from the side the run resembles the
-old 'scooby doo character' run". The named cause is a lack of overlapping action: when the
-torso twist, head bob and limbs all ride one phase, a character reads as a rigid toy rather
-than as alive. So a head bob was added, with a follow-through form so the head trails the
-chest instead of riding along with it. Head travel measured **6.29 cm**. The amplitude was
-raised. Still 6.29 cm. Changed to a different formulation. Still **exactly** 6.29 cm.
-
-**What it actually was.** Nothing to do with the maths. `key()` in `animate_ranger.py`
-inserts a `rotation_quaternion` keyframe for every pose bone but only inserts `location`
-for a named few:
-
-```python
-if posed.name in ("Hip", "Root"):
-    posed.keyframe_insert("location", frame=frame)
-```
-
-`head.location` was being set on the pose and then thrown away — never keyed, so never
-exported. The 6.29 cm was the head being carried by the hip and the spine, which is why it
-did not move when the head's own term did.
-
-**What changed.** `"Head"` added to that set. Head travel went 6.29 → 13.50 cm, and the
-head's peak moved to frame 10 where the hip's is at 11 — the overlap the term was for.
-
-**The principle.** *A number that does not move when you change its input means the knob is
-not connected.* Identical output across three different formulations is not weak effect, it
-is no effect, and the next place to look is the plumbing rather than the model. This is the
-second instance of exactly this fault in this file — see the pelvis sway measuring 0.00 cm
-because `Pelvis` is a connected bone and Blender ignores `location` on those. Both times
-the code read correctly and nothing reached the file.
-
-**The test.** None yet, and it should have one: a guard that every bone the authoring code
-writes `location` to is also in `key()`'s list would have caught both instances. Worth
-adding, because the failure mode is silent by construction.
-
-### ISSUE: the jog felt "like running through water", and the bound existed three times
-
-**What you see.** In-game movement reads sluggish, repeatedly, across several tuning passes.
-Every authored speed gain got given back somewhere else.
-
-**What it actually was.** Two things, and the second is why the first kept happening.
-
-`JOG_SPEED` was pinned just under the run's handover ceiling, and that ceiling came from
-`CHURNS_ABOVE`, which was the **human** running band of 150–200 steps a minute. So the
-speed was not a tuning value at all — it was whatever a human cadence band permitted. It
-could not be raised without the guard refusing it, and the guard was enforcing realism in a
-fantasy game about collecting and raising monsters.
-
-Worse, that band existed in **three** places with three different values:
-`CHURNS_ABOVE` said 140/200/260; the churn test carried its own `(90,140)/(150,200)/
-(220,260)`; and `each_clip_is_authored_near_the_time_its_stride_takes` bounded `stretch` to
-`(0.4..2.5)` — which, since `stretch` is exactly `lasts * cadence / 120`, is a magic 300
-steps a minute in disguise. Raising one refused on another.
-
-**What changed.** One table, `CHURNS_BETWEEN`, which the ceilings and both guards derive
-from. Its tops were then raised as a deliberate stylistic choice — run to 235, sprint to
-290 — and the speeds moved with them: jog 2.39 → **2.81 m/s**, sprint 4.10 → **4.58 m/s**.
-
-Note what was NOT needed: stride warping. Research pointed at it, and it is the wrong fix
-here — `playback_rate` is already unclamped and driven by measured `covers`, so it absorbs
-the whole mismatch and the correct stride scale today is exactly 1.0. Adding `actual /
-authored` on top would have multiplied, 2.40 × 2.40 at the sprint.
-
-**The principle.** *A bound that exists twice is a bound that drifts*, and a bound that
-exists three times will refuse a legitimate change from a copy you forgot about. Derive
-guards from one another so they agree by construction rather than by a coincidence of
-factors — the same argument already written on `hands_over_above`.
-
-**The test.** `the_gaits_churn_like_a_person_at_the_speeds_they_are_driven` and
-`each_clip_is_authored_near_the_time_its_stride_takes`, both now reading `CHURNS_BETWEEN`.
-The first says the band it came from; the second reports the multiple *and* the range its
-cadence band allows.
-
-**The lever still on the table.** Cadence and stride multiply into speed, and stride is the
-higher-quality half — it buys speed without churning the legs faster. That is an authoring
-change in `animate_ranger.py`, not a constant, and it has not been done.
-
-### ISSUE: the warden jitters while running, "the frames are horribly messed up"
-
-**What you see.** In game the run stutters badly, as though the animation frames were
-corrupt. The clips themselves are fine — every loop seam measures **0.000 deg** and
-**0.000 cm** last-frame-to-first on all three, so nothing was wrong with the authoring.
-
-**What it actually was.** `Striding::speed` was measured like this:
-
-```rust
-let went = transform.translation.distance(before);
-pace.speed = went / time.delta_secs();
-```
-
-Two faults in one line, and then a third that turned them into a visible stutter.
-
-1. **It was a 3D distance.** The warden is planted on the terrain every frame, so `went`
-   included the vertical travel of climbing or descending. On any slope the measured speed
-   read *higher* than the ground speed.
-2. **It was unsmoothed.** Frame-time wobble, a step clamped by `bounds`, and a step refused
-   by `may_step` and retried per-axis all land in it as spikes.
-3. **The gait SELECTION read it.** `find(|gait| pace.speed <= gait.upto)` — so a noisy
-   number was choosing the clip. `JOG_SPEED` had just been set to 2.81 against a run
-   handover of 2.83, a 0.7% margin, so on a slope the speed crossed the ceiling and
-   uncrossed it on consecutive frames. Each crossing calls `moves.play(..)` with a `BLEND`,
-   restarting a transition every frame. The playback rate was fed the same noisy number, so
-   the clip's tempo flickered too.
-
-**What changed.** The two jobs got separated. `Striding` now carries `wants` — the ASKED
-speed, exactly one of three constants — alongside `speed`, the measured one. Selection reads
-`wants`, so it cannot chatter by construction. The playback rate still reads `speed`, which
-is what a measured speed is actually good for, but that is now **horizontal** (`.xz()`) and
-settled at `SPEED_SETTLES = 16.0` per second, with a `BLOCKED_STILL_RUNS` floor so a warden
-shoved against a wall keeps running in place instead of freezing on one pose.
-
-**The principle.** *Choose from intent, scale by measurement.* This is also how the games
-this one is measured against do it — Genshin Impact drives locomotion from a discrete
-movement state and only uses velocity to scale the clip once the state has picked it. And
-separately: a threshold and the value it is compared against should never be tuned to
-within a percent of each other, because anything noisy in between becomes a per-frame flip.
-
-**The test.** `every_handover_separates_the_speeds_it_sits_between` — it demands each
-handover sit clear of both speeds it divides by a fifth of the gap, so the 2.81-against-2.83
-arrangement is now a build failure rather than a stutter to be discovered in game.
-
-### ISSUE: "still VERY slow moving" — the speed was never a knob
-
-**What you see.** Movement stays sluggish across pass after pass of tuning. Raising a speed
-gets refused by a test, or gets given back somewhere else.
-
-**What it actually was.** The speeds were *derived*, not chosen. `GAITS` set each tier's
-ceiling with `hands_over_above(covers, CHURNS_ABOVE.n)` — the speed at which cadence would
-leave a believable band — and then `JOG_SPEED` was set just under that ceiling. So the
-driven speed was not a design decision at any point. It was whatever a **human** cadence
-band permitted, and every attempt to raise it hit a guard enforcing realism in a fantasy
-game about collecting and raising monsters.
-
-**What changed.** The dependency was inverted.
-
-* `player::WALK_SPEED` / `JOG_SPEED` / `SPRINT_SPEED` are now the primary knobs, chosen by
-  feel against Genshin Impact as the reference for movement and fluidity.
-* `halfway()` replaced `hands_over_above()`: a handover is simply the midpoint between the
-  two speeds it separates, which also gives the widest possible margin either side.
-* `CHURNS_BETWEEN` stopped being a speed gate and became an **absurdity** bound, widened to
-  60-180 / 140-330 / 200-400 so it has no opinion about a chosen speed. Its remaining job is
-  catching a broken `covers`: cadence is `speed / covers`, so a mis-measured stride shows up
-  as an impossible cadence. 60 or 400 steps a minute is a bug; 300 is a choice.
-
-Jog 2.39 → **3.40 m/s**, sprint 4.10 → **5.40 m/s**.
-
-**What this costs, stated plainly.** Cadence and stride multiply into speed, and only
-cadence moved. The jog now churns at **287 steps a minute** and the sprint at **346**,
-playing their clips at 2.50x and 3.00x the authored rate. Fast legs are not the same thing
-as fluid movement, so if it reads busy the fix is not another cadence bump — it is
-**stride**, which buys speed without churning: `covers` is `foot travel during stance /
-stance share`, so a bigger fore-aft leg swing in `RUN_LEG` raises it directly. Going from
-1.419 m to about 2.04 m a cycle would carry 4.08 m/s at a calm 240 steps a minute. That is
-an authoring pass in `animate_ranger.py`, not a constant, and it has not been done.
-
-**The principle.** *A value you cannot raise without a guard refusing it is not a knob, it
-is an output.* When tuning keeps failing, check which direction the dependency runs before
-tuning again.
-
-**The test.** `the_gaits_churn_like_a_person_at_the_speeds_they_are_driven` and
-`each_clip_is_authored_near_the_time_its_stride_takes`, both reading `CHURNS_BETWEEN` — now
-as sanity bounds rather than gates.
-
-### ISSUE: the "Scooby Doo run" was a measurement error, not a pose
-
-**What you see.** The run reads as churning without going anywhere. Reported across many
-sessions as "running through water", "the scooby doo character run", and finally the one
-that cracked it: *"the character model moves quick but movement itself is slow"*.
-
-**What it actually was.** `motion::RUN_COVERS` said the cycle carried 1.801 m. Measured off
-the shipped clip, the planted contact patch travels back **10.39 cm every frame** — dead
-steady, spread 0.41 cm across the whole stance — which over a 24-frame cycle is **2.495 m**.
-The number was **28% too small**, and the walk was 9% small and the sprint 36%.
-
-`playback_rate` is `speed * lasts / covers`, so understating `covers` makes the clip play
-that much too fast. The legs turn at a rate implying far more speed than the body has, and
-leg cadence is what the eye reads as speed — so the legs say one thing and the ground says
-another. At 3.70 m/s the run was turning at **290 steps a minute**, a sprint cadence
-carrying a jog speed. With the true figure it is **178**, which is a jog.
-
-The bad ruler was `verify_gait`'s `covers_implied_m` = `contact_length / stance_share`,
-wrong twice over: `contact_length` is the AUTHORED sweep and the reach solve clips it, so
-the ask is not the outcome; and the achieved figure is taken between two landmark extremes,
-so it misses travel the foot does while rolling past them. It read 0.60 m where the foot
-genuinely swept 0.83.
-
-**What changed.** `dev/art/measure_covers.py`, which measures the outcome from the
-invariant that actually defines `covers`: through stance the contact patch travels backward
-at a constant rate equal to the body's forward speed, so `covers` is that rate times the
-span. The per-frame spread is how you know it is trustworthy. Walk 0.881 → 0.970, run
-1.801 → **2.495**, sprint 2.111 → **3.308**.
-
-**How much was wasted on the wrong thing.** Everything. Speeds were raised four times, the
-cadence bands were rewritten twice, the stride was pushed until the leg saturated, and a
-leg-lengthening was proposed and nearly built — all to fix a symptom of one wrong constant.
-Two rulers had to be fixed before the fault was even visible, and the first replacement was
-ALSO wrong: it asked whether the contact patch was stationary, which is right for a clip
-carrying root motion and nonsense for an in-place clip, and it duly reported 53 cm of
-failure on the signed-off walk.
-
-**The principle.** *Before tuning a value, measure whether the value is even being read
-correctly.* And the corollary this file keeps re-learning: a derived quantity is only as
-good as its landmarks. `covers_implied_m` looked authoritative because it had a formula.
-
-**The test.** None yet, and it wants one: a Rust test cannot read a GLB's skinned
-deformation, so the honest guard is a probe run alongside `animate_ranger.sh` that refuses
-when the declared `COVERS` and the measured rate disagree by more than a few percent. Worth
-adding — this fault was invisible for weeks and cost more than any other in this file.
-
-### ISSUE: "the head bob is extreme", and three knobs that did nothing
-
-**What you see.** The head pumps up and down far too much through the run. Measured, head
-travel was **14.74 cm** against a hip rise of 11.60 — the head was *amplifying* the pelvis,
-when a running body stabilises the head above all else.
-
-**What it actually was.** Three separate faults stacked, each one masking the next.
-
-1. `key()` wrote a `location` channel only for `Hip` and `Root`, so `head.location` was set
-   on the pose and discarded. Every value tried measured the same 6.29 cm.
-2. Adding `"Head"` to that list appeared to fix it — travel jumped to 13.50 cm. It did not:
-   `TRUNK_PITCHES` was raised from 2.0 to 4.0 in the same edit, and that is what moved it.
-   The head channel was still doing nothing. **Two changes in one build, and the wrong one
-   got the credit.**
-3. The damping term was `axes @ Vector((0, 0, z))`, and `axes` is the basis built for
-   `Root`. A pose bone's `location` is in its OWN rest space, so on the Head that pushed in
-   an arbitrary, near-horizontal direction. Which is why more than doubling
-   `HEAD_RIDES_LESS` — 0.4 to 0.85 — moved travel 12.08 cm to 11.76.
-
-**What changed.** The lift is built from world up and taken into the head's own basis with
-`head.bone.matrix_local.to_3x3().inverted()`, and it is applied after the root block, since
-`rides` does not exist before it — authoring a damping term without the thing it damps is
-how it came out amplifying. Run head travel **14.74 → 4.93 cm**, head/hip **1.04 → 0.43**.
-
-**The principle.** *Change one thing per build.* Fault 2 cost the most, and it cost it by
-being a real fix whose effect was invisible because a second change was louder. And: a
-knob doing a twentieth of what the geometry says is not a knob that needs turning further —
-see the identical lesson on `RUN_SINKS` and on pelvis sway.
-
-**The test.** None. A guard that every bone the authoring writes `location` to is also in
-`key()`'s list would have caught fault 1, and asserting head travel stays under the hip's
-would have caught faults 2 and 3.
-
-### ISSUE: the Blender viewer showed a clip two hours out of date
-
-**What you see.** Nothing. That is the whole problem. Asked directly — "are you updating the
-blender pages?" — and the answer was no.
-
-**What it actually was.** `gait_watch.sh` builds a scene and opens it, and the scene carries
-a registered watcher that reverts itself when the file's timestamp changes, so a rebuild is
-supposed to reach an already-open window without anyone closing anything. That half worked.
-The missing half is that `animate_ranger.sh` rewrites the **GLB** and nothing rewrote the
-**scene**, so an open window went on showing whatever clip it was built from.
-
-Measured when it was caught: the viewer scenes were written at 10:53 and the GLB at 13:02 —
-two hours and four rounds of changes apart, including the entire arm-swing and lean pass.
-
-**Why it is worse than a bug.** A stale scene is never broken, only old, so there is nothing
-to notice. It makes the reports coming back **unreliable** — feedback on animation that is
-no longer what the build contains — and neither side can tell which round is being judged.
-Every other entry in this file was found by measuring the wrong thing; this one is measuring
-the right thing on the wrong version.
-
-**What changed.** `animate_ranger.sh` now rewrites every `gait_watch_*.blend` that already
-exists, as its last step, so the watchers fire and open windows reload themselves. Only
-scenes that exist are touched: building one for a clip nobody has open would add a window's
-worth of work to every run, and creating files nobody asked for is its own surprise.
-
-Getting `win` for that meant the script had to stop carrying its own copy of `find_blender`
-and source `blender.sh` — which is what `blender.sh`'s header already asked for, naming this
-script first among four. The alternative was a fifth copy of a path helper in order to fix a
-duplication problem, which is the wrong way round.
-
-**The principle.** *If a person is going to judge the output, the thing they look at is part
-of the build.* A pipeline that produces the artefact but not the view of it has an
-un-versioned step in the middle of the feedback loop.
-
-**The test.** The scene says so itself. Two layers, because the refresh alone is not a
-guarantee — asked for one directly: *"make sure the blender always has the changes otherwise
-I'll end up spotting the same issues that have been fixed"*.
-
-1. `animate_ranger.sh` rewrites every existing `gait_watch_*.blend` as its last step, so the
-   watchers fire and open windows reload themselves. This covers the ordinary case.
-2. Each scene is **stamped** with the path and timestamp of the GLB it was built from
-   (`built_from`, `built_at`, `built_clip` on the scene), and the in-blend watcher compares
-   that against the GLB on disk every tick and **captions the viewport**: small and green
-   when current, large and red when not — *"STALE — run rebuilt 14 min after this scene"*.
-
-Layer 2 exists because layer 1 cannot cover everything. The watcher only ever watched the
-**.blend's** own timestamp, so it notices a rewritten scene and is blind to the case that
-actually bites: the GLB moving on while the scene does not. That happens whenever a build
-refuses *after* `animate_ranger.py` has written the model — `set -euo pipefail` stops the
-script before the refresh — or whenever the clips are rebuilt by any path that skips it.
-Nothing changes, the watcher has nothing to notice, and the window keeps showing superseded
-work.
-
-Verified rather than assumed: the stamp survives the save, resolves its source, reads
-"current" immediately after a build, and a GLB fifteen minutes newer reads STALE.
-
-What neither layer can cover is Blender started without `--enable-autoexec`, since then no
-registered script runs at all — no reload and no caption. `gait_watch.sh` always passes it.
-
-### ISSUE: measuring a split mesh as though it were welded
-
-**What you see.** Pale patches round the lower back and hip, and in game the impression that
-"the legs are not connected to the torso".
-
-**What it actually was.** Three small holes in the body, left by `split_out_the_backpack` —
-`bpy.ops.mesh.separate` **moves** the selected faces out, so the body loses that surface and
-you see its interior through the gap.
-
-**Why it took four measurements to find.** Because every early measurement was taken on the
-wrong topology. glTF encodes hard edges by SPLITTING vertices, so on the mesh as it arrives:
-
-| measured on | boundary edges | "loops" | largest loop |
-|---|---|---|---|
-| the split mesh, as imported | 6975 of 10131 | 1362 | 29 verts |
-| welded by position first | **140 of 6710** | **10** | 41 verts |
-
-None of the first row is real. 7062 split vertices are 2302 actual ones, and until they are
-unioned by position the word "boundary" means "hard edge" and every seam counts. The first
-report — 1022 open edges at the waist — was that artefact, and 608 of those 1022 belonged to
-the HANDS, which hang at hip height in an A-pose and are not the waist at all.
-
-Welded, the ten real loops name themselves, and most are **meant** to be open: a 41-vertex
-open chain on `Spine01`/`Spine02` is the jacket's zip, 38 closed vertices at the clavicles is
-the collar, 26 open on `Head` is the hairline. Filling any of those would be a far worse bug
-than the one being fixed. What was left was three closed punctures of 4 to 6 vertices.
-
-**And then the fix went in the wrong place, twice.** The holes were measured on the EXPORTED
-asset and the repair was wired into the top of `prepare_rig`, where it correctly found nothing
-— the RAW export has no waist holes at all, only a collar, a neck and a hairline. Then after
-the strap removal, still nothing. They are made by the very last step before export.
-
-**What changed.** `split_out_the_backpack` now calls `bpy.ops.mesh.duplicate()` before
-`separate`, so the pack is a COPY and the body keeps its surface. Six holes became three, and
-the body renders clean at the back and hip.
-
-**The principle.** *Measure the representation you are actually going to change.* A split
-mesh, a welded mesh, the raw export and the exported asset are four different objects, and
-this bug had a different answer on each of them.
-
-**What is still open, and why it is not simply filled.** Three punctures remain, and
-`fill_holes` cannot close them: it selects all 14 edges and adds 0 faces, because a loop that
-is closed once welded is not a closed loop of real edges in the split mesh. Filling them needs
-either a welded working copy or `edge_face_add` per loop.
-
-**The test.** `close_the_holes_round_the_waist` reports what it finds every build, and
-protects the openings that should stay open by size and closedness alone — the jacket's zip
-is an open chain and the collar is 38 vertices, so neither can be caught by a cap of eight.
-
-## Four passes spent reshaping a shoe that was already right
-
-**What you see.** "The shoes are very bulky." Slimmed. "The shoes are still bulky." Slimmed
-again, to a real foot's proportions. "These are not shoes." Subdivided and reshaped. "Both look
-like UGGs." Then: *"Do whatever you did for the old animation, those were perfect."*
-
-**What it actually was.** The shoes were fine as delivered. Every pass made them worse, and the
-last one turned a chunky trainer into a moccasin. Restored to as-delivered on request.
-
-**Why it went four rounds.** Two separate failures, and the second is the expensive one.
-
-*The shoe was measured against the wrong reference, every time.* 31.7 cm long is 18.6% of
-standing height where an adult foot is 15%, so it was slimmed. The sole was 11% of the shoe's
-length where a trainer's is 7-8%, so it was thinned. There was no toe spring where a real shoe
-has 1-2 cm, so one was added. **Every one of those numbers is correct and every one of them was
-beside the point.** This is a stylised chunky trainer: a blunt full toe box on a thick slab
-sole IS the design, and a toe spring and a taper are precisely what sand it off. Judged against
-an anthropometric table it improved at every step. Judged by how it reads it got worse at every
-step, and only the second one counts. Rendering all six states side by side, textured, on one
-sheet showed it in about two seconds - which is what should have been done at the *first*
-report, not the fourth.
-
-*Nobody checked which shoe was being looked at.* `Ranger-Walk.glb` and `Ranger-Run.glb` each
-carry their own copy of the character, and its shoes are genuinely shapeless - the build takes
-only the animation off those files, so that mesh never ships, but a viewer built from one shows
-it. `gait_watch_Ranger-Walk_preset:biped:walk.blend` is exactly such a viewer, and the refresh
-loop cannot update it because the clip name it is keyed to does not exist in the built asset.
-For several rounds one side was reporting on one mesh and the other was measuring a different
-one, and neither said so.
-
-**The principle.** *Confirm which object is being looked at before changing any of them, and
-put the history on one sheet before the second attempt.* A second report of the same fault is
-evidence the model of the problem is wrong, not that the fix was too timid.
-
-**What was kept, and it is worth keeping.**
-
-`look_at_him.py` gains **`LOOK_CLAY=1`**, which strips every material to plain grey, and
-`LOOK_ONLY` / `LOOK_CLIP` / `LOOK_FRAME` to pick shots and pose the rig. All nineteen existing
-shots were textured and in the rest pose. **A textured render cannot show form** - the paint
-hides the shape it is painted on - which is most of why this took so long to see.
-
-`prepare_rig.subdivide_these` fixes a real and silent bug. Setting `poly.select` in object mode
-and entering edit mode does not carry the selection: measured, 226 faces selected became 7139,
-so `bpy.ops.mesh.subdivide` cut the **whole body**. That is also what happened to
-`add_room_where_it_tears` when it "took the body from 7578 to 18532 vertices and tearing did
-not fall" - it never cut the 121 polygons it named, so the conclusion recorded against it came
-from a different experiment than the one described. Faces are now picked through bmesh inside
-edit mode and `it_only_cut_what_was_asked_for` refuses if the mesh grew by more than the region
-could account for.
-
-`prepare_rig.reshade` rebuilds custom split normals over a changed region. Subdividing is
-geometrically exact here - measured, the 1234 new vertices sat 0.000 cm off the original
-surface - but this mesh has no connectivity to smooth across, so those normals carry all of the
-smooth shading, and interpolating a field authored for one topology across a finer one gives
-mush. That produced a "melted, lobed" shoe that looked like a shaping fault and was not.
-
-**And a diagnosis believed on one test that had not run.** The first attempt to rule the
-normals out wrote zero vectors instead of removing the layer; the render came back unchanged
-and that was read as "not the normals". Removing the layer properly made the subdivided shoe
-and the original pixel-alike. *Check that a negative test actually did the thing it claims to
-have done.*
-
-**The test.** None guards the shoe's look, and none can - it is a judgement. What guards the
-process is `LOOK_CLAY`, and the rule that a fault reported twice gets a contact sheet of every
-state it has been in rather than a fifth guess.
-
-**Still standing, and separate from all of the above.** `slim_the_shoes.py` and `shoe_form.py`
-remain in the tree, uncalled, each with this written at the top. The measurements in them are
-true and were expensive: the shoe is **64 welded vertices** (not the 190 an audit prints, which
-is the split count, since glTF splits a vertex at every UV seam and hard edge), and the laces,
-midsole and heel tab are all painted onto it. If that shoe ever does need rebuilding rather
-than tuning, that is the number that says so.
 
 ## Keeping this honest
 

@@ -20,6 +20,16 @@ use crate::util::facing_quat;
 use crate::world::terrain::TerrainSource;
 use crate::world::WorldBounds;
 
+// # EVERY NUMBER BELOW WAS MEASURED OFF A CHARACTER THAT NO LONGER EXISTS
+//
+// The ranger's mesh, rig and clips were deleted on 2026-08-24 to be replaced from new source
+// files. `covers`, the frame counts, the leg-length correction and the speed tiers are all
+// facts about THAT character's animation, and on a different one they are somebody else's
+// stride. They are kept because they show the SHAPE of what has to be re-derived - which
+// quantities matter and how they relate - not because any of them is still true.
+//
+// Re-measure before trusting one. The clip tests read the model file and `.expect()` it, so
+// they panic rather than quietly passing; that is deliberate.
 /// MEASURED 2026-08-23: the hip socket sits at 85.2 cm on a 170.2 cm figure, which is
 /// 50.1% - dead in the adult human 50-52% band. The '45%' below is WRONG and it misled
 /// hours of tuning, because it made every reach limit look anatomical and therefore

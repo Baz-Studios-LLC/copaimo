@@ -38,6 +38,16 @@ use crate::player::{Player, Striding};
 #[allow(dead_code)]
 const BREAKS_INTO_A_RUN: f32 = 3.4;
 
+// # EVERY NUMBER BELOW WAS MEASURED OFF A CHARACTER THAT NO LONGER EXISTS
+//
+// The ranger's mesh, rig and clips were deleted on 2026-08-24 to be replaced from new source
+// files. `covers`, the frame counts, the leg-length correction and the speed tiers are all
+// facts about THAT character's animation, and on a different one they are somebody else's
+// stride. They are kept because they show the SHAPE of what has to be re-derived - which
+// quantities matter and how they relate - not because any of them is still true.
+//
+// Re-measure before trusting one. The clip tests read the model file and `.expect()` it, so
+// they panic rather than quietly passing; that is deliberate.
 /// How far one cycle of each clip carries the warden, in metres.
 ///
 /// # Measured off the planted SOLE of the shipped clips, not derived
