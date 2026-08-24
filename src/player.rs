@@ -63,8 +63,9 @@ use crate::world::WorldBounds;
 /// (v²/gL, leg 0.90 m), and the walk-to-run transition sits at Fr ≈ 0.5 — so a real
 /// human at the old "walk" speed would already have broken into a run.
 ///
-/// The walk CLIP natively carries 0.93 m/s, played at 1.00x - nothing stretches,
-/// 120 steps a minute, mid the 90-140 band.
+/// The walk CLIP natively carries 1.07 m/s, played at 1.00x - nothing stretches.
+/// Measured on the clip delivered 2026-08-24: 2.542 m of travel over 2.375 s, which is
+/// the one speed at which its feet do not slide.
 ///
 /// That is a deliberate amble rather than a brisk walk, and it is the price of
 /// keeping him upright. A planted foot pins the hip to sqrt(reach^2 - ahead^2) above the
@@ -76,7 +77,7 @@ use crate::world::WorldBounds;
 /// MISMEASUREMENT - a thigh-plus-calf bone chain against the hip-to-floor landmark humans are
 /// quoted on. Measured on the same landmark for both, this leg is 50.1% and entirely ordinary.
 /// Walking is the deliberate slow mode here anyway; the default pace is the jog.
-pub const WALK_SPEED: f32 = 0.93;
+pub const WALK_SPEED: f32 = 1.07;
 
 /// The default pace, in metres a second. A jog, and the speed the game is actually played at.
 ///
@@ -106,7 +107,15 @@ pub const WALK_SPEED: f32 = 0.93;
 /// carrying 2.496 m turns the legs over about 284 steps a minute. The answer is not this number
 /// and not a longer authored stride - it is stride warping, which buys speed from stride LENGTH
 /// instead of tempo. See `docs/animation.md`.
-pub const JOG_SPEED: f32 = 5.90;
+// Re-measured 2026-08-24 against the delivered run: 4.964 m per cycle over 1.0333 s is
+// 4.80 m/s, and that is the speed at which the clip plays at 1.00x with nothing stretched and
+// nothing sliding. It was 5.90, chosen for a clip that no longer exists, and asking this one for
+// 5.90 is a 23% stride stretch that lands just under the jog cadence band.
+//
+// This is SLOWER than before by about a fifth. Stride warping can buy it back - `STRIDE_WARPS_TO`
+// allows 1.25x, so this clip can serve up to 6.0 m/s - but that is a feel decision rather than a
+// measurement, and the measured value is the honest default.
+pub const JOG_SPEED: f32 = 4.80;
 
 /// A sprint, in metres a second. Held on Shift.
 ///
@@ -133,7 +142,11 @@ pub const JOG_SPEED: f32 = 5.90;
 /// cycle, but foot slide went from 0.106 to 0.178 and 0.247 - the extra sweep is past what the
 /// leg can reach, so the floor solve drags the foot to cover it. That is an argument about a
 /// stride baked into a clip, not about one warped at runtime with a hip drop underneath it.
-pub const SPRINT_SPEED: f32 = 7.40;
+// The ceiling the run clip can actually serve: 4.80 m/s native times the 1.25x
+// `motion::STRIDE_WARPS_TO` allows. It was 7.40, which on this clip is a 1.54x playback - the
+// blurred legs the pacing guards exist to catch. No sprint clip was delivered, so nothing above
+// this has an animation behind it.
+pub const SPRINT_SPEED: f32 = 6.00;
 
 /// How fast the warden swivels to face the way they're heading, in radians/sec.
 const TURN_RATE: f32 = 12.0;

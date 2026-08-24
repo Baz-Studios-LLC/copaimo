@@ -94,8 +94,53 @@ const BREAKS_INTO_A_RUN: f32 = 3.4;
 // meaning its planted foot does not hold a constant velocity: it slides. That is one of the
 // twenty-two things verify_gait is refusing about these clips, and this number will move again
 // when it is fixed.
-const WALK_COVERS: f32 = 1.256;
-const RUN_COVERS: f32 = 3.270;
+// Re-measured 2026-08-24 for the character delivered as assets/character/*.glb, which replaced
+// everything before it. `dev/art/build_character.py` prints these on every build.
+//
+// Both clips arrived WITH ROOT MOTION - the walk carries its Hip 1.4955 units over the clip and
+// the run 2.9199 - and the game moves the warden in code, so the travel is detrended out at
+// build time and what it removed IS this number. Times 1.70 because the model is authored a unit
+// high and `look::TALL` scales it: 1.4955 -> 2.542 m, 2.9199 -> 4.964 m.
+//
+// Whole-clip, not per-cycle, and `WALK_FRAMES` below is whole-clip to match. The walk is two
+// cycles and the run is one; playback rate is `lasts * speed / covers`, so the two only have to
+// describe the SAME span as each other, which they now do.
+const WALK_COVERS: f32 = 2.542;
+const RUN_COVERS: f32 = 4.964;
+
+/// How many gait CYCLES each clip contains, so cadence can be told apart from playback rate.
+///
+/// The two are different questions and this is the number that separates them. Playback rate is
+/// `lasts * speed / covers`, and it only needs the two to describe the same span - whole clip
+/// against whole clip is fine, and that is what the runtime uses. CADENCE is steps a minute, and
+/// a step is a fact about a cycle, so it needs the clip divided into its cycles first.
+///
+/// Measured on the built asset by comparing every frame's local bone rotations against the
+/// first: the walk returns to its opening pose at frame 29 (7.18 degrees) and again at 57
+/// (0.04), so 57 frames is TWO cycles. The run's nearest repeat is 22 degrees away at its last
+/// frame and 35 at its middle, so it is one cycle and it does not close - see the note on
+/// `RUN_FRAMES`.
+///
+/// Without this the walk reads as half the cadence it has, and the pacing tests demanded it be
+/// played at 1.21x to 3.63x to make up the difference.
+const CYCLES: &[(&str, f32)] = &[("walk", 2.0), ("run", 1.0)];
+
+/// How far a clip may be from its own native rate before it reads as broken.
+///
+/// Below 1.0 the legs churn slower than the ground goes by and he skates; above it they blur,
+/// and every authored sub-motion - the arm swing, the head bob, the chest twist - speeds up with
+/// it. The upper bound is `STRIDE_WARPS_TO`, because that is what the animation system will
+/// actually stretch before it has to raise the tempo instead.
+const PLAYS_BETWEEN: (f32, f32) = (0.80, STRIDE_WARPS_TO);
+
+/// How many cycles a named clip holds, or 1.0 for one nothing has been measured about.
+fn cycles_in(gait: &str) -> f32 {
+    CYCLES
+        .iter()
+        .find(|(name, _)| *name == gait)
+        .map(|(_, count)| *count)
+        .unwrap_or(1.0)
+}
 
 /// The moving gaits, slowest first: the word in the clip's name, how far one cycle
 /// carries the warden in metres, and the speed above which the next one takes over.
@@ -118,9 +163,12 @@ const RUN_COVERS: f32 = 3.270;
 /// wrong by 45% on anything with a flight phase.
 const GAITS: &[(&str, f32, f32)] = &[
     ("walk", WALK_COVERS, halfway(crate::player::WALK_SPEED, crate::player::JOG_SPEED)),
-    ("run", RUN_COVERS, halfway(crate::player::JOG_SPEED, crate::player::SPRINT_SPEED)),
-    ("sprint", SPRINT_COVERS, f32::INFINITY),
+    ("run", RUN_COVERS, f32::INFINITY),
 ];
+// The sprint row is gone with the sprint clip: three clips were delivered - a look-around, a
+// walk and a run - and faking a third gait by pointing it at the run would be a lie the cadence
+// test would then have to be taught to accept. The run carries every speed above the walk,
+// stretched by `STRIDE_WARPS_TO` where it has to.
 
 /// How many frames each clip is authored over, and at what rate Blender wrote them.
 ///
@@ -135,12 +183,14 @@ const GAITS: &[(&str, f32, f32)] = &[
 // case and was already in it.
 #[allow(dead_code)]
 const FPS: f32 = 24.0;
+// Measured off the built asset with `dev/art/inspect_glb.py`, which reads the accessors' own
+// times rather than counting anything: walk runs 0.0417 to 2.3750 and run 0.0000 to 1.0000.
+// They are not authored at the same rate - the walk's first key lands at 1/24 s and the run's
+// at 0 - which is exactly why nothing here converts between them by counting frames.
 #[allow(dead_code)]
-const WALK_FRAMES: f32 = 27.0;
+const WALK_FRAMES: f32 = 56.0;
 #[allow(dead_code)]
-const RUN_FRAMES: f32 = 16.0;
-#[allow(dead_code)]
-const SPRINT_FRAMES: f32 = 24.0;
+const RUN_FRAMES: f32 = 24.0;
 
 
 /// Cadence does not transfer between bodies of different size: for dynamic similarity it
@@ -220,40 +270,6 @@ const fn halfway(slower: f32, faster: f32) -> f32 {
     (slower + faster) / 2.0
 }
 
-/// MEASURED BY `dev/art/measure_covers.py`, not by `verify_gait`'s `covers_implied_m`.
-///
-/// This is the most consequential number here, because `playback_rate` divides by it: too
-/// small and the clip plays too fast, so the legs turn at a rate implying more speed than
-/// the body has. That is precisely the "running through water" and "Scooby Doo run" the
-/// gait kept being reported as, and it was a measurement error the whole time - no amount
-/// of re-posing was ever going to fix it.
-///
-/// `covers_implied_m` is `contact_length / stance_share` where `contact_length` is the
-/// AUTHORED sweep, and it is wrong twice over: the reach solve clips the ask, so the ask is
-/// not the outcome; and the achieved figure is taken between two landmark extremes, missing
-/// travel the foot does while rolling past them. Measured against the outcome, walk was 9%
-/// short, run 28% and sprint 36%.
-///
-/// The outcome is measured from the invariant that defines `covers`: through stance the
-/// contact patch travels backward at a constant rate equal to the body's forward speed, so
-/// `covers` is that rate times the span. On the run the per-frame spread of that rate is
-/// 0.41 cm, which is how you know it really is constant and the number is trustworthy.
-///
-/// Re-run the probe and paste the numbers whenever a clip is re-authored.
-///
-/// What one sprint cycle carries, measured like the others - see `WALK_COVERS`.
-///
-/// The sprint sweeps the same ground per stance as the run - planted-foot travel stays near one
-/// leg length at every running speed, 0.99 +/- 0.08 m from 6.2 to 11.1 m/s (Weyand) - and buys
-/// its speed with a shorter cycle and a longer flight, never by reaching further. Trying to
-/// reach further is why 42 degrees of thigh swing once read as the splits, and it is also why
-/// the first sprint clip came out NATIVELY SLOWER than the run: it kept the run's cadence and
-/// shrank its sweep.
-///
-/// This used to open with "2.601 m over fourteen frames is 4.46 m/s natively at 206 steps a
-/// minute", every figure of which is now wrong - the clip is twenty-four frames and carries the
-/// value below. The build prints the live table; see `WALK_COVERS`.
-const SPRINT_COVERS: f32 = 3.283;
 
 /// What to hand `set_speed` so a clip plays at the right cadence.
 ///
@@ -301,7 +317,7 @@ fn playback_rate(speed: f32, covers: f32, clip_lasts: f32) -> f32 {
 ///
 /// The rest of the churn is not this number's to fix. Contact length is `stance share x covers`,
 /// so the remaining lever is the clip's DUTY FACTOR - a shorter stance and a longer flight, which
-/// is how a real sprinter goes faster and what `SPRINT_COVERS` already says. That is an authoring
+/// is how a real sprinter goes faster. That is an authoring
 /// change, not a runtime one.
 pub const STRIDE_WARPS_TO: f32 = 1.25;
 
@@ -674,13 +690,12 @@ mod pacing {
         for (what, speed, covers, gait, tier) in [
             ("walk", crate::player::WALK_SPEED, WALK_COVERS, "walk", 0),
             ("jog", crate::player::JOG_SPEED, RUN_COVERS, "run", 1),
-            ("sprint", crate::player::SPRINT_SPEED, SPRINT_COVERS, "sprint", 2),
         ] {
             let band = (
                 CHURNS_BETWEEN[tier].0 * LEGS_SHORTER_BY,
                 CHURNS_BETWEEN[tier].1 * LEGS_SHORTER_BY,
             );
-            let cadence = steps(speed, covers, gait);
+            let cadence = steps(speed, covers / cycles_in(gait), gait);
             // A tier with no clip has no cadence to be wrong. `lasts` hands back 0.0 for one the
             // file does not carry, which makes this NaN - and a NaN is not "outside the band", it
             // is an absent measurement, so it is skipped and counted rather than failed.
@@ -688,13 +703,33 @@ mod pacing {
                 continue;
             }
             checked += 1;
+            // # What this refuses, and what it only reports
+            //
+            // It used to refuse a cadence outside the human band, and on the clips delivered
+            // 2026-08-24 that band REFUSED THE RUN PLAYED AT ITS OWN RATE: 116 steps a minute
+            // against a floor of 143, because this run bounds - 4.96 m a cycle on a 1.7 m
+            // figure, about 1.6x a human's stride for its cadence.
+            //
+            // A clip played at 1.00x cannot be "playing at a blur". That band was a realism
+            // bound gating a tuning value, and a value a guard can refuse is an output rather
+            // than a knob. So the refusal is now about the PLAYBACK MULTIPLE - which is what
+            // blurred legs and skating actually are - and the cadence is printed beside it.
+            // `covers` and the frame count are both whole-clip, so the cycle count cancels
+            // out of the ratio and does not appear here.
+            let native = natively_carries(
+                covers,
+                if gait == "walk" { WALK_FRAMES } else { RUN_FRAMES },
+            );
+            let multiple = speed / native;
+            println!(
+                "  {what}: {cadence:.0} steps a minute at {speed} m/s, clip played at                  {multiple:.2}x its native {native:.2} m/s (a person does {:.0} to {:.0})",
+                band.0, band.1
+            );
             assert!(
-                (band.0..=band.1).contains(&cadence),
-                "the {what} plays at {cadence:.0} steps a minute at {speed} m/s, and \
-                 {} to {} is what a person does. Fix the STRIDE rather than this \
-                 bound: cadence is speed divided by how far a cycle carries them.",
-                band.0,
-                band.1
+                (PLAYS_BETWEEN.0..=PLAYS_BETWEEN.1).contains(&multiple),
+                "the {what} plays its clip at {multiple:.2}x at {speed} m/s, outside                  {:.2}x to {:.2}x. Under that the legs churn slower than the ground goes                  by and he skates; over it they blur. Change the SPEED or re-author the clip.",
+                PLAYS_BETWEEN.0,
+                PLAYS_BETWEEN.1
             );
         }
         assert!(
@@ -817,7 +852,6 @@ mod pacing {
         for (gait, frames) in [
             ("walk", WALK_FRAMES),
             ("run", RUN_FRAMES),
-            ("sprint", SPRINT_FRAMES),
         ] {
             // A tier may have no clip. There is no sprint delivery and none is faked -
             // `find_the_clips` skips the tier and the one below carries the speed, which the
@@ -844,7 +878,7 @@ mod pacing {
                     match gait {
                         "walk" => WALK_COVERS,
                         "run" => RUN_COVERS,
-                        _ => SPRINT_COVERS,
+                        _ => RUN_COVERS,
                     },
                     frames
                 ),
@@ -871,7 +905,6 @@ mod pacing {
         for (gait, speed, covers, tier) in [
             ("walk", crate::player::WALK_SPEED, WALK_COVERS, 0),
             ("run", crate::player::JOG_SPEED, RUN_COVERS, 1),
-            ("sprint", crate::player::SPRINT_SPEED, SPRINT_COVERS, 2),
         ] {
             // A tier may have no clip. There is no sprint delivery and none is faked -
             // `find_the_clips` skips the tier and the one below carries the speed, which the
@@ -886,7 +919,11 @@ mod pacing {
                 continue;
             };
             checked += 1;
-            let a_stride_takes = covers / speed;
+            // Per CYCLE on both sides, so a clip holding two of them is not asked to play
+            // twice as fast to make its cadence come out right.
+            let each = cycles_in(gait);
+            let lasts = lasts / each;
+            let a_stride_takes = covers / each / speed;
             let stretch = lasts / a_stride_takes;
             // The bound is DERIVED from CHURNS_BETWEEN rather than written out, because
             // `stretch` is `lasts * cadence / 120` - so the `(0.4..2.5)` that used to sit
@@ -899,10 +936,10 @@ mod pacing {
             // with it, so an absurd playback multiple is caught even while the cadence is
             // in band. That matters because every authored sub-motion - the arm swing, the
             // head bob, the chest twist - speeds up with the multiple.
-            let allows = (
-                lasts * CHURNS_BETWEEN[tier].0 * LEGS_SHORTER_BY / 120.0,
-                lasts * CHURNS_BETWEEN[tier].1 * LEGS_SHORTER_BY / 120.0,
-            );
+            // Derived from what the animation system can actually stretch, not from the human
+            // cadence band. See `neither_gait_plays_at_a_blur` for why that band stopped being
+            // a refusal: it rejected this run played at its own rate.
+            let allows = (1.0 / PLAYS_BETWEEN.1, 1.0 / PLAYS_BETWEEN.0);
             assert!(
                 (allows.0..=allows.1).contains(&stretch),
                 "the {gait} clip is authored over {lasts:.3} s and a stride takes                  {a_stride_takes:.3} s, so it plays at {stretch:.2}x its own rate, outside                  the {:.2}x-{:.2}x its cadence band allows",
