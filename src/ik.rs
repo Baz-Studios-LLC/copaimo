@@ -557,7 +557,15 @@ pub fn plant_the_feet(
     // Forward, from the warden's own facing — never from the pose. On a bind 99.9% extended the
     // knee's offset from the hip-to-ankle line is a rounding error, so a solver left to infer
     // the fold direction would sometimes fold the knee backwards.
-    let forward = standing.rotation * Vec3::Z;
+    //
+    // NEG_Z, and this cost a round of backwards knees in the game. `util::facing_quat` is the
+    // authority and says so plainly: the rotation it produces "is applied to a model whose front
+    // is -Z". Passing `Vec3::Z` put the pole BEHIND the warden, and a pole behind the knee admits
+    // exactly one solution - the knee folding the wrong way. Anatomically the pole belongs in
+    // front, which is what dev/art/ik_gait.py does on the authoring side: it puts the pole "well
+    // in FRONT of the knee, at hip height, so the only solution it admits is a knee pointing
+    // forward".
+    let forward = standing.rotation * Vec3::NEG_Z;
 
     for (slot, (leg, (hip, knee, ankle))) in sides.into_iter().enumerate() {
         let put = plant_one(hip, knee, ankle, grounds[slot], feet_at, dropped, forward);
@@ -756,6 +764,12 @@ mod tests {
         }
     }
 
+    /// Forward IN THIS FIXTURE'S OWN FRAME, which is Y-up and +Z-forward because the solver is
+    /// frame-agnostic and a self-contained frame makes the arithmetic readable.
+    ///
+    /// NOT the game's convention: a warden's front is -Z, per `util::facing_quat`. Labelled
+    /// because confusing the two is what shipped backwards knees, and a bare `Vec3::Z` named
+    /// `FORWARD` sitting near that code is an invitation to make the same mistake twice.
     const FORWARD: Vec3 = Vec3::Z;
 
     #[test]
@@ -1065,6 +1079,63 @@ mod tests {
                 ankle.y,
                 ground
             );
+        }
+    }
+
+    /// A KNEE FOLDS FORWARD, whichever way the warden is facing.
+    ///
+    /// This shipped backwards. The fold direction is handed to the solver as a world-space pole,
+    /// and it was `Vec3::Z` where `util::facing_quat` — the authority on which way a warden
+    /// faces — says the rotation it produces "is applied to a model whose front is -Z". A pole
+    /// BEHIND the knee admits exactly one solution, and it is the wrong one.
+    ///
+    /// Tested at four headings and against `facing_quat` itself rather than a written-down axis,
+    /// because a hard-coded axis in the test is how the code's hard-coded axis went unnoticed.
+    /// The property is anatomical: the knee sits on the forward side of the hip-to-ankle line,
+    /// which is what a knee does.
+    #[test]
+    fn a_knee_folds_forward_whichever_way_the_warden_faces() {
+        use crate::util::facing_quat;
+        use crate::world::terrain::Terrain;
+
+        let terrain = Terrain::new();
+        let spot = Vec3::new(300.0, terrain.height(300.0, 180.0), 180.0);
+        for heading in [
+            Vec3::new(0.0, 0.0, -1.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            Vec3::new(-0.6, 0.0, 0.8).normalize(),
+        ] {
+            let (mut app, warden) = a_warden_standing_at(spot);
+            let turn = facing_quat(heading).expect("a heading off the vertical");
+            app.world_mut().entity_mut(warden).insert(
+                Transform::from_translation(spot).with_rotation(turn),
+            );
+            run_for(&mut app, 40);
+            let legs = *app.world().entity(warden).get::<Legs>().expect("legs");
+
+            for (name, leg) in [("left", legs.left), ("right", legs.right)] {
+                let at = |entity: Entity| {
+                    app.world()
+                        .entity(entity)
+                        .get::<GlobalTransform>()
+                        .expect("propagated")
+                        .translation()
+                };
+                let (hip, knee, ankle) = (at(leg.thigh), at(leg.calf), at(leg.foot));
+                let line = (ankle - hip).normalize_or_zero();
+                let out = (knee - hip) - line * (knee - hip).dot(line);
+                assert!(
+                    out.length() > 1e-4,
+                    "{name} knee sits on the hip-to-ankle line, so it has not folded at all"
+                );
+                assert!(
+                    out.normalize().dot(heading) > 0.7,
+                    "{name} knee folded {:?} while the warden faces {heading:?} - a knee bends \
+                     FORWARD, and this is the backwards-knee bug",
+                    out.normalize()
+                );
+            }
         }
     }
 
