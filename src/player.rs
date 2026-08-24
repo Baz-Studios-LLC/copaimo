@@ -57,69 +57,73 @@ use crate::world::WorldBounds;
 /// 120 steps a minute, mid the 90-140 band.
 ///
 /// That is a deliberate amble rather than a brisk walk, and it is the price of
-/// keeping him upright. His legs are 45% of his height where a person's are 52%, and
-/// a planted foot pins the hip to sqrt(reach^2 - ahead^2) above the ankle, so every
-/// extra centimetre of stride is paid for in crouch. The hip is capped at 6 cm of
-/// drop (ik_gait.HIP_DROPS_AT_MOST) and the stride is whatever fits under that cap.
+/// keeping him upright. A planted foot pins the hip to sqrt(reach^2 - ahead^2) above the
+/// ankle, so every extra centimetre of stride is paid for in crouch, and the stride is
+/// whatever fits under `ik_gait.HIP_DROPS_AT_MOST`.
+///
+/// This used to add "his legs are 45% of his height where a person's are 52%", and to quote
+/// that cap as 6 cm. Both are wrong now: the cap is 0.024 model units, and the 45% was a
+/// MISMEASUREMENT - a thigh-plus-calf bone chain against the hip-to-floor landmark humans are
+/// quoted on. Measured on the same landmark for both, this leg is 50.1% and entirely ordinary.
 /// Walking is the deliberate slow mode here anyway; the default pace is the jog.
 pub const WALK_SPEED: f32 = 0.93;
 
-/// The default pace, in metres a second. A jog.
+/// The default pace, in metres a second. A jog, and the speed the game is actually played at.
 ///
-/// Comparable figures: Palworld's default is 3.50, Unity's third-person sprint 5.34,
-/// Epic's own authored run 5.00.
+/// 5.90, which is what SPRINT_SPEED used to be. The sprint's pace became the default because
+/// the sprint is not going to be a constantly available thing, so the speed the player spends
+/// their time at should be the one that felt right to move at.
 ///
-/// The RUN clip at 200 steps a minute exactly, the top of the 150-200 band a person
-/// runs at. Derived, not chosen: cadence is speed over covers, so 200 x 1.626 / 120
-/// is the fastest this clip may be asked to carry.
+/// A KNOB, chosen by feel. Worth stating plainly, because this comment used to argue the
+/// opposite at length - "the jog is AT its ceiling", "it cannot be faster without either
+/// skating or leg-blur" - and every prop under that argument has since gone:
 ///
-/// The old 3.48 was tuned against clips whose feet skated. On honest planted soles it
-/// demanded leg-blur cadence, and since the stride is measured and already at what the
-/// legs allow, the ask is what came down.
+/// * the cadence band stopped gating speed. See `motion::halfway`: once selection read INTENT
+///   rather than a measured velocity, each tier carries exactly one speed and a ceiling bounds
+///   nothing. Pinning the driven speed just under a human cadence limit is what made the jog
+///   feel slow in the first place - the speed was never a choice, it was whatever a band allowed.
+/// * the clip does not cover 1.541 m. Measured properly by `dev/art/measure_covers.py` it
+///   carries 2.496, and the old figure being 28% short is what read as running through water.
+/// * the leg was not the constraint. "Reach on a 45%-of-height leg" was a MISMEASUREMENT: a
+///   thigh-plus-calf bone chain compared against the hip-to-floor landmark human figures are
+///   quoted on. On the same landmark for both, this leg is 50.1% - ordinary.
 ///
-/// 2.74, up from 2.71, and that is the whole of it - the jog is AT its ceiling.
+/// Comparable figures: Palworld's default is 3.50, Unity's third-person sprint 5.34, Epic's own
+/// authored run 5.00. This sits above all three deliberately - the world is large and the
+/// touchstone for movement is Genshin, not a person.
 ///
-/// Asked to be faster, and it cannot be without either skating or leg-blur. The clip
-/// covers 1.541 m and the running band tops out at 213 steps a minute for this leg (see
-/// SPRINT_SPEED for the scaling), so 1.541 x 213 / 120 = 2.74 m/s is the most it can
-/// carry. Lengthening the stride was measured instead of assumed: RUN_CONTACT at 0.34,
-/// 0.352 and 0.36 delivered 1.575, 1.564 and 1.579 m - it does not grow, because reach on
-/// a 45%-of-height leg is the binding constraint. Going faster here needs the LEG, not
-/// this number.
-pub const JOG_SPEED: f32 = 3.70;
+/// What it costs is CADENCE, and that cost is real rather than theoretical: 5.90 against a clip
+/// carrying 2.496 m turns the legs over about 284 steps a minute. The answer is not this number
+/// and not a longer authored stride - it is stride warping, which buys speed from stride LENGTH
+/// instead of tempo. See `docs/animation.md`.
+pub const JOG_SPEED: f32 = 5.90;
 
 /// A sprint, in metres a second. Held on Shift.
 ///
-/// EXACTLY the sprint clip's native 4.46 m/s (2.601 m a cycle over 0.583 s, 206
-/// steps a minute): Shift plays it at 1.00x, nothing stretches, nothing skates -
-/// a real 37% jump over the default pace.
+/// 7.40 - a quarter again on top of the jog, and deliberately a modest gap. The sprint is
+/// meant to become a limited resource rather than a speed held down forever, so its job is to
+/// feel like a burst on top of a pace that is already quick. A large gap would make the jog
+/// feel like the slow option again, which is the fault this whole change is undoing.
 ///
-/// The old 5.21 predates a working sprint clip: it was picked against an ASPIRATIONAL
-/// covers of 3.477 for a clip that had never been authored, and on the real one it
-/// demanded 250 steps a minute, which is leg-blur. If Shift needs to be faster one
-/// day, the clip must cover more ground first - longer flight or a 12-frame cycle -
-/// and this constant then follows the new measurement, never the other way round.
+/// Two claims that used to live here and are no longer true:
 ///
-/// 5.60, up from 4.46, and it follows a measurement exactly as that says it must - just
-/// not the one expected. The clip's stride did not change; the BAND it was judged against
-/// was wrong twice over.
+/// "EXACTLY the sprint clip's native 4.46 m/s, so Shift plays it at 1.00x, nothing stretches,
+/// nothing skates." The clip carries 3.283 m over 1.042 s, so its native pace is 3.15 m/s, and
+/// nothing but the walk is played at 1.00x. `animate_ranger::report_the_native_speeds` prints
+/// the real table on every asset build rather than it being restated in prose.
 ///
-/// 1. It was being held to 170-215 steps a minute, which is a RUNNING cadence. Sprinting
-///    is 220-260. Judging a sprint by a run's band is what made 4.46 look like the
-///    ceiling when it was below the floor.
-/// 2. Cadence does not transfer between bodies of different size. For dynamic similarity
-///    it scales as 1/sqrt(leg), and this leg is 78.35 cm against a human 88.9, a factor of
-///    1.065. So the human 220-260 becomes 234-277 here.
+/// "If Shift needs to be faster one day, the clip must cover more ground first, and this
+/// constant then follows the new measurement, never the other way round." That was right while
+/// the only ways to buy speed were a longer clip or a faster playback rate. There is a third,
+/// and it is the standard one: stride warping. Speed comes from stride LENGTH at runtime, with
+/// IK behind the feet and the hips dropping to pay for the reach.
 ///
-/// At 2.435 m a cycle that band carries 4.76 to 5.62 m/s, so 4.46 was under-driven. 5.60
-/// sits just inside the top.
-///
-/// Growing the stride WAS tried first, as the note above demands. SPRINT_CONTACT at 1.5x
-/// and 1.8x of the run's bought 2.736 and 2.836 m a cycle - but slide went from 0.106 to
-/// 0.178 and 0.247, four to six times the jog's, because the extra sweep is past the leg's
-/// reach and the floor solve drags the foot to cover it. Skating feet is the exact fault
-/// that brought the old 5.21 down, so the stride stayed and the band was corrected.
-pub const SPRINT_SPEED: f32 = 5.90;
+/// The measurement against lengthening the AUTHORED stride still stands and is still the reason
+/// not to do that: SPRINT_CONTACT at 1.5x and 1.8x of the run's bought 2.736 and 2.836 m a
+/// cycle, but foot slide went from 0.106 to 0.178 and 0.247 - the extra sweep is past what the
+/// leg can reach, so the floor solve drags the foot to cover it. That is an argument about a
+/// stride baked into a clip, not about one warped at runtime with a hip drop underneath it.
+pub const SPRINT_SPEED: f32 = 7.40;
 
 /// How fast the warden swivels to face the way they're heading, in radians/sec.
 const TURN_RATE: f32 = 12.0;
