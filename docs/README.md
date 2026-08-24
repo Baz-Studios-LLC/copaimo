@@ -42,3 +42,9 @@ worth acting on.
 
 These are the project's record. The library here is the *outside world's* record, which is a
 different thing and shorter than it should have been.
+
+## The plan this feeds
+
+`character-pipeline.md` is the ordered work: eleven stages from the character as delivered to
+one that ships, each grounded in a measurement of the asset that is actually in the repo rather
+than in a general principle. The rest of this folder is the reference it draws on.
