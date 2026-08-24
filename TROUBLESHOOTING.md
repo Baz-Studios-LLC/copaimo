@@ -2215,16 +2215,22 @@ that the footprint is correct is not evidence about the shoe; it is evidence abo
 footprint. When something measures right and still reads wrong, the next move is a
 measurement on a **different axis**, not a tighter tolerance on the same one.
 
-**The constraint that decided the fix, and it was measured.** An earlier note in that file
-said scaling vertically would drop the shoe below the ankle bone. The real constraint is
-worse:
+**A claim made here that was wrong, kept because the mistake is the useful part.** This entry
+first said the collar could not be lowered:
 
     the leg mesh (L_CalfTwist02) starts at 9.7 cm; the shoe's rim tops out at 10.0
 
-The shoe swallows the bottom of the leg by **three millimetres**. Lower the collar by any
-useful amount and the leg ends in mid-air. So the shoe is thinned *from underneath* and the
-rim does not move at all. **The shoe's height above the sole is not available as a knob**
-without also building the leg downward.
+- so the shoe swallows the leg by three millimetres, and lowering the collar would leave the
+ankle ending in mid-air. **It would not.** 9.7 cm is where the leg's *ownership* changes hands,
+not where its surface stops. Welded, the shoe and the bottom of the leg are one closed shell of
+102 vertices with 25 edges joining them and **zero** open edges. There is no hole to expose.
+
+The false half came from `is_boundary` on a mesh where every vertex is split - which reports
+every edge as a boundary, and is therefore an answer to no question at all. *Weld before asking
+a topology question.* Positions survive a glTF export; connectivity does not.
+
+The shoe is still thinned from underneath, because that is where the sole is. It is just not
+forced.
 
 **The test.** `the_leg_stays_covered` refuses if the rim drops below the lowest leg vertex,
 reporting the margin per side every run (`L rim reaches +0.3 cm past the bottom of the leg`).
@@ -2235,6 +2241,59 @@ it, so a wide strap high on the ankle cannot fool the detector into squashing th
 **And there was no render of it.** `look_at_him.py` had nineteen shots and not one of the
 thing that had been reported wrong three times. It now has four shoe shots and a `LOOK_ONLY`
 filter.
+
+## "These are not shoes"
+
+**What you see.** Close up in the viewport, with no texture: a rounded wedge with a flat
+vertical cliff where the toe should be. Nothing that reads as a shoe.
+
+**What it actually was.** Welded, each shoe is **sixty-four vertices**. Not the 190 the audit
+prints - that is the split count, and glTF splits a vertex at every UV seam and every hard
+edge. Sixty-four cannot describe a shoe, and the texture was doing all the work: the laces, the
+midsole stripe and the heel tab are painted onto a blob. That is why three passes of tuning
+length, width and sole thickness got nowhere. **No scale factor applied to a blob makes a
+shoe.**
+
+**The tool that should have existed and did not.** `look_at_him.py` had nineteen shots, all
+textured. A textured render *cannot* show this - the paint hides the form it is painted on. It
+now has `LOOK_CLAY=1`, which replaces every material with plain grey. Anything about FORM gets
+looked at that way from now on.
+
+**What changed.** `dev/art/shoe_form.py`: subdivide the shoe's own faces, then add the three
+things a shoe has and this one measurably did not - a **toe spring** (the sole lifts 1.45 cm
+clear of the ground at the tip, where it was flat right into a cliff), a **toe taper**, and a
+**sole shelf**. It is not idempotent and does not pretend to be: it refuses if the toe already
+clears the ground, and the way back is git.
+
+**Two mechanical bugs found on the way, both silent.**
+
+*The selection did not survive the mode switch.* Setting `poly.select` in object mode and
+entering edit mode does not carry it in - measured, 226 faces selected in object mode became
+7139 in edit mode. `bpy.ops.mesh.subdivide` then cuts the **whole body**. This is what actually
+happened to `add_room_where_it_tears` when it "took the body from 7578 to 18532 vertices and
+tearing did not fall": it was never cutting the 121 polygons it named. The conclusion drawn
+from that experiment was about a different experiment. Faces are now picked through bmesh
+*inside* edit mode, and `it_only_cut_what_was_asked_for` refuses if the mesh grew by more than
+the region could account for.
+
+*The shoe came out melted, in lobes.* The obvious reading is that the shaping did it. Measured,
+subdivision is geometrically exact - the 1234 new vertices sat **0.000 cm** off the original
+surface and the old ones did not move at all - and the lobes were there with the shaping turned
+off entirely. It is the **custom split normals**: this mesh has no connectivity to smooth
+across, so those normals are the whole carrier of smooth shading, and interpolating a normal
+field authored for one topology across a finer one gives mush. `prepare_rig.reshade` rebuilds
+them over the changed region, welded by position and split past 40 degrees so real creases
+survive.
+
+**The principle.** *Two tests, not one, before believing a diagnosis.* The first attempt to
+clear the normals wrote zero vectors instead of removing the layer, the render came back
+unchanged, and that was read as "not the normals" - a wrong conclusion from a test that had not
+run. Removing the layer properly made the subdivided shoe and the original pixel-alike, which
+is what actually settled it.
+
+**The test.** `looks_like_a_shoe` refuses unless the toe clears the ground by 0.8 cm, the ball
+still touches it, and the toe is narrower than the ball - three statements about what a shoe
+is, none of them about the constants that produced it.
 
 ## Keeping this honest
 

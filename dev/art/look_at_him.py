@@ -34,6 +34,35 @@ mesh = prepare_rig.the_body()
 if os.environ.get("LOOK_RAW") != "1":
     prepare_rig.reach_the_ends(rig, mesh)
 
+# Clay: every material replaced with plain grey, so what is being looked at is the GEOMETRY.
+#
+# Added the day a shoe that renders with laces, a midsole and a heel tab turned out to be an
+# angular blob underneath - the texture was doing all the work, and a textured render could not
+# have shown that. Anything about FORM should be looked at this way.
+# Custom split normals dropped, to tell "the geometry is wrong" from "the geometry is being
+# LIT as a different shape". Diagnostic only - the asset keeps them.
+if os.environ.get("LOOK_NO_CUSTOM_NORMALS") == "1":
+    # The operator, not normals_split_custom_set([(0,0,0)]*n) - that writes zero vectors rather
+    # than REMOVING the layer, and the render comes back unchanged. It cost a wrong diagnosis
+    # once already.
+    bpy.ops.object.select_all(action="DESELECT")
+    mesh.select_set(True)
+    bpy.context.view_layer.objects.active = mesh
+    bpy.ops.mesh.customdata_custom_splitnormals_clear()
+    print(f"  custom split normals removed: has_custom_normals is now "
+          f"{mesh.data.has_custom_normals}")
+
+if os.environ.get("LOOK_CLAY") == "1":
+    clay = bpy.data.materials.new("clay")
+    clay.use_nodes = True
+    shader = clay.node_tree.nodes["Principled BSDF"]
+    shader.inputs["Base Color"].default_value = (0.62, 0.62, 0.62, 1.0)
+    shader.inputs["Roughness"].default_value = 0.65
+    for slot in mesh.material_slots:
+        slot.material = clay
+    if not mesh.material_slots:
+        mesh.data.materials.append(clay)
+
 sun = bpy.data.objects.new("sun", bpy.data.lights.new("sun", type="SUN"))
 bpy.context.scene.collection.objects.link(sun)
 sun.data.energy = 3.5

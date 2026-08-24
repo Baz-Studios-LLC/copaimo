@@ -1595,6 +1595,165 @@ def make_the_shoes_mirrors(rig, mesh):
         )
 
 
+def reshade(mesh, vertices, within: float = 40.0):
+    """Rebuilds the custom split normals over a region, welded by position, split by angle.
+
+    # Why a region ever needs this
+
+    Subdividing is geometrically exact - measured, the 1234 new vertices sat 0.000 cm off the
+    original surface and the old ones did not move at all. The shoe still came out looking
+    melted, in lobes, and the reason is the shading:
+
+        glTF splits a vertex at every hard edge, so this mesh has NO connectivity to smooth
+        across. The custom split normals are the entire carrier of smooth shading.
+
+    Subdivision interpolates those normals onto the new loops, and interpolating a normal field
+    that was authored for one topology across a finer one gives mush. The character is lit as a
+    shape it is not - the exact fault `check_the_skin` refuses to weld because of, arriving from
+    the other direction. Rendered with the normals REMOVED, the subdivided shoe and the original
+    are pixel-alike, which is what proved it was shading and not geometry.
+
+    # What this does instead
+
+    Recomputes them the way an angle-based auto-smooth would, on the connectivity the mesh
+    actually has by POSITION rather than by index:
+
+      * weld the region's vertices into buckets by position
+      * at each bucket, average the normals of the faces meeting there, area-weighted
+      * average only across faces within `within` degrees of the one being shaded, so a genuine
+        crease - the sole's edge, the shelf - stays a crease instead of being rounded off
+
+    Only the region's loops are rewritten. Everything else keeps the normals it shipped with,
+    which is the point: this is for geometry that has just been changed, not for the asset.
+    """
+    import collections
+
+    region = set(vertices)
+    faces = [p for p in mesh.data.polygons if all(v in region for v in p.vertices)]
+    if not faces:
+        raise SystemExit("REFUSED: no whole face lies inside the region to reshade")
+
+    grain = 0.00002   # the weld bucket from find_the_fingers: split copies, never neighbours
+    def bucket(index):
+        co = mesh.data.vertices[index].co
+        return (round(co.x / grain), round(co.y / grain), round(co.z / grain))
+
+    meeting = collections.defaultdict(list)
+    for poly in faces:
+        normal = mathutils.Vector(poly.normal)
+        if normal.length_squared < 1e-12:
+            continue
+        normal.normalize()
+        for index in poly.vertices:
+            meeting[bucket(index)].append((normal, poly.area))
+
+    cosine = math.cos(math.radians(within))
+    was = [mathutils.Vector(c.vector) for c in mesh.data.corner_normals]
+    now = list(was)
+    for poly in faces:
+        mine = mathutils.Vector(poly.normal)
+        if mine.length_squared < 1e-12:
+            continue
+        mine.normalize()
+        for loop in poly.loop_indices:
+            here = bucket(mesh.data.loops[loop].vertex_index)
+            blended = mathutils.Vector((0.0, 0.0, 0.0))
+            for normal, area in meeting[here]:
+                if normal.dot(mine) >= cosine:
+                    blended += normal * area
+            now[loop] = blended.normalized() if blended.length_squared > 1e-12 else mine
+
+    mesh.data.normals_split_custom_set([tuple(n) for n in now])
+    turned = sum(1 for a, b in zip(was, now) if (a - b).length > 0.001)
+    print(f"  reshaded {len(faces)} faces: {turned} of {len(now)} loop normals rebuilt, "
+          f"creases kept past {within:.0f} deg")
+    if not mesh.data.has_custom_normals:
+        raise SystemExit("REFUSED: reshading dropped the custom split normals entirely")
+
+
+def it_only_cut_what_was_asked_for(mesh, before, asked, cuts):
+    """Refuses if the mesh grew by far more than the region it was given could account for.
+
+    Cutting one quad `c` times makes (c+1)^2 of them, so a region of N faces can add at most
+    about N((c+1)^2 - 1) vertices, plus fan triangles along its own border. Doubling that and
+    allowing a flat 200 leaves plenty of room for the border and none at all for the failure
+    this exists to catch, which is not a near miss - it is the WHOLE MESH, nine times over.
+
+    Written against the arithmetic of subdivision rather than against vertex indices, which
+    subdivision itself invalidates. See the note in `subdivide_these`.
+    """
+    grew = len(mesh.data.vertices) - before
+    room = asked * ((cuts + 1) ** 2 - 1) * 2 + 200
+    print(f"  cutting {asked} faces {cuts}x added {grew} vertices, against {room} allowed")
+    if grew > room:
+        raise SystemExit(
+            f"REFUSED: subdividing {asked} faces added {grew} vertices where {room} is the most "
+            f"that region could account for - the selection did not take and the whole mesh has "
+            f"been cut")
+
+
+def subdivide_these(mesh, polygons, cuts: int = 1):
+    """Cuts the named polygons `cuts` times, and puts the skinning back within glTF's limits.
+
+    Pulled out of `add_room_where_it_tears` when the shoes needed the same operation on a
+    different set of faces. Everything in here is about the two ways this can go wrong
+    silently, so it is worth having in ONE place rather than two.
+
+    # The selection has to be made INSIDE edit mode, and this is why
+
+    Setting `poly.select` and `vertex.select` in object mode and then entering edit mode does
+    NOT carry the selection in. Measured, on this mesh:
+
+        object mode:                       226 faces selected, 335 verts
+        edit mode, immediately after:     7139 faces selected, 9190 verts
+
+    Everything arrives selected, so `bpy.ops.mesh.subdivide` cuts the WHOLE BODY. That is not
+    a subtlety - it is a silent 9x, and it is what actually happened to `add_room_where_it_tears`
+    when it "took the body from 7578 to 18532 vertices and tearing did not fall". It was never
+    subdividing the 121 straddling polygons it named; it was subdividing all of them. The
+    conclusion drawn from that experiment was about a different experiment.
+
+    So the faces are picked through bmesh once edit mode is already open, and
+    `it_only_cut_what_was_asked_for` counts the untouched faces afterwards rather than trusting
+    any of this.
+
+    Subdividing BLENDS the weights of the corners it interpolates between, which is the point -
+    a new vertex in an armpit inheriting some spine and some upperarm is what stops it tearing.
+    But blending STACKS influences, and the build refused: "7 bones drive one vertex; glTF
+    carries 4 and drops the rest". Four is the format's limit, so anything above it is not a
+    heavier vertex, it is a vertex whose smallest influences vanish silently at export - and
+    silently is the word that matters, since the mesh would look right in Blender and wrong in
+    the game. Trimming to the four largest and renormalising is what the exporter would do
+    anyway, done here where it can be seen and where the guard can check it.
+
+    Smoothness is 0: this only TESSELLATES, it does not round anything off. Any shaping is a
+    separate, measurable step afterwards.
+    """
+    import bmesh
+
+    wanted = set(polygons)
+    started_with = len(mesh.data.vertices)
+
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.select_all(action="DESELECT")
+    mesh.select_set(True)
+    bpy.context.view_layer.objects.active = mesh
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_mode(type="FACE")
+    bpy.ops.mesh.select_all(action="DESELECT")
+    working = bmesh.from_edit_mesh(mesh.data)
+    working.faces.ensure_lookup_table()
+    for index in wanted:
+        working.faces[index].select = True
+    bmesh.update_edit_mesh(mesh.data)
+    bpy.ops.mesh.subdivide(number_cuts=cuts, smoothness=0.0)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    bpy.ops.object.vertex_group_limit_total(limit=4)
+    bpy.ops.object.vertex_group_normalize_all(lock_active=False)
+    it_only_cut_what_was_asked_for(mesh, started_with, len(wanted), cuts)
+
+
 def add_room_where_it_tears(rig, mesh, cuts: int = 1):
     """Subdivides the polygons that straddle two body regions, so the skin has room to bend.
 
@@ -1661,38 +1820,7 @@ def add_room_where_it_tears(rig, mesh, cuts: int = 1):
         return
 
     before = len(mesh.data.vertices)
-    bpy.ops.object.mode_set(mode="OBJECT")
-    bpy.ops.object.select_all(action="DESELECT")
-    mesh.select_set(True)
-    bpy.context.view_layer.objects.active = mesh
-    for poly in mesh.data.polygons:
-        poly.select = poly.index in straddling
-    for vertex in mesh.data.vertices:
-        vertex.select = False
-    for index in straddling:
-        for i in mesh.data.polygons[index].vertices:
-            mesh.data.vertices[i].select = True
-
-    bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.select_mode(type="FACE")
-    bpy.ops.mesh.subdivide(number_cuts=cuts, smoothness=0.0)
-    bpy.ops.object.mode_set(mode="OBJECT")
-
-    # # Back down to four influences a vertex
-    #
-    # Subdividing BLENDS the weights of the corners it interpolates between, which is the
-    # point - a new vertex in an armpit inheriting some spine and some upperarm is what stops
-    # it tearing. But blending stacks influences, and the build refused: "7 bones drive one
-    # vertex; glTF carries 4 and drops the rest". Four is the format's limit, so anything
-    # above it is not a heavier vertex, it is a vertex whose smallest influences vanish
-    # silently at export - and silently is the word that matters, since the mesh would look
-    # right in Blender and wrong in the game.
-    #
-    # Trimming to the four largest and renormalising is what the exporter would do anyway,
-    # done here where it can be seen and where the guard can check it.
-    bpy.ops.object.vertex_group_limit_total(limit=4)
-    bpy.ops.object.vertex_group_normalize_all(lock_active=False)
-
+    subdivide_these(mesh, straddling, cuts)
     after = len(mesh.data.vertices)
     print(f"  {len(straddling)} polygons straddled a joint; subdividing them {cuts}x "
           f"took the body from {before} to {after} vertices")
