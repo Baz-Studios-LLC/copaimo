@@ -1,4 +1,13 @@
-"""Takes the bulk out of the shoes, without opening a seam where the trouser meets them.
+"""Takes the bulk out of the shoes. NOT CALLED - the shoes were not the problem. Read this.
+
+The shoes were slimmed twice by this file and thinned once, and then restored to as-delivered
+on request: "do whatever you did for the old animation, those were perfect". Every target below
+is a correct number about a real foot and beside the point for a stylised chunky trainer, whose
+design IS a blunt toe box on a thick slab sole. See TROUBLESHOOTING.md.
+
+Kept because the measurements are true and because the next person to compare this shoe against
+an anthropometric table should find out here.
+
 
     blender --background --python slim_the_shoes.py -- [--dry-run] [--long 0.155] [--wide 0.40]
 
