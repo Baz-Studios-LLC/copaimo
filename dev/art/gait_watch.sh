@@ -6,6 +6,7 @@
 #   dev/art/gait_watch.sh run --rate native   # the clip's own authored cadence
 #   dev/art/gait_watch.sh run --still     # a static floor instead of a treadmill
 #   dev/art/gait_watch.sh run --front     # head-on instead of side-on
+#   dev/art/gait_watch.sh grip --hands    # close on the hand, skeleton shown
 #
 # TWO STEPS, and the reason matters. Building the scene from a --python script during
 # GUI startup does not work: the glTF importer dies in `armature_display` on a context

@@ -121,8 +121,13 @@ def argv():
     return sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
 
 
-def aim_the_viewport(mesh, rotation):
+def aim_the_viewport(mesh, rotation, at=None, span=None, rig=None):
     """Points every saved 3D view at the character, with no window required.
+
+    `at` and `span` override the framing, for looking at one part of him rather than all of
+    him - the hands, whose bones are 6 cm long on a 170 cm character and simply cannot be
+    judged from a view that fits the whole figure. `rig` puts the skeleton in front of the
+    mesh, which is the only way to see what a finger bone is doing.
 
     Written onto `bpy.data.screens` rather than driven through an operator, because this
     runs in --background where there is no window, no area and no region - and the
@@ -139,6 +144,16 @@ def aim_the_viewport(mesh, rotation):
             high[axis] = max(high[axis], spot[axis])
     middle = (low + high) * 0.5
     tall = max(high.z - low.z, 0.1)
+    if at is not None:
+        middle = at
+    if span is not None:
+        tall = max(span, 0.01)
+
+    if rig is not None:
+        # In front of the mesh and drawn as sticks: a finger bone is inside the finger, so
+        # without this the whole point of the view is hidden by the geometry around it.
+        rig.show_in_front = True
+        rig.data.display_type = "STICK"
 
     aimed = 0
     for screen in bpy.data.screens:
@@ -449,6 +464,7 @@ def main():
     clip = None
     rate = "game"
     ground = True
+    hands = False
     view = VIEWS["--side"]
     save_to = None
     i = 0
@@ -465,6 +481,9 @@ def main():
             i += 2
         elif token == "--still":
             ground = False
+            i += 1
+        elif token == "--hands":
+            hands = True
             i += 1
         elif token in VIEWS:
             view = VIEWS[token]
@@ -559,7 +578,24 @@ def main():
               "(a planted foot should hold one marker)")
 
     scene.frame_set(scene.frame_start)
-    aim_the_viewport(mesh, view)
+    if hands:
+        # On the LEFT hand, close enough to read a knuckle. Framed from the bones rather than
+        # the mesh, so it stays pointed at the hand through a clip that moves it, and with the
+        # skeleton drawn in front because a finger bone is otherwise inside the finger.
+        knuckles = [rig.matrix_world @ b.head for b in rig.pose.bones
+                    if b.name.startswith("L_") and b.name[2:-1] in
+                    ("Thumb", "Index", "Middle", "Ring", "Pinky")]
+        if not knuckles:
+            raise SystemExit(
+                "REFUSED: this rig has no finger bones, so --hands has nothing to look at - "
+                "run dev/art/add_finger_bones.py"
+            )
+        at = sum(knuckles, mathutils.Vector()) / len(knuckles)
+        aim_the_viewport(mesh, view, at=at, span=0.16, rig=rig)
+        print(f"  framed on the left hand, {len(knuckles)} finger bones, "
+              f"at z={at.z * SCALE:.0f} cm")
+    else:
+        aim_the_viewport(mesh, view)
     stamp_the_scene(glb, clip)
     install_the_watcher()
 

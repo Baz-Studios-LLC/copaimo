@@ -31,14 +31,31 @@ PYEOF
 # The texture first, in a tool that can be checked. See ranger_texture.py for why
 # this is not done inside Blender.
 python "$here/ranger_texture.py"
-# The rig is REPAIRED first, into its own file, and the source is never touched. The
-# authoring below then has no correction step at all - which is the point: the defects
-# were constants of the rest pose (the two sides 5.45 cm from mirrored, a 17.5 degree
-# crouch, leaf bones the importer invented lengths for, a mesh in 1440 disconnected
-# shells), and correcting a constant per pose is what twisted the feet.
+# `ranger_apose.glb` is the SOURCE ASSET, committed, and this script only reads it.
 #
-# Supersedes straighten_rig.py, which repaired three of those and left the rest.
-"$blender" --background --python-exit-code 1 --python "$here/prepare_rig.py" --   "$(cd "$here/../.." && pwd)/Ranger_Rig_Idle.glb" "$here/ranger_apose.glb"
+# It used to be rebuilt here on every run, straight from the original delivery, and that
+# was the root cause of the mesh damage this pipeline kept taking. prepare_rig.py repairs
+# two different kinds of thing, and only one of them should be re-derived per build:
+#
+#   the RIG repairs are measured constants of the rest pose - the two sides 5.45 cm from
+#   mirrored, a 17.5 degree crouch, leaf bones the importer invented lengths for - and
+#   deriving those afresh is right, because correcting a constant per POSE is what twisted
+#   the feet in three earlier attempts
+#
+#   the MESH repairs are SCULPTING - capping holes, telling a hanging strap from a sleeve
+#   cuff, adding finger geometry - and re-deriving those every build asked a classifier to
+#   re-make the same judgement call forever and never once get it wrong. It cut the sleeve
+#   cuffs, faces out of a trouser leg, and part of a shoulder. Every time the response was
+#   to tune the threshold, which treats a design fault as a numbers fault.
+#
+# So the rig is derived ONCE, by dev/art/bootstrap_rig.sh, and mesh work is done on the
+# asset, verified once, and kept. Re-run that script only if the character is re-delivered.
+if [ ! -f "$here/ranger_apose.glb" ]; then
+  echo "REFUSED: dev/art/ranger_apose.glb is missing - the prepared rig is the source" >&2
+  echo "asset now, not a build product. Run dev/art/bootstrap_rig.sh to derive it from" >&2
+  echo "the original delivery, knowing that gives you the as-generated mesh back." >&2
+  exit 1
+fi
 "$blender" --background --python-exit-code 1 --python "$here/animate_ranger.py"
 
 # And then REFUSE it if the limbs bend the wrong way. Three attempts shipped a walk

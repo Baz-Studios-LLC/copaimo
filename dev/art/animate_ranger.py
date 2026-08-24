@@ -1233,6 +1233,99 @@ def turn_further(rig, bone: str, degrees: float, axis):
     )
 
 
+# --- The hands
+#
+# The rig had nothing past the wrist until dev/art/add_finger_bones.py, so the hands were a
+# fixed splayed slab and every attempt to improve them by tuning the palm roll or the wrist
+# drag was working on the only channel that existed. Five chains a hand, three bones each, and
+# the roll of every one of them aligned so that LOCAL X is the flexion axis - which is what
+# lets a curl be one number here instead of a per-finger special case.
+
+# How a closing hand divides between the three joints of a finger, as degrees at full fist.
+# The middle joint travels furthest, the one at the fingertip least, which is what a hand does
+# and what stops a fist reading as three straight segments hinged in the middle.
+FIST_BENDS = (78.0, 92.0, 55.0)
+# The thumb opposes rather than curls, so it folds less and mostly at its base.
+THUMB_BENDS = (42.0, 46.0, 30.0)
+# What a hand does when its owner is not using it: not flat, not fisted. A running hand held
+# open flat is the single thing that most made this character read as a mannequin.
+RELAXED = 0.26
+
+DIGITS = ("Thumb", "Index", "Middle", "Ring", "Pinky")
+
+
+def curl(rig, bone: str, degrees: float):
+    """Bends a bone about ITS OWN X axis, which for a finger is the flexion axis.
+
+    Deliberately not `swing`, which turns a bone about an axis of the ARMATURE. That is right
+    for a shoulder or a spine, where one world axis means the same thing for every bone
+    involved, and useless for fingers: five digits point five ways, and a thumb points across
+    the palm, so no single armature axis flexes them all. add_finger_bones.py aligns each
+    bone's roll to the hand's own palm plane precisely so that local X is flexion everywhere,
+    and this is the helper that spends that.
+    """
+    posed = rig.pose.bones.get(bone)
+    if posed is None:
+        return
+    posed.rotation_mode = "QUATERNION"
+    posed.rotation_quaternion = mathutils.Quaternion(
+        (1.0, 0.0, 0.0), math.radians(degrees)
+    )
+
+
+# Measured once per side and kept, because measuring it costs a depsgraph update per sample
+# and the answer is a property of the rig, not of the frame.
+CLOSES = {}
+
+
+def hand_closes(rig, side: str) -> float:
+    if side not in CLOSES:
+        CLOSES[side] = which_way_closes(rig, side)
+    return CLOSES[side]
+
+
+def which_way_closes(rig, side: str) -> float:
+    """+1 or -1: the sign of a local-X curl that CLOSES this hand. Measured, not chosen.
+
+    The flexion reference is built from a cross product, and a cross product is a pseudovector
+    - mirror its inputs and the result mirrors and flips - so which sign closes a hand is not
+    something to reason about at a keyboard and be right about. It is also exactly the class of
+    fault this rig has shipped before: a sign correct on one side and inverted on the other,
+    which here would open one fist while closing the other.
+
+    So it is measured. Curl every finger one way, see whether the fingertips move toward the
+    wrist or away from it, and keep the way that brings them in.
+    """
+    wrist = rig.matrix_world @ rig.pose.bones[f"{side}_Hand"].head
+    tips = [f"{side}_{digit}3" for digit in DIGITS
+            if f"{side}_{digit}3" in rig.pose.bones]
+    if not tips:
+        return 0.0
+    reach = {}
+    for sign in (1.0, -1.0):
+        for digit in DIGITS:
+            for number in range(1, 4):
+                curl(rig, f"{side}_{digit}{number}", sign * 45.0)
+        bpy.context.view_layer.update()
+        reach[sign] = sum(
+            ((rig.matrix_world @ rig.pose.bones[name].tail) - wrist).length
+            for name in tips
+        ) / len(tips)
+    for digit in DIGITS:
+        for number in range(1, 4):
+            curl(rig, f"{side}_{digit}{number}", 0.0)
+    bpy.context.view_layer.update()
+    return 1.0 if reach[1.0] < reach[-1.0] else -1.0
+
+
+def close_the_hand(rig, side: str, closure: float, closes: float):
+    """Folds one hand, 0 for open and 1 for a fist."""
+    for digit in DIGITS:
+        bends = THUMB_BENDS if digit == "Thumb" else FIST_BENDS
+        for number, bend in enumerate(bends, start=1):
+            curl(rig, f"{side}_{digit}{number}", closes * closure * bend)
+
+
 def under_the_foot(rig, side: str):
     """The three points that stand in for one foot's sole, in armature Z.
 
@@ -1728,6 +1821,16 @@ def swing_the_arm(rig, side: str, hand: float, phase: float, reach: float,
     )
     turn_a_bone_further(rig, f"{side}_Hand", trails, hinge)
 
+    # And the fingers settle into a loose hold rather than staying flat.
+    #
+    # This is the payoff for building the finger rig at all, and it is worth being clear about
+    # why it belongs here rather than in a pose somewhere. A hand carried through a run with
+    # its fingers straight and splayed is the single strongest mannequin cue a character can
+    # have - it was reported as the hands looking wrong perhaps a dozen times, and every reply
+    # I made adjusted the wrist or the palm roll, because those were the only channels that
+    # existed. None of them could have worked. A relaxed curl is what was missing.
+    close_the_hand(rig, side, RELAXED, hand_closes(rig, side))
+
 
 def fill_in_the_flight(lift, bound: float):
     """Fills the airborne poses with a ballistic arc between the planted ones.
@@ -1838,6 +1941,50 @@ def idle_breathing(rig, facing):
         key(rig, frame, DRIVEN)
     turned = make_it_linear(action)
     print(f"  idle: {span + 1} frames, {turned} keys linear, one breath a loop")
+    return action
+
+
+def gripping(rig, facing):
+    """Authors `grip`: the hands closing to a fist and opening again.
+
+    The clip the game will actually reach for when the character picks something up, holds a
+    tool, or takes hold of a monster - and, first, the clip that PROVES the finger rig, because
+    a hand that can close is a hand that works and nothing short of seeing it close shows that.
+
+    The body is held at its easy stance throughout so the hands are what moves. Both hands
+    together on purpose: the two of them are driven by the same numbers through
+    `which_way_closes`, so if a sign were inverted on one side this clip would show one hand
+    opening as the other closed, which is the fault worth catching and is invisible in a still.
+    """
+    span = 48  # two seconds at 24 fps: close over one, open over the next
+    action = bpy.data.actions.new("grip")
+    if rig.animation_data is None:
+        rig.animation_data_create()
+    rig.animation_data.action = action
+    for frame in range(1, span + 2):
+        phase = ((frame - 1) % span) / span
+        # Smooth in and out of the fist, and hold it a moment at the top: a grip that eases
+        # closed and stops reads as taking hold, where a sine reads as a wave.
+        closure = min(1.0, max(0.0, 1.0 - math.cos(2.0 * math.pi * phase)) / 1.6)
+        rest(rig)
+        for side, hand in (("L", 1.0), ("R", -1.0)):
+            swing(rig, f"{side}_Upperarm", 3.0, REACHES_FORWARD)
+            swing(rig, f"{side}_Forearm", 18.0, FOLDS_THE_ELBOW)
+            bpy.context.view_layer.update()
+            along = (
+                rig.pose.bones[f"{side}_Forearm"].matrix.to_3x3()
+                @ mathutils.Vector((0.0, 1.0, 0.0))
+            ).normalized()
+            swing(rig, f"{side}_Hand", PALM_IN * hand, axis=along)
+            turn_further(
+                rig, f"{side}_Upperarm",
+                (ARM_HANGS_AT - prepare_rig.ARMS_OUT) * hand, (1.0, 0.0, 0.0),
+            )
+            close_the_hand(rig, side, closure, hand_closes(rig, side))
+        key(rig, frame, DRIVEN)
+    turned = make_it_linear(action)
+    print(f"  grip: {span + 1} frames, {turned} keys linear, one close and open a loop; "
+          f"curl closes L {CLOSES.get('L', 0.0):+.0f} R {CLOSES.get('R', 0.0):+.0f}")
     return action
 
 
@@ -3010,6 +3157,9 @@ def main() -> None:
     # The idle first: it is the state every other clip blends from.
     if idle is None:
         idle_breathing(rig, facing).use_fake_user = True
+
+    # Before the gaits, for the same reason the idle is: `gait` takes over the active action.
+    gripping(rig, facing).use_fake_user = True
 
     gait(
             rig, body, feet, ground, "walk", WALK_LEG, 24, WALK_CONTACT, WALK_SWING_LIFT, WALK_SWING_SHAPE, WALK_LANDS_AHEAD,
