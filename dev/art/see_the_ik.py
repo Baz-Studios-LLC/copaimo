@@ -87,6 +87,31 @@ mesh = prepare_rig.the_body()
 prepare_rig.reach_the_ends(rig, mesh)
 across, forward, up = prepare_rig.body_frame(rig)
 
+# THE SKELETON IS NOT VISIBLE UNTIL THE WIDGETS GO.
+#
+# Blender's glTF importer builds an Icosphere and assigns it as a custom shape to EVERY bone, so
+# that joints show up at all - glTF carries no bone lengths, so there is nothing to draw
+# otherwise. With 71 bones that is 71 spheres, a cluster of them per hand, and the bones
+# themselves completely hidden behind them.
+#
+# `prepare_rig.drop_the_widgets` exists for exactly this and its own note says why hiding the
+# Icosphere object is not enough. Worth being clear that this is an IMPORT artifact and not
+# something in the asset: the shipped GLB holds two meshes, `Backpack` and the body, and no
+# widget at all.
+prepare_rig.drop_the_widgets(rig)
+for stale in [o for o in bpy.data.objects if o.name.startswith("Icosphere")]:
+    bpy.data.objects.remove(stale, do_unlink=True)
+
+rig.show_in_front = True
+rig.data.display_type = "OCTAHEDRAL"
+rig.data.show_names = False
+# The twist bones are skinning helpers - they carry the arm and leg skin and are never posed by
+# hand - and there are sixteen of them sitting on top of the joints that matter. Hidden so the
+# hip-knee-ankle chain can actually be read.
+for bone in rig.data.bones:
+    if "Twist" in bone.name:
+        bone.hide = True
+
 with open(SOLVED, encoding="utf-8") as handle:
     solved = json.load(handle)
 cases = solved["cases"]

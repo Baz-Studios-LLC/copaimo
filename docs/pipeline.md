@@ -121,8 +121,13 @@ the bone matrix array small, and share rigs across crowd characters to allow GPU
 a 371-vertex backpack. Comfortably inside hero budget with no LODs yet. The asset file is 18.19 MB
 including five clips.
 
-**One thing to clean up:** the export still carries an `Icosphere` of 42 vertices — a leftover bone
-widget object. Harmless, but it is shipped geometry that draws nothing.
+**A correction, since this file claimed otherwise:** the export does NOT carry a leftover
+`Icosphere` widget. Read straight out of the GLB's JSON it holds exactly two meshes, `Backpack`
+and the body. The Icosphere appears whenever the file is IMPORTED, because Blender's glTF
+importer builds one and assigns it as a custom shape to every bone — glTF has no bone lengths, so
+there would be nothing to draw otherwise. Seeing it in a Blender session and calling it shipped
+geometry is the same mistake as measuring split topology and calling it holes: the artefact
+belongs to the tool doing the looking. `prepare_rig.drop_the_widgets` removes them.
 
 ## Version control for binary assets
 

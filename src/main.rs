@@ -240,6 +240,9 @@ fn main() {
             // of, at sites it decides the places of.
             build::BuildingPlugin,
             player::PlayerPlugin,
+            // After the player, whose body it finds the leg bones in, and after the world,
+            // whose terrain it asks how high the ground is.
+            ik::PlantingPlugin,
             camera::CameraPlugin,
             menu::MenuPlugin,
             save::SavePlugin,

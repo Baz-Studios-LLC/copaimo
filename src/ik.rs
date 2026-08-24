@@ -43,7 +43,12 @@
 //! fail loudly, it clamps, and the foot lands short". Callers that care whether the target was
 //! met should compare the returned `end` against what they asked for — [`Chain::missed_by`].
 
+use bevy::math::Affine3A;
 use bevy::prelude::*;
+use bevy::transform::TransformSystem;
+
+use crate::player::Player;
+use crate::world::terrain::TerrainSource;
 
 /// How straight a leg may be asked to go, as a share of hip-to-ankle at full extension.
 ///
@@ -91,6 +96,12 @@ impl Chain {
     }
 
     /// Hip to ankle with the knee straight.
+    ///
+    // Used by the tests and by nothing in the shipped build, which is why it reads as dead.
+    // Kept because they are how the module's own claims are checked - the extension cap, the
+    // fold limit, and whether a target was actually met - and a measurement that only exists
+    // inside an assertion is a measurement nobody can take by hand when something looks wrong.
+    #[allow(dead_code)]
     pub fn straight(&self) -> f32 {
         self.upper() + self.lower()
     }
@@ -98,6 +109,7 @@ impl Chain {
     /// Hip to ankle as it currently stands, as a share of straight.
     ///
     /// 0.999 in this rig's bind pose, which is the measurement that shapes this whole module.
+    #[allow(dead_code)]
     pub fn extension(&self) -> f32 {
         let straight = self.straight();
         if straight < NO_DIRECTION {
@@ -110,6 +122,7 @@ impl Chain {
     ///
     /// Non-zero means the target was out of reach and the leg clamped. Worth checking rather
     /// than assuming, because clamping is silent.
+    #[allow(dead_code)]
     pub fn missed_by(&self, target: Vec3) -> f32 {
         self.end.distance(target)
     }
@@ -188,9 +201,547 @@ pub fn aim(was: Vec3, wants: Vec3) -> Quat {
     Quat::from_rotation_arc(was.normalize(), wants.normalize())
 }
 
+// ------------------------------------------------------------------ planting feet on terrain
+
+/// The most a foot will be moved to meet the ground under it, in metres.
+///
+/// Past this the terrain is a cliff rather than a slope, and a leg stretched over the edge of
+/// one looks far worse than a foot hanging in the air above it. The world's ground can drop
+/// hundreds of metres between two samples at a coastline.
+pub const GROUND_REACHES: f32 = 0.35;
+
+/// The most the hips will drop to let a low foot reach, in metres.
+///
+/// `dev/art/ik_gait.py::HIP_DROPS_AT_MOST` is 0.024 model units for the AUTHORED stance, which
+/// is a different quantity - that one sets how far a stride can reach, this one only rescues a
+/// foot that the ground has moved away from. 0.20 m is about a quarter of this leg.
+pub const HIPS_DROP_AT_MOST: f32 = 0.20;
+
+/// How fast the hip drop follows the ground, as a share closed per second.
+///
+/// Not instant. The ground under a foot changes discontinuously - a stair, a rock edge - and
+/// snapping the hips to it reads as a twitch, where the legs alone absorbing it reads as
+/// stepping. The same shape `player::SPEED_SETTLES` uses, for the same reason.
+pub const HIPS_SETTLE: f32 = 12.0;
+
+/// How far the hips must drop so the lower foot can still reach the ground.
+///
+/// Only ever downward. A foot that needs to go UP just bends its knee more, which a leg can
+/// always do; a foot that needs to go DOWN may run out of leg, and that is what a hip drop buys.
+/// Taking the minimum rather than the mean on purpose: the mean leaves the lower foot short,
+/// which is the failure that reads as one leg not reaching the floor.
+pub fn hips_drop_by(shifts: [f32; 2]) -> f32 {
+    shifts
+        .into_iter()
+        .fold(0.0_f32, f32::min)
+        .clamp(-HIPS_DROP_AT_MOST, 0.0)
+}
+
+/// How far a foot must move vertically to meet the ground under it.
+///
+/// The clips are authored with the soles on a floor at zero and the warden's transform sits on
+/// the ground, so the height the clip gives an ankle is already right for flat ground at the
+/// warden's feet. The whole correction is however far the ground under THAT foot differs from
+/// the ground under the warden — no measured ankle-to-sole offset needed, which matters because
+/// looking one up was the first instinct and it would have been a constant to keep in step with
+/// the model forever.
+pub fn shift_to_ground(ground: f32, feet_at: f32) -> f32 {
+    (ground - feet_at).clamp(-GROUND_REACHES, GROUND_REACHES)
+}
+
+/// One leg, before and after being put on the ground.
+#[derive(Clone, Copy, Debug)]
+pub struct Planted {
+    /// The chain as the animation left it, with the hip drop applied.
+    pub was: Chain,
+    /// Where the solver put it.
+    pub now: Chain,
+    /// How far this foot was asked to move.
+    ///
+    // Read by the tests, which assert on it directly rather than inferring it from where the
+    // ankle ended up - the two differ whenever the leg clamps, and that difference is the thing
+    // worth checking.
+    #[allow(dead_code)]
+    pub shift: f32,
+}
+
+/// Works out where one leg should go. The decision, with no ECS in it, so it can be tested.
+///
+/// Note the target is built from the ORIGINAL ankle and not the dropped one: the hips going down
+/// moves the leg, and the ground stays where it is.
+pub fn plant_one(
+    hip: Vec3,
+    knee: Vec3,
+    ankle: Vec3,
+    ground: f32,
+    feet_at: f32,
+    dropped: f32,
+    forward: Vec3,
+) -> Planted {
+    let shift = shift_to_ground(ground, feet_at);
+    let down = Vec3::Y * dropped;
+    let was = Chain {
+        root: hip + down,
+        joint: knee + down,
+        end: ankle + down,
+    };
+    Planted {
+        was,
+        now: reach(was, ankle + Vec3::Y * shift, forward),
+        shift,
+    }
+}
+
+/// What was last done to one bone, so it can be undone if nothing else has written it since.
+///
+/// # Why this is needed at all
+///
+/// The correction is computed from the pose the bone is currently in. If that pose is one this
+/// system already corrected, the next correction stacks on top of it, and the frame after that
+/// stacks again — measured, a leg walked 57 cm out of place over 40 frames.
+///
+/// In the game that never happens, because every shipped clip keys every bone on every frame
+/// (`animate_ranger.key` does so deliberately, and its note says why) so the authored pose is
+/// restored before this runs. But that is a hidden coupling: the day something plays no clip —
+/// a state that does not animate, or the frames before the clips finish loading — the legs
+/// spiral. Relying on somebody else's invariant to stay correct is how the accumulating hip
+/// offset nearly shipped in this same file.
+///
+/// So: remember what was written, and if the bone still holds exactly that, put the authored
+/// pose back before solving. If it holds something else, an animation has been through and that
+/// something else IS the authored pose.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Held {
+    /// What the animation had put there, before the correction.
+    authored: Quat,
+    /// What was left behind after it.
+    left: Quat,
+}
+
+impl Held {
+    /// The pose to solve from.
+    fn base(&self, now: Quat) -> Quat {
+        if now.abs_diff_eq(self.left, 1e-5) {
+            self.authored
+        } else {
+            now
+        }
+    }
+}
+
+/// The leg bones of one side, once they have been found in the scene.
+#[derive(Clone, Copy, Debug)]
+pub struct Leg {
+    /// Its head is the hip.
+    pub thigh: Entity,
+    /// Its head is the knee.
+    pub calf: Entity,
+    /// Its head is the ankle — the point being placed.
+    pub foot: Entity,
+    /// What was last written to the thigh and the calf, in that order.
+    held: [Held; 2],
+}
+
+/// Both legs, and the bone the whole body hangs from.
+///
+/// Found once and kept. A glTF scene arrives over several frames, so this cannot be keyed on
+/// `Added` — see `look::paint_the_warden`, which asks and asks again for the same reason.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Legs {
+    pub left: Leg,
+    pub right: Leg,
+    /// The scene root under the warden — the entity carrying the model's scale and turn.
+    ///
+    /// The body drop goes HERE and not on the `Hip` bone, which was the first instinct because
+    /// the clips already key its translation. That is exactly why it is wrong: adding to a
+    /// channel the animation owns only works while the animation is overwriting it, and the
+    /// moment nothing drives `Hip` — no clip loaded yet, or a state that does not animate — the
+    /// offset accumulates and the warden sinks a little further every frame.
+    ///
+    /// Nothing else writes this entity, so the drop is SET rather than added, which cannot
+    /// accumulate however many times it runs.
+    pub body: Entity,
+    /// How far the body is currently dropped, eased toward what the ground asks for.
+    pub dropped: f32,
+}
+
+/// Where a bone actually is this frame, composed by hand up its parent chain.
+///
+/// `GlobalTransform` is no use here. This runs between the animation writing local transforms
+/// and Bevy propagating them, which is the only slot where a correction can land without a
+/// frame of lag — and in that slot every `GlobalTransform` still holds last frame's answer.
+/// Reading one would be a lag that shows as the feet swimming behind the body.
+///
+/// The walk stops at the warden, whose own transform is passed in rather than queried, because a
+/// query that could hand out the warden's `Transform` mutably cannot coexist with one that reads
+/// it here.
+fn world_of(
+    entity: Entity,
+    warden: Affine3A,
+    placed: &Query<(&Transform, Option<&ChildOf>), Without<Player>>,
+) -> Option<Affine3A> {
+    let mut chain = Vec::new();
+    let mut at = entity;
+    loop {
+        let Ok((local, parent)) = placed.get(at) else {
+            break;
+        };
+        chain.push(local.compute_affine());
+        match parent {
+            Some(above) => at = above.parent(),
+            None => break,
+        }
+    }
+    if chain.is_empty() {
+        return None;
+    }
+    let mut world = warden;
+    for local in chain.iter().rev() {
+        world *= *local;
+    }
+    Some(world)
+}
+
+/// Finds the leg bones in the warden's scene, once it has arrived.
+///
+/// By NAME, and only among this warden's own descendants — the world is full of other named
+/// things, and another figure's skeleton would put this one's feet on somebody else's legs. The
+/// same ancestry walk `look::hang_things_on_the_head` does, for the same reason.
+///
+/// Asks every frame until it finds them, rather than keying on `Added`: a glTF scene is instanced
+/// asynchronously and none of its entities exist at spawn.
+pub fn find_the_legs(
+    mut commands: Commands,
+    wardens: Query<Entity, (With<Player>, Without<Legs>)>,
+    named: Query<(Entity, &Name)>,
+    ancestors: Query<&ChildOf>,
+) {
+    let Ok(warden) = wardens.single() else {
+        return;
+    };
+    let ours = |mut at: Entity| loop {
+        if at == warden {
+            return true;
+        }
+        match ancestors.get(at) {
+            Ok(above) => at = above.parent(),
+            Err(_) => return false,
+        }
+    };
+    let bone = |wanted: &str| {
+        named
+            .iter()
+            .find(|(entity, name)| name.as_str() == wanted && ours(*entity))
+            .map(|(entity, _)| entity)
+    };
+    let leg = |side: &str| {
+        Some(Leg {
+            thigh: bone(&format!("{side}_Thigh"))?,
+            calf: bone(&format!("{side}_Calf"))?,
+            foot: bone(&format!("{side}_Foot"))?,
+            held: Default::default(),
+        })
+    };
+    let (Some(left), Some(right)) = (leg("L"), leg("R")) else {
+        return;
+    };
+    // The scene root: walk up from a leg until the next step would be the warden itself. Found
+    // rather than assumed, because it is whatever glTF instancing put between them.
+    let mut body = left.thigh;
+    loop {
+        let Ok(above) = ancestors.get(body) else {
+            return;
+        };
+        if above.parent() == warden {
+            break;
+        }
+        body = above.parent();
+    }
+    info!("found the warden's legs; feet will follow the ground");
+    commands.entity(warden).insert(Legs {
+        left,
+        right,
+        body,
+        dropped: 0.0,
+    });
+}
+
+/// Puts each foot on the ground under it, and drops the hips so the lower one can reach.
+///
+/// # Why a vertical shift is the whole correction
+///
+/// The clips are authored with the soles on a floor at zero, and the warden's own transform sits
+/// on the ground. So the height the clip gives an ankle is already right for flat ground at the
+/// warden's feet, and the entire correction is however far the ground under THAT foot differs
+/// from the ground under the warden. No measured offset between ankle and sole is needed, which
+/// is worth saying because looking one up was the first instinct and it would have been a
+/// constant to keep in step with the model forever.
+///
+/// A SWINGING foot is shifted too, deliberately. Ground 20 cm higher under a foot in flight is
+/// ground that foot has to clear, and lifting the whole trajectory is what a real leg does. Only
+/// pinning a planted foot against sliding needs to know plant from swing, and that is a separate
+/// thing this does not yet do.
+pub fn plant_the_feet(
+    time: Res<Time>,
+    terrain: Option<Res<TerrainSource>>,
+    mut wardens: Query<(&Transform, &mut Legs), With<Player>>,
+    mut placed: Query<(&mut Transform, Option<&ChildOf>), Without<Player>>,
+) {
+    let Some(terrain) = terrain else {
+        return;
+    };
+    let Ok((standing, mut legs)) = wardens.single_mut() else {
+        return;
+    };
+    // The warden's OWN transform, not its GlobalTransform.
+    //
+    // This runs before Bevy propagates, so every GlobalTransform still holds last frame's
+    // answer - and using one here put the whole computation a frame behind the body. At sprint
+    // speed that is 10 cm of error in where the ground is, and in the very first frame of a test
+    // it is the difference between standing at height 10.6 and standing at zero. The warden is
+    // spawned at the top level with no parent, so its Transform IS its world transform.
+    let base = standing.compute_affine();
+    let feet_at = standing.translation.y;
+
+    // Put the authored pose back before anything is measured. See `Held`: without this the
+    // correction is computed from an already-corrected pose and compounds, which measured 57 cm
+    // of drift over 40 frames when nothing else was writing the bones.
+    for side in [legs.left, legs.right] {
+        for (slot, bone) in [side.thigh, side.calf].into_iter().enumerate() {
+            if let Ok((mut local, _)) = placed.get_mut(bone) {
+                local.rotation = side.held[slot].base(local.rotation);
+            }
+        }
+    }
+
+    // Read everything after that. Solving needs each leg's three joints in world space, and
+    // writing any of them invalidates the ones below it.
+    let read = |leg: &Leg| {
+        let placed = &placed.as_readonly();
+        Some((
+            world_of(leg.thigh, base, placed)?.translation.into(),
+            world_of(leg.calf, base, placed)?.translation.into(),
+            world_of(leg.foot, base, placed)?.translation.into(),
+        ))
+    };
+    let (Some(left), Some(right)) = (read(&legs.left), read(&legs.right)) else {
+        return;
+    };
+    // What is already applied. Everything read above includes last frame's drop, so it comes
+    // back off before this frame's goes on - otherwise each frame's drop stacks on the last and
+    // the warden walks into the ground.
+    let held = placed
+        .get(legs.body)
+        .map(|(local, _)| local.translation.y)
+        .unwrap_or(0.0);
+    let undropped = |p: Vec3| p - Vec3::Y * held;
+    let sides: [(Leg, (Vec3, Vec3, Vec3)); 2] = [
+        (legs.left, (undropped(left.0), undropped(left.1), undropped(left.2))),
+        (legs.right, (undropped(right.0), undropped(right.1), undropped(right.2))),
+    ];
+
+    // How far each foot has to move to meet the ground it is over.
+    let grounds = sides.map(|(_, (_, _, ankle))| terrain.height(ankle.x, ankle.z));
+    let shifts = [
+        shift_to_ground(grounds[0], feet_at),
+        shift_to_ground(grounds[1], feet_at),
+    ];
+
+    // Eased, not snapped: the ground under a foot changes discontinuously at a step or a rock
+    // edge, and moving the hips there in one frame reads as a twitch.
+    let wants = hips_drop_by(shifts);
+    let closes = (HIPS_SETTLE * time.delta_secs()).clamp(0.0, 1.0);
+    legs.dropped += (wants - legs.dropped) * closes;
+    let dropped = legs.dropped;
+
+    // Forward, from the warden's own facing — never from the pose. On a bind 99.9% extended the
+    // knee's offset from the hip-to-ankle line is a rounding error, so a solver left to infer
+    // the fold direction would sometimes fold the knee backwards.
+    let forward = standing.rotation * Vec3::Z;
+
+    for (slot, (leg, (hip, knee, ankle))) in sides.into_iter().enumerate() {
+        let put = plant_one(hip, knee, ankle, grounds[slot], feet_at, dropped, forward);
+        // The thigh first, then the calf - and the calf's STARTING direction has to account
+        // for the thigh having just moved, because the calf is its child and went with it.
+        //
+        // Using the untouched chain's calf direction here was wrong and cost a while to find:
+        // the thigh turns about 10.8 degrees to bend the knee forward, which swings the calf's
+        // far end 6.8 cm before the calf is touched at all, and the ankle came out 3.9 cm low
+        // for it. The Blender viewer avoided this by re-reading the joint after each aim; here
+        // the thigh's own turn is applied to the direction instead, which needs no re-read.
+        let turns_thigh = aim(put.was.joint - put.was.root, put.now.joint - put.now.root);
+        let turns_calf = aim(
+            turns_thigh * (put.was.end - put.was.joint),
+            put.now.end - put.now.joint,
+        );
+        let held = [
+            turn_a_bone(&mut placed, base, leg.thigh, turns_thigh),
+            turn_a_bone(&mut placed, base, leg.calf, turns_calf),
+        ];
+        let mine = if slot == 0 { &mut legs.left } else { &mut legs.right };
+        for (into, got) in mine.held.iter_mut().zip(held) {
+            if let Some(got) = got {
+                *into = got;
+            }
+        }
+    }
+
+    // And drop the body. SET, not added, so it cannot accumulate.
+    //
+    // The scene root sits directly under the warden, whose own transform carries a turn about Y
+    // and no scale - and a turn about Y leaves Y alone. So a world-vertical drop is the same
+    // number in this entity's own space, with no conversion to get wrong.
+    if let Ok((mut local, _)) = placed.get_mut(legs.body) {
+        local.translation.y = dropped;
+    }
+}
+
+/// Turns one bone so the segment it drives points where the solver put it.
+///
+/// Written as a delta on the bone's WORLD rotation and converted back through its parent, so
+/// nothing here needs to know which local axis the bone runs along — that is a property of how
+/// the model was exported, not of the geometry.
+fn turn_a_bone(
+    placed: &mut Query<(&mut Transform, Option<&ChildOf>), Without<Player>>,
+    warden: Affine3A,
+    bone: Entity,
+    turn: Quat,
+) -> Option<Held> {
+    let parent = placed
+        .get(bone)
+        .ok()
+        .and_then(|(_, above)| above.map(|p| p.parent()))?;
+    let above = world_of(parent, warden, &placed.as_readonly())?;
+    let (_, upright, _) = above.to_scale_rotation_translation();
+    let (mut local, _) = placed.get_mut(bone).ok()?;
+    let authored = local.rotation;
+    // world = parent * local, so a world-space turn on the left becomes
+    // parent_rotation-inverse * turn * parent_rotation applied to the local rotation.
+    local.rotation = upright.inverse() * turn * upright * authored;
+    Some(Held {
+        authored,
+        left: local.rotation,
+    })
+}
+
+/// Feet that follow the ground.
+pub struct PlantingPlugin;
+
+impl Plugin for PlantingPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, find_the_legs).add_systems(
+            PostUpdate,
+            // AFTER the animation has written its pose and BEFORE Bevy propagates it. Any
+            // earlier and the correction is overwritten; any later and it lands a frame late,
+            // which shows as the feet swimming behind the body.
+            plant_the_feet
+                .after(bevy::app::Animation)
+                .before(TransformSystem::TransformPropagate),
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_hips_only_ever_drop() {
+        assert_eq!(hips_drop_by([0.0, 0.0]), 0.0);
+        // A foot needing to go up costs nothing: a knee can always bend further.
+        assert_eq!(hips_drop_by([0.2, 0.1]), 0.0);
+        // A foot needing to go down takes the hips with it.
+        assert!((hips_drop_by([-0.05, 0.0]) - -0.05).abs() < 1e-6);
+        // The LOWER foot decides, not the average - averaging leaves it short of the floor,
+        // which is what reads as a leg not reaching.
+        assert!((hips_drop_by([-0.10, 0.10]) - -0.10).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_cliff_does_not_pull_the_hips_through_the_floor() {
+        assert_eq!(hips_drop_by([-40.0, -40.0]), -HIPS_DROP_AT_MOST);
+    }
+
+    /// Flat ground under the foot means no shift asked for, so the only thing that moves the
+    /// ankle is the extension cap - the 1.5 cm this rig's 99.9% bind costs. Worth pinning,
+    /// because it is the amount the character sinks the instant planting is switched on.
+    #[test]
+    fn flat_ground_asks_for_nothing_but_the_extension_cap() {
+        let leg = a_leg();
+        let put = plant_one(leg.root, leg.joint, leg.end, 0.0, 0.0, 0.0, FORWARD);
+        assert_eq!(put.shift, 0.0);
+        let sank = (put.now.end.y - leg.end.y).abs();
+        assert!(
+            sank * 170.0 > 1.0 && sank * 170.0 < 2.0,
+            "flat ground moved the ankle {:.2} cm; the cap alone accounts for about 1.5",
+            sank * 170.0
+        );
+    }
+
+    #[test]
+    fn ground_ten_centimetres_up_lifts_the_ankle_by_ten_centimetres() {
+        let leg = a_leg();
+        let up = 0.10 / 1.7;
+        let put = plant_one(leg.root, leg.joint, leg.end, up, 0.0, 0.0, FORWARD);
+        assert!((put.shift - up).abs() < 1e-6);
+        assert!(
+            (put.now.end.y - (leg.end.y + up)).abs() < 1e-5,
+            "the ankle went to {:.4} where the ground asked for {:.4}",
+            put.now.end.y,
+            leg.end.y + up
+        );
+        assert!((put.now.upper() - leg.upper()).abs() < 1e-5, "the thigh changed length");
+        assert!((put.now.lower() - leg.lower()).abs() < 1e-5, "the calf changed length");
+    }
+
+    /// A coastline can drop hundreds of metres between two samples, and a leg stretched over the
+    /// edge of one looks far worse than a foot hanging above it.
+    #[test]
+    fn a_cliff_is_not_reached_for() {
+        let leg = a_leg();
+        let put = plant_one(leg.root, leg.joint, leg.end, -300.0, 0.0, 0.0, FORWARD);
+        assert_eq!(put.shift, -GROUND_REACHES);
+        assert!(put.now.end.is_finite());
+    }
+
+    /// Dropping the hips is what lets a foot REACH: the body goes down, the ground does not, so
+    /// the leg has less distance to cover and stops clamping.
+    ///
+    /// This test first asserted the ankle landed in the SAME place either way, on the reasoning
+    /// that the target had not moved. It failed, and it was the assertion that was wrong -
+    /// which is the whole point of the drop. Undropped, this leg cannot reach its own bind-pose
+    /// ankle at a 98% cap and clamps 0.92 cm short of it; with the hips 5 cm down the same
+    /// target needs only 89% extension and it lands exactly.
+    #[test]
+    fn dropping_the_hips_is_what_lets_a_foot_reach() {
+        let leg = a_leg();
+        let down = -0.05;
+        let target = leg.end;                    // flat ground, so the target IS the bind ankle
+        let plain = plant_one(leg.root, leg.joint, leg.end, 0.0, 0.0, 0.0, FORWARD);
+        let dropped = plant_one(leg.root, leg.joint, leg.end, 0.0, 0.0, down, FORWARD);
+
+        assert!(
+            (dropped.was.root.y - (plain.was.root.y + down)).abs() < 1e-6,
+            "the hip should have gone down with the body"
+        );
+        assert!(
+            dropped.now.missed_by(target) < plain.now.missed_by(target),
+            "dropped the foot missed by {:.2} cm and undropped by {:.2}; dropping the hips is \
+             supposed to help it reach",
+            dropped.now.missed_by(target) * 170.0,
+            plain.now.missed_by(target) * 170.0
+        );
+        assert!(
+            dropped.now.missed_by(target) * 170.0 < 0.1,
+            "5 cm of hip drop should be plenty for this target, but it still missed by {:.2} cm",
+            dropped.now.missed_by(target) * 170.0
+        );
+        // And both keep the bones honest.
+        for (name, put) in [("plain", plain), ("dropped", dropped)] {
+            assert!((put.now.upper() - leg.upper()).abs() < 1e-5, "{name}: thigh changed");
+            assert!((put.now.lower() - leg.lower()).abs() < 1e-5, "{name}: calf changed");
+        }
+    }
 
     /// This rig's own leg, measured on the built model in Blender: thigh 42.00 cm, calf 36.34,
     /// at 170 cm per model unit. The bind pose is 99.9% extended.
@@ -342,6 +893,200 @@ mod tests {
             moved * 170.0 < 2.0,
             "the cap moved the ankle {:.2} cm, which is enough to see",
             moved * 170.0
+        );
+    }
+
+    /// Builds a warden's skeleton the shape glTF instancing gives it, and runs the real systems
+    /// over it.
+    ///
+    /// The pure tests above check the arithmetic; this checks the plumbing, which is where a
+    /// runtime IK actually fails — finding the bones, composing world transforms before
+    /// propagation, and turning a solved position into a local rotation. None of that is
+    /// exercised by a function taking three points.
+    /// The same leg in METRES, as it stands in the world once the model is scaled up.
+    ///
+    /// Not `a_leg()`, which is in MODEL units at 170 cm to the unit, and building a runtime
+    /// skeleton out of those numbers gives a character with 46 cm legs whose origin is 39 cm
+    /// below its own ankle. That mistake made the first version of the test below fail with the
+    /// ankle "35.6 cm from the ground", which is a fixture fault reported as a system fault.
+    ///
+    /// Measured on the rig: hip 0.501 of height, ankle 0.0418, thigh 42.00 cm and calf 36.34 at
+    /// model scale. At 1.7 m tall that is a hip 85.2 cm up and an ankle 7.1 cm up — which is the
+    /// number that matters here, because A PLANTED ANKLE IS NOT ON THE GROUND. It sits an
+    /// ankle's height above the sole, and a test that expects otherwise is wrong about feet.
+    const ANKLE_ABOVE_SOLE: f32 = 0.071;
+    const THIGH: f32 = 0.420;
+    const CALF: f32 = 0.363;
+
+    fn a_warden_standing_at(spot: Vec3) -> (App, Entity) {
+        use crate::world::terrain::Terrain;
+
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::app::TaskPoolPlugin::default(),
+            bevy::transform::TransformPlugin,
+        ))
+        .insert_resource(TerrainSource(std::sync::Arc::new(Terrain::new())))
+        .insert_resource(Time::<()>::default())
+        .add_systems(Update, (find_the_legs, plant_the_feet).chain());
+
+        // In metres, sole at the origin, so the skeleton stands the way it does in the world.
+        let hip_at = Vec3::Y * (ANKLE_ABOVE_SOLE + CALF + THIGH);
+        let thigh_down = Vec3::NEG_Y * THIGH;
+        let calf_down = Vec3::NEG_Y * CALF;
+
+        let warden = app
+            .world_mut()
+            .spawn((
+                Player,
+                Transform::from_translation(spot),
+                Visibility::default(),
+            ))
+            .id();
+        // Player -> scene root -> Hip -> {L,R}_Thigh -> _Calf -> _Foot, each bone's translation
+        // being the offset to the next joint, which is how a glTF skeleton arrives.
+        let body = app
+            .world_mut()
+            .spawn((Name::new("Scene"), Transform::default()))
+            .id();
+        app.world_mut().entity_mut(body).insert(ChildOf(warden));
+        let hips = app
+            .world_mut()
+            .spawn((Name::new("Hip"), Transform::from_translation(hip_at)))
+            .id();
+        app.world_mut().entity_mut(hips).insert(ChildOf(body));
+        for (side, across) in [("L", -0.09_f32), ("R", 0.09)] {
+            let thigh = app
+                .world_mut()
+                .spawn((
+                    Name::new(format!("{side}_Thigh")),
+                    Transform::from_translation(Vec3::new(across, 0.0, 0.0)),
+                ))
+                .id();
+            app.world_mut().entity_mut(thigh).insert(ChildOf(hips));
+            let calf = app
+                .world_mut()
+                .spawn((
+                    Name::new(format!("{side}_Calf")),
+                    Transform::from_translation(thigh_down),
+                ))
+                .id();
+            app.world_mut().entity_mut(calf).insert(ChildOf(thigh));
+            let foot = app
+                .world_mut()
+                .spawn((
+                    Name::new(format!("{side}_Foot")),
+                    Transform::from_translation(calf_down),
+                ))
+                .id();
+            app.world_mut().entity_mut(foot).insert(ChildOf(calf));
+        }
+        (app, warden)
+    }
+
+    /// Runs frames with time actually passing, which anything eased needs.
+    fn run_for(app: &mut App, frames: usize) {
+        for _ in 0..frames {
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::from_millis(16));
+            app.update();
+        }
+    }
+
+    #[test]
+    fn the_legs_are_found_in_a_wardens_own_skeleton() {
+        let (mut app, warden) = a_warden_standing_at(Vec3::new(120.0, 0.0, -85.0));
+        app.update();
+        let legs = app.world().entity(warden).get::<Legs>().copied();
+        assert!(legs.is_some(), "the leg bones were not found in the scene");
+        let legs = legs.unwrap();
+        assert_ne!(legs.left.thigh, legs.right.thigh, "both legs found the same bones");
+    }
+
+    /// The whole point, end to end: put the warden somewhere the ground is not level with their
+    /// own feet, and the ankles should move toward the ground under each of them.
+    #[test]
+    fn the_feet_move_toward_the_ground_under_them() {
+        use crate::world::terrain::Terrain;
+
+        let terrain = Terrain::new();
+        // Somewhere with real slope, so the two feet are over different heights.
+        let mut spot = Vec3::new(0.0, 0.0, 0.0);
+        let mut best = 0.0;
+        for step in 0..60 {
+            let at = Vec3::new(40.0 * step as f32, 0.0, 25.0 * step as f32);
+            let slope = (terrain.height(at.x - 0.1, at.z) - terrain.height(at.x + 0.1, at.z)).abs();
+            if slope > best {
+                best = slope;
+                spot = at;
+            }
+        }
+        spot.y = terrain.height(spot.x, spot.z);
+        assert!(best > 0.001, "found nowhere with any slope to test on");
+
+        let (mut app, warden) = a_warden_standing_at(spot);
+        // Long enough for the hip drop to settle. It is eased on purpose - the ground under a
+        // foot changes discontinuously and snapping the body to it reads as a twitch - so a
+        // single frame with no time elapsed leaves `dropped` at zero, and the LOWER foot cannot
+        // reach because a straight leg has nothing left to extend. That is the system working;
+        // the first version of this test just never let it run.
+        run_for(&mut app, 40);
+        let legs = *app.world().entity(warden).get::<Legs>().expect("legs");
+
+        let ankle_of = |app: &App, leg: &Leg| {
+            app.world()
+                .entity(leg.foot)
+                .get::<GlobalTransform>()
+                .expect("the transform plugin should have propagated")
+                .translation()
+        };
+        for (name, leg) in [("left", legs.left), ("right", legs.right)] {
+            let ankle = ankle_of(&app, &leg);
+            assert!(
+                ankle.is_finite(),
+                "{name} ankle came out {ankle:?} - a NaN here spreads through the hierarchy"
+            );
+            let ground = app
+                .world()
+                .resource::<TerrainSource>()
+                .height(ankle.x, ankle.z);
+            // A PLANTED ANKLE IS NOT ON THE GROUND — it sits an ankle's height above the sole.
+            // So the claim is that the ankle keeps its own height above the ground UNDER IT,
+            // which is what following the terrain means. Not exact: the extension cap costs
+            // about 1.5 cm on this bind and a clamped foot lands short on purpose.
+            let above = ankle.y - ground;
+            assert!(
+                (above - ANKLE_ABOVE_SOLE).abs() < 0.03,
+                "{name} ankle sits {:.1} cm over its own ground where it should sit {:.1}; \
+                 ankle {:.3}, ground {:.3}",
+                above * 100.0,
+                ANKLE_ABOVE_SOLE * 100.0,
+                ankle.y,
+                ground
+            );
+        }
+    }
+
+    /// The drop is SET, never added. Running many frames with nothing animating the skeleton must
+    /// not walk the warden into the floor - which an `+=` on a channel the animation owns does.
+    #[test]
+    fn the_body_drop_does_not_accumulate() {
+        let (mut app, warden) = a_warden_standing_at(Vec3::new(120.0, 0.0, -85.0));
+        app.update();
+        let body = app.world().entity(warden).get::<Legs>().expect("legs").body;
+        let after_one = app.world().entity(body).get::<Transform>().unwrap().translation.y;
+        run_for(&mut app, 120);
+        let after_many = app.world().entity(body).get::<Transform>().unwrap().translation.y;
+        assert!(
+            after_many >= -HIPS_DROP_AT_MOST - 1e-4,
+            "the body sank to {after_many:.3}, past the {HIPS_DROP_AT_MOST} cap, so the drop is \
+             accumulating"
+        );
+        assert!(
+            (after_many - after_one).abs() < HIPS_DROP_AT_MOST + 1e-4,
+            "the body moved from {after_one:.4} to {after_many:.4} over 120 frames of nothing \
+             changing"
         );
     }
 
