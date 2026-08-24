@@ -2182,6 +2182,60 @@ either a welded working copy or `edge_face_add` per loop.
 protects the openings that should stay open by size and closedness alone — the jacket's zip
 is an open chain and the collar is 38 vertices, so neither can be caught by a cap of eight.
 
+## "The shoes are bulky" — three times, and the first two passes measured the wrong axis
+
+**What you see.** The shoes look chunky. Slimmed once; still bulky. Slimmed again to a
+proper foot's proportions; **still bulky**.
+
+**What it actually was.** Both passes measured the FOOTPRINT — length and width, from above
+— and both reached their target. The shoe was 26.4 cm long (15.5% of standing height, where
+a foot is about 15) and 10.6 cm wide (40.2% of its own length, where a foot is about 40).
+Textbook, twice, and still wrong to look at.
+
+The measurement neither pass took was a vertical. By height band:
+
+    height above the floor   0-1   1-2   2-3   3-4   4-5  ...  9-10 cm
+    width of the shoe there  10.6   7.8  10.6   8.7   4.7        6.3 cm
+
+Full width all the way up to 3 cm, narrowing above it. That bottom 3 cm is the sole — 11% of
+the shoe's length, where a trainer's sole is 7–8%. The shoe was standing on a **platform**,
+and no amount of slimming the plan view could ever have found that.
+
+**What changed.** `slim_the_shoes.py` gained a third pass that squashes the sole onto the
+floor, 3.0 cm → 2.0. `SOLE_AS_A_SHARE_OF_LENGTH = 0.076`.
+
+The sole is detected as *how high the widest part of the shoe reaches*, **from the mesh**.
+`ToeBase` sits at exactly 3.0 cm and is the obvious landmark — and would have been a bug: a
+bone does not move when the mesh under it is squashed, so that detector would have thinned
+the sole again on every run, and the shoe's size would depend on how many times the script
+had been run. Detected from the mesh, a second run measures 2.0, wants 2.0, and does nothing.
+
+**The principle.** *A dimension nobody measured is where the fault is.* Two passes agreeing
+that the footprint is correct is not evidence about the shoe; it is evidence about the
+footprint. When something measures right and still reads wrong, the next move is a
+measurement on a **different axis**, not a tighter tolerance on the same one.
+
+**The constraint that decided the fix, and it was measured.** An earlier note in that file
+said scaling vertically would drop the shoe below the ankle bone. The real constraint is
+worse:
+
+    the leg mesh (L_CalfTwist02) starts at 9.7 cm; the shoe's rim tops out at 10.0
+
+The shoe swallows the bottom of the leg by **three millimetres**. Lower the collar by any
+useful amount and the leg ends in mid-air. So the shoe is thinned *from underneath* and the
+rim does not move at all. **The shoe's height above the sole is not available as a knob**
+without also building the leg downward.
+
+**The test.** `the_leg_stays_covered` refuses if the rim drops below the lowest leg vertex,
+reporting the margin per side every run (`L rim reaches +0.3 cm past the bottom of the leg`).
+`A_SOLE_IS_THE_BOTTOM` refuses if the detected sole is more than 45% of the shoe's height —
+comparing the answer against what a sole *is*, rather than against the number that produced
+it, so a wide strap high on the ankle cannot fool the detector into squashing the whole shoe.
+
+**And there was no render of it.** `look_at_him.py` had nineteen shots and not one of the
+thing that had been reported wrong three times. It now has four shoe shots and a `LOOK_ONLY`
+filter.
+
 ## Keeping this honest
 
 Add an entry when a bug took **more than one attempt** to fix, or when the symptom
