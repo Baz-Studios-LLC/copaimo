@@ -257,6 +257,54 @@ fn playback_rate(speed: f32, covers: f32, clip_lasts: f32) -> f32 {
     clip_lasts * speed / covers
 }
 
+/// How much wider the stride may be warped than the clip authored it.
+///
+/// # Why 1.25 and not Paragon's 1.6
+///
+/// Stride warping buys speed by moving the foot targets apart instead of playing the clip
+/// faster, and Epic scaled Paragon's motion up to 60% that way with a further 15% by play rate.
+/// That ratio is the lesson - play rate is meant to be the SMALL adjustment - but the 60% is not
+/// transferable, because what a wider stride costs depends entirely on the leg.
+///
+/// Measured on this one by `ik::the_reach_budget`, which prints the exchange rate: a planted foot
+/// `ahead` of the hip pins the hip to `sqrt(reach^2 - ahead^2)` above the ankle, so stride is
+/// paid for in crouch. On a 0.783 m leg capped at 98%:
+///
+///     run contact 0.578 m as authored needs  7 cm of hip drop
+///                  x1.3   0.751 m           11 cm
+///                  x1.6   0.925 m           17 cm
+///
+/// Seventeen centimetres of crouch on a 1.7 m character is a squat, not a run. 1.25 costs about
+/// 10 cm, three more than the clip already asks for, and still takes the jog's playback rate from
+/// 2.46 to 1.97 - which puts the effective cycle back inside the 12-16 frames a run is authored
+/// over, and cadence from 284 steps a minute to 227.
+///
+/// The rest of the churn is not this number's to fix. Contact length is `stance share x covers`,
+/// so the remaining lever is the clip's DUTY FACTOR - a shorter stance and a longer flight, which
+/// is how a real sprinter goes faster and what `SPRINT_COVERS` already says. That is an authoring
+/// change, not a runtime one.
+pub const STRIDE_WARPS_TO: f32 = 1.25;
+
+/// How far the stride is being warped right now, published for `ik` to place the feet with.
+///
+/// On the player rather than passed as an argument, because the two live in different schedules:
+/// this is decided in `Update` beside the clip choice, and spent in `PostUpdate` between the
+/// animation writing its pose and Bevy propagating it.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Warping {
+    /// 1.0 for the stride as authored, up to `STRIDE_WARPS_TO`.
+    pub stride: f32,
+}
+
+/// How much of the speed to take out of the stride, and how much to leave to the play rate.
+///
+/// Everything up to the cap, and the remainder stays with the rate. Never below 1.0: a stride
+/// NARROWER than authored would mean the clip is carrying more ground than the warden is, and the
+/// answer to that is a slower play rate, which falls out of the same arithmetic.
+pub fn warps_the_stride(speed: f32, covers: f32, clip_lasts: f32) -> f32 {
+    playback_rate(speed, covers, clip_lasts).clamp(1.0, STRIDE_WARPS_TO)
+}
+
 /// How long one gait eases into another, in seconds.
 ///
 /// Short: a warden who starts walking should look like they started walking, not
@@ -447,11 +495,12 @@ pub fn hand_the_clips_over(
 
 /// Walks when the warden walks, stands when they stand, at their own speed.
 pub fn match_the_clip_to_the_walking(
+    mut commands: Commands,
     motions: Res<Motions>,
-    striding: Query<&Striding, With<Player>>,
+    striding: Query<(Entity, &Striding), With<Player>>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
 ) {
-    let Ok(pace) = striding.single() else {
+    let Ok((warden, pace)) = striding.single() else {
         return;
     };
     // Both of these read `wants`, the ASKED speed, and not the measured one. Measured
@@ -470,6 +519,7 @@ pub fn match_the_clip_to_the_walking(
         .find(|gait| pace.wants <= gait.upto)
         .unwrap_or_else(|| motions.gaits.last().expect("never empty"));
 
+    let mut warp = 1.0_f32;
     for (mut player, mut moves) in &mut players {
         let (wanted, covers, lasts) = if moving {
             (gait.node, gait.covers, gait.lasts)
@@ -486,11 +536,17 @@ pub fn match_the_clip_to_the_walking(
             // that is how many of them the warden needs, and each gait carries its
             // own distance. Multiplied by the clip's LENGTH because `set_speed` is a
             // multiple of its natural rate rather than a rate — see `Motions`.
+            // The stride takes what it can and the rate carries the rest, which is the whole
+            // point: `covers x stride` is the ground one cycle now carries, so dividing by the
+            // warp is what turns a wider stride into a slower, less churning clip.
+            let stride = warps_the_stride(pace.speed, covers, lasts);
             if let Some(active) = player.animation_mut(wanted) {
-                active.set_speed(playback_rate(pace.speed, covers, lasts));
+                active.set_speed(playback_rate(pace.speed, covers * stride, lasts));
             }
+            warp = stride;
         }
     }
+    commands.entity(warden).insert(Warping { stride: warp });
 }
 
 /// Whether the clips have been found yet.

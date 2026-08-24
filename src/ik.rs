@@ -304,6 +304,7 @@ pub fn plant_one(
     feet_at: f32,
     dropped: f32,
     forward: Vec3,
+    stride: f32,
 ) -> Planted {
     let shift = shift_to_ground(ground, feet_at);
     let down = Vec3::Y * dropped;
@@ -314,9 +315,53 @@ pub fn plant_one(
     };
     Planted {
         was,
-        now: reach(was, ankle + Vec3::Y * shift, forward),
+        now: reach(was, warped_target(hip, ankle, shift, forward, stride), forward),
         shift,
     }
+}
+
+/// Where a foot goes once the stride has been warped and the ground accounted for.
+///
+/// # What warping a stride actually is
+///
+/// The foot's offset from the hip ALONG THE LINE OF TRAVEL is scaled; everything else about it is
+/// left alone. So a foot 30 cm in front of the hip goes to 37.5 cm at 1.25x and a foot behind goes
+/// further behind, which widens the whole step without touching its timing. `motion.rs` then
+/// divides the playback rate by the same factor, because a cycle now carries `covers x stride`.
+///
+/// Horizontal only. Scaling the vertical part as well would raise a swinging foot by a quarter
+/// and drop a planted one through the floor, and the ground has already had its say via `shift`.
+pub fn warped_target(hip: Vec3, ankle: Vec3, shift: f32, forward: Vec3, stride: f32) -> Vec3 {
+    let flat = Vec3::new(forward.x, 0.0, forward.z);
+    let on_the_ground = ankle + Vec3::Y * shift;
+    if flat.length() < NO_DIRECTION || stride <= 1.0 {
+        return on_the_ground;
+    }
+    let flat = flat.normalize();
+    let along = (ankle - hip).dot(flat);
+    on_the_ground + flat * (along * (stride - 1.0))
+}
+
+/// How far the hips must drop for a foot to reach `target` at all, or 0 if it already can.
+///
+/// This is the price of a wider stride and it is not a tuning number: a planted foot `ahead` of
+/// the hip pins the hip to `sqrt(reach^2 - ahead^2)` above the ankle. `ik::the_reach_budget`
+/// prints the exchange rate on this leg - the run's authored contact already wants about 7 cm,
+/// and 1.6x would want 17, which is why `motion::STRIDE_WARPS_TO` is 1.25 and not Paragon's 1.6.
+///
+/// Derived rather than a constant, so the crouch is exactly what the stride asked for. A fixed
+/// number would either squat when it did not need to or come up short when it did.
+pub fn stride_needs_a_drop(hip: Vec3, target: Vec3, reach: f32, forward: Vec3) -> f32 {
+    let flat = Vec3::new(forward.x, 0.0, forward.z);
+    if flat.length() < NO_DIRECTION {
+        return 0.0;
+    }
+    let ahead = (target - hip).dot(flat.normalize()).abs();
+    if ahead >= reach {
+        return -HIPS_DROP_AT_MOST;
+    }
+    let allowed = (reach * reach - ahead * ahead).sqrt();
+    ((hip.y - target.y) - allowed).max(0.0).min(HIPS_DROP_AT_MOST) * -1.0
 }
 
 /// What was last done to one bone, so it can be undone if nothing else has written it since.
@@ -511,15 +556,17 @@ pub fn find_the_legs(
 pub fn plant_the_feet(
     time: Res<Time>,
     terrain: Option<Res<TerrainSource>>,
-    mut wardens: Query<(&Transform, &mut Legs), With<Player>>,
+    mut wardens: Query<(&Transform, &mut Legs, Option<&crate::motion::Warping>), With<Player>>,
     mut placed: Query<(&mut Transform, Option<&ChildOf>), Without<Player>>,
 ) {
     let Some(terrain) = terrain else {
         return;
     };
-    let Ok((standing, mut legs)) = wardens.single_mut() else {
+    let Ok((standing, mut legs, warping)) = wardens.single_mut() else {
         return;
     };
+    // 1.0 until the clips are playing, so nothing warps before there is a gait to warp.
+    let stride = warping.map(|w| w.stride).unwrap_or(1.0);
     // The warden's OWN transform, not its GlobalTransform.
     //
     // This runs before Bevy propagates, so every GlobalTransform still holds last frame's
@@ -580,13 +627,6 @@ pub fn plant_the_feet(
         shift_to_ground(grounds[1], feet_at),
     ];
 
-    // Eased, not snapped: the ground under a foot changes discontinuously at a step or a rock
-    // edge, and moving the hips there in one frame reads as a twitch.
-    let wants = hips_drop_by(shifts);
-    let closes = (HIPS_SETTLE * time.delta_secs()).clamp(0.0, 1.0);
-    legs.dropped += (wants - legs.dropped) * closes;
-    let dropped = legs.dropped;
-
     // Forward, from the warden's own facing — never from the pose. On a bind 99.9% extended the
     // knee's offset from the hip-to-ankle line is a rounding error, so a solver left to infer
     // the fold direction would sometimes fold the knee backwards.
@@ -600,8 +640,31 @@ pub fn plant_the_feet(
     // forward".
     let forward = standing.rotation * Vec3::NEG_Z;
 
+    // And what the WARPED stride needs, which is the price of the wider step: a foot further in
+    // front of the hip can only be on the ground if the hip is lower. Derived per foot from its
+    // own target rather than set as a constant, so the crouch is exactly what was asked for.
+    let stride_wants = sides.map(|(_, (hip, knee, ankle, _))| {
+        let reach = (knee.distance(hip) + ankle.distance(knee)) * EXTENDS_AT_MOST;
+        let target = warped_target(hip, ankle, 0.0, forward, stride);
+        stride_needs_a_drop(hip, target, reach, forward)
+    });
+
+    // Eased, not snapped: the ground under a foot changes discontinuously at a step or a rock
+    // edge, and moving the hips there in one frame reads as a twitch.
+    //
+    // Whichever of the two asks for more, not their sum: the ground and the stride are both
+    // reasons the hip must be LOWER, and satisfying the deeper one satisfies the other.
+    let wants = hips_drop_by(shifts).min(stride_wants[0]).min(stride_wants[1]);
+    let closes = (HIPS_SETTLE * time.delta_secs()).clamp(0.0, 1.0);
+    legs.dropped += (wants - legs.dropped) * closes;
+    let dropped = legs.dropped;
+
+
+
     for (slot, (leg, (hip, knee, ankle, sole_was))) in sides.into_iter().enumerate() {
-        let put = plant_one(hip, knee, ankle, grounds[slot], feet_at, dropped, forward);
+        let put = plant_one(
+            hip, knee, ankle, grounds[slot], feet_at, dropped, forward, stride,
+        );
         // The thigh first, then the calf - and the calf's STARTING direction has to account
         // for the thigh having just moved, because the calf is its child and went with it.
         //
@@ -761,7 +824,7 @@ mod tests {
     #[test]
     fn flat_ground_asks_for_nothing_but_the_extension_cap() {
         let leg = a_leg();
-        let put = plant_one(leg.root, leg.joint, leg.end, 0.0, 0.0, 0.0, FORWARD);
+        let put = plant_one(leg.root, leg.joint, leg.end, 0.0, 0.0, 0.0, FORWARD, 1.0);
         assert_eq!(put.shift, 0.0);
         let sank = (put.now.end.y - leg.end.y).abs();
         assert!(
@@ -775,7 +838,7 @@ mod tests {
     fn ground_ten_centimetres_up_lifts_the_ankle_by_ten_centimetres() {
         let leg = a_leg();
         let up = 0.10 / 1.7;
-        let put = plant_one(leg.root, leg.joint, leg.end, up, 0.0, 0.0, FORWARD);
+        let put = plant_one(leg.root, leg.joint, leg.end, up, 0.0, 0.0, FORWARD, 1.0);
         assert!((put.shift - up).abs() < 1e-6);
         assert!(
             (put.now.end.y - (leg.end.y + up)).abs() < 1e-5,
@@ -792,7 +855,7 @@ mod tests {
     #[test]
     fn a_cliff_is_not_reached_for() {
         let leg = a_leg();
-        let put = plant_one(leg.root, leg.joint, leg.end, -300.0, 0.0, 0.0, FORWARD);
+        let put = plant_one(leg.root, leg.joint, leg.end, -300.0, 0.0, 0.0, FORWARD, 1.0);
         assert_eq!(put.shift, -GROUND_REACHES);
         assert!(put.now.end.is_finite());
     }
@@ -810,8 +873,8 @@ mod tests {
         let leg = a_leg();
         let down = -0.05;
         let target = leg.end;                    // flat ground, so the target IS the bind ankle
-        let plain = plant_one(leg.root, leg.joint, leg.end, 0.0, 0.0, 0.0, FORWARD);
-        let dropped = plant_one(leg.root, leg.joint, leg.end, 0.0, 0.0, down, FORWARD);
+        let plain = plant_one(leg.root, leg.joint, leg.end, 0.0, 0.0, 0.0, FORWARD, 1.0);
+        let dropped = plant_one(leg.root, leg.joint, leg.end, 0.0, 0.0, down, FORWARD, 1.0);
 
         assert!(
             (dropped.was.root.y - (plain.was.root.y + down)).abs() < 1e-6,
@@ -1310,6 +1373,146 @@ mod tests {
             "the body moved from {after_one:.4} to {after_many:.4} over 120 frames of nothing \
              changing"
         );
+    }
+
+    /// What a wider stride COSTS on this leg, printed as a table.
+    ///
+    ///     cargo test the_reach_budget -- --ignored --nocapture
+    ///
+    /// Stride warping buys speed by moving the foot targets apart instead of playing the clip
+    /// faster. The question that decides how much of it is usable is not a matter of taste: a
+    /// planted foot `ahead` in front of the hip pins the hip to `sqrt(reach^2 - ahead^2)` above
+    /// the ankle, so every centimetre of extra stride is paid for in crouch. This prints the
+    /// exchange rate, so the cap is chosen from it rather than from Paragon's 60% - which was
+    /// measured on a different character.
+    #[test]
+    #[ignore = "prints a table rather than asserting"]
+    fn the_reach_budget() {
+        let straight = THIGH + CALF;
+        let reach = straight * EXTENDS_AT_MOST;
+        let standing = straight * 0.999; // the bind, hip above ankle
+        println!(
+            "leg {straight:.3} m straight, usable {reach:.3} at the {EXTENDS_AT_MOST} cap, \
+             hip {standing:.3} above the ankle standing"
+        );
+        println!("\n  {:>10} {:>12} {:>14}", "hip drop", "foot ahead", "contact length");
+        for drop in [0.0_f32, 0.02, 0.04, 0.06, 0.08, 0.10, 0.15, 0.20] {
+            let hip = standing - drop;
+            let ahead = (reach * reach - hip * hip).max(0.0).sqrt();
+            println!(
+                "  {:9.0}cm {:11.3}m {:13.3}m{}",
+                drop * 100.0,
+                ahead,
+                ahead * 2.0,
+                if ahead == 0.0 { "   <- cannot reach ahead at all" } else { "" }
+            );
+        }
+        // What each gait actually asks for, so the two can be compared.
+        println!("\n  what the clips ask, per foot, as authored:");
+        for (gait, contact, covers) in
+            [("walk", 0.550, 0.970), ("run", 0.578, 2.496), ("sprint", 0.625, 3.283)]
+        {
+            let needs = |contact: f32| {
+                let ahead = contact / 2.0;
+                (standing - (reach * reach - ahead * ahead).max(0.0).sqrt()).max(0.0)
+            };
+            println!(
+                "  {gait:<7} contact {contact:.3} m needs {:.0} cm of drop; at 1.3x it is \
+                 {:.3} m needing {:.0} cm; at 1.6x, {:.3} m needing {:.0} cm  (covers {covers})",
+                needs(contact) * 100.0,
+                contact * 1.3,
+                needs(contact * 1.3) * 100.0,
+                contact * 1.6,
+                needs(contact * 1.6) * 100.0,
+            );
+        }
+    }
+
+    /// A warped stride moves the foot ALONG THE LINE OF TRAVEL and nowhere else.
+    #[test]
+    fn warping_widens_the_step_and_leaves_its_height_alone() {
+        let leg = a_leg();
+        // A foot 20 cm in front of the hip, on the ground.
+        let ankle = leg.root + Vec3::new(0.0, -leg.straight() * 0.9, 0.20);
+        let plain = warped_target(leg.root, ankle, 0.0, FORWARD, 1.0);
+        let wider = warped_target(leg.root, ankle, 0.0, FORWARD, 1.25);
+        assert_eq!(plain, ankle, "a stride of 1.0 is the stride as authored");
+        assert!(
+            ((wider.z - leg.root.z) - 0.25).abs() < 1e-5,
+            "20 cm ahead should become 25 at 1.25x, not {:.3}",
+            wider.z - leg.root.z
+        );
+        assert!(
+            (wider.y - ankle.y).abs() < 1e-6,
+            "warping must not change the foot's height - the ground has already had its say"
+        );
+        // And behind the hip it goes further behind, which is what widens the step rather than
+        // sliding it forward.
+        let behind = leg.root + Vec3::new(0.0, -leg.straight() * 0.9, -0.20);
+        let back = warped_target(leg.root, behind, 0.0, FORWARD, 1.25);
+        assert!((back.z - leg.root.z + 0.25).abs() < 1e-5, "the trailing foot should trail more");
+    }
+
+    /// The crouch a wider stride costs is DERIVED, not chosen, and it is the reason the cap is
+    /// 1.25 rather than Paragon's 1.6.
+    #[test]
+    fn a_wider_stride_is_paid_for_in_crouch() {
+        let leg = a_leg();
+        let reach = leg.straight() * EXTENDS_AT_MOST;
+        let on_the_ground = |ahead: f32| leg.root + Vec3::new(0.0, -leg.straight() * 0.999, ahead);
+
+        // Straight under the hip the leg is at full stretch already, so even nothing ahead wants
+        // a little drop - the 98% cap against a 99.9% bind.
+        let square = stride_needs_a_drop(leg.root, on_the_ground(0.0), reach, FORWARD);
+        assert!(square <= 0.0, "a drop is downward or nothing, never a lift");
+
+        // The further ahead, the deeper. Monotonic, which is the property that matters.
+        let mut deeper = 0.0_f32;
+        for ahead in [0.10_f32, 0.20, 0.30, 0.40] {
+            let drop = stride_needs_a_drop(leg.root, on_the_ground(ahead), reach, FORWARD);
+            assert!(
+                drop <= deeper + 1e-6,
+                "{ahead:.2} m ahead asked for {drop:.3} where {:.2} m asked {deeper:.3}",
+                ahead - 0.10
+            );
+            deeper = drop;
+        }
+        assert!(deeper < -0.02, "40 cm ahead should want a real crouch, not {deeper:.3}");
+        // And never past the cap, whatever nonsense it is handed.
+        assert_eq!(
+            stride_needs_a_drop(leg.root, on_the_ground(99.0), reach, FORWARD),
+            -HIPS_DROP_AT_MOST
+        );
+    }
+
+    /// The split that is the entire point: the stride takes what it can and the play rate carries
+    /// the rest, so `covers x stride` is the ground one cycle now covers.
+    #[test]
+    fn the_stride_takes_what_it_can_and_the_rate_carries_the_rest() {
+        use crate::motion::{warps_the_stride, STRIDE_WARPS_TO};
+
+        // The jog, as the game now drives it: 5.90 m/s against a clip carrying 2.496 m over
+        // 1.042 s. Unwarped that asks 2.46x of the play rate.
+        let (speed, covers, lasts) = (5.90_f32, 2.496_f32, 1.0417_f32);
+        let unwarped = lasts * speed / covers;
+        let stride = warps_the_stride(speed, covers, lasts);
+        let warped = lasts * speed / (covers * stride);
+        assert_eq!(stride, STRIDE_WARPS_TO, "this speed should use the whole stride budget");
+        assert!(
+            (warped - unwarped / STRIDE_WARPS_TO).abs() < 1e-4,
+            "the rate should fall by exactly the stride: {unwarped:.3} to {warped:.3}"
+        );
+        assert!(warped < unwarped, "warping is supposed to slow the clip down, not speed it up");
+        // In band, which is the outcome that was wanted: a 24-frame clip at this rate is an
+        // effective cycle of 24/rate frames, and a run is authored over 12 to 16.
+        let frames = 24.0 / warped;
+        assert!(
+            (12.0..=16.5).contains(&frames),
+            "the effective cycle is {frames:.1} frames, outside the 12-16 a run is authored over"
+        );
+
+        // A walk already matches its clip, so there is nothing to warp and nothing to crouch for.
+        assert_eq!(warps_the_stride(0.93, 0.970, lasts), 1.0);
     }
 
     #[test]
