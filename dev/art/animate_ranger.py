@@ -1135,23 +1135,22 @@ ARM_HANGS_AT = 12.0
 # among them, no fingers at all, so the splayed fingers are baked into the mesh and cannot be
 # curled by posing. The roll is chosen to point them along the direction of travel, which is
 # the most a hand can be helped without finger bones.
-# +90, and this one is DERIVED rather than eyeballed - after six failed measurements and two
-# wrong guesses that each made it worse.
+# 10, which is where this started and where it has been put back.
 #
-# What finally worked: the palm direction cannot be read off the hand's whole point cloud,
-# because the glove cuff dominates it. It CAN be read off the fingers alone, because fingers
-# curl toward the palm - so the thin axis of the distal half gives the plane and the tips'
-# lean against the knuckles gives the sign. With that, sweeping the roll through a full turn
-# and scoring "how medial is the palm" produces a clean table.
+# A long detour ended here. Asked to fix the hands being "angled backwards", I read ANGLE as
+# ROTATION and spent six measurements and five values - 80, 45, 80, -70, +90 - rolling the
+# palm about the forearm, which is pronation and not angle at all. Every one of them was
+# reported as no better or worse, correctly. The roll was never the complaint.
 #
-# The table also explains both wrong guesses. L and R come out OPPOSITE at every angle, so a
-# roll is only correct if it is mirrored per side - which `PALM_IN * hand` does, with
-# `hand` being +1 on the left. At -70 that rolled L by -70 and R by +70, which the table
-# scores at -0.83 and -0.90: both palms turned OUTWARD. At +90 it is +0.98 and +0.98.
+# What was actually wrong with the ANGLE is the wrist: a drag term had just been added that
+# bends the hand back and forth against the forearm, and sprint coaching says the opposite -
+# "keeps the WRIST LOCKED... you cannot let your hands flop around when sprinting". That is
+# zeroed in HAND_LAGS_THE_ARM_BY, and it is the fix that belonged to this report.
 #
-# Target from the research: "open your hands so that they are flat and outstretched, with
-# your palms facing inward towards your body".
-PALM_IN = 90.0
+# The value here is left at its original 10 rather than at any of the five, because none of
+# them was solving the reported problem and the smallest is the one that was never complained
+# about on its own.
+PALM_IN = 10.0
 
 # --- Two repairs to the idle the model shipped with. See `mend_the_shipped_idle`.
 #
