@@ -64,6 +64,10 @@ scene.eevee.taa_render_samples = 32
 low = min((mesh.matrix_world @ v.co).z for v in mesh.data.vertices)
 high = max((mesh.matrix_world @ v.co).z for v in mesh.data.vertices)
 middle = mathutils.Vector((0.0, 0.0, (low + high) * 0.5))
+# The ankle joint, for the shoe shots - measured from the rig, because a shoe is a hand's
+# breadth off the floor and no share of standing height lands there reliably. Aimed at ONE
+# shoe rather than between the pair, or a close shot frames the gap between them.
+ankle = rig.matrix_world @ rig.pose.bones["L_Foot"].head
 
 # (name, degrees round, ortho scale, what to centre on)
 SHOTS = (
@@ -96,18 +100,35 @@ SHOTS = (
     ("underarm_other", -55.0, 0.40, mathutils.Vector((0.0, 0.0, high * 0.72))),
     ("pack", 180.0, 0.70, mathutils.Vector((0.0, 0.0, high * 0.72))),
     ("pack_side", 140.0, 0.70, mathutils.Vector((0.0, 0.0, high * 0.72))),
+    # The shoes, reported as bulky twice. Height is the dimension the slimming never touched,
+    # so the SIDE and the three-quarter are the ones that show it: a 26 cm shoe standing 11 cm
+    # tall reads as a brick from the side and measures perfectly from above.
+    ("shoe_side", 0.0, 0.30, ankle),
+    ("shoe_front", 90.0, 0.30, ankle),
+    ("shoe_quarter", 40.0, 0.30, ankle),
+    ("shoe_above", 40.0, 0.30, ankle),
 )
+
+ONLY = [w for w in os.environ.get("LOOK_ONLY", "").split(",") if w]
 
 made = []
 for name, turn, zoom, aim in SHOTS:
+    if ONLY and not any(w in name for w in ONLY):
+        continue
+    # A shoe is wider than it is tall, so it gets a landscape frame. In the portrait one
+    # ortho_scale governs the HEIGHT, and a scale wide enough for the toe wasted two thirds
+    # of the frame on empty floor - the first shoe render came back with the toe cropped off.
+    wide = name.startswith("shoe")
+    scene.render.resolution_x, scene.render.resolution_y = (700, 420) if wide else (420, 700)
     camera.data.ortho_scale = zoom
     angle = math.radians(turn)
+    tilt = 55.0 if name == "shoe_above" else 90.0
     camera.location = (
-        aim.x + 4.0 * math.sin(angle),
-        aim.y - 4.0 * math.cos(angle),
-        aim.z,
+        aim.x + 4.0 * math.sin(angle) * math.sin(math.radians(tilt)),
+        aim.y - 4.0 * math.cos(angle) * math.sin(math.radians(tilt)),
+        aim.z + 4.0 * math.cos(math.radians(tilt)),
     )
-    camera.rotation_euler = (math.radians(90.0), 0.0, angle)
+    camera.rotation_euler = (math.radians(tilt), 0.0, angle)
     scene.render.filepath = os.path.join(OUT, f"look_{name}.png")
     bpy.ops.render.render(write_still=True)
     made.append(scene.render.filepath)

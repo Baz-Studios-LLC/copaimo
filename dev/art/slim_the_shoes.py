@@ -28,11 +28,32 @@ The seam that can actually open is at the TOP, where the trouser cuff comes down
 That is a vertical overlap, so the exemption belongs on a vertical measure - the slimming now
 fades out with HEIGHT and leaves the last couple of centimetres of collar alone.
 
-# Horizontally only
+# The third report of "still bulky", and what it turned out to be
 
-The shoe stands from the floor to about 11 cm with the ankle joint at 7.1, so scaling it
-vertically about the sole would drop the top of the shoe below the bone that drives it. Length and
-width are what bulk means here anyway.
+The footprint reached its target and the shoe was reported bulky again. That is what a STYLISED
+judgement looks like: the plan dimension measures textbook-correct and the silhouette is still a
+brick. Measured by height band, the reason:
+
+    height above the floor   0-1   1-2   2-3   3-4   4-5   ...   9-10 cm
+    width of the shoe there  10.6   7.8  10.6   8.7   4.7         6.3 cm
+
+The shoe is at its FULL WIDTH up to 3 cm and narrows above it. That bottom 3 cm is the sole, and
+3 cm of sole under a 26.4 cm shoe is 11% of its length. A trainer's sole is about 2 cm at the
+heel, 7-8%. So the shoe was standing on a PLATFORM, and two passes over the footprint could never
+have found that - neither of them measured a vertical.
+
+# The collar rim must not move, and that is measured, not preferred
+
+An earlier note here said scaling vertically would drop the top of the shoe below the ankle bone.
+The real constraint is worse than that and worth writing down properly:
+
+    the leg mesh (L_CalfTwist02) starts at 9.7 cm; the shoe's rim tops out at 10.0
+
+The shoe covers the bottom of the leg by THREE MILLIMETRES. Lowering the collar by any useful
+amount opens a hole at the ankle - the leg would end in mid-air. So the shoe is thinned FROM
+UNDERNEATH: the sole is squashed onto the floor, and the thinning eases back to nothing by the
+collar, which does not move at all. `the_leg_stays_covered` checks it afterwards rather than
+trusting that description.
 
 # Nothing needs re-authoring afterwards
 
@@ -73,6 +94,25 @@ COLLAR_KEEPS_ITS_SIZE_ABOVE = 9.0
 # have pulled away from the leg.
 COLLAR_STAYS_WITHIN = 7.0  # cm
 
+# How thick the sole should be, as a share of the shoe's own length.
+#
+# 0.076 is 2.0 cm on this shoe, against the 3.0 it arrived with. That is a trainer's sole rather
+# than a platform, and it is the dimension neither earlier pass touched. See the note above.
+SOLE_AS_A_SHARE_OF_LENGTH = 0.076
+
+# Height above the floor, in cm, by which the thinning has eased back to nothing.
+#
+# 9.0 leaves the collar rim - which starts at about 9.3 - exactly where it is. See the note above
+# for why that is a hard constraint and not a nicety.
+SOLE_THINNING_FADES_BY = 9.0
+
+# How much of the shoe's own height the sole is allowed to be before the detection is disbelieved.
+#
+# The sole is found as "how high the widest part of the shoe reaches", which is a measurement and
+# can therefore be wrong - a wide strap high on the ankle would fool it. This compares the answer
+# against what a sole IS rather than against the number that produced it.
+A_SOLE_IS_THE_BOTTOM = 0.45
+
 
 def refuse(why):
     raise SystemExit(f"REFUSED: {why}")
@@ -107,6 +147,60 @@ def measure(points, forward, up):
     )
 
 
+def sole_reaches(spots, wide_way, floor):
+    """How high above the floor the WIDEST part of the shoe reaches, in cm.
+
+    The sole flares out past the upper, so the vertices sitting on the shoe's widest silhouette
+    are the flange, and the top of the flange is the top of the sole. Found from the mesh and not
+    from a bone, because a bone does not move when the mesh is squashed - detecting the sole from
+    `ToeBase` would have squashed it again on every run.
+    """
+    lateral = [p.dot(wide_way) for p in spots]
+    middle = (max(lateral) + min(lateral)) * 0.5
+    half = (max(lateral) - min(lateral)) * 0.5
+    edge = [p for p, x in zip(spots, lateral) if abs(x - middle) >= half * 0.93]
+    return (max(p.z for p in edge) - floor) * SCALE
+
+
+def thinner(above, was, wants, fades_by):
+    """Where a height above the floor should end up, in cm, with only the sole squashed.
+
+    Piecewise linear through (0, 0), (was, wants) and (fades_by, fades_by), identity above that.
+    Written as a remap rather than a per-vertex factor so it is provably monotone: a factor faded
+    by height can reorder two vertices that were the right way round to start with.
+    """
+    if wants >= was:
+        return above           # already thin enough; this is what makes a second run a no-op
+    if above <= was:
+        return above * wants / was
+    if above >= fades_by:
+        return above
+    return wants + (above - was) * (fades_by - wants) / (fades_by - was)
+
+
+def the_leg_stays_covered(mesh, owner, side, talk=True):
+    """Refuses if the shoe's rim no longer reaches the bottom of the leg.
+
+    The leg mesh simply stops where the shoe swallows it, so this is not cosmetic: a rim that
+    drops below it leaves the ankle ending in mid-air. Measured as delivered, the margin is 0.3 cm
+    on the left - which is why nothing here is allowed to lower the collar.
+    """
+    at = {i: mesh.matrix_world @ v.co for i, v in enumerate(mesh.data.vertices)}
+    shoe = [i for i in at if owner.get(i) in (f"{side}_Foot", f"{side}_ToeBase")]
+    leg = [i for i in at if owner.get(i, "").startswith(side)
+           and "Foot" not in owner.get(i, "") and "Toe" not in owner.get(i, "")]
+    if not shoe or not leg:
+        refuse(f"cannot find the {side} shoe or the {side} leg to compare them")
+    rim = max(at[i].z for i in shoe)
+    ends = min(at[i].z for i in leg)
+    covers = (rim - ends) * SCALE
+    if talk:
+        print(f"    {side} rim reaches {covers:+.1f} cm past the bottom of the leg")
+    if covers < 0.0:
+        refuse(f"the {side} shoe's rim is {-covers:.1f} cm BELOW the bottom of the leg - the "
+               f"ankle would end in mid-air")
+
+
 def main():
     args = [a for a in argv() if not a.startswith("--")]
     every = argv()
@@ -128,11 +222,13 @@ def main():
 
     groups = {g.index: g.name for g in mesh.vertex_groups}
     mine = {"L": [], "R": []}
+    owner = {}
     for vertex in mesh.data.vertices:
         best, who = 0.0, ""
         for group in vertex.groups:
             if group.weight > best:
                 best, who = group.weight, groups.get(group.group, "")
+        owner[vertex.index] = who
         if who.endswith("_Foot") or who.endswith("_ToeBase"):
             mine[who[0]].append(vertex.index)
 
@@ -180,6 +276,40 @@ def main():
             mesh.data.vertices[index].co = into_mesh @ moved
 
     mesh.data.update()
+
+    # THE SOLE, second, because how high the widest part of the shoe reaches is a measurement and
+    # the pass above moves it. Re-measured here rather than carried down from the loop.
+    print("  the sole:")
+    for side in "LR":
+        spots = [mesh.matrix_world @ mesh.data.vertices[i].co for i in mine[side]]
+        long_way, wide_way, length, width = measure(spots, forward, up)
+        stands = (max(p.z for p in spots) - floor) * SCALE
+        was = sole_reaches(spots, wide_way, floor)
+        wants = length * SCALE * SOLE_AS_A_SHARE_OF_LENGTH
+        share = was / max(stands, 1e-9)
+        print(f"    {side} sole is {was:.1f} cm thick under a {length * SCALE:.1f} cm shoe "
+              f"({was / (length * SCALE) * 100:.1f}% of its length, {share * 100:.0f}% of the "
+              f"shoe's height) -> aiming for {wants:.1f} cm")
+        # Compared against what a sole IS, not against the number that produced it. A wide strap
+        # high on the ankle would fool the detection, and this is what would catch it.
+        if share > A_SOLE_IS_THE_BOTTOM:
+            refuse(f"the widest part of the {side} shoe reaches {was:.1f} cm, which is "
+                   f"{share * 100:.0f}% of the way up it - that is not a sole, and squashing "
+                   f"everything below it would squash the shoe")
+        if was <= wants:
+            print(f"    {side} sole is already {was:.1f} cm, nothing to thin")
+            continue
+        if was >= SOLE_THINNING_FADES_BY:
+            refuse(f"the {side} sole reaches {was:.1f} cm, at or past the "
+                   f"{SOLE_THINNING_FADES_BY} cm the thinning has to have faded out by - there "
+                   f"is no room left to ease it back into the collar")
+        for index in mine[side]:
+            spot = mesh.matrix_world @ mesh.data.vertices[index].co
+            above = (spot.z - floor) * SCALE
+            spot.z = floor + thinner(above, was, wants, SOLE_THINNING_FADES_BY) / SCALE
+            mesh.data.vertices[index].co = into_mesh @ spot
+
+    mesh.data.update()
     print("  after:")
     for side in "LR":
         spots = [mesh.matrix_world @ mesh.data.vertices[i].co for i in mine[side]]
@@ -192,6 +322,10 @@ def main():
         if nearest > COLLAR_STAYS_WITHIN:
             refuse(f"the {side} shoe's nearest vertex is {nearest:.1f} cm from the ankle, past "
                    f"{COLLAR_STAYS_WITHIN} - the collar has pulled away from the leg")
+        _, wide_way, _, _ = measure(spots, forward, up)
+        print(f"      sole {sole_reaches(spots, wide_way, floor):.1f} cm thick, shoe stands "
+              f"{(max(p.z for p in spots) - floor) * SCALE:.1f} cm tall")
+        the_leg_stays_covered(mesh, owner, side)
 
     if not mesh.data.has_custom_normals:
         refuse("slimming lost the custom split normals, which lights the character as a "
