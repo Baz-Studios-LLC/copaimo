@@ -1135,7 +1135,23 @@ ARM_HANGS_AT = 12.0
 # among them, no fingers at all, so the splayed fingers are baked into the mesh and cannot be
 # curled by posing. The roll is chosen to point them along the direction of travel, which is
 # the most a hand can be helped without finger bones.
-PALM_IN = -70.0
+# +90, and this one is DERIVED rather than eyeballed - after six failed measurements and two
+# wrong guesses that each made it worse.
+#
+# What finally worked: the palm direction cannot be read off the hand's whole point cloud,
+# because the glove cuff dominates it. It CAN be read off the fingers alone, because fingers
+# curl toward the palm - so the thin axis of the distal half gives the plane and the tips'
+# lean against the knuckles gives the sign. With that, sweeping the roll through a full turn
+# and scoring "how medial is the palm" produces a clean table.
+#
+# The table also explains both wrong guesses. L and R come out OPPOSITE at every angle, so a
+# roll is only correct if it is mirrored per side - which `PALM_IN * hand` does, with
+# `hand` being +1 on the left. At -70 that rolled L by -70 and R by +70, which the table
+# scores at -0.83 and -0.90: both palms turned OUTWARD. At +90 it is +0.98 and +0.98.
+#
+# Target from the research: "open your hands so that they are flat and outstretched, with
+# your palms facing inward towards your body".
+PALM_IN = 90.0
 
 # --- Two repairs to the idle the model shipped with. See `mend_the_shipped_idle`.
 #
