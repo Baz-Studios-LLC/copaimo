@@ -619,6 +619,30 @@ ROLLS_THROUGH_STANCE = ()
 # them per pose is what crumpled the shoe every time.
 MIRRORS_THE_BIND = True
 
+# # How far apart the legs are held
+#
+# "Check frame 8 of the jog, his feet go into each other." They do: measured, the legs come
+# within 0.45 cm at frame 8, and 0.28 at frame 2 - two to four millimetres on a 170 cm figure,
+# which with smoothed normals reads as one leg inside the other.
+#
+# Part of it is the clip - the delivered jog closes to 0.48 cm on its own - and part is mine:
+# mirroring the bind averaged two legs that were 5.6 cm from mirrored, which brought them about
+# 0.2 cm closer together.
+#
+# A constant, so it is fixed as one: both thighs rotated a little outward in the BIND, which
+# widens every pose by the same amount without touching a single key. `docs/rigging.md` is
+# explicit that this is where a constant belongs.
+# 1.6, and more is NOT better - swept, and the closest approach moves to a different pair of
+# points as the legs open, so it gets worse again:
+#
+#     as delivered   jog 0.28 cm      1.6 deg   jog 0.51 cm
+#     3.0 deg        jog 0.42         4.5 deg   jog 0.24
+#
+# 1.6 is the best of them and it is a small improvement, not a fix. The legs pass close because
+# the CLIP swings them close; widening the bind moves where they nearly touch rather than
+# stopping them nearly touching.
+THE_LEGS_STAND_APART = 1.6
+
 # # How far the ankle may point down, and why this is the only foot correction left
 #
 # "The toes bend to the floor... he runs with broken feet." The delivered jog points the whole
@@ -668,8 +692,17 @@ FLATTENS_THE_TOES = ("walk", "jog")
 # resting on the floor rather than hovering over it.
 THE_TOE_RESTS_AT = 8.0
 
-# And how far the toe may be bent to get there. A toe extends about this far and no further.
-THE_TOE_BENDS_AT_MOST = 55.0
+# And how far the toe may be bent to get there. 40 degrees, not 55.
+#
+# At 55 the correction bound exactly at its own cap on the frames that needed it most: frame 4 of
+# the jog has the right foot pointing 67.9 degrees down while still on the ground, so flattening
+# its toe took 60 degrees of bend at the ball. Reported as "check frame 4, his foot would be
+# broken here", and it would - a toe does not extend sixty degrees.
+#
+# 40 leaves those frames with the toe still angled down rather than flat, which is the honest
+# trade: the clip puts the foot steeper than a toe can compensate for, and bending the toe past
+# its own range to hide that is how a foot ends up looking broken instead of just steep.
+THE_TOE_BENDS_AT_MOST = 40.0
 
 # ON, and the note that used to sit here calling it a crumpler was wrong.
 #
@@ -2626,6 +2659,52 @@ def cap_the_ankle(rig, mesh, clip, scene, most):
     return was, now, sum(len(v) for v in wanted.values())
 
 
+def stand_the_legs_apart(rig, degrees):
+    """Rotates each thigh outward in the BIND, so every pose is that much wider.
+
+    In the rest pose, which is the whole point: the legs come too close on a handful of frames
+    and the cause is a constant, so widening the rest widens all of them equally and no clip is
+    touched. Done in edit mode with the pose at rest, so the mesh does not move.
+
+    The whole leg swings with the thigh - calf, foot, toes and every twist under them - because
+    rotating a bone in edit mode carries its children.
+    """
+    if abs(degrees) < 1e-6:
+        return 0.0
+    across = ((rig.matrix_world @ rig.data.bones["R_Thigh"].head_local)
+              - (rig.matrix_world @ rig.data.bones["L_Thigh"].head_local))
+    across.z = 0.0
+    if across.length < 1e-9:
+        refuse("the hips are in the same place, so there is no outward direction")
+    across.normalize()
+
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode="EDIT")
+    moved = 0.0
+    for side, way in (("L", -1.0), ("R", 1.0)):
+        thigh = rig.data.edit_bones.get(f"{side}_Thigh")
+        if thigh is None:
+            continue
+        pivot = thigh.head.copy()
+        # About the line of travel, which tips a leg out to its own side rather than forward.
+        axis = (rig.matrix_world.to_3x3().inverted()
+                @ mathutils.Vector((-across.y, across.x, 0.0))).normalized()
+        turn = mathutils.Matrix.Rotation(math.radians(degrees * way), 4, axis)
+
+        def swing(bone):
+            bone.head = pivot + turn @ (bone.head - pivot)
+            bone.tail = pivot + turn @ (bone.tail - pivot)
+            for kid in rig.data.edit_bones:
+                if kid.parent is not None and kid.parent.name == bone.name:
+                    swing(kid)
+
+        below = thigh.tail.copy()
+        swing(thigh)
+        moved = max(moved, (thigh.tail - below).length * 170.0)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return moved
+
+
 def the_bind_is_mirrored(rig):
     """Makes the rest pose an exact mirror of itself, left to right.
 
@@ -4022,6 +4101,11 @@ def main():
             if MIRRORS_THE_BIND:
                 pairs, was = the_bind_is_mirrored(rig)
                 print(f"    mirrored again after the hinge: worst {was:.2f} cm")
+            # Last, so it widens a rig that is already symmetric and stays symmetric.
+            if THE_LEGS_STAND_APART:
+                by = stand_the_legs_apart(rig, THE_LEGS_STAND_APART)
+                print(f"    stood the legs {THE_LEGS_STAND_APART:.1f} deg apart, which moves "
+                      f"each knee {by:.2f} cm out")
             assigned = add_the_fingers(rig, base_mesh)
             if UNFUSES:
                 # After the closer, never before it - see unfuse_the_digits on why.
