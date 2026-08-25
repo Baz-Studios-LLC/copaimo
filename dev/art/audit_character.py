@@ -535,6 +535,11 @@ def the_twists(rig, mesh):
         print("      a copy-rotation constraint at a fraction of the child's roll. Stage 05/06.")
 
 
+# How far a bone's midpoint may sit from the nearest vertex it drives, as a share of that part's
+# own span, before it counts as outside its flesh. 0.6 puts a bone that is nearer the far side of
+# its part than the near side on the wrong side of the line.
+OUTSIDE_ITS_FLESH = 0.6
+
 # How close a toe has to be to its own lowest point to count as standing on the ground, in
 # centimetres on a 170 cm warden. Tried in order, smallest first, until a clip has enough planted
 # frames to say anything with - a run's contact is short and a fixed window judged it on four
@@ -611,6 +616,55 @@ def the_legs(rig, claims):
     if off:
         raise SystemExit("REFUSED: the leg the solver divides by is not the leg in the file -\n  "
                          + "\n  ".join(off))
+
+
+def the_joints_sit_inside(rig, mesh):
+    """Every joint, against the flesh it drives. A joint outside its own flesh deforms wrongly.
+
+    This is the check that would have caught three separate faults on this character, each found
+    only when someone looked at a render and said so:
+
+      * the toe joint at 45% along the shoe, hinging the foot across its own arch
+      * the spine 67-78% toward his FRONT, and by increasing amounts up the chain, which biased
+        every trunk-lean measurement by eighteen degrees
+      * finger bones sitting outside the fingers they drive
+
+    A bone is judged against the vertices whose HEAVIEST weight it holds. The number is how far
+    the bone's own midpoint sits from the nearest of them: inside its flesh that is zero-ish, and
+    a bone floating outside its part reads as a real distance.
+    """
+    print("\nTHE JOINTS, against the flesh each one drives")
+    names = {g.index: g.name for g in mesh.vertex_groups}
+    owned = {}
+    for vertex in mesh.data.vertices:
+        best, who = 0.0, ""
+        for group in vertex.groups:
+            if group.weight > best:
+                best, who = group.weight, names.get(group.group, "")
+        if who:
+            owned.setdefault(who, []).append(mesh.matrix_world @ vertex.co)
+
+    adrift = []
+    for bone in sorted(rig.pose.bones, key=lambda b: b.name):
+        if "Twist" in bone.name:
+            continue
+        mine = owned.get(bone.name, [])
+        if len(mine) < 4:
+            continue
+        head = rig.matrix_world @ bone.bone.head_local
+        tail = rig.matrix_world @ bone.bone.tail_local
+        middle = (head + tail) * 0.5
+        near = min((p - middle).length for p in mine)
+        spread = max((p - middle).length for p in mine)
+        if spread > 1e-9 and near > spread * OUTSIDE_ITS_FLESH:
+            adrift.append((near / spread, bone.name, near * SCALE, spread * SCALE))
+    if not adrift:
+        print("  every bone sits inside the flesh it drives")
+        return
+    print(f"  {len(adrift)} bone(s) sit outside the flesh they drive:")
+    for share, name, near, spread in sorted(adrift, reverse=True):
+        print(f"    {name:<18s} nearest of its own vertices is {near:5.2f} cm away, across a "
+              f"{spread:5.2f} cm part  ({share * 100:.0f}%)")
 
 
 def the_covers_the_game_uses():
@@ -851,6 +905,7 @@ def main():
     the_clips(rig, bpy.context.scene)
     the_footfalls(rig, bpy.context.scene, the_covers_the_game_uses())
     the_legs(rig, the_legs_the_game_uses())
+    the_joints_sit_inside(rig, mesh)
 
 
 if __name__ == "__main__":
