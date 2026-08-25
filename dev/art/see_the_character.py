@@ -311,8 +311,27 @@ def main():
         first, last = (int(round(v)) for v in wanted.frame_range)
         play(rig, wanted)
         feet = ik_gait.which_vertices_are_feet(mesh)
+        # # Carried along his FACING, with only the distance measured
+        #
+        # The direction is not measured any more, because measuring it needs a stance window and a
+        # window is a judgement call: at 2 cm it takes in the frames either side of a plant, where
+        # the correction is deliberately part-applied, and the answer comes back 2.3 degrees off an
+        # asset that is square to a thousandth. Nineteen centimetres of drift across one cycle, for
+        # no reason but the ruler.
+        #
+        # Since `build_character.SQUARES_HIM_UP` puts his front on the axis and `author_gait` holds
+        # his plants to it, his facing IS his line of travel and it is exact. So that is what he is
+        # carried along, and the measurement is kept as the CHECK on it rather than the source.
+        faces = ik_gait.the_way_he_faces(rig)
         forward, each, _ = ik_gait.which_way_he_travels(
+            rig, mesh, feet, wanted, bpy.context.scene, STANDS_WITHIN, along=faces)
+        drifted, _, _ = ik_gait.which_way_he_travels(
             rig, mesh, feet, wanted, bpy.context.scene, STANDS_WITHIN)
+        if drifted is not None:
+            off = math.degrees(drifted.angle(faces))
+            if off > 3.0:
+                print(f"  NOTE '{wanted.name}' has its planted feet running {off:.2f} deg off the "
+                      f"way he faces, so he really does travel crooked")
         if forward is not None and each > 1e-9:
             carries = each * (last - first)
             spot = rig.location.copy()

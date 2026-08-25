@@ -475,7 +475,8 @@ def the_line_of_travel(steps, along=None):
                   else (each[middle - 1] + each[middle]) / 2.0)
 
 
-def which_way_he_travels(rig, mesh, feet, clip, scene, within: float = 2.0, tall: float = 170.0):
+def which_way_he_travels(rig, mesh, feet, clip, scene, within: float = 2.0,
+                        tall: float = 170.0, along=None):
     """The direction a clip carries him and how far it carries him each frame, off its own feet.
 
     A foot counts as down while its sole is within `within` cm of that foot's OWN lowest point -
@@ -510,7 +511,7 @@ def which_way_he_travels(rig, mesh, feet, clip, scene, within: float = 2.0, tall
             went = balls[side][frame + 1] - balls[side][frame]
             went.z = 0.0
             steps.append(went)
-    back, each = the_line_of_travel(steps)
+    back, each = the_line_of_travel(steps, None if along is None else -along)
     return (None if back is None else -back), each, down
 
 

@@ -617,6 +617,37 @@ ROLLS_THROUGH_STANCE = ()
 # chased per-frame - a right foot splayed 30 degrees where the left is straight, a right arm
 # resting 4 degrees tighter to the torso - is downstream of this one constant, and correcting
 # them per pose is what crumpled the shoe every time.
+# # Squaring him up before anything else looks at him
+#
+# The delivered figure is not built on an axis. His hip line and his shoulder line both put his
+# front 11.67 degrees off world +X - two independent witnesses agreeing to two decimal places, with
+# the mass of his head as a third - and nothing in the pipeline noticed, because everything
+# downstream measures him against himself.
+#
+# That is why "he runs off to the right" survived a pass that had measured his travel at 0.00
+# degrees off his own facing. Both statements were true. He ran exactly where he pointed, and where
+# he pointed was crooked.
+#
+# The game does not escape it either. `look::Build::turn` hands the Ranger a flat FRAC_PI_2, so a
+# figure 11.67 degrees off axis is turned to 11.67 degrees off the game's -Z, and then driven along
+# its heading - which is a body pointing one way and travelling another, for as long as it moves.
+# `look::a_warden_faces_forward` is the test that catches exactly this, and it runs on Male and
+# Female only; the Ranger has never been in it.
+#
+# So he is turned once, here, before a single measurement is taken. +X because that is what the
+# game's existing quarter turn maps onto its own forward: Blender +X exports to glTF +X, and a
+# quarter turn about Y carries +X onto -Z exactly.
+#
+# The turn goes on the DATA - `Armature.transform` and `Mesh.transform` - and not on the object.
+# Bone-local animation is unaffected by construction, since a pose is stated relative to a rest
+# that has turned with it, and the root's translation keys live in that same rest frame. An object
+# rotation would have shipped as a node transform for something downstream to forget about.
+SQUARES_HIM_UP = True
+FACES_ALONG = (1.0, 0.0)
+
+# How far off the axis he may still be once he has been turned, in degrees.
+SQUARE_WITHIN = 0.05
+
 MIRRORS_THE_BIND = True
 
 # # A knee that is dead straight cannot be solved
@@ -1448,6 +1479,58 @@ def close_the_holes(rig, mesh):
           f"{crowded} welded edge(s) still carry more than two faces")
     if not mesh.data.has_custom_normals:
         refuse("closing the holes dropped the custom split normals")
+
+
+def which_way_he_faces(rig):
+    """Which way the figure points, squared off his HIP LINE.
+
+    A hip line cannot toe out, which a foot can and on this rig emphatically does - its two bind
+    toes splay 58.47 degrees apart, so either one alone is off by twenty-nine. The shoulders are
+    kept as a second opinion rather than an input; they agree to two decimal places.
+    """
+    left = rig.matrix_world @ rig.pose.bones["L_Thigh"].bone.head_local
+    right = rig.matrix_world @ rig.pose.bones["R_Thigh"].bone.head_local
+    span = left - right
+    span.z = 0.0
+    if span.length < 1e-9:
+        refuse("the bind's hips sit on top of each other, so it has no facing")
+    span.normalize()
+    return mathutils.Vector((span.y, -span.x, 0.0))
+
+
+def square_him_up(rig, meshes):
+    """Turns the whole figure onto `FACES_ALONG`, bones and flesh together. See SQUARES_HIM_UP."""
+    faces = which_way_he_faces(rig)
+    want = mathutils.Vector((FACES_ALONG[0], FACES_ALONG[1], 0.0)).normalized()
+    yaw = math.atan2(faces.x * want.y - faces.y * want.x,
+                     faces.x * want.x + faces.y * want.y)
+
+    shoulders = None
+    if "L_Clavicle" in rig.pose.bones and "R_Clavicle" in rig.pose.bones:
+        left = rig.matrix_world @ rig.pose.bones["L_Clavicle"].bone.head_local
+        right = rig.matrix_world @ rig.pose.bones["R_Clavicle"].bone.head_local
+        span = left - right
+        span.z = 0.0
+        if span.length > 1e-9:
+            span.normalize()
+            shoulders = mathutils.Vector((span.y, -span.x, 0.0))
+            apart = math.degrees(faces.angle(shoulders))
+            if apart > 5.0:
+                refuse(f"his hips and his shoulders disagree about which way he faces by "
+                       f"{apart:.2f} degrees, so squaring him up would only pick a side")
+
+    turn = mathutils.Matrix.Rotation(yaw, 4, "Z")
+    rig.data.transform(turn)
+    for mesh in meshes:
+        mesh.data.transform(turn)
+    bpy.context.view_layer.update()
+
+    now = which_way_he_faces(rig)
+    left_over = math.degrees(now.angle(want))
+    if left_over > SQUARE_WITHIN:
+        refuse(f"turning him {math.degrees(yaw):+.2f} degrees left him {left_over:.2f} off the "
+               f"axis, past the {SQUARE_WITHIN} that counts as square")
+    return math.degrees(yaw), left_over
 
 
 def rig_of(objects):
@@ -4196,6 +4279,20 @@ def main():
                 pairs, was = the_bind_is_mirrored(rig)
                 print(f"    mirrored the bind: {pairs} pairs, the worst was {was:.2f} cm from "
                       f"its own reflection")
+            # And then square the mirrored figure onto the axis, before anything measures him.
+            #
+            # After the mirror rather than before it, because the delivered bind is not symmetric
+            # and the two halves do not agree about which way he faces: his clavicles share an x
+            # so his shoulder line reads dead along the axis, while his left thigh sits 2.5 cm
+            # forward of his right and skews his hip line 11.67 degrees. Asked before the mirror,
+            # the two witnesses are 11.67 apart and squaring would just be picking one. The mirror
+            # settles that - it is what it is for - and it settles it onto the crooked answer,
+            # which is what this then turns.
+            if SQUARES_HIM_UP:
+                turned, left_over = square_him_up(
+                    rig, [o for o in fresh if o.type == "MESH"])
+                print(f"    squared him up: turned {turned:+.2f} deg, so his front now runs "
+                      f"along {FACES_ALONG} to within {left_over:.3f} deg")
             # Before anything reads a toe position, and before any clip is corrected: this moves
             # the joint the whole roll pivots about.
             moved, shifted = (hinge_the_toes_at_the_ball(rig, base_mesh)

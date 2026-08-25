@@ -781,6 +781,61 @@ def the_covers_the_game_uses():
     return {"walk": float(found["WALK"]), "jog": float(found["JOG"])}
 
 
+# Which way the built figure is supposed to point, and how far off it he may be, in degrees.
+#
+# `build_character.FACES_ALONG`, and the pair must agree - the game's `look::Build::turn` hands the
+# Ranger a flat quarter turn, and a quarter turn about Y carries Blender +X onto the game's -Z
+# exactly. Off axis by any amount and he travels along his heading while his body points elsewhere.
+POINTS_ALONG = (1.0, 0.0)
+POINTS_WITHIN = 0.10
+
+
+def the_facing(rig):
+    """Whether the figure is built on the axis, asked of three parts that each know separately.
+
+    # Why this is worth a guard of its own
+
+    It went unnoticed through the whole pipeline, because everything downstream measures him
+    against HIMSELF. The plant could report his feet travelling 0.00 degrees off his facing and be
+    perfectly right, while he ran visibly off to one side, because his facing was 11.67 degrees off
+    the axis and nothing had ever asked. Reported twice before it was found.
+
+    Three witnesses, because the delivered bind is not symmetric and no single one of them is
+    reliable on its own: his clavicles share an x so his shoulder line reads dead along the axis
+    while his left thigh sits 2.5 cm forward of his right and skews his hip line by 11.67. They
+    only agree once `MIRRORS_THE_BIND` has settled the two halves, and agreeing is the point - if
+    they ever stop, the bind has a fault that squaring would hide rather than fix.
+    """
+    print("\nTHE FACING")
+    want = mathutils.Vector((POINTS_ALONG[0], POINTS_ALONG[1], 0.0)).normalized()
+    seen = []
+    for label, left, right in (("hips", "L_Thigh", "R_Thigh"),
+                               ("shoulders", "L_Clavicle", "R_Clavicle"),
+                               ("feet", "L_Foot", "R_Foot")):
+        if left not in rig.pose.bones or right not in rig.pose.bones:
+            continue
+        span = ((rig.matrix_world @ rig.pose.bones[left].bone.head_local)
+                - (rig.matrix_world @ rig.pose.bones[right].bone.head_local))
+        span.z = 0.0
+        if span.length < 1e-9:
+            continue
+        span.normalize()
+        square = mathutils.Vector((span.y, -span.x, 0.0))
+        off = math.degrees(square.angle(want))
+        seen.append((label, off))
+        print(f"  his {label:<10s} put his front {off:6.2f} deg off {POINTS_ALONG}")
+    if not seen:
+        print("  no paired bones to tell his front by")
+        return
+    worst = max(off for _, off in seen)
+    if worst > POINTS_WITHIN:
+        print(f"  ^ {worst:.2f} deg off the axis. The game turns the Ranger a flat quarter turn,")
+        print("    so this is how far his body will point away from the way he travels.")
+        print("    build_character.SQUARES_HIM_UP is what puts him on it.")
+    else:
+        print(f"  all within {worst:.2f} deg of the axis, so he travels the way he points")
+
+
 def the_footfalls(rig, scene, covers):
     """Whether a planted foot travels backward at exactly the speed the clip claims to carry.
 
@@ -996,6 +1051,7 @@ def main():
     the_twists(rig, mesh)
     the_deformation(rig, mesh, bpy.context.scene, owner_of(mesh))
     the_clips(rig, bpy.context.scene)
+    the_facing(rig)
     the_footfalls(rig, bpy.context.scene, the_covers_the_game_uses())
     the_legs(rig, the_legs_the_game_uses())
     the_joints_sit_inside(rig, mesh)
