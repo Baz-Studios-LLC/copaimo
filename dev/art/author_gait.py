@@ -1551,21 +1551,8 @@ def keep_the_swing_ankle_honest(rig, span: int, share: float, across, rest_bend)
 
 
 def which_vertices_are_feet(mesh):
-    """Which vertices belong to each foot, by dominant weight. Computed once.
-
-    Weights never change, so recomputing this per frame is waste.
-    """
-    groups = {g.index: g.name for g in mesh.vertex_groups}
-    feet = {"L": [], "R": []}
-    for vertex in mesh.data.vertices:
-        heaviest = max(vertex.groups, key=lambda g: g.weight, default=None)
-        if heaviest is None:
-            continue
-        name = groups.get(heaviest.group, "")
-        for side in "LR":
-            if name.startswith(side + "_") and ("Foot" in name or "Toe" in name):
-                feet[side].append(vertex.index)
-    return feet
+    """Which vertices belong to each foot. Lives in `ik_gait` now, so there is one of it."""
+    return ik_gait.which_vertices_are_feet(mesh)
 
 
 def sole_of(rig, mesh, feet, side: str) -> float:
@@ -2221,8 +2208,8 @@ def a_run_of(frames, first=None, cycle=None):
     return runs
 
 
-def how_fast_the_ground_goes_by(ankles, down):
-    """Which way a planted foot travels and how far it goes each frame, measured off the feet.
+def how_fast_the_ground_goes_by(spots, down):
+    """Which way a planted contact travels and how far it goes each frame, off the BALLS.
 
     No axis is assumed and no facing is consulted: the direction is the sum of what the planted
     feet actually do, which is by definition the way the character goes. `the_footfalls` takes the
@@ -2238,18 +2225,12 @@ def how_fast_the_ground_goes_by(ankles, down):
         for frame in down[side]:
             if frame + 1 not in down[side]:
                 continue
-            went = ankles[side][frame + 1] - ankles[side][frame]
+            went = spots[side][frame + 1] - spots[side][frame]
             went.z = 0.0
             steps.append(went)
-    if len(steps) < 2:
-        refuse("no plant lasts two frames, so the line of travel cannot be measured")
-    travel = sum(steps, mathutils.Vector((0.0, 0.0, 0.0)))
-    if travel.length < 1e-9:
-        refuse("the planted feet do not move, so there is no line of travel to hold them to")
-    travel.normalize()
-    along = sorted(step.dot(travel) for step in steps)
-    middle = len(along) // 2
-    each = along[middle] if len(along) % 2 else (along[middle - 1] + along[middle]) / 2.0
+    travel, each = ik_gait.the_line_of_travel(steps)
+    if travel is None:
+        refuse("no plant lasts two frames that move, so there is no line of travel to hold to")
     return travel, each
 
 

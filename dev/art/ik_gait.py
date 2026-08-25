@@ -375,6 +375,95 @@ def lowest_sole(rig, mesh, feet, side: str) -> float:
         evaluated.to_mesh_clear()
 
 
+def which_vertices_are_feet(mesh):
+    """Which vertices belong to each foot, by dominant weight. Computed once.
+
+    Weights never change, so recomputing this per frame is waste.
+    """
+    groups = {g.index: g.name for g in mesh.vertex_groups}
+    feet = {"L": [], "R": []}
+    for vertex in mesh.data.vertices:
+        heaviest = max(vertex.groups, key=lambda g: g.weight, default=None)
+        if heaviest is None:
+            continue
+        name = groups.get(heaviest.group, "")
+        for side in "LR":
+            if name.startswith(side + "_") and ("Foot" in name or "Toe" in name):
+                feet[side].append(vertex.index)
+    return feet
+
+
+def the_line_of_travel(steps):
+    """Which way the ground goes past a planted foot, and how far it goes each frame.
+
+    The one place this arithmetic lives. It is asked by the plant in `author_gait`, by the viewer
+    in `see_the_character`, and in spirit by `audit_character.the_footfalls` - and a rig's forward
+    is exactly the kind of thing that gets three answers if it is worked out in three places. It
+    got three: the viewer steered by the LEFT toe's bind direction, which on this rig sits 20.6
+    degrees off the line he actually runs along, because the bind's two toes splay 58 degrees apart
+    and one of them is therefore no sort of ruler at all.
+
+    Nothing is assumed. The direction is the sum of what the planted contacts actually did, which
+    is by definition the way the character goes - `the_footfalls` takes it the same way.
+
+    The distance is the MEDIAN of the per-frame steps, not the mean, because a stance's first and
+    last intervals are half in the air and pull a mean down hard: measured on the jog, 8.28 cm
+    against a 16.71 cm median over the same stance.
+
+    Returns the direction the ground travels - BACKWARD, against him - and the distance. Negate it
+    for the way he faces.
+    """
+    if len(steps) < 2:
+        return None, 0.0
+    back = sum(steps, mathutils.Vector((0.0, 0.0, 0.0)))
+    if back.length < 1e-9:
+        return None, 0.0
+    back.normalize()
+    along = sorted(step.dot(back) for step in steps)
+    middle = len(along) // 2
+    each = along[middle] if len(along) % 2 else (along[middle - 1] + along[middle]) / 2.0
+    return back, each
+
+
+def which_way_he_travels(rig, mesh, feet, clip, scene, within: float = 2.0, tall: float = 170.0):
+    """The direction a clip carries him and how far it carries him each frame, off its own feet.
+
+    A foot counts as down while its sole is within `within` cm of that foot's OWN lowest point -
+    per side, because two feet need not share a floor height on a rig whose sides were delivered
+    mirrored imperfectly, and on this one they are 4.8 cm apart.
+
+    The BALL is what is tracked and not the ankle. `where_the_balls_go` gives the reason: "the ball
+    rather than the ankle, because the ball is what a foot pivots on." At toe-off the ankle swings
+    up over a planted toe, so its own speed drops well below the ground's - measured, the ankle's
+    stance travel swings 9.6 to 19.1 cm a frame where the ball's holds 15.6 to 21.3.
+    """
+    first, last = (int(round(v)) for v in clip.frame_range)
+    soles, balls = {"L": {}, "R": {}}, {"L": {}, "R": {}}
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        for side in "LR":
+            soles[side][frame] = lowest_sole(rig, mesh, feet, side)
+            balls[side][frame] = (
+                rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].head).copy()
+
+    down = {
+        side: [f for f in range(first, last)
+               if soles[side][f] <= min(soles[side].values()) + within / tall]
+        for side in "LR"
+    }
+    steps = []
+    for side in "LR":
+        for frame in down[side]:
+            if frame + 1 not in down[side]:
+                continue
+            went = balls[side][frame + 1] - balls[side][frame]
+            went.z = 0.0
+            steps.append(went)
+    back, each = the_line_of_travel(steps)
+    return (None if back is None else -back), each, down
+
+
 def rest_foot_pitch(rig, side: str, forward):
     """How far the sole tilts from horizontal in the REST pose, in degrees.
 

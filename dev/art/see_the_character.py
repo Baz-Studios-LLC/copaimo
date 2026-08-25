@@ -32,6 +32,12 @@ import bpy
 import mathutils
 
 ART = os.path.dirname(os.path.abspath(__file__))
+if ART not in sys.path:
+    sys.path.insert(0, ART)
+
+import ik_gait  # noqa: E402
+
+ART = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(ART))
 
 # Bones the file gives no length for get one invented. A leaf bone is given this share of its
@@ -49,9 +55,15 @@ HIDE = "Twist"
 # Whether to carry him forward so a treadmill clip reads as travel. See below.
 CARRIES_HIM_FORWARD = True
 
-# How far one cycle of each clip carries him, in model units - the same numbers `src/motion.rs`
-# divides by, so the viewer and the game agree about the stride.
-COVERS = {"walk": 2.471 / 1.70, "jog": 4.879 / 1.70}
+# How far he goes and which way is MEASURED off the clip now, so there is no number here to go
+# stale. There was: a copy of `src/motion.rs`'s covers, and a forward taken from the left toe's
+# bind direction. Both were wrong at once - the covers by a factor of two once the delivered clip
+# came back, and the toe by 20.6 degrees, because this rig's two bind toes splay 58 degrees apart
+# so either one alone is a broken protractor. Together they ran him diagonally off the floor, which
+# is what got reported. See `ik_gait.which_way_he_travels`.
+#
+# How close a sole must be to that foot's own lowest point to count as standing on it, in cm.
+STANDS_WITHIN = 2.0
 
 
 def curves_of(clip):
@@ -295,22 +307,17 @@ def main():
     # then stands still against the floor the way it will in game. The speed comes from the clip
     # itself - the distance one cycle covers over how long it lasts - so it is right for whatever
     # clip is showing rather than a number typed here.
-    if wanted is not None and rig is not None and CARRIES_HIM_FORWARD:
+    if wanted is not None and rig is not None and CARRIES_HIM_FORWARD and mesh is not None:
         first, last = (int(round(v)) for v in wanted.frame_range)
-        lasts = max((last - first) / 24.0, 1e-6)
-        covers = COVERS.get(wanted.name)
-        if covers:
-            forward = mathutils.Vector((0.0, -1.0, 0.0))
-            bind = rig.pose.bones.get("L_ToeBase")
-            if bind is not None:
-                along = ((rig.matrix_world @ bind.bone.tail_local)
-                         - (rig.matrix_world @ bind.bone.head_local))
-                along.z = 0.0
-                if along.length > 1e-9:
-                    forward = along.normalized()
+        play(rig, wanted)
+        feet = ik_gait.which_vertices_are_feet(mesh)
+        forward, each, _ = ik_gait.which_way_he_travels(
+            rig, mesh, feet, wanted, bpy.context.scene, STANDS_WITHIN)
+        if forward is not None and each > 1e-9:
+            carries = each * (last - first)
             spot = rig.location.copy()
             for frame in (first, last):
-                rig.location = spot + forward * (covers * (frame - first) / (last - first))
+                rig.location = spot + forward * (carries * (frame - first) / (last - first))
                 rig.keyframe_insert("location", frame=frame)
             for curve in curves_of(rig.animation_data.action):
                 if curve.data_path != "location":
@@ -319,7 +326,9 @@ def main():
                     # Linear, or the ramp eases in and out and he skates at both ends of the
                     # cycle - which is the very thing this exists to stop.
                     point.interpolation = "LINEAR"
-            print(f"  carried him {covers * 170.0:.0f} cm over the cycle, so the planted foot "
+            bpy.context.scene.frame_set(first)
+            print(f"  carried him {carries * 170.0:.0f} cm along ({forward.x:+.3f}, "
+                  f"{forward.y:+.3f}), measured off his own planted feet, so the planted foot "
                   f"stands still instead of skating")
 
     if save_to:
