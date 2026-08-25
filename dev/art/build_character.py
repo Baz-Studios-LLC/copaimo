@@ -58,6 +58,49 @@ JOIN_INTO = (("idle", ("idle", "look_around")),)
 # correction is not a visible snap, short enough that it does not eat the motion it is bending.
 JOIN_OVER = 12
 
+# # The examine-hands moment inside the idle
+#
+# With finger bones in, the idle can afford a beat of character: he raises both hands, palms
+# toward his face, looks down at them, and SPLAYS his fingers to look at them - then it all
+# eases back into the plain stand. Authored INTO the baked idle over a fixed window, with an
+# envelope that reaches zero at both edges, so the clip's 0.00-degree loop is untouched and
+# every frame outside the window is exactly what it was.
+#
+# Every axis here is MEASURED, not assumed - the assumed kind put the arms sideways twice today:
+#   toward the face   L_Upperarm Z-50 with L_Forearm X+55; R mirrors the upper arm's sign
+#   look down         Head X negative (the crown tips toward his own forward, which is +x here)
+#   palms to face     the hands roll BACK along the same axis the palm correction rolled in
+EXAMINES_AT = (140, 284)     # frames of the joined idle; a calm stretch of the plain stand
+EXAMINE_EASES = 30           # frames of ease at each edge of the window
+# (axis, degrees, LAG in frames). The lags are what makes it read as a person rather than a
+# machine: the upper arms lead, the forearms follow a quarter-second later, the hands turn over
+# as they arrive, and the head comes down last to meet them. Everything still eases to zero
+# inside the window, lag included.
+# A LIST, because a bone may take two turns - the upper arms both swing in (Z) and flex
+# forward (X), which is how elbows lead a raise. Tuned by rendering the peak frame and looking:
+# the first pass put the hands at belly height with the forearms crossing.
+EXAMINE = (
+    ("L_Upperarm", (0.0, 0.0, 1.0), -36.0, 0),
+    ("L_Upperarm", (1.0, 0.0, 0.0), 14.0, 0),
+    ("R_Upperarm", (0.0, 0.0, 1.0), 36.0, 2),
+    ("R_Upperarm", (1.0, 0.0, 0.0), 14.0, 2),
+    ("L_Forearm", (1.0, 0.0, 0.0), 74.0, 6),
+    ("R_Forearm", (1.0, 0.0, 0.0), 70.0, 8),
+    ("L_Hand", (0.0, 1.0, 0.0), -68.0, 10),
+    ("R_Hand", (0.0, 1.0, 0.0), 68.0, 12),
+    ("Head", (1.0, 0.0, 0.0), -19.0, 14),
+)
+# The fingers SPLAY - he spreads them to look at them, which is what a person does, and it is
+# also the pose that shows whether the digits are truly separate. Spread is about local Z (the
+# palm normal the bone rolls were aligned to), base phalanx only, fanning outward from the
+# middle finger: the middle stays, the index and ring lean away a little, the thumb and pinky
+# a lot. A touch of straightening on every phalanx opens the hand flat.
+FINGERS_SPLAY_TO = 17.0
+FANS = {"Thumb": -2.2, "Index": -1.0, "Middle": 0.0, "Ring": 1.0, "Pinky": 2.0}
+SPLAY_SIGNS = {"L": 1.0, "R": -1.0}
+FINGERS_FLATTEN_BY = -7.0
+DIGITS_TRAIL_BY = 3          # frames each digit lags the one before it, thumb first
+
 # Which clips are supposed to carry the character somewhere. Everything else is a standing
 # motion, and a standing motion with no travel is correct rather than broken - the refusal below
 # is there to catch a gait whose channels never bound, which is what an unbound action slot
@@ -463,6 +506,7 @@ def add_the_fingers(rig, mesh):
         return (round(co.x / WELD_WITHIN), round(co.y / WELD_WITHIN), round(co.z / WELD_WITHIN))
 
     added = 0
+    assigned = {}
     for side in "LR":
         hand_bone = f"{side}_Hand"
         owned = []
@@ -630,6 +674,7 @@ def add_the_fingers(rig, mesh):
                 if node not in body:
                     continue
                 share = (dist[node] - low) / length
+                assigned[index] = (side, called, share)
                 had = 0.0
                 for group in mesh.data.vertices[index].groups:
                     if groups.get(group.group, "") == hand_bone:
@@ -662,6 +707,7 @@ def add_the_fingers(rig, mesh):
     if added not in (0, 30):
         refuse(f"{added} finger bones is neither none nor all thirty - one hand failed after "
                f"the other succeeded, and half-fingered is worse than either")
+    return assigned
 
 
 def close_the_holes(rig, mesh):
@@ -1041,6 +1087,205 @@ def join_the_clips(rig, scene, pieces, called):
     return made, len(poses)
 
 
+# A vertex this far along its digit is past the natural crotch, where real fingers join; only
+# webbing above it is fused wrongly. Below it, connection is anatomy.
+THE_CROTCH_ENDS = 0.22
+
+
+def unfuse_the_digits(rig, mesh, assigned):
+    """Separates fingers the generator fused, and walls each flank it opens.
+
+    A fused pair shares faces above the crotch - faces whose corners belong to two different
+    digits. Those are deleted, and each digit's side of the opening is walled with a fan over
+    its own rim, which cannot re-bridge the gap because each fan only uses one digit's vertices.
+    The hole-closer must NEVER run after this: a finger gap is a small closed loop, exactly what
+    it fills, and it would stitch the fingers straight back together.
+
+    Same silent hazards as the armpit cut, handled the same way: loop normals snapshotted and
+    restored across the bmesh round trip, rims counted by welded position.
+    """
+    import bmesh
+    from collections import defaultdict
+
+    def key_of(co):
+        return (round(co.x / WELD_WITHIN), round(co.y / WELD_WITHIN), round(co.z / WELD_WITHIN))
+
+    def digit_of(index):
+        row = assigned.get(index)
+        if row is None or row[2] < THE_CROTCH_ENDS:
+            return None
+        return (row[0], row[1])
+
+    webbing = []
+    for poly in mesh.data.polygons:
+        each = [digit_of(v) for v in poly.vertices]
+        parts = set(each) - {None}
+        sides = {p[0] for p in parts}
+        # Two different digits of ONE hand, and no palm corner. The first version demanded a
+        # DIFFERENT digit per corner - a triangle with two corners on the index and one on the
+        # middle failed it, and only one face in both hands qualified. Webbing is any face that
+        # touches two digits at all, as long as nothing ties it to the palm.
+        if len(parts) > 1 and len(sides) == 1 and None not in each:
+            webbing.append(poly.index)
+    if not webbing:
+        print("  no inter-digit webbing found - the fingers are already separate")
+        return
+    print(f"  {len(webbing)} faces span two digits above the crotch - unfusing")
+
+    kept_normals = {}
+    for poly in mesh.data.polygons:
+        for loop_index in poly.loop_indices:
+            loop = mesh.data.loops[loop_index]
+            co = mesh.data.vertices[loop.vertex_index].co
+            kept_normals[(key_of(poly.center), key_of(co))] = tuple(
+                mesh.data.corner_normals[loop_index].vector)
+
+    bm = bmesh.new()
+    bm.from_mesh(mesh.data)
+    bm.faces.ensure_lookup_table()
+    bm.verts.ensure_lookup_table()
+    doomed = [bm.faces[i] for i in webbing]
+    candidates = {v.index for f in doomed for v in f.verts}
+    bmesh.ops.delete(bm, geom=doomed, context="FACES")
+
+    # Open pairs counted from FACES, the same way the audit counts them - summing
+    # `edge.link_faces` over stored edges disagreed with it (4 rim touches against 33 real open
+    # edges), because deletion leaves the two countings seeing different stored edges.
+    bm.verts.ensure_lookup_table()
+    bm.faces.ensure_lookup_table()
+    faces_on = defaultdict(int)
+    verts_at = defaultdict(set)
+    for face in bm.faces:
+        ring = list(face.verts)
+        for a, b in zip(ring, ring[1:] + ring[:1]):
+            pair = tuple(sorted((key_of(a.co), key_of(b.co))))
+            faces_on[pair] += 1
+            verts_at[pair].update((a, b))
+    # Scoped by digit assignment alone. It was also filtered to vertices of the DELETED faces,
+    # and that missed nearly the whole rim: on a split mesh the kept face at an open pair holds
+    # its own stored copies of those positions, not the deleted face's copies.
+    rims = defaultdict(dict)
+    for pair, count in faces_on.items():
+        if count != 1:
+            continue
+        for vert in verts_at[pair]:
+            row = assigned.get(vert.index)
+            if row is None:
+                continue
+            rims[(row[0], row[1])].setdefault(key_of(vert.co), (vert, row[2]))
+    print(f"    rims per digit: "
+          f"{ {f'{s}_{d}': len(r) for (s, d), r in sorted(rims.items())} }")
+
+    walled = 0
+    for (side, digit), ring in rims.items():
+        verts = sorted(ring.values(), key=lambda pair: pair[1])
+        verts = [v for v, _ in verts]
+        if len(verts) < 3:
+            continue
+        made = []
+        for here, there in zip(verts[1:], verts[2:]):
+            try:
+                made.append(bm.faces.new((verts[0], here, there)))
+            except ValueError:
+                continue
+        for face in made:
+            face.smooth = True
+        if made:
+            bmesh.ops.recalc_face_normals(bm, faces=made)
+            walled += 1
+    print(f"    walled {walled} digit flank(s) with fans over their own rims")
+
+    bm.to_mesh(mesh.data)
+    bm.free()
+    mesh.data.update()
+
+    normals = []
+    for poly in mesh.data.polygons:
+        for loop_index in poly.loop_indices:
+            loop = mesh.data.loops[loop_index]
+            co = mesh.data.vertices[loop.vertex_index].co
+            normals.append(kept_normals.get((key_of(poly.center), key_of(co)),
+                                            tuple(poly.normal)))
+    mesh.data.normals_split_custom_set(normals)
+    if not mesh.data.has_custom_normals:
+        refuse("unfusing dropped the custom split normals")
+
+
+def examine_the_hands(rig, clip, scene):
+    """Authors the examine-hands beat into the baked idle. See the constants above.
+
+    The joined idle is baked - one key per frame on every bone, fingers included - so this is
+    per-frame COMPOSITION on existing keys: `keyed @ offset(angle * envelope)`, the same move as
+    the palm roll. The envelope is a smoothstep in and out that reaches exactly zero at the
+    window's edges, which is what keeps the loop at 0.00 degrees: frames outside the window are
+    not touched at all, and the window's first and last frames are touched by nothing.
+    """
+    slot = rig.animation_data.action_slot if rig.animation_data else None
+    curves = fcurves_of(clip, slot)
+    first, last = EXAMINES_AT
+    span = max(last - first, 1)
+
+    def envelope(frame, lag=0.0):
+        t = frame - first - lag
+        room = span - lag
+        if t <= 0 or t >= room:
+            return 0.0
+        rise = min(1.0, t / EXAMINE_EASES)
+        fall = min(1.0, (room - t) / EXAMINE_EASES)
+        eased = min(rise, fall)
+        return eased * eased * (3.0 - 2.0 * eased)
+
+    def compose(path, axis, degrees_of):
+        parts = {c.array_index: c for c in curves if c.data_path == path}
+        if len(parts) != 4:
+            return 0
+        for at in range(len(parts[0].keyframe_points)):
+            frame = parts[0].keyframe_points[at].co[0]
+            if frame <= first or frame >= last:
+                continue
+            angle = degrees_of(frame)
+            if abs(angle) < 1e-4:
+                continue
+            keyed = mathutils.Quaternion(
+                [parts[i].keyframe_points[at].co[1] for i in range(4)])
+            turned = keyed @ mathutils.Quaternion(axis, math.radians(angle))
+            for i in range(4):
+                point = parts[i].keyframe_points[at]
+                was = point.co[1]
+                point.co[1] = turned[i]
+                point.handle_left[1] += turned[i] - was
+                point.handle_right[1] += turned[i] - was
+        for curve in parts.values():
+            curve.update()
+        return 1
+
+    touched = 0
+    for bone, axis, degrees, lag in EXAMINE:
+        touched += compose(f'pose.bones["{bone}"].rotation_quaternion', axis,
+                           lambda frame, d=degrees, l=lag: d * envelope(frame, l))
+
+    # The splay: each digit fans from the middle finger and straightens a touch, a few frames
+    # behind the digit before it, thumb first.
+    splayed = 0
+    for row, digit in enumerate(DIGITS):
+        lag = 16.0 + row * DIGITS_TRAIL_BY
+        for side in "LR":
+            fan = FINGERS_SPLAY_TO * FANS[digit] * SPLAY_SIGNS[side]
+            splayed += compose(
+                f'pose.bones["{side}_{digit}1"].rotation_quaternion',
+                (0.0, 0.0, 1.0), lambda frame, f=fan, l=lag: f * envelope(frame, l))
+            for count in (1, 2, 3):
+                splayed += compose(
+                    f'pose.bones["{side}_{digit}{count}"].rotation_quaternion',
+                    (1.0, 0.0, 0.0),
+                    lambda frame, l=lag: FINGERS_FLATTEN_BY * envelope(frame, l))
+    print(f"  examine-hands authored over frames {first}..{last}: {touched} body bones, "
+          f"{splayed} phalanx channels splayed")
+    if touched < len(EXAMINE):
+        refuse(f"only {touched} of the {len(EXAMINE)} examine turns have curves in the idle - "
+               f"the moment would play half-posed")
+
+
 def travels(rig, clip, scene):
     """How far the body moves through one cycle, hips and feet separately.
 
@@ -1098,7 +1343,9 @@ def main():
             if CUT_THE_WEBBING:
                 cut_the_webbing(rig, base_mesh)
             close_the_holes(rig, base_mesh)
-            add_the_fingers(rig, base_mesh)
+            assigned = add_the_fingers(rig, base_mesh)
+            # After the closer, never before it - see unfuse_the_digits on why.
+            unfuse_the_digits(rig, base_mesh, assigned)
         else:
             the_skeletons_match(skeleton, skeleton_of(rig), filename)
             print(f"  {filename}: same skeleton, so its clip moves across unchanged")
@@ -1140,6 +1387,9 @@ def main():
         wanted[called] = made
         print(f"    {frames} frames, {frames / scene.render.fps:.2f} s, joins bent over "
               f"{JOIN_OVER} frames")
+        if called == "idle":
+            play(base_rig, made)
+            examine_the_hands(base_rig, made, scene)
     low = min((base_mesh.matrix_world @ v.co).z for v in base_mesh.data.vertices)
     high = max((base_mesh.matrix_world @ v.co).z for v in base_mesh.data.vertices)
     print(f"\n  a {(high - low) * 100:.1f} cm figure at scene scale")

@@ -119,8 +119,17 @@ trusted. The thumb is named by the one fact that cannot lie: its base branches o
 wrist. Verified by curling single digits by name and looking: thumb curls the innermost digit,
 pinky the outermost, on both hands.
 
-Known limit for stage 03: the left hand's digits are partially fused (inter-finger webbing), so
-a full 40-degree fist shards there. Grip poses read fine; full fists want the webbing split.
+UNFUSED 2026-08-24: 36 inter-digit faces above the crotch are deleted per build, so the fingers
+are separate tubes and a splay opens real gaps. The flank walls are partial - the audit reads 45
+open edges, all of them millimetre slits inside the finger gaps, invisible at any distance the
+game shows hands. Walling them fully is on stage 03 with the armpit gusset.
+
+AUTHORED 2026-08-24: the examine-hands beat. Frames 140-284 of the joined idle: both hands rise
+to chest height with staggered lags (upper arms lead, forearms follow, hands turn over, head
+comes down last), palms turn toward the face, and the fingers SPLAY thumb-first with a slight
+straighten. Composed onto the baked keys with an envelope that reaches zero at both window
+edges, so the idle still loops at 0.00 degrees. Every axis measured; tuned by rendering the peak
+frame twice and looking.
 
 41 joints and **none of them are fingers**. Running, jumping, lifting, petting a monster,
 grabbing, crouching - every one needs hands, and NPCs need them too.
