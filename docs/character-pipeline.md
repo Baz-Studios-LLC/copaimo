@@ -109,7 +109,18 @@ Also: no `TANGENT` attribute, so the normal map has nothing to light against.
 *Unblocks:* skeleton placement, weight painting, every deformation judgement after them.
 *Refuses when:* open edges > 0, non-manifold > 0, any edge past 4x the median.
 
-### 02 - The skeleton is complete  (open)
+### 02 - The skeleton is complete  (fingers DONE 2026-08-24; Chest remains)
+
+Done: 30 finger bones, derived per build by `add_the_fingers`. Digits found by graph distance
+from the wrist over the position-welded surface; the five furthest-and-mutually-apart vertices
+are the tips, each VALIDATED by the digit it produces - the left hand's first pick was a
+sleeve-cuff vertex whose "digit" held one vertex, and it was banned and replaced rather than
+trusted. The thumb is named by the one fact that cannot lie: its base branches off nearest the
+wrist. Verified by curling single digits by name and looking: thumb curls the innermost digit,
+pinky the outermost, on both hands.
+
+Known limit for stage 03: the left hand's digits are partially fused (inter-finger webbing), so
+a full 40-degree fist shards there. Grip poses read fine; full fists want the webbing split.
 
 41 joints and **none of them are fingers**. Running, jumping, lifting, petting a monster,
 grabbing, crouching - every one needs hands, and NPCs need them too.

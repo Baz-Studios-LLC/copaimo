@@ -156,6 +156,28 @@ THE_SAME_FACE_WITHIN = 5e-4
 # Coincident split copies weld together at this grain; genuine neighbours never do.
 WELD_WITHIN = 0.00002
 
+# # Finger bones: three per digit, five digits, both hands
+#
+# How each phalanx shares its digit's length, base to tip. Anatomical averages; on a stylised
+# 9 cm hand the difference from perfect is invisible, and the joints land where the mesh has
+# vertices to bend.
+PHALANX_SHARES = (0.45, 0.30, 0.25)
+
+# A digit's vertices are the ones past this share of the way from its knuckle to its tip,
+# measured as graph distance from the wrist. Below it is palm.
+A_DIGIT_STARTS = 0.52
+
+# Half-width of the blend at each joint, as a share of the digit's length. A hard weight
+# boundary creases; a blend this wide folds.
+JOINT_BLENDS = 0.09
+
+# The names, in anatomical order from the thumb. The THUMB is identified by the one fact about
+# it that cannot lie: its base branches off the palm nearest the wrist. The last character
+# taught this the expensive way - four discriminators in a row (shortest, most splayed, oddest
+# angle, outlier) each confidently picked the PINKY, because a pinky is all of those things and
+# a thumb is none of them.
+DIGITS = ("Thumb", "Index", "Middle", "Ring", "Pinky")
+
 # How far to roll each hand inward, in degrees, and which way that is per side.
 #
 # The delivered character stands SUPINATED - palms facing out, which no relaxed human does. It is
@@ -404,6 +426,242 @@ def cut_the_webbing(rig, mesh):
 # A hole bigger than this many rim vertices is not filled, it is reported: something that large
 # is an intentional opening - a collar, a cuff - and capping one of those is its own bug.
 A_HOLE_IS_SMALL = 30
+
+
+def add_the_fingers(rig, mesh):
+    """Gives each hand fifteen bones, placed on the digits the mesh actually has.
+
+    # Finding the digits without guessing
+
+    Graph distance from the wrist, along the hand's own surface (welded by position first -
+    stored connectivity is shredded by UV seams). The five vertices furthest from the wrist,
+    kept apart from each other, are the fingertips; every hand vertex then belongs to the tip
+    it is nearest along the surface, and the far span of each of those basins is a digit.
+
+    # Naming them without guessing
+
+    The thumb's BASE - the nearest-to-wrist vertex of its basin - sits closer to the wrist than
+    any finger's, because a thumb branches off the palm early. That is the whole test. The four
+    fingers then take their names in order along the knuckle line, starting beside the thumb.
+    Nothing here asks which digit is short, splayed or odd: all three of those confidently name
+    the pinky, and it cost the last character four wrong hands in a row to learn it.
+
+    # The bones follow the mesh; the weights follow the bones
+
+    Each digit's spine is a polyline through the centroids of its distance-bands, so a curved
+    digit gets bones that follow the curve. Joints land at the anatomical shares, weights move
+    from the hand bone onto whichever phalanx spans each vertex, blended at the joints, and the
+    palm keeps the hand bone. Only the `X_Hand` share of a vertex moves - a vertex the forearm
+    also drives keeps that influence untouched, so sums stay at one without renormalising.
+    """
+    import heapq
+    from collections import defaultdict
+
+    groups = {g.index: g.name for g in mesh.vertex_groups}
+
+    def key_of(co):
+        return (round(co.x / WELD_WITHIN), round(co.y / WELD_WITHIN), round(co.z / WELD_WITHIN))
+
+    added = 0
+    for side in "LR":
+        hand_bone = f"{side}_Hand"
+        owned = []
+        for vertex in mesh.data.vertices:
+            best, who = 0.0, ""
+            for group in vertex.groups:
+                if group.weight > best:
+                    best, who = group.weight, groups.get(group.group, "")
+            if who == hand_bone:
+                owned.append(vertex.index)
+        if len(owned) < 60:
+            print(f"    {side}: only {len(owned)} hand vertices - no fingers added")
+            continue
+
+        # The welded surface graph of this hand.
+        canon, seen_at = {}, {}
+        for index in owned:
+            canon[index] = seen_at.setdefault(key_of(mesh.data.vertices[index].co), index)
+        nodes = set(canon.values())
+        at = {n: (mesh.matrix_world @ mesh.data.vertices[n].co) for n in nodes}
+        touching = defaultdict(set)
+        for edge in mesh.data.edges:
+            a, b = edge.vertices
+            if a in canon and b in canon and canon[a] != canon[b]:
+                touching[canon[a]].add(canon[b])
+                touching[canon[b]].add(canon[a])
+
+        wrist = rig.matrix_world @ rig.pose.bones[hand_bone].head
+        start = min(nodes, key=lambda n: (at[n] - wrist).length)
+        dist = {start: 0.0}
+        queue = [(0.0, start)]
+        while queue:
+            so_far, here = heapq.heappop(queue)
+            if so_far > dist.get(here, 1e9):
+                continue
+            for other in touching[here]:
+                step = so_far + (at[here] - at[other]).length
+                if step < dist.get(other, 1e9):
+                    dist[other] = step
+                    heapq.heappush(queue, (step, other))
+        unreached = nodes - set(dist)
+        if unreached:
+            print(f"    {side}: {len(unreached)} hand vertices are not connected to the wrist "
+                  f"- left on the hand bone")
+            nodes -= unreached
+
+        # Five tips: furthest first, each at least a fifth of the hand apart from the others -
+        # and each VALIDATED by the digit it produces. The left hand's first pick included a
+        # sleeve-cuff vertex: far from the wrist along the surface (the long way round the
+        # cuff), so it looked like a fingertip and its "digit" held one vertex. A tip whose
+        # basin has no body is banned and the next candidate takes its place.
+        span = max(dist.values())
+        banned = set()
+        digits = None
+        for _ in range(8):
+            tips = []
+            for node in sorted(nodes, key=lambda n: -dist[n]):
+                if node in banned or dist[node] < span * 0.55:
+                    continue
+                if all((at[node] - at[t]).length > span * 0.20 for t in tips):
+                    tips.append(node)
+                if len(tips) == 5:
+                    break
+            if len(tips) < 5:
+                digits = None
+                break
+
+            # Every vertex joins the tip it is nearest along the surface.
+            basin, queue = {}, []
+            best_to = {tip: 0.0 for tip in tips}
+            for tip in tips:
+                basin[tip] = tip
+                heapq.heappush(queue, (0.0, tip, tip))
+            while queue:
+                so_far, here, whose = heapq.heappop(queue)
+                if so_far > best_to.get(here, 1e9):
+                    continue
+                basin[here] = whose
+                for other in touching[here]:
+                    step = so_far + (at[here] - at[other]).length
+                    if step < best_to.get(other, 1e9):
+                        best_to[other] = step
+                        basin[other] = whose
+                        heapq.heappush(queue, (step, other, whose))
+
+            # A digit is the far span of its basin; a tip that cannot produce one is no tip.
+            digits, impostor = {}, None
+            for tip in tips:
+                mine = [n for n in nodes if basin.get(n) == tip]
+                body = [n for n in mine if dist[n] > dist[tip] * A_DIGIT_STARTS]
+                if len(body) < 6:
+                    impostor = tip
+                    break
+                digits[tip] = body
+            if impostor is None and len(digits) == 5:
+                break
+            if impostor is not None:
+                banned.add(impostor)
+                print(f"    {side}: banned a fingertip candidate at "
+                      f"{tuple(round(v, 3) for v in at[impostor])} - its digit had no body")
+            digits = None
+        if not digits:
+            print(f"    {side}: could not settle five digits - no fingers added")
+            continue
+
+        # THE THUMB: the digit whose base sits nearest the wrist. Then the fingers in order
+        # along the knuckle line, starting beside the thumb.
+        base_of = {tip: min((dist[n] for n in body)) for tip, body in digits.items()}
+        thumb = min(digits, key=lambda t: base_of[t])
+        fingers = [t for t in digits if t is not thumb]
+        thumb_spot = sum((at[n] for n in digits[thumb]), mathutils.Vector()) / len(digits[thumb])
+        first = min(fingers, key=lambda t: (at[t] - thumb_spot).length)
+        last = max(fingers, key=lambda t: (at[t] - thumb_spot).length)
+        knuckles = (at[last] - at[first])
+        knuckles = knuckles.normalized() if knuckles.length > 1e-9 else mathutils.Vector((1, 0, 0))
+        fingers.sort(key=lambda t: (at[t] - at[first]).dot(knuckles))
+        named = dict(zip(DIGITS, [thumb] + fingers))
+
+        # Palm normal, for bone roll: perpendicular to the knuckle line and the hand's reach,
+        # so every phalanx hinges about the same axis and a curl is one rotation per bone.
+        reach = (sum((at[t] for t in tips), mathutils.Vector()) / 5 - wrist).normalized()
+        palm = reach.cross(knuckles).normalized()
+
+        into_rig = rig.matrix_world.inverted()
+        bpy.context.view_layer.objects.active = rig
+        bpy.ops.object.mode_set(mode="EDIT")
+        for called, tip in named.items():
+            body = digits[tip]
+            low = min(dist[n] for n in body)
+            top = dist[tip]
+            length = max(top - low, 1e-9)
+
+            def spot_at(share):
+                aim = low + length * share
+                near = sorted(body, key=lambda n: abs(dist[n] - aim))[:6]
+                return sum((at[n] for n in near), mathutils.Vector()) / len(near)
+
+            joints = [spot_at(0.0), spot_at(PHALANX_SHARES[0]),
+                      spot_at(PHALANX_SHARES[0] + PHALANX_SHARES[1]), at[tip]]
+            parent = rig.data.edit_bones[hand_bone]
+            for count in range(3):
+                bone = rig.data.edit_bones.new(f"{side}_{called}{count + 1}")
+                bone.head = into_rig @ joints[count]
+                bone.tail = into_rig @ joints[count + 1]
+                bone.parent = parent
+                bone.use_connect = count > 0
+                bone.align_roll(into_rig.to_3x3() @ palm)
+                parent = bone
+                added += 1
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+        # The weights: each digit vertex hands its X_Hand share to the phalanx that spans it,
+        # blended at the joints. Palm vertices keep the hand bone.
+        for called, tip in named.items():
+            body = set(digits[tip])
+            low = min(dist[n] for n in body)
+            top = dist[tip]
+            length = max(top - low, 1e-9)
+            cuts = (PHALANX_SHARES[0], PHALANX_SHARES[0] + PHALANX_SHARES[1])
+            lanes = [mesh.vertex_groups.new(name=f"{side}_{called}{n + 1}") for n in range(3)]
+            hand_lane = mesh.vertex_groups[hand_bone]
+
+            for index in owned:
+                node = canon[index]
+                if node not in body:
+                    continue
+                share = (dist[node] - low) / length
+                had = 0.0
+                for group in mesh.data.vertices[index].groups:
+                    if groups.get(group.group, "") == hand_bone:
+                        had = group.weight
+                if had <= 0.0:
+                    continue
+                # Which phalanx, and how much of the neighbour at a joint.
+                takes = [0.0, 0.0, 0.0]
+                if share < cuts[0] - JOINT_BLENDS:
+                    takes[0] = 1.0
+                elif share < cuts[0] + JOINT_BLENDS:
+                    blend = (share - (cuts[0] - JOINT_BLENDS)) / (2 * JOINT_BLENDS)
+                    takes[0], takes[1] = 1.0 - blend, blend
+                elif share < cuts[1] - JOINT_BLENDS:
+                    takes[1] = 1.0
+                elif share < cuts[1] + JOINT_BLENDS:
+                    blend = (share - (cuts[1] - JOINT_BLENDS)) / (2 * JOINT_BLENDS)
+                    takes[1], takes[2] = 1.0 - blend, blend
+                else:
+                    takes[2] = 1.0
+                hand_lane.remove([index])
+                for lane, take in zip(lanes, takes):
+                    if take > 0.001:
+                        lane.add([index], had * take, "REPLACE")
+        print(f"    {side}: 15 bones on 5 digits; the thumb's base sits "
+              f"{base_of[thumb] * 170.0:.1f} cm along the surface against "
+              f"{min(base_of[t] for t in fingers) * 170.0:.1f} for the nearest finger")
+
+    print(f"  added {added} finger bones")
+    if added not in (0, 30):
+        refuse(f"{added} finger bones is neither none nor all thirty - one hand failed after "
+               f"the other succeeded, and half-fingered is worse than either")
 
 
 def close_the_holes(rig, mesh):
@@ -840,6 +1098,7 @@ def main():
             if CUT_THE_WEBBING:
                 cut_the_webbing(rig, base_mesh)
             close_the_holes(rig, base_mesh)
+            add_the_fingers(rig, base_mesh)
         else:
             the_skeletons_match(skeleton, skeleton_of(rig), filename)
             print(f"  {filename}: same skeleton, so its clip moves across unchanged")

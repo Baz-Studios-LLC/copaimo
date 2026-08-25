@@ -197,6 +197,26 @@ def main():
     # Arms raised by so many degrees, on top of whatever pose is showing. The armpit webbing
     # only reads with the arm AWAY from the body, and no delivered clip ever lifts one - which
     # is exactly how it stayed invisible in every render until it was asked about.
+    # Curl the fingers, to prove they exist and hinge the right way. `--curl 40` bends every
+    # phalanx 40 degrees about its local X - the axis the build aligned so that local Z is the
+    # palm normal. `--digit Thumb` curls one digit by name, which is how a naming claim gets
+    # checked by eye instead of trusted.
+    curl = flag("--curl")
+    if curl and rig is not None:
+        one = flag("--digit")
+        wanted_digits = [one] if one else ["Thumb", "Index", "Middle", "Ring", "Pinky"]
+        bent = 0
+        for name in list(rig.pose.bones.keys()):
+            if any(f"_{d}" in name and name[-1] in "123" for d in wanted_digits):
+                bone = rig.pose.bones[name]
+                bone.rotation_mode = "QUATERNION"
+                bone.rotation_quaternion = (
+                    mathutils.Quaternion((1.0, 0.0, 0.0), math.radians(float(curl)))
+                    @ bone.rotation_quaternion)
+                bent += 1
+        bpy.context.view_layer.update()
+        print(f"curled {bent} phalanges by {curl} degrees")
+
     # About local Z, signed per side, because that is what MEASURED as abduction: +70 deg of Z
     # takes the left wrist 0.23 units away from the spine, where X - the assumed axis - is
     # flexion and moves it forward instead. Y is the twist axis; 70 degrees of it moves the
