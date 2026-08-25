@@ -619,7 +619,75 @@ ROLLS_THROUGH_STANCE = ()
 # them per pose is what crumpled the shoe every time.
 MIRRORS_THE_BIND = True
 
-HINGES_THE_TOES = False
+# # How far the ankle may point down, and why this is the only foot correction left
+#
+# "The toes bend to the floor... he runs with broken feet." The delivered jog points the whole
+# shoe 86.7 degrees down at push-off - past vertical relative to the shin - and the toe, which is
+# rigid with the foot, goes with it straight into the floor.
+#
+# Everything else tried on these feet is off, and each was reverted for a measured reason:
+#
+#   moving the toe joint to the ball   the shipped mesh came out 4.2 cm different in SHAPE from
+#                                      an identical set of bone rotations. Neither the joint move
+#                                      nor the re-weighting does that in Blender - both measure
+#                                      0.000 cm there - so it happens through the export, and a
+#                                      rig edit whose effect nobody can account for does not ship
+#   the heel-to-toe stance roll        crumpled the shoe, because the hinge it bends is at the
+#                                      mid-arch and moving that hinge is the change above
+#   aiming the foot down the leg       drags a planted toe; the slide guard refused it at -27.9%
+#   per-frame splay and pitch fixes    `docs/rigging.md` says plainly that correcting a constant
+#                                      per pose is what twists feet, and it did
+#
+# What is left is the one thing that is neither a rig edit nor a constant: an authored PEAK, in
+# one channel, at frames the foot is in the AIR. Capping it cannot drag a planted foot, cannot
+# change the bind, and cannot move a weight. `docs/animation.md` is clear that a pointed foot at
+# toe-off is correct in a run - so this caps rather than flattens, and only past the point where
+# the toe would be below the ball.
+# The ankle cap is off. It could only touch AIRBORNE frames - correcting a planted foot drags its
+# toe and the slide guard refuses that - and the steep frames are the planted ones, at push-off,
+# up on the ball. It reached 86.7 down to 74.3 and left the fault where it was.
+THE_ANKLE_POINTS_AT_MOST = 50.0
+CAPS_THE_ANKLE = ()
+
+# # The toe keeps the ground while the foot points off it
+#
+# This is the fault, stated as simply as it can be: at push-off the heel is up, the ball is on the
+# floor, and the toe - rigid with the foot - carries on down the same steep line and ends up
+# BELOW the floor. "The red line is pointing down into the floor. That is not how toes work."
+#
+# The fix rotates the toe UP about the ball until it lies along the ground. The ball is the pivot
+# and the ball is the contact, so nothing slides - which is the whole reason this works where
+# every other correction failed. `docs/animation.md` names it: a foot pivots about its CONTACT
+# POINT, and rotating about the ankle is what lifted the heel off the floor every previous time.
+#
+# It needs the joint at the ball, or the bend folds the arch. See `HINGES_THE_TOES`.
+FLATTENS_THE_TOES = ("walk", "jog")
+
+# How far below horizontal a toe may still point once it has been flattened. Not zero: a shoe has
+# a sole with some thickness and a toe box that curves up, so a few degrees reads as the toe
+# resting on the floor rather than hovering over it.
+THE_TOE_RESTS_AT = 8.0
+
+# And how far the toe may be bent to get there. A toe extends about this far and no further.
+THE_TOE_BENDS_AT_MOST = 55.0
+
+# ON, and the note that used to sit here calling it a crumpler was wrong.
+#
+# That came from a contact sheet where the state with the joint moved looked folded. It was not:
+# the shot is aimed at a bone and the two builds frame slightly differently, so one sat shifted in
+# the frame and I read the shift as a fold. Checked properly afterwards, vertex by vertex at the
+# same frames, the two builds' FEET are identical - which is what the arithmetic says they must
+# be, since a toe bone with identity keys is rigid with its foot and its deform cancels to the
+# foot's however the joint is placed. Measured in Blender, moving the joint 8 cm moves the mesh
+# 0.000 cm.
+#
+# The 4 cm difference the two builds really do have is in the HANDS - R_Pinky, R_Ring, R_Middle,
+# R_Index, R_Hand - because `add_the_fingers` runs afterwards and its digit segmentation is
+# already a known-broken area. Nothing to do with feet.
+#
+# The joint has to be at the ball for `flatten_the_toes` to work at all: a toe that bends at the
+# mid-arch folds the shoe across its middle.
+HINGES_THE_TOES = True
 THE_TOE_HINGES_AT = 0.70
 # Tried at 0.15 to spread the bend, on the reasoning that an abrupt handover pinches. It does the
 # opposite: a wider band puts MORE vertices under two bones at once, and linear blend skinning
@@ -2407,6 +2475,157 @@ def break_the_toes(rig, clip, scene):
     return was, broke, now
 
 
+def flatten_the_toes(rig, mesh, clip, scene):
+    """Rotates each toe up about the ball until it lies along the ground instead of through it.
+
+    Only where the shoe is DOWN, and only about the ball - which is both the pivot and the
+    contact, so the correction cannot drag anything. Everything else this file has tried on the
+    feet rotated about the ankle, which moves the contact and is why the slide guard kept
+    refusing them.
+    """
+    play(rig, clip)
+    first, last = (int(round(v)) for v in clip.frame_range)
+    shoe = the_shoe_vertices(mesh)
+    up = mathutils.Vector((0.0, 0.0, 1.0))
+    wanted, was, deepest = {}, 0.0, 0.0
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        graph = bpy.context.evaluated_depsgraph_get()
+        posed, skin = rig.evaluated_get(graph), mesh.evaluated_get(graph)
+        for side in ("L", "R"):
+            ball = posed.matrix_world @ posed.pose.bones[f"{side}_ToeBase"].head
+            tip = posed.matrix_world @ posed.pose.bones[f"{side}_ToeBase"].tail
+            along = tip - ball
+            flat = mathutils.Vector((along.x, along.y, 0.0))
+            if flat.length < 1e-9 or along.length < 1e-9:
+                continue
+            points = math.degrees(math.atan2(ball.z - tip.z, flat.length))
+            was = max(was, points)
+            low = min((skin.matrix_world @ skin.data.vertices[i].co).z for i in shoe[side])
+            if low > STANCE_WITHIN / 170.0 or points <= THE_TOE_RESTS_AT:
+                continue
+            lift = min(points - THE_TOE_RESTS_AT, THE_TOE_BENDS_AT_MOST)
+            deepest = max(deepest, lift)
+            lifts = along.normalized().cross(up)
+            if lifts.length < 1e-9:
+                continue
+            held = (rig.matrix_world @ posed.pose.bones[f"{side}_ToeBase"].matrix).to_3x3()
+            mine = held.inverted() @ lifts.normalized()
+            if mine.length < 1e-9:
+                continue
+            wanted.setdefault(f"{side}_ToeBase", {})[frame] = mathutils.Quaternion(
+                mine.normalized(), math.radians(lift))
+
+    slot = rig.animation_data.action_slot if rig.animation_data else None
+    for bone, byframe in wanted.items():
+        chans = channels_for(clip, slot, f'pose.bones["{bone}"].rotation_quaternion')
+        # Every frame keyed, so the toe returns to straight in the air rather than the curve
+        # interpolating across a whole flight phase between two bent extremes.
+        for frame in range(first, last + 1):
+            byframe.setdefault(frame, mathutils.Quaternion())
+        keyed = {}
+        for frame in byframe:
+            held = mathutils.Quaternion([chans[i].evaluate(frame) for i in range(4)])
+            keyed[frame] = mathutils.Quaternion() if held.magnitude < 1e-9 else held
+        turned = {f: keyed[f] @ o for f, o in byframe.items()}
+        settled = turned.get(first) or turned.get(last)
+        if settled is not None:
+            turned[first] = settled
+            turned[last] = settled
+        for frame, out in turned.items():
+            for i in range(4):
+                chans[i].keyframe_points.insert(frame, out[i], options={"FAST"})
+        for curve in chans.values():
+            curve.update()
+
+    play(rig, clip)
+    now = 0.0
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        graph = bpy.context.evaluated_depsgraph_get()
+        posed, skin = rig.evaluated_get(graph), mesh.evaluated_get(graph)
+        for side in ("L", "R"):
+            ball = posed.matrix_world @ posed.pose.bones[f"{side}_ToeBase"].head
+            tip = posed.matrix_world @ posed.pose.bones[f"{side}_ToeBase"].tail
+            flat = mathutils.Vector((tip.x - ball.x, tip.y - ball.y, 0.0))
+            low = min((skin.matrix_world @ skin.data.vertices[i].co).z for i in shoe[side])
+            if flat.length > 1e-9 and low <= STANCE_WITHIN / 170.0:
+                now = max(now, math.degrees(math.atan2(ball.z - tip.z, flat.length)))
+    return was, now, deepest
+
+
+def cap_the_ankle(rig, mesh, clip, scene, most):
+    """Stops the foot pointing further down than `most` degrees, and touches nothing else.
+
+    Measured in the world off the posed ankle-to-ball direction, corrected about the axis that
+    lifts the toe, and applied ONLY where the shoe is clear of the floor - a planted foot is left
+    exactly as it is, which is what keeps the slide guard happy.
+    """
+    play(rig, clip)
+    first, last = (int(round(v)) for v in clip.frame_range)
+    shoe = the_shoe_vertices(mesh)
+    up = mathutils.Vector((0.0, 0.0, 1.0))
+    wanted, was, now = {}, 0.0, 0.0
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        graph = bpy.context.evaluated_depsgraph_get()
+        posed, skin = rig.evaluated_get(graph), mesh.evaluated_get(graph)
+        for side in ("L", "R"):
+            ankle = posed.matrix_world @ posed.pose.bones[f"{side}_Foot"].head
+            ball = posed.matrix_world @ posed.pose.bones[f"{side}_ToeBase"].head
+            along = ball - ankle
+            flat = mathutils.Vector((along.x, along.y, 0.0))
+            if flat.length < 1e-9 or along.length < 1e-9:
+                continue
+            points = math.degrees(math.atan2(ankle.z - ball.z, flat.length))
+            was = max(was, points)
+            low = min((skin.matrix_world @ skin.data.vertices[i].co).z for i in shoe[side])
+            # Only in the air. A foot on the ground is the animator's and the guard's.
+            if low < STANCE_WITHIN / 170.0 or points <= most:
+                continue
+            lifts = along.normalized().cross(up)
+            if lifts.length < 1e-9:
+                continue
+            held = (rig.matrix_world @ posed.pose.bones[f"{side}_Foot"].matrix).to_3x3()
+            mine = held.inverted() @ lifts.normalized()
+            if mine.length < 1e-9:
+                continue
+            wanted.setdefault(f"{side}_Foot", {})[frame] = mathutils.Quaternion(
+                mine.normalized(), math.radians(points - most))
+
+    slot = rig.animation_data.action_slot if rig.animation_data else None
+    for bone, byframe in wanted.items():
+        chans = channels_for(clip, slot, f'pose.bones["{bone}"].rotation_quaternion')
+        keyed = {}
+        for frame in byframe:
+            held = mathutils.Quaternion([chans[i].evaluate(frame) for i in range(4)])
+            keyed[frame] = mathutils.Quaternion() if held.magnitude < 1e-9 else held
+        turned = {f: keyed[f] @ o for f, o in byframe.items()}
+        # A cycle's ends are the same pose and must stay so.
+        if first in turned or last in turned:
+            settled = turned.get(first) or turned.get(last)
+            if settled is not None:
+                turned[first] = settled
+                turned[last] = settled
+        for frame, out in turned.items():
+            for i in range(4):
+                chans[i].keyframe_points.insert(frame, out[i], options={"FAST"})
+        for curve in chans.values():
+            curve.update()
+
+    play(rig, clip)
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        posed = rig.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        for side in ("L", "R"):
+            ankle = posed.matrix_world @ posed.pose.bones[f"{side}_Foot"].head
+            ball = posed.matrix_world @ posed.pose.bones[f"{side}_ToeBase"].head
+            flat = mathutils.Vector((ball.x - ankle.x, ball.y - ankle.y, 0.0))
+            if flat.length > 1e-9:
+                now = max(now, math.degrees(math.atan2(ankle.z - ball.z, flat.length)))
+    return was, now, sum(len(v) for v in wanted.values())
+
+
 def the_bind_is_mirrored(rig):
     """Makes the rest pose an exact mirror of itself, left to right.
 
@@ -4010,6 +4229,15 @@ def main():
                 stood = roll_the_feet(base_rig, base_mesh, clip, scene)
                 print(f"    {called:<12s} rolled {stood['L']} left and {stood['R']} right "
                       f"stance(s) heel to toe")
+            if called in FLATTENS_THE_TOES:
+                was, now, most = flatten_the_toes(base_rig, base_mesh, clip, scene)
+                print(f"    {called:<12s} a planted toe pointed {was:5.1f} deg into the floor; "
+                      f"now {now:5.1f}, bent up to {most:5.1f} deg at the ball")
+            if called in CAPS_THE_ANKLE:
+                steepest, capped, frames = cap_the_ankle(
+                    base_rig, base_mesh, clip, scene, THE_ANKLE_POINTS_AT_MOST)
+                print(f"    {called:<12s} the ankle pointed {steepest:5.1f} deg down at worst; "
+                      f"capped to {capped:5.1f} over {frames} airborne frame(s)")
             was_low, lifted, now_low, when = stand_on_the_floor(
                 base_rig, base_mesh, clip, scene)
             print(f"    {called:<12s} lowest sole {was_low * 170.0:6.2f} cm at frame {when}; "
