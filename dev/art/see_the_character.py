@@ -58,12 +58,24 @@ def bone_lengths_from_the_skeleton(rig):
     glTF carries joint POSITIONS and no lengths, so the importer picks one. For a bone with
     children the honest length is the distance to the first of them; for a leaf it is a share of
     its parent, which is a guess but a small one that stays inside the body.
+
+    # Twist bones are not what a limb points at
+
+    Taking the CLOSEST child drew every limb bone as a speck, reported as "should the bones be so
+    small?". `L_Upperarm` has two children - `L_Forearm` at the elbow and `L_UpperarmTwist01`
+    whose head sits almost on top of the shoulder - and the closest of those is the twist, so the
+    upper arm rendered a few millimetres long. Same for the forearm, both thighs and both calves:
+    every bone that matters, and only those, because only limb bones carry twists.
+
+    So twists are skipped when choosing what to aim at. They are hidden in the viewport anyway,
+    and a bone whose own length is a rounding error tells a reader nothing about the skeleton.
     """
     bpy.context.view_layer.objects.active = rig
     bpy.ops.object.mode_set(mode="EDIT")
     spikes = 0
     for bone in rig.data.edit_bones:
-        kids = [b for b in rig.data.edit_bones if b.parent is bone]
+        kids = [b for b in rig.data.edit_bones
+                if b.parent is not None and b.parent.name == bone.name and HIDE not in b.name]
         if kids:
             aim = min(kids, key=lambda b: (b.head - bone.head).length)
             reach = (aim.head - bone.head).length

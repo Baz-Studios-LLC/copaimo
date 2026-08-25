@@ -438,7 +438,24 @@ MOVES_MORE = {"idle": 1.45, "look_around": 1.45}
 #
 # THE SOLES SIT BELOW THE FLOOR, in the bind pose they do not - both soles measure 0.00 cm there -
 # so this is the animation and not the mesh.
+# Three separate fixes, three separate switches, because two of them turned out to be wrong and
+# one of them is unambiguously right. Reported after the first attempt: "nearly every frame is
+# wrong or messed up in some way. Remember to use the research about the real run that we did for
+# the last animation."
+#
+# `docs/animation.md` has that research and it is what settles this. A run's key poses are
+# CONTACT, DOWN, PASSING, UP plus a flight phase - four authored poses, not a per-frame rule. The
+# 86.7 degrees of foot pitch is TOE-OFF, and toe-off in a run is supposed to point: it is the
+# frame the whole stride is thrown from. Flattening every frame past 25 degrees did not fix a
+# ballet point, it deleted the push-off from the one pose that needs it, and it did the same to
+# the splay at the ankle - a joint that does not yaw 30 degrees in life.
+#
+# Both are per-frame corrections applied to poses an animator chose. They are off. The lesson is
+# the one already in TROUBLESHOOTING.md under a different name: a correction layer may fix
+# CONTACT with the world, and must not restyle a performance.
 FEET_MEET_THE_FLOOR = True
+BREAKS_THE_TOES = False
+POINTS_THE_FEET = False
 
 # Foot pitch beyond which the toe takes over, and how far the toe may go. A foot rolls up onto the
 # ball before the toe does anything, so the first 25 degrees stay in the ankle; past that a real
@@ -2703,15 +2720,17 @@ def main():
     # sole, so the floor can only be measured once the feet have stopped changing shape.
     if FEET_MEET_THE_FLOOR:
         for called, clip in sorted(wanted.items()):
-            was, broke, now = break_the_toes(base_rig, clip, scene)
+            if BREAKS_THE_TOES:
+                was, broke, now = break_the_toes(base_rig, clip, scene)
+                for side in ("L", "R"):
+                    if side in broke and broke[side] > 0.01:
+                        print(f"    {called:<12s} {side} foot pitched up to "
+                              f"{max(was[side]):5.1f} deg; {broke[side]:5.1f} moved into the "
+                              f"toe -> {max(now[side]):5.1f} deg")
+            pointed, points = (point_the_feet_along(base_rig, clip, scene)
+                               if POINTS_THE_FEET else ({}, {}))
             for side in ("L", "R"):
-                if side in broke and broke[side] > 0.01:
-                    print(f"    {called:<12s} {side} foot pitched up to {max(was[side]):5.1f} "
-                          f"deg; {broke[side]:5.1f} moved into the toe -> "
-                          f"{max(now[side]):5.1f} deg")
-            pointed, points = point_the_feet_along(base_rig, clip, scene)
-            for side in ("L", "R"):
-                if pointed[side] and points[side]:
+                if pointed.get(side) and points.get(side):
                     mine = sum(pointed[side]) / len(pointed[side])
                     theirs = sum(points[side]) / len(points[side])
                     if abs(mine - theirs) > 0.5:
