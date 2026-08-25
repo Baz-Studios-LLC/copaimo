@@ -32,6 +32,7 @@ whole distance relative to a hip that does.
 import collections
 import math
 import os
+import re
 import sys
 
 import bpy
@@ -534,6 +535,189 @@ def the_twists(rig, mesh):
         print("      a copy-rotation constraint at a fraction of the child's roll. Stage 05/06.")
 
 
+# How close a toe has to be to its own lowest point to count as standing on the ground, in
+# centimetres on a 170 cm warden. Tried in order, smallest first, until a clip has enough planted
+# frames to say anything with - a run's contact is short and a fixed window judged it on four
+# frames, which is not a measurement.
+PLANTED_WITHIN = (1.0, 1.5, 2.0, 3.0, 4.0, 6.0)
+
+# How many planted frames a clip needs before its mean is reported as meaningful.
+ENOUGH_PLANTS = 8
+
+# How far the planted foot's speed may sit from the speed the clip claims to carry, as a
+# percentage, before the audit refuses.
+#
+# MEASURED, not chosen: at 1.5 cm the walk lands within 4.2% and the run within 9.2% of their
+# `covers`, so 15 leaves real headroom while still catching the failure this exists for - a
+# `covers` that no longer matches its clip makes distance matching slide by exactly that
+# percentage, silently, because the phase would be divided by the wrong stride.
+SLIDES_PAST = 15.0
+
+
+def the_covers_the_game_uses():
+    """How far the game believes each gait cycle carries the warden, read from its own source.
+
+    Read out of `src/motion.rs` rather than written down twice. These numbers are the divisor in
+    every stride length, playback rate and blend crossover the game computes, so an audit that
+    kept its own copy could pass against a value the game no longer uses - which is the whole
+    failure this measurement exists to catch.
+    """
+    where = os.path.join(os.path.dirname(os.path.dirname(ART)), "src", "motion.rs")
+    if not os.path.isfile(where):
+        return {}
+    with open(where, encoding="utf-8") as source:
+        text = source.read()
+    found = dict(re.findall(r"const (WALK|RUN)_COVERS: f32 = ([0-9.]+);", text))
+    if len(found) != 2:
+        raise SystemExit(
+            f"REFUSED: {where} no longer declares WALK_COVERS and RUN_COVERS the way this reads "
+            f"them (found {sorted(found)}), so the footfall check would measure against nothing")
+    return {"walk": float(found["WALK"]), "run": float(found["RUN"])}
+
+
+def the_footfalls(rig, scene, covers):
+    """Whether a planted foot travels backward at exactly the speed the clip claims to carry.
+
+    # Why this is the measurement that decides whether locomotion slides
+
+    A clip's root motion is detrended out, so in the clip's own frame the hips stand still and
+    the feet cycle beneath them. That makes the test direct: while a foot is on the ground it
+    must travel BACKWARD at precisely the character's speed, because that is what standing on
+    the ground means. `speed = cadence x stride` is the same statement.
+
+    So two numbers come out of this, and they check different things:
+
+      * the planted foot's MEAN backward speed against `covers / lasts`, the speed the clip
+        claims. A gap here means `covers` is wrong, and `covers` is what distance matching
+        divides by - every stride length, playback rate and blend crossover in `motion.rs`
+        rests on it.
+      * the SPREAD of that speed within a single plant. A foot that is on the ground but
+        changing speed is sliding, whatever the mean says, and the mean can be perfect while
+        the foot skates forward and back around it.
+
+    # Which foot is planted, measured rather than assumed
+
+    The lower foot, by toe height, below the midpoint of its own range over the clip. Height is
+    used instead of "the foot moving backward" because that is the thing being tested - deciding
+    which foot is planted by whether it moves correctly would make the test agree with itself.
+
+    The travel direction is the mean of the planted feet's own motion, so no facing convention is
+    needed and no axis is assumed. It is, by definition, the direction the character goes.
+    """
+    if "L_ToeBase" not in rig.pose.bones or "R_ToeBase" not in rig.pose.bones:
+        print("\nTHE FOOTFALLS\n  no toe bones, so planting cannot be measured")
+        return
+    print("\nTHE FOOTFALLS")
+    slid = []
+    for clip in sorted(bpy.data.actions, key=lambda a: a.name):
+        carries = covers.get(clip.name)
+        if carries is None:
+            continue
+        play(rig, clip)
+        first, last = (int(round(v)) for v in clip.frame_range)
+        lasts = (last - first) / scene.render.fps
+        if lasts <= 0.0:
+            continue
+
+        spots = {"L": [], "R": []}
+        for frame in range(first, last + 1):
+            scene.frame_set(frame)
+            posed = rig.evaluated_get(bpy.context.evaluated_depsgraph_get())
+            for side in ("L", "R"):
+                spots[side].append(
+                    posed.matrix_world @ posed.pose.bones[f"{side}_ToeBase"].head)
+
+        # A foot counts as down while its toe sits within the window of its OWN lowest point -
+        # a physical criterion, the toe being on the ground.
+        #
+        # The first version used the midpoint of the toe's height RANGE, which called 27 of a
+        # 24-frame run's 48 foot-frames planted. A run's stance is about a third per foot, so
+        # more than half of those were swing frames travelling FORWARD, and mixing them in
+        # cancelled most of the backward motion and blew the spread up to 5.65 m/s. A planted
+        # test that admits swing measures nothing.
+        #
+        # Per side, because two feet need not share a floor height on a stylised rig.
+        floor = {side: min(p.z for p in path) for side, path in spots.items()}
+
+        # In METRES per second, not model units. The file holds a figure 1.0 unit tall and the
+        # game scales it to 170 cm, while `covers` is in metres - so a velocity read straight off
+        # the bones is 1/1.7 of the real one. Left unconverted, this reported both clips' feet
+        # travelling 44% slower than their root motion, on both clips, by the same fraction. Two
+        # independently authored clips do not slide by the same amount; a systematic gap that
+        # size is the instrument.
+        step = 1.0 / scene.render.fps
+        metres = SCALE / 100.0
+
+        def planted(window):
+            """Every frame-to-frame move of a foot that is on the ground, in metres a second."""
+            out = []
+            for at in range(len(spots["L"]) - 1):
+                for side in ("L", "R"):
+                    edge = floor[side] + window / SCALE
+                    if spots[side][at].z > edge or spots[side][at + 1].z > edge:
+                        continue
+                    shifted = spots[side][at + 1] - spots[side][at]
+                    shifted.z = 0.0
+                    out.append((side, at, shifted * metres / step))
+            return out
+
+        window, down = PLANTED_WITHIN[-1], []
+        for wide in PLANTED_WITHIN:
+            down = planted(wide)
+            window = wide
+            if len(down) >= ENOUGH_PLANTS:
+                break
+        if len(down) < 4:
+            print(f"  {clip.name:<8s} no foot is down for long enough to measure")
+            continue
+
+        # The travel direction, from the planted feet themselves. Their motion is backward, so
+        # the direction the character goes is its negation.
+        mean = mathutils.Vector((0.0, 0.0, 0.0))
+        for _, _, moved in down:
+            mean += moved
+        if mean.length < 1e-6:
+            print(f"  {clip.name:<8s} the planted feet do not move, so no direction exists")
+            continue
+        goes = -mean.normalized()
+
+        # The MEDIAN, not the mean, and this changes the answer. A plant's first and last frames
+        # are heel strike and toe off, where the foot is still accelerating into or out of
+        # contact, and any window loose enough to catch a run's short stance catches those too.
+        # On the run the mean fell from 4.51 to 4.21 m/s as the window widened from 1.5 cm to
+        # 3.0 cm while the sample grew - the extra frames were all edges, dragging it down. The
+        # median ignores them without inventing a tighter window that would starve the sample.
+        #
+        # The spread is still reported, because a big spread with a good median is exactly the
+        # signature of edge contamination and worth seeing.
+        backward = sorted(-moved.dot(goes) for _, _, moved in down)
+        claims = carries / lasts
+        middle = len(backward) // 2
+        got = (backward[middle] if len(backward) % 2
+               else (backward[middle - 1] + backward[middle]) / 2.0)
+        spread = backward[-1] - backward[0]
+        off = (got - claims) / claims * 100.0 if claims else 0.0
+        stance = len(down) / max(1, 2 * (len(spots["L"]) - 1)) * 100.0
+        print(f"  {clip.name:<8s} planted foot travels {got:5.2f} m/s backward (median); the "
+              f"clip claims {claims:5.2f} m/s  ({off:+.1f}%)")
+        print(f"  {'':<8s} {len(down)} planted frames within {window:.1f} cm of the floor, "
+              f"{stance:.0f}% stance; spread {spread:5.2f} m/s")
+        # What `covers` WOULD be if it were taken from the feet instead of from the root.
+        print(f"  {'':<8s} the feet would put covers at {got * lasts:5.3f} m against the "
+              f"{carries:5.3f} m the game uses")
+        if len(down) < ENOUGH_PLANTS:
+            print(f"  {'':<8s} NOTE thin sample, so this is reported and not enforced")
+        elif abs(off) > SLIDES_PAST:
+            slid.append(f"{clip.name} planted foot travels {got:.2f} m/s but its covers of "
+                        f"{carries:.3f} m claims {claims:.2f} m/s, off by {off:+.1f}% - the "
+                        f"feet would put covers at {got * lasts:.3f} m")
+
+
+    if slid:
+        raise SystemExit("REFUSED: the feet slide against the distance the game moves the "
+                         "warden -\n  " + "\n  ".join(slid))
+
+
 def the_clips(rig, scene):
     if not bpy.data.actions:
         print("\nTHE CLIPS\n  none in this file")
@@ -606,6 +790,7 @@ def main():
     the_twists(rig, mesh)
     the_deformation(rig, mesh, bpy.context.scene, owner_of(mesh))
     the_clips(rig, bpy.context.scene)
+    the_footfalls(rig, bpy.context.scene, the_covers_the_game_uses())
 
 
 if __name__ == "__main__":

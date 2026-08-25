@@ -195,6 +195,12 @@ def main():
     if save_to:
         bpy.ops.wm.save_as_mainfile(filepath=save_to)
         print(f"saved {save_to}")
+        # Said out loud because it has already cost a round trip: this writes to a FIXED path,
+        # so a Blender window that is already open is holding the PREVIOUS build and will keep
+        # showing it however many times this is re-run. Reported as "the blender still shows the
+        # idle" after the scene had been rebuilt on the run.
+        print("  NOTE close any Blender window already open on this file first - it is holding "
+              "the previous build, not this one.")
 
 
 if __name__ == "__main__":

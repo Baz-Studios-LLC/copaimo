@@ -233,7 +233,7 @@ So stage 03's real content is the two MODELLING jobs, not weight painting:
 *Unblocks:* layering. An additive layer amplifies a weight fault rather than hiding it.
 *Refuses when:* an edge stretches past ~1.35x its rest length in any frame.
 
-### 04 - Locomotion that does not slide  (DISTANCE MATCHING DONE 2026-08-25)
+### 04 - Locomotion that does not slide  (DONE 2026-08-25)
 
 `covers` is 2.542 m walking and 4.964 m running, taken from the root motion detrended out of
 each clip. Both play within 3% of native:
@@ -256,10 +256,24 @@ each clip. Both play within 3% of native:
   This is also the fix for both remaining in-game reports - the jitter while running, and the
   stop that read as sliding backwards. **Needs a playtest to confirm; the tests cover the
   arithmetic, not the feel.**
-* Blend tree walk<->run on speed, handover at a measured crossover. Distance matching makes this
-  safe to build: both clips now agree on where in the cycle they are, so a cross-fade blends two
-  poses of the same gait phase instead of two arbitrary ones.
-* Turn-in-place, so standing rotation is not a skate.
+* ~~Blend tree walk<->run on speed~~ - **DONE.** The gaits cross-fade instead of switching.
+  `weights_for` is the tree, as a function of asked speed alone so it tests without an app;
+  `eased` ramps toward the target so a blend takes time; `as_bevy_weights` converts intended
+  shares into what Bevy actually needs. Distance matching is what made this safe to build - both
+  clips agree on where in the cycle they are, so the cross-fade blends two poses of the same gait
+  phase rather than two arbitrary ones.
+
+  The **crossover is measured**: the speed at which both clips are stretched by the same factor,
+  `sqrt(walk_native x run_native)` = 2.167 m/s. It was `halfway(WALK_SPEED, JOG_SPEED)`, which is
+  a fact about the speeds a player is driven at and says nothing about the clips.
+
+  `AnimationTransitions` is gone. It owned the cross-fade by declining weights over time, and two
+  things writing the same weights is how a blend goes wrong invisibly.
+* ~~Turn-in-place~~ - **DONE.** Through the same accumulator, with no new clip and no second
+  mechanism: a pivot swings the feet along an arc about the turn axis, and that arc is fed in as
+  distance. Pivot radius 0.119 m, measured off the idle rather than the A-pose bind, which stands
+  half again as wide. It also falls out for free while walking a curve, where the arc is real
+  ground the outside foot has to cover.
 
 This run bounds: 4.96 m a cycle on a 1.7 m figure is about 1.6x a human stride for its cadence.
 That is a property of the clip, not a fault - and it is why the cadence guard now reports rather
@@ -267,6 +281,26 @@ than refuses.
 
 *Unblocks:* ground contact. IK corrects a base pose, so the base has to be right first.
 *Refuses when:* playback multiple leaves 0.80-1.25x, or planted-foot velocity spread > 0.
+
+**Both halves of the refusal are now built and green.** The playback multiple is asserted by
+`neither_gait_plays_at_a_blur` - walk 1.01x, jog 1.08x against a 0.80-1.25x bound. The
+planted-foot check is `the_footfalls` in `dev/art/audit_character.py`, which did not exist until
+now, and finding it changed a number: see below.
+
+#### What the footfall guard found, first time it ran
+
+`covers` was taken from each clip's ROOT MOTION, and the root is the wrong source. It is what the
+animator moved the hips by; what `covers` has to be is what the GROUND supports, because `covers`
+is the divisor that turns distance covered into cycle phase. Measured off the planted feet:
+
+    walk   feet 1.06 m/s   root claimed 1.09 m/s    -2.8%    ->  2.542 becomes 2.471
+    run    feet 4.44 m/s   root claimed 4.96 m/s   -10.6%    ->  4.964 becomes 4.435
+
+The run's root overshot its feet by more than a tenth, which is a 10% skate at every speed, and
+nothing in the pipeline would have said so. Two instrument faults had to be fixed before that
+number could be trusted - a planted test loose enough to admit swing frames, and a velocity read
+in model units and compared against metres, which made both clips look 44% wrong by the same
+fraction. A systematic gap that size on two independently authored clips is always the instrument.
 
 A note on what the 0.80-1.25x bound now means. It described the multiple handed to `set_speed`,
 and nothing is handed to `set_speed` any more. The bound still describes the cadence that emerges
@@ -419,6 +453,26 @@ Order matters and is enforced by the build: amplify, then lift, then spread. Amp
 lift would push the inner extreme back into the ribs; spreading before amplifying would
 redistribute a twist that then gets scaled.
 
+
+## Honest limits of stage 04 (2026-08-25)
+
+Written down because they are properties of the CLIP SET, not bugs, and the next person will
+otherwise rediscover them.
+
+* **There is no jog clip, and the gap shows at the crossover.** The walk tops out near 1.32 m/s
+  and the run bottoms out near 3.55, so between them neither clip is inside `PLAYS_BETWEEN`. At
+  the 2.167 m/s crossover both sit about 2.05x from their own native rate. The driven speeds are
+  chosen near the clips' natives so the gap is only crossed while accelerating, and the blend is
+  what makes crossing it bearable - but a jog clip is the real fix and nothing here can invent
+  one. `neither_gait_plays_at_a_blur` checks the DRIVEN speeds, not the crossover, and that is
+  deliberate rather than an oversight.
+* **Turning in place plays the walk.** The feet step round rather than skate, which was the
+  fault. An authored turn-in-place clip would pivot properly instead of stepping; this is the
+  version that needs no new asset.
+* **The run's stance is 10 frames inside 3 cm of the floor**, so its footfall mean rests on a
+  thinner sample than the walk's 44. The median makes it robust rather than exact.
+* **None of it has been playtested.** The tests cover arithmetic and the audit covers geometry.
+  Whether the jitter and the abrupt stop are gone needs eyes on the running window.
 
 ## Deferred, on purpose (2026-08-25)
 

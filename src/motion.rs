@@ -105,8 +105,32 @@ const BREAKS_INTO_A_RUN: f32 = 3.4;
 // Whole-clip, not per-cycle, and `WALK_FRAMES` below is whole-clip to match. The walk is two
 // cycles and the run is one; playback rate is `lasts * speed / covers`, so the two only have to
 // describe the SAME span as each other, which they now do.
-const WALK_COVERS: f32 = 2.542;
-const RUN_COVERS: f32 = 4.964;
+//
+// # Taken from the FEET now, not from the root  (2026-08-25)
+//
+// Everything above describes the root motion, and the root motion is the wrong source. It is
+// what the animator moved the hips by; what `covers` has to be is what the GROUND supports,
+// because `covers` is the divisor that turns distance covered into cycle phase. If a clip's root
+// travels further than its planted foot does, dividing by the root figure moves the warden
+// further per cycle than his feet carry him, and the feet slide by exactly that difference -
+// silently, and at every speed.
+//
+// `the_footfalls` in `dev/art/audit_character.py` measures it directly: the clip's travel is
+// detrended out, so in the clip's own frame a foot on the ground must go BACKWARD at precisely
+// the character's speed. Median over the planted frames, because a plant's first and last frames
+// are heel strike and toe off and the foot is still accelerating through them.
+//
+//     walk   feet 1.06 m/s   root claimed 1.09 m/s    -2.8%    ->  2.542 becomes 2.471
+//     run    feet 4.44 m/s   root claimed 4.96 m/s   -10.6%    ->  4.964 becomes 4.435
+//
+// The run was the one that mattered: its root overshot its feet by more than a tenth. The walk
+// was nearly right, and is corrected for consistency rather than because it read as sliding.
+//
+// The audit now REFUSES above 15% disagreement, so a re-authored clip cannot quietly reintroduce
+// this. It is the stage 04 "planted-foot velocity spread" guard, which until now was written
+// down and not built.
+const WALK_COVERS: f32 = 2.471;
+const RUN_COVERS: f32 = 4.435;
 
 /// How many gait CYCLES each clip contains, so cadence can be told apart from playback rate.
 ///
@@ -169,7 +193,28 @@ fn cycles_in(gait: &str) -> f32 {
 /// / stance fraction`. See `WALK_COVERS` for why the obvious `2 x foot swing` is
 /// wrong by 45% on anything with a flight phase.
 const GAITS: &[(&str, f32, f32)] = &[
-    ("walk", WALK_COVERS, halfway(crate::player::WALK_SPEED, crate::player::JOG_SPEED)),
+    // # The handover is MEASURED off the clips, not split between the driven speeds
+    //
+    // It was `halfway(WALK_SPEED, JOG_SPEED)` - 2.935 m/s - which is a fact about the speeds a
+    // player is driven at and says nothing about the clips. Now that the two gaits CROSS-FADE
+    // rather than switch, the number is the centre of a blend band, and the honest centre is the
+    // speed at which both clips are equally wrong: the walk stretched by the same factor the run
+    // is compressed by.
+    //
+    //     walk native   2.471 m / 2.333 s = 1.059 m/s
+    //     run native    4.435 m / 1.000 s = 4.435 m/s
+    //     crossover     sqrt(1.059 x 4.435) = 2.167 m/s, each 2.05x from its own native
+    //
+    // Worth writing down plainly: 2.05x is far outside `PLAYS_BETWEEN`, so at the crossover
+    // NEITHER clip is inside its believable playback range. That is a hole in the clip set - the
+    // walk tops out around 1.32 m/s and the run bottoms out around 3.55, and nothing was
+    // delivered for the 2 m/s between them. The driven speeds sit near the clips' natives so the
+    // gap is only crossed while accelerating, and the blend is what makes crossing it bearable.
+    // A jog clip is the real fix and is not a thing this can invent.
+    ("walk", WALK_COVERS, equal_stretch_between(
+        natively_carries(WALK_COVERS, WALK_FRAMES),
+        natively_carries(RUN_COVERS, RUN_FRAMES),
+    )),
     ("run", RUN_COVERS, f32::INFINITY),
 ];
 // The sprint row is gone with the sprint clip: three clips were delivered - a look-around, a
@@ -251,35 +296,58 @@ const fn natively_carries(covers: f32, frames: f32) -> f32 {
     covers * FPS / frames
 }
 
-/// The speed at which one tier hands over to the next: halfway between the two speeds
-/// they are actually driven at.
+/// A square root that works in a `const`, by Newton's method.
 ///
-/// Three versions preceded this and each was wrong in a way worth keeping.
-///
-/// It was `natively_carries(covers, frames) * STRETCHES_TO`, which assumes `frames / FPS`
-/// IS the intended cycle duration. That held while the run was sixteen frames and broke
-/// the day it became twenty-four: frame count is chosen for sampling density and tempo
-/// comes from the playback rate, so a longer clip is not a slower gait.
-///
-/// Then `design_speed * STRETCHES_TO`, which selects correctly and is still wrong: 25%
-/// more speed on a fixed stride is 25% more cadence, so any tier near the top of its band
-/// churns at its own ceiling.
-///
-/// Then `covers * churns_above / 120.0` - the speed at which CADENCE would leave a
-/// believable band. That was right for as long as the selection read a measured speed that
-/// could land anywhere, because then a tier really could be asked to carry every speed up
-/// to its ceiling. It stopped being right in two steps. `Striding::wants` made the
-/// selection read INTENT, so each tier now carries exactly one speed and a ceiling bounds
-/// nothing; and the bands were dropped as a speed gate, because pinning the driven speed
-/// just under a cadence ceiling is what made the jog feel slow - the speed was never a
-/// choice, it was whatever a human band permitted.
-///
-/// So the speeds are the knobs now, chosen by feel, and this is only the line between
-/// them. Halfway gives the widest margin either side, which matters because a ceiling
-/// sitting a fraction under a driven speed is exactly the fragility that bit last time.
-const fn halfway(slower: f32, faster: f32) -> f32 {
-    (slower + faster) / 2.0
+/// `f32::sqrt` is not const, and the gait table needs a root at compile time. Newton on
+/// `x = (x + a/x) / 2` doubles its correct digits each pass, so twenty passes is far more than
+/// f32 can hold - and `a_const_root_is_a_root` checks it against `f32::sqrt` rather than trusting
+/// that claim.
+const fn root(of: f32) -> f32 {
+    if of <= 0.0 {
+        return 0.0;
+    }
+    let mut guess = of;
+    let mut passes = 0;
+    while passes < 20 {
+        guess = (guess + of / guess) * 0.5;
+        passes += 1;
+    }
+    guess
 }
+
+/// The speed at which two clips are equally far from their own natural rates.
+///
+/// # Four versions preceded this, and each was wrong in a way worth keeping
+///
+/// It was `natively_carries(covers, frames) * STRETCHES_TO`, which assumes `frames / FPS` IS the
+/// intended cycle duration. That held while the run was sixteen frames and broke the day it
+/// became twenty-four: frame count is chosen for sampling density and tempo comes from the
+/// playback rate, so a longer clip is not a slower gait.
+///
+/// Then `design_speed * STRETCHES_TO`, which selects correctly and is still wrong: 25% more speed
+/// on a fixed stride is 25% more cadence, so any tier near the top of its band churns at its own
+/// ceiling.
+///
+/// Then `covers * churns_above / 120.0` - the speed at which CADENCE would leave a believable
+/// band. That was right for as long as the selection read a measured speed that could land
+/// anywhere. It stopped being right in two steps: `Striding::wants` made the selection read
+/// INTENT, so each tier carries exactly one speed and a ceiling bounds nothing; and the bands
+/// were dropped as a speed gate, because pinning the driven speed just under a cadence ceiling is
+/// what made the jog feel slow.
+///
+/// Then `halfway(WALK_SPEED, JOG_SPEED)` - the arithmetic mean of the two DRIVEN speeds. Correct
+/// while the ceiling was only a switch point, because then all it had to do was sit clear of both
+/// speeds. It became wrong when the gaits started to CROSS-FADE, because a blend centre is a
+/// statement about the clips and that number never mentioned them.
+///
+/// The geometric mean, because "equally wrong" is a RATIO and not a difference: at `c` the
+/// slower clip is stretched by `c / slower` and the faster compressed by `faster / c`, and
+/// setting those equal gives `c = sqrt(slower x faster)`. The arithmetic mean would favour the
+/// faster clip, which is the one already playing furthest from its native rate.
+const fn equal_stretch_between(slower: f32, faster: f32) -> f32 {
+    root(slower * faster)
+}
+
 
 
 /// What to hand `set_speed` so a clip plays at the right cadence.
@@ -382,6 +450,27 @@ fn seek_for(covered: f32, cycles: f32, lasts: f32) -> f32 {
     covered.rem_euclid(cycles) / cycles * lasts
 }
 
+/// Below this asked speed the warden is standing rather than moving.
+///
+/// Read off `wants`, the ASKED speed, not the measured one - see the note in
+/// `match_the_clip_to_the_walking` for why intent chooses and measurement scales.
+const STIRS_AT: f32 = 0.05;
+
+/// How wide a gait handover blends, as a fraction of the crossover speed either side.
+///
+/// The CENTRE is measured - see `equal_stretch_between` - and this width is a feel knob, stated
+/// as one. At 0.20 the band around 2.167 m/s runs 1.73 to 2.60 m/s, which at ordinary
+/// acceleration takes a few tenths of a second to cross: long enough not to snap, short enough
+/// that a half-walk-half-run pose is never what the warden is resting in.
+const CROSSES_OVER_ACROSS: f32 = 0.20;
+
+/// How far the feet stand from the axis the warden pivots about, in metres.
+///
+/// MEASURED off the idle rather than the bind pose, because standing is the pose he turns from:
+/// the toes sit 16.1 to 35.5 cm apart across the idle, mean 23.9, so half of that. The A-pose
+/// bind stands 34.8 cm which would over-state a standing pivot by half.
+const PIVOTS_AT: f32 = 0.119;
+
 /// How far through its gait cycle the warden is, in cycles, from the ground he has covered.
 ///
 /// Kept on the warden rather than in the animation player because the player's copy is reset by
@@ -390,6 +479,102 @@ fn seek_for(covered: f32, cycles: f32, lasts: f32) -> f32 {
 pub struct Strides {
     /// Cycles of ground covered. Grows without bound; only its fractional part is played.
     pub cycles: f32,
+    /// Which way the warden faced last frame, so a pivot can be turned into ground covered.
+    ///
+    /// `None` until the first frame has been seen, because the first frame has nothing to
+    /// difference against and treating a missing previous heading as zero would read the
+    /// warden's whole starting rotation as one enormous spin.
+    pub faced: Option<f32>,
+}
+
+/// How much of each clip is showing, in the animation graph's own node order.
+///
+/// Kept on the warden because a cross-fade is a thing that happens OVER TIME, so the weights
+/// have to survive the frame that set them.
+#[derive(Component, Default, Debug, Clone)]
+pub struct Blending {
+    /// The idle first, then one per gait in `Motions::gaits` order.
+    pub weights: Vec<f32>,
+}
+
+/// Which clips should be showing at a given asked speed, and how much of each.
+///
+/// The idle first, then one per gait, matching the animation graph's node order. Sums to one.
+///
+/// Standing is all idle. Moving picks the gait whose band the speed is in, and inside a handover
+/// band splits between the two neighbours - which is the walk<->run blend tree, expressed as a
+/// function of speed alone so it can be tested without an app.
+fn weights_for(asking: f32, ceilings: &[f32]) -> Vec<f32> {
+    let mut out = vec![0.0; ceilings.len() + 1];
+    if ceilings.is_empty() {
+        out[0] = 1.0;
+        return out;
+    }
+    if asking <= STIRS_AT {
+        out[0] = 1.0;
+        return out;
+    }
+    for (tier, ceiling) in ceilings.iter().enumerate().take(ceilings.len() - 1) {
+        if !ceiling.is_finite() {
+            continue;
+        }
+        let band = (ceiling * CROSSES_OVER_ACROSS).max(f32::EPSILON);
+        if asking < ceiling - band {
+            out[tier + 1] = 1.0;
+            return out;
+        }
+        if asking <= ceiling + band {
+            let across = (asking - (ceiling - band)) / (2.0 * band);
+            out[tier + 1] = 1.0 - across;
+            out[tier + 2] = across;
+            return out;
+        }
+    }
+    out[ceilings.len()] = 1.0;
+    out
+}
+
+/// Moves a weight toward where it wants to be, taking no less than `over` seconds to cross.
+fn eased(now: f32, want: f32, over: f32, delta: f32) -> f32 {
+    if over <= 0.0 {
+        return want;
+    }
+    let step = delta / over;
+    if (want - now).abs() <= step {
+        want
+    } else if want > now {
+        now + step
+    } else {
+        now - step
+    }
+}
+
+/// Turns intended shares into the weights Bevy needs to produce them.
+///
+/// # Bevy does not normalise, and the order is part of the contract
+///
+/// `Animatable::blend` folds each active clip in with `interpolate(accumulated, value, weight)`
+/// starting from ZERO, in ascending node index order - the graph's own docs guarantee that
+/// order. So weights are not shares of a total: handing two clips 0.5 and 0.5 gives
+/// `0.25 a + 0.5 b`, which is neither clip and is dimmer than both.
+///
+/// Solving the fold: the result is `sum over i of v[i] * b[i] * product over j>i of (1 - b[j])`,
+/// so working back from the LAST clip gives `b[i] = w[i] / (w[0] + ... + w[i])` - each clip's
+/// share of everything up to and INCLUDING itself. The first active clip therefore always gets
+/// 1.0 and the last gets its own share.
+///
+/// The obvious guess is the other direction, `w[i] / (w[i] + ... + w[n])`, and it is wrong:
+/// it turns an even two-way split into `[0.5, 1.0]`, which folds to the second clip entirely
+/// and drops the first. `the_blend_weights_reproduce_the_mix` is what caught that, by folding
+/// the weights back through Bevy's own arithmetic instead of trusting the algebra.
+fn as_bevy_weights(wanted: &[f32]) -> Vec<f32> {
+    let mut out = vec![0.0; wanted.len()];
+    let mut sofar = 0.0_f32;
+    for (at, share) in wanted.iter().enumerate() {
+        sofar += share;
+        out[at] = if sofar > f32::EPSILON { share / sofar } else { 0.0 };
+    }
+    out
 }
 
 /// How much of the speed to take out of the stride, and how much to leave to the play rate.
@@ -430,21 +615,6 @@ pub struct Motions {
     /// walk still walks, and sprints by walking faster, which is wrong but is not
     /// broken and beats refusing to animate.
     gaits: Vec<Gait>,
-    /// How long each gait's clip runs, in seconds.
-    ///
-    /// # Why a cadence needs the clip's own length
-    ///
-    /// `set_speed` is a MULTIPLE of a clip's natural rate, not a rate. A clip's
-    /// natural rate is one cycle over its authored duration, so cycles a second is
-    /// `speed / duration` — and handing it `strides_a_second` alone silently assumes
-    /// every clip lasts exactly one second.
-    ///
-    /// Every clip lasts 1.042 s today, all three being twenty-four frames. It was found
-    /// when the run was sixteen frames and so lasted 0.708, which played 41% too fast and
-    /// the feet skated for it while the walk looked fine. Nothing in the cadence test caught it,
-    /// because the test checked the number being ASKED for rather than the one the
-    /// player would produce.
-    idle_lasts: f32,
 }
 
 /// One gait, with everything needed to play it at the right rate.
@@ -524,9 +694,9 @@ pub fn find_the_clips(
     // The clips themselves, for their durations. They are sub-assets of the file, so
     // they normally arrive with it — but not necessarily in the same frame, and a
     // duration of nought would divide the cadence into infinity. So this waits.
-    let Some(idle_lasts) = clips.get(idle).map(AnimationClip::duration) else {
+    if clips.get(idle).map(AnimationClip::duration).unwrap_or(0.0) <= 0.0 {
         return;
-    };
+    }
 
     let mut graph = AnimationGraph::new();
     let standing = graph.add_clip(idle.clone(), 1.0, graph.root);
@@ -584,7 +754,6 @@ pub fn find_the_clips(
         graph: graphs.add(graph),
         idle: standing,
         gaits,
-        idle_lasts,
     });
     commands.remove_resource::<Waiting>();
 }
@@ -599,14 +768,16 @@ pub fn hand_the_clips_over(
     fresh: Query<Entity, Added<AnimationPlayer>>,
 ) {
     for entity in &fresh {
-        let mut moves = AnimationTransitions::new();
+        // No `AnimationTransitions`. It owned the cross-fade by declining weights over time,
+        // and the weights are now computed from speed and eased explicitly - see
+        // `as_bevy_weights` for why they cannot be left to a mechanism that does not know
+        // Bevy's blend is a sequential lerp rather than a normalised sum. Two things writing
+        // the same weights is how a blend goes wrong invisibly.
         let mut player = AnimationPlayer::default();
-        moves.play(&mut player, motions.idle, std::time::Duration::ZERO);
-        commands.entity(entity).insert((
-            AnimationGraphHandle(motions.graph.clone()),
-            player,
-            moves,
-        ));
+        player.play(motions.idle).repeat();
+        commands
+            .entity(entity)
+            .insert((AnimationGraphHandle(motions.graph.clone()), player));
     }
 }
 
@@ -615,74 +786,144 @@ pub fn match_the_clip_to_the_walking(
     mut commands: Commands,
     motions: Res<Motions>,
     clock: Res<Time>,
-    striding: Query<(Entity, &Striding, Option<&Strides>), With<Player>>,
-    mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
+    striding: Query<
+        (Entity, &Striding, &Transform, Option<&Strides>, Option<&Blending>),
+        With<Player>,
+    >,
+    mut players: Query<&mut AnimationPlayer>,
 ) {
-    let Ok((warden, pace, walked)) = striding.single() else {
+    let Ok((warden, pace, placed, walked, blended)) = striding.single() else {
         return;
     };
+    let delta = clock.delta_secs();
     let mut covered = walked.copied().unwrap_or_default();
+
+    // # Turn-in-place, through the same accumulator as everything else
+    //
+    // A warden rotating on the spot covers no ground, so a phase driven by distance alone
+    // freezes and the feet skate round with the body. But a pivot is not nothing: the feet swing
+    // about the turn axis, and how far they swing is an arc - the turn in radians times how far
+    // out they stand. Feeding that arc in as distance makes him STEP round instead of sliding,
+    // and it needs no new clip and no second mechanism.
+    //
+    // It falls out for free while walking a curve too, where the same arc is real ground the
+    // outside foot has to cover.
+    let facing = placed.rotation.to_euler(EulerRot::YXZ).0;
+    let spun = match covered.faced {
+        // Shortest way round, or a warden crossing the +/-PI seam reads as a full spin.
+        Some(was) => {
+            let mut turned = facing - was;
+            while turned > std::f32::consts::PI {
+                turned -= std::f32::consts::TAU;
+            }
+            while turned < -std::f32::consts::PI {
+                turned += std::f32::consts::TAU;
+            }
+            turned.abs() * PIVOTS_AT
+        }
+        None => 0.0,
+    };
+    covered.faced = Some(facing);
+
     // Both of these read `wants`, the ASKED speed, and not the measured one. Measured
-    // speed is noisy enough to sit either side of a handover ceiling on consecutive
-    // frames - it counted terrain climb as ground speed until this was fixed - and every
-    // crossing restarted a blend, which is what made the warden jitter while running.
-    // `wants` is one of three constants, so the choice is stable by construction. The
-    // measured speed still sets the RATE below, which is the thing it is actually good
-    // for. Choose from intent, scale by measurement.
-    let moving = pace.wants > 0.05;
-    // The slowest gait whose ceiling this speed is still under. The list is ordered
-    // and its last entry catches everything, so this always finds one.
-    let gait = motions
-        .gaits
+    // speed is noisy enough to sit either side of a handover on consecutive frames - it
+    // counted terrain climb as ground speed until this was fixed - and every crossing
+    // restarted a blend, which is what made the warden jitter while running. `wants` is one
+    // of three constants, so the choice is stable by construction. The measured speed still
+    // drives the PHASE below, which is the thing it is actually good for. Choose from intent,
+    // scale by measurement.
+    //
+    // A pivot adds to the asked speed as the equivalent ground rate, so turning on the spot
+    // selects the slowest gait rather than the stand.
+    let pivoting = if delta > 0.0 { spun / delta } else { 0.0 };
+    let asking = pace.wants.max(pivoting);
+
+    let ceilings: Vec<f32> = motions.gaits.iter().map(|gait| gait.upto).collect();
+    let wanted = weights_for(asking, &ceilings);
+
+    // Into a gait quickly, into a stand with room to settle. Which of the two applies is the
+    // DIRECTION, read off whether the idle is the thing being blended toward.
+    let over = if wanted[0] > 0.0 { SETTLES_OVER } else { BLEND };
+    let mut now: Vec<f32> = wanted
         .iter()
-        .find(|gait| pace.wants <= gait.upto)
-        .unwrap_or_else(|| motions.gaits.last().expect("never empty"));
+        .enumerate()
+        .map(|(at, want)| {
+            eased(blended.and_then(|b| b.weights.get(at).copied()).unwrap_or(0.0),
+                  *want, over, delta)
+        })
+        .collect();
+    // Nothing showing at all would drop the warden onto his bind pose for a frame. It cannot
+    // happen from the arithmetic above, and is cheap to make impossible.
+    if now.iter().sum::<f32>() <= f32::EPSILON {
+        now[0] = 1.0;
+    }
+    let showing = as_bevy_weights(&now);
 
     let mut warp = 1.0_f32;
-    for (mut player, mut moves) in &mut players {
-        let (wanted, covers, lasts) = if moving {
-            (gait.node, gait.covers, gait.lasts)
-        } else {
-            (motions.idle, 0.0, motions.idle_lasts)
-        };
-        if !player.is_playing_animation(wanted) {
-            // Into a gait, quickly; into a stand, with room. See `SETTLES_OVER`.
-            let over = if moving { BLEND } else { SETTLES_OVER };
-            moves
-                .play(&mut player, wanted, std::time::Duration::from_secs_f32(over))
-                .repeat();
-        }
-        if moving {
+    for mut player in &mut players {
+        for (at, weight) in showing.iter().enumerate() {
+            let node = if at == 0 {
+                motions.idle
+            } else {
+                motions.gaits[at - 1].node
+            };
+            if now[at] <= f32::EPSILON {
+                player.stop(node);
+                continue;
+            }
+            if !player.is_playing_animation(node) {
+                player.play(node).repeat();
+            }
+            let Some(active) = player.animation_mut(node) else {
+                continue;
+            };
+            active.set_weight(*weight);
+            if at == 0 {
+                // The idle has no ground to be driven by, so it plays itself. Set explicitly
+                // because this same node may have been left at zero speed by a gait.
+                active.set_speed(1.0);
+                continue;
+            }
+            let gait = &motions.gaits[at - 1];
             // The stride takes what it can of the speed and the phase carries the rest:
             // `covers x stride` is the ground one cycle now covers, so a wider stride means
             // fewer cycles for the same distance and a less churning clip.
-            let stride = warps_the_stride(pace.speed, covers, lasts);
-            // DISTANCE matching, not rate matching — see `strides_over`. The phase advances by
-            // the ground actually travelled and the clip is seeked there, with its own speed
-            // pinned at zero so the player integrates nothing of its own. Every frame re-derives
-            // the pose from distance, so a blend, a wrap or a hitch cannot leave the feet out of
-            // step with the ground.
-            covered.cycles += strides_over(
-                pace.speed * clock.delta_secs(),
-                covers,
-                gait.cycles,
-                stride,
-            );
-            if let Some(active) = player.animation_mut(wanted) {
-                active.set_speed(0.0);
-                active.set_seek_time(seek_for(covered.cycles, gait.cycles, lasts));
+            let stride = warps_the_stride(pace.speed, gait.covers, gait.lasts);
+            active.set_speed(0.0);
+            active.set_seek_time(seek_for(covered.cycles, gait.cycles, gait.lasts));
+            // The heaviest clip decides the stride the feet are warped to, since two gaits
+            // cross-fading cannot each warp the legs their own way.
+            if now[at] >= now.iter().skip(1).copied().fold(0.0_f32, f32::max) {
+                warp = stride;
             }
-            warp = stride;
-        } else if let Some(active) = player.animation_mut(wanted) {
-            // The idle is not distance driven — there is no ground to drive it with — so it
-            // plays itself. Set explicitly because the same node may have been left at zero by
-            // a gait that was showing a moment ago.
-            active.set_speed(1.0);
         }
     }
+
+    // # The phase advances ONCE, whatever is showing
+    //
+    // Advanced after the loop and against the heaviest gait, not inside it, because the
+    // accumulator counts the warden's cycles and not any one clip's. Advancing it per clip would
+    // double-count during a cross-fade and the feet would run away exactly while two gaits were
+    // blending - the moment it is hardest to see.
+    if let Some((gait, _)) = motions
+        .gaits
+        .iter()
+        .zip(now.iter().skip(1))
+        .max_by(|a, b| a.1.total_cmp(b.1))
+        .filter(|(_, weight)| **weight > f32::EPSILON)
+    {
+        let stride = warps_the_stride(pace.speed, gait.covers, gait.lasts);
+        covered.cycles += strides_over(
+            pace.speed * delta + spun,
+            gait.covers,
+            gait.cycles,
+            stride,
+        );
+    }
+
     commands
         .entity(warden)
-        .insert((Warping { stride: warp }, covered));
+        .insert((Warping { stride: warp }, covered, Blending { weights: now }));
 }
 
 /// Whether the clips have been found yet.
@@ -716,6 +957,177 @@ mod pacing {
         assert!(
             BREAKS_INTO_A_RUN < run,
             "the run threshold {BREAKS_INTO_A_RUN} is above the top speed {run},              so the run clip can never play"
+        );
+    }
+
+    /// The const square root really is one.
+    ///
+    /// `f32::sqrt` is not const and the gait table needs a root at compile time, so `root` does
+    /// Newton by hand. A hand-rolled numeric that nothing checks is a number nobody knows.
+    #[test]
+    fn a_const_root_is_a_root() {
+        for of in [0.0_f32, 1e-4, 0.5, 1.0, 2.0, 4.435, 9.0, 100.0, 1e4] {
+            let mine = root(of);
+            let theirs = of.sqrt();
+            assert!(
+                (mine - theirs).abs() <= theirs.max(1.0) * 1e-6,
+                "root({of}) came out {mine} against f32::sqrt's {theirs}"
+            );
+        }
+    }
+
+    /// The handover sits where both clips are stretched by the same factor.
+    ///
+    /// That is what makes it a property of the CLIPS rather than of the speeds a player happens
+    /// to be driven at, which is what the previous four versions of this number all were.
+    #[test]
+    fn the_crossover_sits_where_both_clips_stretch_alike() {
+        let walk = natively_carries(WALK_COVERS, WALK_FRAMES);
+        let run = natively_carries(RUN_COVERS, RUN_FRAMES);
+        let at = equal_stretch_between(walk, run);
+        let stretched = at / walk;
+        let squashed = run / at;
+        assert!(
+            (stretched - squashed).abs() < 1e-3,
+            "at {at} m/s the walk is stretched {stretched}x while the run is squashed \
+             {squashed}x, so the handover favours one of them"
+        );
+        assert!(
+            walk < at && at < run,
+            "the handover at {at} m/s is not between the walk's {walk} and the run's {run}"
+        );
+    }
+
+    /// Folds weights the way Bevy does, to check they produce the mix that was intended.
+    fn folded(weights: &[f32], values: &[f32]) -> f32 {
+        let mut carried = 0.0;
+        for (weight, value) in weights.iter().zip(values) {
+            carried = carried * (1.0 - weight) + value * weight;
+        }
+        carried
+    }
+
+    /// The weights handed to Bevy reproduce the mix that was asked for.
+    ///
+    /// This is the test that matters most in this file, because getting it wrong is invisible:
+    /// Bevy's blend is a sequential lerp from ZERO in ascending node order, not a normalised sum,
+    /// so handing two clips 0.5 and 0.5 gives `0.25a + 0.5b` - a pose that is neither clip and
+    /// dimmer than both, which reads as the character going slightly limp mid-blend rather than
+    /// as anything obviously broken.
+    #[test]
+    fn the_blend_weights_reproduce_the_mix() {
+        let values = [1.0_f32, 10.0, 100.0];
+        for mix in [
+            [1.0_f32, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.5, 0.5, 0.0],
+            [0.0, 0.5, 0.5],
+            [0.2, 0.5, 0.3],
+            [0.7, 0.1, 0.2],
+        ] {
+            let want: f32 = mix.iter().zip(&values).map(|(w, v)| w * v).sum();
+            let got = folded(&as_bevy_weights(&mix), &values);
+            assert!(
+                (got - want).abs() < 1e-4,
+                "a mix of {mix:?} should blend to {want} and Bevy's fold gives {got}"
+            );
+        }
+    }
+
+    /// Standing shows the idle and nothing else.
+    #[test]
+    fn standing_shows_only_the_idle() {
+        let ceilings = [2.167_f32, f32::INFINITY];
+        let out = weights_for(0.0, &ceilings);
+        assert_eq!(out[0], 1.0, "standing gave the idle {} weight", out[0]);
+        assert!(
+            out[1..].iter().all(|w| *w == 0.0),
+            "standing still showed a gait: {out:?}"
+        );
+    }
+
+    /// The gaits cross-fade through the handover instead of snapping at it.
+    ///
+    /// Both neighbours carry weight inside the band, one carries all of it outside, and the
+    /// shares always sum to one - a sum below one is a pose blended toward the bind, which is
+    /// the failure mode that looks like a stumble.
+    #[test]
+    fn the_gaits_cross_fade_rather_than_snap() {
+        let ceilings = [2.167_f32, f32::INFINITY];
+        let band = 2.167 * CROSSES_OVER_ACROSS;
+        for asking in [0.5_f32, 1.0, 1.5, 1.9, 2.167, 2.4, 2.7, 4.0, 8.0] {
+            let out = weights_for(asking, &ceilings);
+            let total: f32 = out.iter().sum();
+            assert!(
+                (total - 1.0).abs() < 1e-4,
+                "at {asking} m/s the weights {out:?} sum to {total}, not one"
+            );
+            assert_eq!(out[0], 0.0, "at {asking} m/s the idle still showed: {out:?}");
+            let inside = (asking - 2.167).abs() <= band;
+            let mixing = out[1] > 0.0 && out[2] > 0.0;
+            assert_eq!(
+                inside, mixing,
+                "at {asking} m/s the band says mixing={inside} and the weights say \
+                 {mixing}: {out:?}"
+            );
+        }
+        // And exactly at the crossover it is an even split, which is what "equally wrong" means.
+        let middle = weights_for(2.167, &ceilings);
+        assert!(
+            (middle[1] - middle[2]).abs() < 1e-3,
+            "at the crossover the split is {middle:?}, which is not even"
+        );
+    }
+
+    /// Stopping takes longer than starting.
+    ///
+    /// A start should look decisive; a stop needs room or it reads as the warden hitting a wall,
+    /// which is half of what "the transition from run to stop is so abrupt" was about.
+    #[test]
+    fn a_settle_takes_longer_than_a_start() {
+        assert!(
+            SETTLES_OVER > BLEND,
+            "settling over {SETTLES_OVER}s is not longer than starting over {BLEND}s"
+        );
+        let step = 1.0 / 60.0;
+        let starting = eased(0.0, 1.0, BLEND, step);
+        let stopping = eased(0.0, 1.0, SETTLES_OVER, step);
+        assert!(
+            starting > stopping,
+            "one frame moves a start {starting} and a settle {stopping}, so the settle is not \
+             the slower of the two"
+        );
+        // And easing arrives rather than creeping forever.
+        let mut at = 0.0;
+        for _ in 0..(60.0 * SETTLES_OVER) as usize + 2 {
+            at = eased(at, 1.0, SETTLES_OVER, step);
+        }
+        assert_eq!(at, 1.0, "a settle stalled at {at} instead of arriving");
+    }
+
+    /// Turning on the spot steps the feet instead of skating them.
+    ///
+    /// A pivot covers no ground, so a phase driven by distance alone would freeze and the feet
+    /// would slide round with the body. The feet do travel though - an arc about the turn axis -
+    /// and feeding that arc in as distance is what makes him step. A half turn should be worth
+    /// something like a stride, not something like nothing.
+    #[test]
+    fn turning_in_place_steps_the_feet() {
+        let arc = std::f32::consts::PI * PIVOTS_AT;
+        let stepped = strides_over(arc, WALK_COVERS, 2.0, 1.0);
+        assert!(
+            stepped > 0.05,
+            "half a turn on the spot advanced the walk only {stepped} cycles, which is a skate"
+        );
+        assert!(
+            stepped < 2.0,
+            "half a turn on the spot advanced the walk {stepped} cycles, which is a scurry"
+        );
+        assert_eq!(
+            strides_over(0.0, WALK_COVERS, 2.0, 1.0),
+            0.0,
+            "not turning and not moving still advanced the phase"
         );
     }
 
