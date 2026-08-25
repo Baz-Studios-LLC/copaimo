@@ -1743,6 +1743,173 @@ timid. By the second report, put every state the thing has been in on one labell
 and ask which one is right.
 
 
+## An arm that reads as attached to the torso
+
+**What you see.** "The idle still has his right arm seem attached to the torso." The sleeve and
+the jacket side merge into one lit plane, with no separating crease, and the right side is worse
+than the left.
+
+**What it actually was.** A POSE, not the mesh. Measured across the delivered idle, the angle
+between the upper arm and the spine:
+
+    L arm   min  9.6 deg   mean 15.7 deg   max 25.8 deg
+    R arm   min  8.8 deg   mean 11.9 deg   max 18.9 deg
+
+The right arm is held about four degrees tighter to the body than the left for the whole clip.
+That asymmetry is the report. An arm resting against the ribs has no gap to shade, so nothing
+done to the armpit geometry can put one there - and two attempts proved it. Sinking the recorded
+webbing faces toward the armpit apex moved 92 vertices by up to 2.23 cm and the render was
+indistinguishable: moving surface vertices toward a POINT slides them along the surface rather
+than recessing them. Drawing each vertex toward its own bone's axis instead does recess them, but
+at a sink large enough to see (10.5 cm) it punched visible spikes through the shoulder, because
+the recorded centroids are a scattered set of faces and not a clean band.
+
+**What changed.** `lift_the_arms` in `dev/art/build_character.py`: a pose-fixup layer that adds a
+constant abduction at each shoulder until the clip's CLOSEST frame clears `ARMS_REST_AT`
+(16 degrees). It keeps the animator's arm swing, costs no geometry, adapts to a second body for
+the character creator, and unlike every mesh edit tried here it cannot open a hole. Both arms now
+rest at 15-16 degrees and, more importantly, match each other.
+
+Two details are load-bearing. The axis is DERIVED, not assumed: rotating a direction `u` about
+`n` moves it by `n x u`, so abduction - which is `180 - angle(u, spine)` - opens fastest about
+`u x spine`. The first version negated that cross product and drove the left arm from 10.0
+degrees DOWN to 4.5, pressing it further into the body. And the offset composes on the REST side
+(`offset * keyed`, not `keyed * offset`), because an abduction is a constant swing of the whole
+posed arm about an axis fixed in the shoulder - unlike `roll_the_hands`, whose twist follows the
+bone and therefore composes on the posed side.
+
+**The test.** `lift_the_arms` re-measures after lifting and refuses the build if the arm ended up
+closer to the body than it started: "the abduction axis is pointing the wrong way, so the arm was
+pressed INTO the body". That is the exact failure that shipped once.
+
+
+## Eight of sixteen "rest pose" renders were not the rest pose
+
+**What you see.** Lifting the idle's arms by six degrees made the golden gate report THIRTEEN
+changed shots out of sixteen - including the FEET, and including shots labelled `rest`, which no
+clip edit can reach. Every kept-versus-now pair showed the same geometry, translated.
+
+**What it actually was.** Two separate instrument faults, both of which made the gate answer a
+question other than the one it was asked.
+
+The camera was framed from the POSED mesh: height from its bounds, centre from the mean of every
+vertex. That makes the framing a function of the pose, so moving the arms outward shifted the
+centroid and slid the frame on every shot in the sheet. A gate whose camera moves with its
+subject cannot tell "the armpit changed" from "the camera slid", which is the one thing it exists
+to tell.
+
+And the rest shots were never at rest. `rig.animation_data.action = None` followed by
+`view_layer.update()` does not re-evaluate - Blender keeps handing back the last evaluated pose -
+so those eight shots showed frame one of whichever clip the importer left bound. This is the
+fourth time the stale depsgraph has produced a mislabelled measurement on this character (a rest
+pose in the strain audit, a bind in the hand measure, every bone reading 0.00 cm in the twist
+test, and now half the golden sheet). Nudging the frame off and back does not force it either.
+
+It was caught by a cross-check that cost nothing: the two builds' meshes are byte-for-byte
+identical - 7859 vertices, worst difference 0.0000 cm, read straight out of the two .glb files
+with plain Python - yet the renderer reported their rest centres as 0.1250 and 0.1214. A number
+that moves when the thing it measures does not is the instrument, every time.
+
+**What changed.** In `dev/art/render_clay.py`, `at_rest` reads `body.data.vertices` - the STORED
+geometry, which is the bind pose by definition and cannot be stale because nothing evaluates it -
+and returns a floor, height and centre that are constants of the character rather than of the
+frame. `stand_at_rest` zeroes every pose bone's `matrix_basis` instead of trusting a cleared
+action, which is deterministic. The slot must be unbound BEFORE the action, or Blender raises
+"Cannot set slot without an assigned Action".
+
+Shots aimed at a BONE still follow that bone into the pose: a hand close-up has to find the hand
+where the clip put it. It is the framing that is fixed, not the aim.
+
+**The test.** Verified in both directions, the way the gate's own threshold was. Rendering the
+same shot from two builds that differ only in clip curves now gives 0.0000. Blessing a no-lift
+build and then turning the lift on changes exactly ONE shot - `idle_worst`, the only clip-posed
+idle shot in the sheet - with rest, both hands, the feet, walk and run all at 0.00. Before the
+fix the same change reported thirteen.
+
+
+## A looping clip can close in rotation and still snap
+
+**What you see.** Nothing, until the character twitches once per loop.
+
+**What it actually was.** The clip audit reported `first to last pose 0.00 deg <- loops` for the
+idle, and separately that the hip "travels 26.9 cm". Neither number says whether the hip comes
+HOME: `travel` is the largest excursion from frame one, so a clip that sways 27 cm and returns
+reads identically to one that walks 27 cm away and stays there. Rotation closing is only half of
+a loop.
+
+**What changed.** `the_clips` in `dev/art/audit_character.py` now also reports the net first-to-
+last hip offset, as "hip ends N cm from where it began".
+
+**The test.** It is the report. All three clips currently read 0.0 cm and "lands", so the idle's
+26.9 cm is a weight shift that comes home rather than a drift - which is what wanted checking.
+
+
+## The elbow twisted, three times
+
+**What you see.** "There does seem to be a twist in the mesh of the elbow render." Then, two
+fixes later, "Twisted arm at the elbow again." The forearm reads wrung, with a hard shattered
+wedge of faces at the cuff.
+
+**What it actually was.** Not what either earlier fix assumed. The first attempt read it as the
+palm roll fighting the clip's own pronation and cut `PALMS_ROLL_IN` from 90 degrees to 30, which
+helped and did not fix it. The second left the roll bones alone on the reasoning that the clips
+already pronate correctly. Both were guesses about a mechanism. Two measurements settle it.
+
+Every bone's own rotation about its length, worst frame per clip:
+
+    clip    Forearm        Twist01   Twist02   Hand
+    idle    -92 / +111      0.0       0.0      -+30
+    run     -84 / +119      0.0       0.0      -+30
+    walk    -60 /  +97      0.0       0.0      -+30
+
+And the weight map:
+
+    Forearm            0 verts        ForearmTwist01   616 verts
+    Upperarm           0 verts        ForearmTwist02   316 verts
+
+`Forearm` and `Upperarm` deform NOTHING. They are pure bend bones, and the roll bones beneath
+them are what the mesh is actually attached to - the rig was built for roll distribution, which
+is why the bend bones have no weights at all. The clips never drove it: both roll bones read
+exactly 0.0 in every clip, so the forearm's 119 degrees is inherited WHOLE by both of them and
+every vertex from elbow to wrist turns as one rigid block. The crease is where that block meets
+the upper arm, which is the elbow, which is where it was reported three times.
+
+That also explains why fighting the roll never worked. The total twist was never the problem; its
+DISTRIBUTION was, and adding or removing roll changes the total without touching the gradient.
+
+**What changed.** `spread_the_twist` in `dev/art/build_character.py` splits each forearm key into
+swing and twist about the bone's own length, leaves the swing on the bend bone, and hands the
+twist to the chain in graded shares - `ForearmTwist01`, `ForearmTwist02`, then the hand at the
+full amount. Removing it from `Forearm` costs nothing because nothing is weighted there. The
+gradient along the arm went from 0 -> -92 -> -92 -> -92 to 0 -> -21 -> -73 -> -92, and the
+forearm's own twist from 119 degrees to under 3.
+
+Three details are load-bearing:
+
+* The shares are MEASURED, not the textbook one-third/two-thirds. Each roll bone carries the
+  twist belonging to where its skin actually sits, as a weighted centroid along the forearm, so
+  it comes out at 23% and 79% on the left and 31% and 77% on the right and adapts to a second
+  body for the character creator.
+* The twist has to be conjugated into the axes of whichever bone carries it, using the
+  CUMULATIVE rest rotation down from the forearm - one level for the first roll bone and the
+  hand, two for the second.
+* **The hand takes the whole twist**, and that is correctness rather than polish: with the
+  forearm no longer twisting, the wrist only lands where the animator put it if the hand carries
+  the roll locally. As the user put it, "that also means hands need to move too not just arms."
+
+**The test.** The build measures each hand's world orientation before and after the spread and
+refuses if any wrist moved more than half a degree: "the wrist must land exactly where the
+animator put it, so the shares or the rest conjugation are wrong". It currently reports 0.000
+degrees on three clips and 0.403 on the run. The golden gate independently confirms containment -
+the spread changed only the three clip-posed shots, with every rest shot, both hands, the feet,
+the armpits and the silhouette at 0.00.
+
+**One trap worth naming.** `rest_down_to` first walked the parent chain comparing bones with
+`is`, and refused with "L_ForearmTwist01 is not below L_Forearm" for a bone whose parent is
+exactly that. Blender hands back a fresh wrapper object on every attribute read, so identity
+comparison between two reads of the same bone is always false. Compare names.
+
+
 ## Keeping this honest
 
 Add an entry when a bug took **more than one attempt** to fix, or when the symptom

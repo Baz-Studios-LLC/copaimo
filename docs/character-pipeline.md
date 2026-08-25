@@ -23,6 +23,22 @@ from the three files in `assets/character/`.
     straddling    260 faces across two body regions, 5.3% of the surface
     edges         median 2.70 cm, longest 27.79 cm
 
+## Two bodies, one skeleton
+
+The creator plans a male and a female body sharing this rig, which makes `the_skeletons_match`
+load-bearing rather than a nicety: it refuses if two files' binds differ by more than a micron,
+and that is the thing stopping a clip authored on one body from silently meaning something else
+on the other. Any future bind change has to land on BOTH, which is an argument for leaving the
+export rig as delivered wherever possible.
+
+It also splits the pipeline's work in two by how it survives a second body:
+
+* **Derived per build** - finger bones, bone lengths, the digit web - reads each mesh's own
+  geometry and adapts to a new body with no intervention. This is the payoff for deriving.
+* **Recorded** - the armpit webbing centroids - is a list of positions on THIS mesh. On another
+  body it matches nothing and refuses, which is correct behaviour but means re-measuring per
+  body rather than copying.
+
 ## Two orders, and they are not the same
 
 The stages below are a BUILD order - what to make first so nothing has to be redone. That is a
@@ -276,7 +292,16 @@ Grab, lift, carry, pet, crouch, jump, land. Blocked entirely on stage 02.
 *Unblocks:* the monster-companion loop, which is the game.
 *Refuses when:* a contact point misses its target by more than a set tolerance.
 
-### 08 - Secondary motion  (open)
+### 08 - Secondary motion  (SHRUNK 2026-08-25 - hair will not be animated)
+
+The character creator plan settles this stage's scope: hair is swappable styles, static, so the
+main customer for spring bones is gone. What remains is the jacket hem and the pack, and both
+are arguable. **Reconsider whether this stage earns its place at all** before building it.
+
+The collider set is still worth having IF springs are built - a few spheres on `Spine01`,
+`Spine02`, the upper arms and thighs. That is NOT body self-collision, which games essentially
+never do on a character: authoring fixes self-intersection, and every one seen on this character
+so far was an authoring fault that collision would have hidden rather than shown.
 
 Without it, hair and clothing move rigidly with the body and the whole character reads as one
 solid object. Spring bones are the standard answer: a mass-spring-damper per bone, with
@@ -290,7 +315,15 @@ Last in the runtime stack, because it reads the final skeleton and must never fe
 
 *Refuses when:* a chain does not settle, or a bone passes inside a collider.
 
-### 09 - Presentation  (open)
+### 09 - Presentation  (open - and the skin split is now LOAD-BEARING)
+
+**Decide the skin/clothing split before painting anything.** The creator offers skin colour
+options, and everything is currently in ONE atlas - skin, jacket, trousers and shoes painted
+together. Recolouring skin needs either a mask channel marking skin pixels or skin on its own
+material. Both are easy now and awkward once there is a texture worth keeping.
+
+**A head socket for hair.** Swappable styles want an attachment point they parent to, so a
+change is one transform rather than a re-skin.
 
 Three textures shipped with this character against the last one's single base colour. Cheap
 relative to everything above, and should not start before it: a better-lit wrong deformation is
@@ -337,3 +370,31 @@ authored, or every clip after them needs retargeting. **Stage 02 next is the che
 * [The Lyra animation breakdown](https://www.jaydengames.com/posts/ue5-black-magic-game-core-animation/)
 * [Wayline on spring-bone implementation](https://www.wayline.io/blog/jiggle-physics-implementation-guide)
 * [Bevy AnimationGraph: masks and add nodes](https://docs.rs/bevy/latest/bevy/prelude/struct.AnimationGraph.html)
+
+## Roll distribution landed early (2026-08-25)
+
+Stage 05/06 work, pulled forward because the elbow twist was reported three times and it was the
+fix. The rig's roll bones - `ForearmTwist01/02`, `UpperarmTwist01/02` - carry ALL the arm skin,
+and the bend bones `Forearm` and `Upperarm` carry none. The delivered clips left every roll bone
+at exactly 0.0, so the forearm's twist was inherited whole and the whole forearm turned as a
+rigid block.
+
+`spread_the_twist` now decomposes each forearm key into swing and twist and grades the twist down
+the chain, with shares measured from where each roll bone's skin actually sits. What remains of
+the original Stage 05/06 note is the CONSTRAINT version of this: the export rig stays FK-only, so
+the distribution is baked at build time rather than driven by a constraint, and anything that
+rotates the arm PROCEDURALLY at runtime - an aim offset, an IK fixup - will still crease, because
+it will not be spread. That is the piece still outstanding.
+
+Two other things landed with it, both pose-level rather than geometry-level, and both worth
+keeping in mind for the character creator because pose fixups adapt to a second body and mesh
+edits do not:
+
+* `lift_the_arms` holds a floor of 16 degrees of abduction at the shoulder, because the delivered
+  idle rested the right arm 4 degrees tighter to the torso than the left and it read as attached.
+* `move_the_arms_more` amplifies the idle's arm motion 1.45x about the clip's own mean pose, so
+  the swing grows without moving where he rests.
+
+Order matters and is enforced by the build: amplify, then lift, then spread. Amplifying after the
+lift would push the inner extreme back into the ribs; spreading before amplifying would
+redistribute a twist that then gets scaled.

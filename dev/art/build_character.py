@@ -151,6 +151,26 @@ RESTS_MATCH_WITHIN = 1e-5
 # The record stays because it is the measured worklist for that stage, face by face.
 CUT_THE_WEBBING = False
 
+# # Deepening the armpit instead of cutting it
+#
+# The fingers taught the answer this should have had from the start. Deleting webbing makes
+# holes, because on this mesh the membrane is the only surface where it is - but a web is only
+# WRONG when it is shallow. Sinking the shared vertices turns a sheet into a valley, the limbs
+# read as separate, and deleting nothing cannot open anything.
+#
+# The right arm is the reported one and the worse one: 28 recorded faces against the left's 18,
+# and in the idle the sleeve runs continuously into the jacket with no gap at all.
+#
+# Each membrane vertex is drawn toward ITS OWN bone's axis - arm vertices toward the upper arm,
+# torso vertices toward the spine - which thins the two surfaces apart and opens a valley
+# between them.
+#
+# Sinking them toward the armpit APEX was tried first and did nothing visible at 2.23 cm: moving
+# surface vertices toward a point slides them ALONG the surface, it does not recess them. A
+# valley needs the two sides pulled apart, not bunched together.
+DEEPENS_THE_ARMPIT = False
+ARMPIT_DRAWS_IN_BY = 0.30
+
 # # The armpit webbing, face by face, both sides
 #
 # The generator webbed the inner arms to the ribs where they rested close: no daylight under
@@ -306,6 +326,87 @@ ROLLS = {"L": 1.0, "R": -1.0}
 # Rolling only the hand leaves the clip's own twist exactly as authored and moves the one joint
 # that actually needs moving.
 SHARED_ALONG = (("Hand", 1.0),)
+
+# # How far the arms rest off the torso, and why that is a POSE question
+#
+# "The idle still has his right arm seem attached to the torso." Two attempts to fix that in the
+# MESH failed, and measuring the pose shows why they were always going to. Across the delivered
+# idle, the angle between the upper arm and the spine:
+#
+#     L arm   min  9.6 deg   mean 15.7 deg   max 25.8 deg
+#     R arm   min  8.8 deg   mean 11.9 deg   max 18.9 deg
+#
+# The right arm is held about four degrees tighter to the body than the left for the WHOLE clip.
+# That is the asymmetry being seen, and no amount of carving the armpit fixes an arm that is
+# resting against the ribs - carving it only ever moved the seam, and at a sink big enough to
+# show it punched spikes through the shoulder.
+#
+# The fix is a pose-fixup layer: a constant abduction added at the shoulder on top of whatever
+# the animator keyed. It keeps the clip's own arm swing, it costs no geometry, it adapts to a
+# second body for the character creator, and unlike every mesh edit tried here it cannot open a
+# hole.
+#
+# The floor applies to the clip's CLOSEST frame, so a clip already held wide is untouched and
+# only the frames that read as attached move.
+ARMS_REST_AT = 16.0
+LIFTS = ("idle", "look_around")
+
+# # The forearm's twist, spread along the forearm instead of dumped in the elbow
+#
+# "Twisted arm at the elbow again." Reported three times, which by this project's own rule
+# means the model of the problem was wrong rather than the fix too timid. Two measurements
+# settle it.
+#
+# Where the twist is, as each bone's own rotation about its length:
+#
+#     clip    Forearm        Twist01   Twist02   Hand
+#     idle    -92 / +111      0.0       0.0      -+30
+#     run     -84 / +119      0.0       0.0      -+30
+#     walk    -60 /  +97      0.0       0.0      -+30
+#
+# And where the SKIN is:
+#
+#     Forearm            0 verts        ForearmTwist01   616 verts
+#     Upperarm           0 verts        ForearmTwist02   316 verts
+#
+# `Forearm` deforms nothing. It is a pure bend bone, and the roll bones under it are what
+# the mesh is attached to - the rig was BUILT for roll distribution. The clips never drove
+# it: both roll bones read exactly 0.0 in every clip, so the forearm's 119 degrees is
+# inherited WHOLE by both of them and every vertex from elbow to wrist turns as one rigid
+# block. The crease is where that block meets the upper arm, which is the elbow, which is
+# where it was reported.
+#
+# So the fix is not to fight the roll - an earlier attempt added roll on top and wrung the
+# mesh the other way - it is to take the twist OFF the bend bone and hand it to the chain in
+# graded shares. Removing it from `Forearm` costs nothing, because nothing is weighted to it.
+#
+# The hand has to move too, and that is correctness rather than polish: with the forearm no
+# longer twisting, the wrist only stays where the animator put it if the hand takes the whole
+# twist locally. That is the invariant this pass is checked against.
+SPREADS_THE_TWIST = True
+
+# Where each roll bone's share comes from: MEASURED, not the usual one-third/two-thirds. A
+# roll bone should carry the twist belonging to the stretch of arm its skin actually covers,
+# and that is a weighted centroid, so it is read off the weight map per side and adapts to a
+# second body. The distal end is pinned to the hand at the full amount.
+ROLLS_ALONG = ("ForearmTwist01", "ForearmTwist02")
+
+# # A livelier idle
+#
+# "Lets edit it in general so he moves his arms a bit more." The delivered idle is a subtle
+# performance - fine on its own, thin at the scale a player watches it, standing still
+# between fights.
+#
+# Amplified around the clip's OWN MEAN POSE rather than around the bind pose: each key's
+# deviation from the average is scaled, so the swing grows and the place he rests does not
+# move. Scaling the raw rotations instead would drag the whole arm toward or away from the
+# body and undo the abduction floor below.
+#
+# Applied BEFORE the arms are lifted and before the roll is spread, so the floor is enforced
+# on the amplified motion and the spread redistributes the amplified twist. Getting that
+# order wrong would let amplification push the inner extreme back into the ribs.
+MOVES_MORE = {"idle": 1.45, "look_around": 1.45}
+MOVES_AT = ("Clavicle", "Upperarm", "Forearm", "Hand")
 
 
 def refuse(why):
@@ -1047,6 +1148,366 @@ def roll_the_hands(rig, clip, degrees):
     return turned
 
 
+def the_arms_rest_at(rig, clip, scene):
+    """The smallest angle between each upper arm and the spine, over a whole clip.
+
+    Measured on the EVALUATED rig frame by frame rather than read off the curves, because the
+    shoulder inherits from the spine and the chest and the number that matters is where the arm
+    actually ends up.
+    """
+    play(rig, clip)
+    first, last = (int(round(v)) for v in clip.frame_range)
+    closest = {"L": 180.0, "R": 180.0}
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        posed = rig.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        spine = ((posed.matrix_world @ posed.pose.bones["Spine02"].head)
+                 - (posed.matrix_world @ posed.pose.bones["Spine01"].head))
+        for side in ("L", "R"):
+            upper = ((posed.matrix_world @ posed.pose.bones[f"{side}_Forearm"].head)
+                     - (posed.matrix_world @ posed.pose.bones[f"{side}_Upperarm"].head))
+            if upper.length < 1e-9 or spine.length < 1e-9:
+                continue
+            off = 180.0 - math.degrees(upper.normalized().angle(spine.normalized()))
+            closest[side] = min(closest[side], off)
+    return closest
+
+
+def which_way_abducts(rig, side):
+    """The bone-local axis that swings this upper arm AWAY from the spine.
+
+    Derived rather than assumed. Rotating a direction `u` about an axis `n` by a small angle
+    moves it by `n x u`, so `u.s` grows fastest about `u x s`. Abduction is `180 - angle(u, s)`,
+    which grows as `u.s` grows - so `u x s` IS the axis, not its negation. Written out because
+    guessing the sign per side is how the finger curls went wrong, and a mirrored limb flips it.
+
+    Derived, then checked: `lift_the_arms` refuses a lift that leaves the arm closer to the body
+    than it found it, so a sign error is a failed build rather than a worse render. The first
+    version of this negated the cross product and drove the left arm from 10.0 deg down to 4.5.
+    """
+    bone = rig.pose.bones[f"{side}_Upperarm"]
+    upper = ((rig.matrix_world @ rig.pose.bones[f"{side}_Forearm"].bone.head_local)
+             - (rig.matrix_world @ bone.bone.head_local))
+    spine = ((rig.matrix_world @ rig.pose.bones["Spine02"].bone.head_local)
+             - (rig.matrix_world @ rig.pose.bones["Spine01"].bone.head_local))
+    if upper.length < 1e-9 or spine.length < 1e-9:
+        refuse(f"the {side} upper arm or the spine has no length, so no abduction axis exists")
+    opens = upper.normalized().cross(spine.normalized())
+    if opens.length < 1e-9:
+        refuse(f"the {side} upper arm lies along the spine, so abduction is undefined")
+    rest = (rig.matrix_world @ bone.bone.matrix_local).to_3x3()
+    return (rest.inverted() @ opens.normalized()).normalized()
+
+
+def lift_the_arms(rig, clip, scene, floor):
+    """Adds a constant abduction at each shoulder until the clip's closest frame clears `floor`.
+
+    Composed onto the keyed rotation BEFORE it - `offset * keyed`, not `keyed * offset` - and
+    that order is the whole point. Post-multiplying applies the offset in the POSED frame, which
+    is right for a twist that follows the bone, and it is what `roll_the_hands` does. An
+    abduction is not carried by the bone: it is a constant swing of the whole posed arm about an
+    axis fixed in the shoulder, so it composes on the rest side.
+    """
+    was = the_arms_rest_at(rig, clip, scene)
+    slot = rig.animation_data.action_slot if rig.animation_data else None
+    curves = fcurves_of(clip, slot)
+    lifted = {}
+    for side in ("L", "R"):
+        short = floor - was[side]
+        if short <= 0.05:
+            continue
+        path = f'pose.bones["{side}_Upperarm"].rotation_quaternion'
+        parts = {c.array_index: c for c in curves if c.data_path == path}
+        if len(parts) != 4:
+            refuse(f"{clip.name} keys {len(parts)} of the 4 rotation channels on "
+                   f"{side}_Upperarm, so the arm cannot be lifted without dropping its motion")
+        offset = mathutils.Quaternion(which_way_abducts(rig, side), math.radians(short))
+        for at in range(len(parts[0].keyframe_points)):
+            keyed = mathutils.Quaternion([parts[i].keyframe_points[at].co[1] for i in range(4)])
+            out = offset @ keyed
+            for i in range(4):
+                point = parts[i].keyframe_points[at]
+                point.handle_left[1] += out[i] - point.co[1]
+                point.handle_right[1] += out[i] - point.co[1]
+                point.co[1] = out[i]
+        for curve in parts.values():
+            curve.update()
+        lifted[side] = short
+    now = the_arms_rest_at(rig, clip, scene) if lifted else was
+    for side, by in lifted.items():
+        if now[side] < was[side] + by * 0.5:
+            refuse(f"lifting the {side} arm by {by:.1f} deg on {clip.name} moved it from "
+                   f"{was[side]:.1f} to {now[side]:.1f} deg off the spine - the abduction axis "
+                   f"is pointing the wrong way, so the arm was pressed INTO the body")
+    return was, lifted, now
+
+
+def how_far_the_hands_swing(rig, clip, scene):
+    """The widest separation each hand reaches, measured against the hip so sway does not count."""
+    play(rig, clip)
+    first, last = (int(round(v)) for v in clip.frame_range)
+    step = max(1, (last - first) // 60)
+    seen = {"L": [], "R": []}
+    for frame in range(first, last + 1, step):
+        scene.frame_set(frame)
+        posed = rig.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        hip = posed.matrix_world @ posed.pose.bones["Hip"].head
+        for side in ("L", "R"):
+            seen[side].append((posed.matrix_world @ posed.pose.bones[f"{side}_Hand"].head) - hip)
+    widest = {}
+    for side, spots in seen.items():
+        far = 0.0
+        for i, one in enumerate(spots):
+            for other in spots[i + 1:]:
+                far = max(far, (one - other).length)
+        widest[side] = far * 170.0
+    return widest
+
+
+def an_average_of(turns):
+    """The mean of a set of rotations, near enough for a small spread.
+
+    Summed and normalised, with every term flipped into the first one's hemisphere first -
+    without that, two quaternions describing nearly the same rotation can cancel, because q and
+    -q are the same rotation and the sum does not know it.
+    """
+    if not turns:
+        return mathutils.Quaternion()
+    total = mathutils.Quaternion((0.0, 0.0, 0.0, 0.0))
+    first = turns[0]
+    for turn in turns:
+        way = -1.0 if turn.dot(first) < 0.0 else 1.0
+        for at in range(4):
+            total[at] += turn[at] * way
+    if total.magnitude < 1e-9:
+        return mathutils.Quaternion()
+    total.normalize()
+    return total
+
+
+def move_the_arms_more(rig, clip, scene, gain):
+    """Scales each arm bone's motion about the clip's own average pose.
+
+    Returns how wide the hands swung before and after, because a gain that does not change that
+    number is a knob wired to nothing - which is the failure worth catching, not a wrong value.
+    """
+    if abs(gain - 1.0) < 1e-6:
+        return None, None
+    before = how_far_the_hands_swing(rig, clip, scene)
+    slot = rig.animation_data.action_slot if rig.animation_data else None
+    curves = fcurves_of(clip, slot)
+    for side in ("L", "R"):
+        for part in MOVES_AT:
+            path = f'pose.bones["{side}_{part}"].rotation_quaternion'
+            parts = {c.array_index: c for c in curves if c.data_path == path}
+            if len(parts) != 4:
+                continue
+            keys = [mathutils.Quaternion([parts[i].keyframe_points[at].co[1] for i in range(4)])
+                    for at in range(len(parts[0].keyframe_points))]
+            middle = an_average_of(keys)
+            if middle.magnitude < 1e-9:
+                continue
+            back = middle.inverted()
+            for at, was in enumerate(keys):
+                out = middle @ a_share_of(back @ was, gain)
+                for i in range(4):
+                    point = parts[i].keyframe_points[at]
+                    point.handle_left[1] += out[i] - point.co[1]
+                    point.handle_right[1] += out[i] - point.co[1]
+                    point.co[1] = out[i]
+            for curve in parts.values():
+                curve.update()
+    after = how_far_the_hands_swing(rig, clip, scene)
+    for side in ("L", "R"):
+        if after[side] <= before[side] + 0.1:
+            refuse(f"moving the arms more on {clip.name} left the {side} hand swinging "
+                   f"{after[side]:.1f} cm against {before[side]:.1f} cm before - the gain is "
+                   f"wired to nothing")
+    return before, after
+
+
+def where_the_hands_point(rig, clip, scene):
+    """Each hand's world orientation, frame by frame. The invariant a roll spread must not move."""
+    play(rig, clip)
+    first, last = (int(round(v)) for v in clip.frame_range)
+    step = max(1, (last - first) // 40)
+    out = {"L": [], "R": []}
+    for frame in range(first, last + 1, step):
+        scene.frame_set(frame)
+        posed = rig.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        for side in ("L", "R"):
+            out[side].append(
+                (posed.matrix_world @ posed.pose.bones[f"{side}_Hand"].matrix).to_quaternion())
+    return out
+
+
+def swing_and_twist(q):
+    """Splits a local rotation into the part that spins about the bone's length and the rest.
+
+    `q = swing * twist`, twist about bone-local +Y, which is the axis a limb bone runs along.
+    The projection is the standard swing-twist decomposition; the negation keeps it on the
+    shortest arc, without which a 10 degree twist reads as 350.
+    """
+    twist = mathutils.Quaternion((q.w, 0.0, q[2], 0.0))
+    if twist.magnitude < 1e-9:
+        twist = mathutils.Quaternion()
+    twist.normalize()
+    if twist.w < 0.0:
+        twist.negate()
+    return q @ twist.inverted(), twist
+
+
+def a_share_of(turn, share):
+    """The same rotation scaled to a fraction of its angle."""
+    if abs(share - 1.0) < 1e-9:
+        return turn.copy()
+    if turn.magnitude < 1e-9 or abs(turn.angle) < 1e-9:
+        return mathutils.Quaternion()
+    return mathutils.Quaternion(turn.axis, turn.angle * share)
+
+
+def rest_down_to(rig, bone, from_bone):
+    """The rest rotation of `bone` relative to `from_bone`, following the parents between them.
+
+    Needed because a twist expressed in the FOREARM's axes has to be conjugated into the axes of
+    whichever bone is asked to carry it, and for the second roll bone that is two levels down
+    rather than one.
+    """
+    # By NAME, not by identity: Blender hands back a fresh wrapper object on every attribute
+    # read, so `bone is other_bone` is false even for the same bone and the walk never
+    # terminates - it reported "L_ForearmTwist01 is not below L_Forearm" for a bone whose parent
+    # is exactly that.
+    here = rig.pose.bones[bone].bone
+    down = mathutils.Matrix.Identity(4)
+    while here is not None and here.name != from_bone:
+        parent = here.parent
+        if parent is None:
+            refuse(f"{bone} is not below {from_bone}, so no rest chain joins them")
+        down = (parent.matrix_local.inverted() @ here.matrix_local) @ down
+        here = parent
+    return down.to_quaternion()
+
+
+def where_the_roll_skin_sits(rig, mesh, side):
+    """How far along the forearm each roll bone's skin sits: 0 at the elbow, 1 at the wrist."""
+    elbow = rig.matrix_world @ rig.pose.bones[f"{side}_Forearm"].bone.head_local
+    wrist = rig.matrix_world @ rig.pose.bones[f"{side}_Hand"].bone.head_local
+    along = wrist - elbow
+    if along.length < 1e-9:
+        refuse(f"the {side} forearm has no length, so no roll share can be measured")
+    reach, way = along.length, along.normalized()
+    groups = {g.name: g.index for g in mesh.vertex_groups}
+    sits = {}
+    for bone in ROLLS_ALONG:
+        index = groups.get(f"{side}_{bone}")
+        if index is None:
+            refuse(f"the mesh has no weights for {side}_{bone}, so the twist cannot be spread")
+        heavy = weighted = 0.0
+        for vertex in mesh.data.vertices:
+            for group in vertex.groups:
+                if group.group != index or group.weight <= 1e-4:
+                    continue
+                at = ((mesh.matrix_world @ vertex.co) - elbow).dot(way) / reach
+                heavy += group.weight * min(max(at, 0.0), 1.0)
+                weighted += group.weight
+        if weighted <= 0.0:
+            refuse(f"{side}_{bone} has a vertex group but no weight in it")
+        sits[bone] = heavy / weighted
+    return sits
+
+
+def channels_for(clip, slot, path):
+    """The four rotation channels of a bone, created if the clip does not key it yet."""
+    have = {c.array_index: c for c in fcurves_of(clip, slot) if c.data_path == path}
+    if len(have) == 4:
+        return have
+    holder = None
+    for layer in getattr(clip, "layers", []):
+        for strip in layer.strips:
+            bag = None
+            try:
+                bag = strip.channelbag(slot, ensure=True)
+            except TypeError:
+                bag = strip.channelbags[0] if getattr(strip, "channelbags", None) else None
+            if bag is not None:
+                holder = bag.fcurves
+                break
+        if holder is not None:
+            break
+    if holder is None:
+        holder = clip.fcurves
+    for at in range(4):
+        if at not in have:
+            have[at] = holder.new(path, index=at)
+    return have
+
+
+def spread_the_twist(rig, clip, mesh):
+    """Moves each forearm's roll off the bend bone and onto the roll bones and the hand.
+
+    The bend bone keeps the swing. Each roll bone gets the share of the twist belonging to where
+    its skin sits, as an INCREMENT on top of what it inherits from its parent. The hand takes the
+    whole twist, which is what keeps the wrist where the animator put it.
+
+    Keys are written at the union of every key time involved, and every value is read before any
+    value is written, because the hand's new rotation is a function of the forearm's old one.
+    """
+    slot = rig.animation_data.action_slot if rig.animation_data else None
+    spread = {}
+    for side in ("L", "R"):
+        bend = f"{side}_Forearm"
+        path = f'pose.bones["{bend}"].rotation_quaternion'
+        arm = {c.array_index: c for c in fcurves_of(clip, slot) if c.data_path == path}
+        if len(arm) != 4:
+            continue
+        sits = where_the_roll_skin_sits(rig, mesh, side)
+        so_far, takes = 0.0, []
+        for bone in ROLLS_ALONG:
+            takes.append((f"{side}_{bone}", sits[bone] - so_far))
+            so_far = sits[bone]
+        takes.append((f"{side}_Hand", 1.0))
+
+        carries = {}
+        for bone, share in takes:
+            carries[bone] = (share, rest_down_to(rig, bone, bend),
+                             channels_for(clip, slot,
+                                          f'pose.bones["{bone}"].rotation_quaternion'))
+
+        when = {round(k.co[0], 4) for k in arm[0].keyframe_points}
+        for _, _, chans in carries.values():
+            when |= {round(k.co[0], 4) for k in chans[0].keyframe_points}
+        when = sorted(when)
+
+        wanted = {}
+        for frame in when:
+            was = mathutils.Quaternion([arm[i].evaluate(frame) for i in range(4)])
+            swing, twist = swing_and_twist(was)
+            row = {bend: swing}
+            for bone, (share, rest, chans) in carries.items():
+                keyed = mathutils.Quaternion([chans[i].evaluate(frame) for i in range(4)])
+                if keyed.magnitude < 1e-9:
+                    keyed = mathutils.Quaternion()
+                turn = a_share_of(twist, share)
+                row[bone] = (rest.inverted() @ turn @ rest) @ keyed
+            wanted[frame] = row
+
+        writing = {bend: arm}
+        writing.update({b: c for b, (_, _, c) in carries.items()})
+        for bone, chans in writing.items():
+            for frame, row in wanted.items():
+                for at in range(4):
+                    chans[at].keyframe_points.insert(frame, row[bone][at], options={"FAST"})
+            for curve in chans.values():
+                curve.update()
+        # Reported as what each bone ENDS UP with, not as its increment: the increment is an
+        # implementation detail of the parenting, and a reader wants the gradient.
+        adds, spread[side] = 0.0, []
+        for bone, share in takes:
+            adds = 1.0 if abs(share - 1.0) < 1e-9 else adds + share
+            spread[side].append((bone.split("_", 1)[1], adds))
+    return spread
+
+
 def sample(rig, clip, scene):
     """Every bone's local rotation, location and scale, frame by frame.
 
@@ -1334,6 +1795,77 @@ def smooth_the_weights(rig, mesh):
         mesh.data.update()
     at_rest()
     return torn_after <= torn_before
+
+
+def deepen_the_armpit(rig, mesh):
+    """Sinks the armpit webbing toward the apex, so the arm reads clear of the ribs.
+
+    Deletes nothing. Every recorded webbing vertex moves toward the top of the armpit hollow
+    along the upper arm's own axis, faded by how far below the apex it sits, and every split
+    copy of a shared position moves with its twins - moving one and not the other would tear
+    the surface along a UV seam.
+    """
+    def key_of(co):
+        return (round(co.x / WELD_WITHIN), round(co.y / WELD_WITHIN), round(co.z / WELD_WITHIN))
+
+    groups = {g.index: g.name for g in mesh.vertex_groups}
+
+    def owner_of(index):
+        best, who = 0.0, ""
+        for group in mesh.data.vertices[index].groups:
+            if group.weight > best:
+                best, who = group.weight, groups.get(group.group, "")
+        return who
+
+    into_mesh = mesh.matrix_world.inverted()
+    moved_by, found = {}, 0
+    for side, centroids in WEBBING.items():
+        shoulder = rig.matrix_world @ rig.pose.bones[f"{side}_Upperarm"].head
+        elbow = rig.matrix_world @ rig.pose.bones[f"{side}_Forearm"].head
+        arm_axis = (elbow - shoulder)
+        if arm_axis.length < 1e-6:
+            continue
+        arm_axis = arm_axis.normalized()
+        spine_low = rig.matrix_world @ rig.pose.bones["Spine01"].head
+        spine_high = rig.matrix_world @ rig.pose.bones["Spine02"].head
+        spine_axis = (spine_high - spine_low)
+        spine_axis = spine_axis.normalized() if spine_axis.length > 1e-6 else mathutils.Vector(
+            (0.0, 0.0, 1.0))
+
+        mine = set()
+        for spot in centroids:
+            aim = mathutils.Vector(spot)
+            near = [p for p in mesh.data.polygons
+                    if (p.center - aim).length < THE_SAME_FACE_WITHIN]
+            if len(near) != 1:
+                refuse(f"the recorded {side} webbing face at {spot} matches {len(near)} faces - "
+                       f"this is not the mesh the record was measured on, so nothing was moved")
+            mine.update(near[0].vertices)
+        found += len(mine)
+
+        for index in mine:
+            who = owner_of(index)
+            if any(part in who for part in ("Upperarm", "Forearm", "Hand")):
+                base, axis = shoulder, arm_axis
+            else:
+                base, axis = spine_low, spine_axis
+            spot = mesh.matrix_world @ mesh.data.vertices[index].co
+            out = (spot - base) - axis * (spot - base).dot(axis)
+            if out.length < 1e-6:
+                continue
+            moved_by[key_of(mesh.data.vertices[index].co)] = -out * ARMPIT_DRAWS_IN_BY
+
+    shifted = 0
+    for vertex in mesh.data.vertices:
+        shift = moved_by.get(key_of(vertex.co))
+        if shift is None:
+            continue
+        vertex.co = into_mesh @ ((mesh.matrix_world @ vertex.co) + shift)
+        shifted += 1
+    mesh.data.update()
+    deepest = max((v.length for v in moved_by.values()), default=0.0) * 170.0
+    print(f"  opened both armpits: {found} webbing vertices ({shifted} stored copies), "
+          f"drawn up to {deepest:.2f} cm toward their own bone")
 
 
 def unfuse_the_digits(rig, mesh, assigned):
@@ -1649,6 +2181,8 @@ def main():
                   f"{len(base_mesh.data.vertices)} vertices")
             if CUT_THE_WEBBING:
                 cut_the_webbing(rig, base_mesh)
+            elif DEEPENS_THE_ARMPIT:
+                deepen_the_armpit(rig, base_mesh)
             close_the_holes(rig, base_mesh)
             assigned = add_the_fingers(rig, base_mesh)
             if UNFUSES:
@@ -1670,6 +2204,40 @@ def main():
         rolled = roll_the_hands(base_rig, clips[0], PALMS_ROLL_IN)
         if rolled:
             print(f"    rolled {rolled} hand(s) in by {PALMS_ROLL_IN:.0f} deg")
+        if called in MOVES_MORE:
+            wide, wider = move_the_arms_more(base_rig, clips[0], bpy.context.scene,
+                                             MOVES_MORE[called])
+            if wide is not None:
+                swing = ", ".join(f"{s} {wide[s]:.1f} -> {wider[s]:.1f} cm" for s in ("L", "R"))
+                print(f"    arms move {MOVES_MORE[called]:.2f}x more: hands swing {swing}")
+        if called in LIFTS:
+            was, lifted, now = lift_the_arms(base_rig, clips[0], bpy.context.scene,
+                                             ARMS_REST_AT)
+            for side in ("L", "R"):
+                note = (f"lifted {lifted[side]:.1f} deg" if side in lifted
+                        else "already clear")
+                print(f"    {side} arm rests {was[side]:5.1f} deg off the spine, {note}"
+                      f" -> {now[side]:5.1f} deg")
+        # Last of the three, so it redistributes the total - including the hand roll above.
+        if SPREADS_THE_TWIST:
+            pointed = where_the_hands_point(base_rig, clips[0], bpy.context.scene)
+            spread = spread_the_twist(base_rig, clips[0], base_mesh)
+            moved = where_the_hands_point(base_rig, clips[0], bpy.context.scene)
+            for side, shares in sorted(spread.items()):
+                where = ", ".join(f"{b} {sh * 100:.0f}%" for b, sh in shares)
+                print(f"    {side} forearm roll spread as {where}")
+            worst, when = 0.0, ""
+            for side in ("L", "R"):
+                for before, after in zip(pointed.get(side, []), moved.get(side, [])):
+                    off = math.degrees(before.rotation_difference(after).angle)
+                    off = min(off, 360.0 - off)
+                    if off > worst:
+                        worst, when = off, side
+            if worst > 0.5:
+                refuse(f"spreading the roll on {clips[0].name} moved the {when} hand by "
+                       f"{worst:.2f} deg - the wrist must land exactly where the animator put "
+                       f"it, so the shares or the rest conjugation are wrong")
+            print(f"    the wrists did not move: worst {worst:.3f} deg")
 
     # Anything else the imports brought in: spare meshes, the widget the importer invents.
     for thing in list(bpy.data.objects):

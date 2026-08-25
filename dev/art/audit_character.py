@@ -546,7 +546,7 @@ def the_clips(rig, scene):
         lasts = (last - first) / scene.render.fps
 
         poses, travel = {}, 0.0
-        began = None
+        began = ended = None
         for frame in range(first, last + 1):
             scene.frame_set(frame)
             bpy.context.view_layer.update()
@@ -554,6 +554,7 @@ def the_clips(rig, scene):
             hip = rig.matrix_world @ rig.pose.bones["Hip"].head
             if began is None:
                 began = hip.copy()
+            ended = hip.copy()
             travel = max(travel, (hip - began).length)
 
         def between(a, b):
@@ -564,6 +565,13 @@ def the_clips(rig, scene):
         print(f"  {clip.name:<14s} {lasts:7.4f} s, frames {first}..{last}, "
               f"hip travels {travel * SCALE:6.1f} cm")
         print(f"  {'':<14s} first to last pose {closes:6.2f} deg  <- {verdict}")
+        # Rotation closing is only half of a loop. A hip that ENDS somewhere other than where it
+        # began snaps back the instant the clip wraps, and no angle reports that: `travel` is
+        # the largest excursion from frame one, so a clip that sways 27 cm and comes home reads
+        # the same as one that walks 27 cm away and stays there.
+        drift = (ended - began).length * SCALE if began is not None else 0.0
+        print(f"  {'':<14s} hip ends {drift:6.1f} cm from where it began  <- "
+              f"{'lands' if drift < 1.0 else 'SNAPS BACK on the wrap'}")
         if closes >= 2.0:
             best = sorted(((between(first, f), f) for f in range(first + 4, last + 1)))[:1]
             if best:

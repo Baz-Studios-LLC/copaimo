@@ -142,6 +142,49 @@ def mark_the_faults(mesh):
     return out
 
 
+def stand_at_rest(rig):
+    """Puts every bone back on its bind transform, so a shot labelled `rest` really is one.
+
+    Clearing the action is NOT enough and never was. Blender keeps handing back the last
+    evaluated pose, so with only `action = None` the rest shots showed frame one of whichever
+    clip the importer happened to leave bound - eight of the sixteen golden shots, all mislabelled.
+    It surfaced when lifting the idle's arms moved shots of a pose the idle cannot reach.
+
+    Zeroing `matrix_basis` is the deterministic version: it clears location, rotation and scale
+    on the bone itself rather than asking the dependency graph to notice something changed.
+    """
+    if rig.animation_data is not None:
+        # The slot first: Blender refuses to set one with no action assigned, so clearing the
+        # action first makes unbinding the slot an error rather than a no-op.
+        if getattr(rig.animation_data, "action_slot", None) is not None:
+            rig.animation_data.action_slot = None
+        rig.animation_data.action = None
+    for bone in rig.pose.bones:
+        bone.matrix_basis.identity()
+    bpy.context.view_layer.update()
+
+
+def at_rest(body):
+    """The figure's floor, height and centre in its BIND pose.
+
+    Read straight off the mesh's own vertices - `body.data`, not an evaluated copy - because the
+    bind pose IS the stored geometry and nothing has to be posed to see it.
+
+    The obvious version of this clears the action and measures the evaluated mesh. It does not
+    work, and it has now failed on this character four times: clearing an action hands back the
+    LAST EVALUATED pose, a `frame_set` to the frame it is already on is a no-op, and nudging the
+    frame off and back does not force it either. It reported the rest centre as 0.1250 for one
+    build and 0.1214 for another whose mesh is byte-for-byte identical - it was measuring the
+    CLIP. Reading the stored vertices cannot be stale because nothing evaluates them.
+    """
+    spots = [body.matrix_world @ v.co for v in body.data.vertices]
+    low, high = min(p.z for p in spots), max(p.z for p in spots)
+    middle = mathutils.Vector((sum(p.x for p in spots) / len(spots),
+                               sum(p.y for p in spots) / len(spots), 0.0))
+    print(f"  framed on the BIND figure: {(high - low) * 170.0:.1f} cm tall, centre "
+          f"({middle.x:.4f}, {middle.y:.4f})")
+    return low, high - low, middle
+
 def main():
     args = argv()
     root = os.path.dirname(os.path.dirname(ART))
@@ -181,10 +224,9 @@ def main():
     # list first - a render labelled as one thing showing another, which is the whole failure
     # mode this tool exists to prevent.
     wanted = flag("--clip")
-    if not wanted and rig is not None and rig.animation_data is not None:
-        rig.animation_data.action = None
-        bpy.context.view_layer.update()
-        print("no clip asked for, so the action was cleared - this is the REST pose")
+    if not wanted and rig is not None:
+        stand_at_rest(rig)
+        print("no clip asked for, so every bone was reset - this is the REST pose")
     if wanted and rig is not None:
         clip = next((a for a in bpy.data.actions if a.name == wanted), None)
         if clip is None:
@@ -301,16 +343,22 @@ def main():
     scene.camera = camera
     camera.data.type = "ORTHO"
 
-    # Measured from the POSED mesh, so a shot aimed at the head finds it wherever the clip put it.
-    posed = body.evaluated_get(bpy.context.evaluated_depsgraph_get())
-    spots = [posed.matrix_world @ v.co for v in posed.data.vertices]
-    low, high = min(p.z for p in spots), max(p.z for p in spots)
-    tall = high - low
-    middle = mathutils.Vector((
-        sum(p.x for p in spots) / len(spots),
-        sum(p.y for p in spots) / len(spots),
-        0.0,
-    ))
+    # # Framed from the REST pose, never from the posed one
+    #
+    # This measured the POSED mesh - height from its bounds, centre from the mean of every
+    # vertex - which makes the camera a function of the pose. Lifting the idle's arms by six
+    # degrees then slid the frame on ALL SIXTEEN golden shots, including the FEET, and the gate
+    # reported thirteen changes for a change that touched two shoulders. Every pair was the same
+    # geometry translated.
+    #
+    # A gate whose camera moves with its subject cannot tell "the armpit changed" from "the
+    # camera slid", which is the one thing it exists to tell. Height and centre are now taken
+    # once from the rest pose, so they are constants of the CHARACTER rather than of the frame,
+    # and a shot differs only when the surface in it differs.
+    #
+    # Shots aimed at a BONE still follow that bone into the pose - a hand close-up has to find
+    # the hand where the clip put it. It is the framing that is fixed, not the aim.
+    low, tall, middle = at_rest(body)
     scene.render.resolution_x, scene.render.resolution_y = WIDE
     scene.eevee.taa_render_samples = 48
 
