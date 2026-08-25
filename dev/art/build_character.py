@@ -509,8 +509,35 @@ ROLLS_THROUGH_STANCE = ("walk", "run")
 THE_TOE_HINGES_AT = 0.70
 THE_HINGE_BLENDS_OVER = 0.08
 
+# How far up the shoe the ball joint sits, where the shoe is that tall.
+#
+# Moving the joint forward while keeping the height it had at the ARCH left it 69.3% up the shoe -
+# nearly level with the ankle at 81% - and it was reported as "toes are above the foot". A
+# metatarsophalangeal joint sits LOW in the foot; the ankle is the high one.
+THE_TOE_SITS_UP = 0.30
+
 # A shoe within this many centimetres of the floor is down.
 STANCE_WITHIN = 3.0
+
+# # A planted foot is flat and points where he is going
+#
+# "He needs to run on the flats of his feet... Right now he's running on the sides of his shoes...
+# He still angles to the side during the run. Everything should be pointing straight in front of
+# him."
+#
+# All three measured on the run, per frame, as the foot's own pitch, roll and yaw:
+#
+#     L at contact (f7)   roll  18.2 deg   - tilted onto the edge of the shoe
+#     L through stance    yaw   6 to 20 deg off travel
+#     R through stance    yaw  -23 deg
+#
+# So a planted foot is given a target ORIENTATION rather than three separate nudges: pointing
+# along travel, flat about its own length, and pitched by wherever the heel-to-toe roll has got
+# to. Rotating to a target basis is exact, where three sequential corrections each measured from
+# the original pose are not - they compose, and the error grows with the angle.
+#
+# Only during stance. Swing keeps the animator's poses, for the reason `docs/animation.md` gives.
+PLANTS_FLAT = True
 
 # The roll, as a share of stance. Heel-first contact with the toe up, flat by a third of the way
 # through, then the heel lifts and the toe takes over.
@@ -1839,9 +1866,17 @@ def hinge_the_toes_at_the_ball(rig, mesh):
         # along the foot, not higher up it.
         ball = back + length * THE_TOE_HINGES_AT
         tip = back + length
-        bone.head = rig.matrix_world.inverted() @ (head + ahead * (ball - head.dot(ahead)))
-        bone.tail = rig.matrix_world.inverted() @ (
-            (rig.matrix_world @ bone.head) + ahead * (tip - ball))
+        # Forward along the shoe, and DOWN to where a ball joint belongs. The height has to be
+        # measured at the ball itself: a shoe is not the same depth at the arch as at the ball.
+        near = [(mesh.matrix_world @ mesh.data.vertices[i].co)
+                for i in the_shoe_runs(rig, mesh, side)[3]]
+        near = [p for p in near if abs(p.dot(ahead) - ball) < 0.02]
+        moved_to = head + ahead * (ball - head.dot(ahead))
+        if near:
+            low, high = min(p.z for p in near), max(p.z for p in near)
+            moved_to.z = low + (high - low) * THE_TOE_SITS_UP
+        bone.head = rig.matrix_world.inverted() @ moved_to
+        bone.tail = rig.matrix_world.inverted() @ (moved_to + ahead * (tip - ball))
         moved[side] = ((ball - before) * 170.0, (before - back) / length * 100.0,
                        THE_TOE_HINGES_AT * 100.0)
     bpy.ops.object.mode_set(mode="OBJECT")
@@ -1930,6 +1965,11 @@ def the_stances(down, first, last):
     A cycle's last stance may wrap onto its first - a foot down at frame 25 and again at frame 1
     is one stance, not two - so a run that touches both ends is joined.
     """
+    # Closing one-frame gaps was tried here, on the reasoning that a foot does not leave the
+    # ground for a single frame mid-contact. It made things worse: merging the run's short
+    # contacts into long ones stretched the heel-to-toe ramp across frames the foot was actually
+    # airborne for, and lifted the whole cycle back off the floor. The detector is noisy because
+    # the CLIP barely touches the ground, and smoothing the detector does not put the feet down.
     runs, start = [], None
     for frame in range(first, last + 1):
         if down.get(frame):
@@ -1956,6 +1996,14 @@ def roll_the_feet(rig, mesh, clip, scene):
     first, last = (int(round(v)) for v in clip.frame_range)
     shoe = the_shoe_vertices(mesh)
     up = mathutils.Vector((0.0, 0.0, 1.0))
+    # Where he is going, from the bind toe - the same convention `render_clay` uses to decide
+    # which way he faces, so nothing here assumes a world axis.
+    bind = rig.pose.bones["L_ToeBase"].bone
+    travel = (rig.matrix_world @ bind.tail_local) - (rig.matrix_world @ bind.head_local)
+    travel.z = 0.0
+    if travel.length < 1e-9:
+        refuse("the bind toe has no horizontal direction, so travel cannot be established")
+    travel.normalize()
 
     held, down = {}, {"L": {}, "R": {}}
     for frame in range(first, last + 1):
@@ -2009,17 +2057,39 @@ def roll_the_feet(rig, mesh, clip, scene):
                     continue
                 falls = falls.normalized()
                 want_pitch, want_brk = rolled(share)
-                for bone, turn, frame_of in (
-                    (f"{side}_Foot", (want_pitch - pitch) * fade, foot_at),
-                    (f"{side}_ToeBase", (want_brk - brk) * fade, toe_at),
-                ):
-                    if abs(turn) < 0.01:
+
+                if PLANTS_FLAT:
+                    # The whole orientation at once. `ahead` is where he is going, tipped down by
+                    # the roll's pitch; `up` is world up; the side axis follows from them, so the
+                    # sole is flat and the foot points forward by construction.
+                    lean = math.radians(want_pitch)
+                    forward = (travel * math.cos(lean) - up * math.sin(lean)).normalized()
+                    sideways = forward.cross(up)
+                    if sideways.length < 1e-9:
                         continue
-                    mine = frame_of.inverted() @ falls
-                    if mine.length < 1e-9:
-                        continue
-                    wanted.setdefault(bone, {})[at] = mathutils.Quaternion(
-                        mine.normalized(), math.radians(turn))
+                    sideways.normalize()
+                    upright = sideways.cross(forward).normalized()
+                    target = mathutils.Matrix((
+                        (sideways.x, forward.x, upright.x),
+                        (sideways.y, forward.y, upright.y),
+                        (sideways.z, forward.z, upright.z),
+                    )).to_quaternion()
+                    now = foot_at.to_quaternion()
+                    # Eased from where the animator had it toward flat-and-forward, so the
+                    # correction fades in and out at the edges of the stance.
+                    wanted.setdefault(f"{side}_Foot", {})[at] = (
+                        now.inverted() @ now.slerp(target, fade))
+                elif abs(want_pitch - pitch) >= 0.01:
+                    mine = foot_at.inverted() @ falls
+                    if mine.length > 1e-9:
+                        wanted.setdefault(f"{side}_Foot", {})[at] = mathutils.Quaternion(
+                            mine.normalized(), math.radians((want_pitch - pitch) * fade))
+
+                if abs((want_brk - brk) * fade) >= 0.01:
+                    mine = toe_at.inverted() @ falls
+                    if mine.length > 1e-9:
+                        wanted.setdefault(f"{side}_ToeBase", {})[at] = mathutils.Quaternion(
+                            mine.normalized(), math.radians((want_brk - brk) * fade))
 
     slot = rig.animation_data.action_slot if rig.animation_data else None
     for bone, byframe in wanted.items():
@@ -3101,6 +3171,20 @@ def main():
             # Floored first so stance can be detected against a real floor, rolled, then
             # floored again because rolling a foot moves its sole.
             if called in ROLLS_THROUGH_STANCE:
+                # Twice, and it has to be. The roll decides which frames are STANCE from how
+                # close the shoe is to the floor, and rolling a foot moves its sole - so the
+                # floor lift that follows shifts the very heights the detection used. One frame
+                # fell through that gap every cycle: the run's right foot at the loop seam kept
+                # 14.7 degrees of roll and 17.8 of yaw while every other stance frame read zero.
+                #
+                # A second pass is safe because the correction targets an absolute orientation
+                # rather than adding to what is there, so re-running it on a frame that is
+                # already flat and forward changes nothing.
+                # ONCE. A second pass was tried to catch the loop-seam frame, on the reasoning
+                # that the correction targets an absolute orientation and so is idempotent. The
+                # orientation part is; the FLOOR part is not - each pass re-lifts against soles
+                # the previous pass moved, and two passes walked the whole cycle 5 cm into the
+                # air. The seam frame is left as a known fault rather than paid for with that.
                 stand_on_the_floor(base_rig, base_mesh, clip, scene)
                 stood = roll_the_feet(base_rig, base_mesh, clip, scene)
                 print(f"    {called:<12s} rolled {stood['L']} left and {stood['R']} right "
