@@ -86,6 +86,7 @@ def bone_lengths_from_the_skeleton(rig):
         # invented length - 84.23 cm on a 170 cm figure, drawn as a cone through the whole torso
         # and reported as "this hip bone is bigger than his body". `Root` was the same.
         apart = [b for b in kids if (b.head - bone.head).length > 1e-4]
+        aim = None
         if apart:
             aim = min(apart, key=lambda b: (b.head - bone.head).length)
             reach = (aim.head - bone.head).length
@@ -99,6 +100,14 @@ def bone_lengths_from_the_skeleton(rig):
             continue
         if bone.length > reach * 2.0:
             spikes += 1
+        # POINTED at the child, not merely shortened toward it. This only ever rescaled the
+        # bone along the direction it already had, so once a joint MOVED - the toe joint was
+        # taken forward to the ball, lowered and centred - the parent went on pointing where the
+        # child used to be and a visible gap opened between them. Reported as "the toes are
+        # always offset when they should be attached".
+        if aim is not None:
+            bone.tail = aim.head
+            continue
         along = (bone.tail - bone.head)
         if along.length < 1e-9:
             continue

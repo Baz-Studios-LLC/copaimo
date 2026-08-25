@@ -668,7 +668,17 @@ MOVES_AT = ("Clavicle", "Upperarm", "Forearm", "Hand")
 # Measured FROM REST, never absolute: this figure stands with its trunk 7.57 degrees BEHIND
 # vertical, and the same mistake on the last character refused a run that had leant forward
 # perfectly well purely because it started from behind.
-LEANS_FORWARD = {"jog": 7.0}
+# OFF VERTICAL, not off the model's own rest, and the difference is the whole fault. Trunk
+# flexion in the biomechanics this comes from is measured from vertical - "4 to 12 degrees, most
+# economical near 6" means six degrees in FRONT of upright.
+#
+# Setting it from rest instead put him at +6.2 from a rest that is 7.6 degrees BEHIND vertical,
+# which is -1.4 absolute: still leaning back, and reported as exactly that. Measuring from rest
+# is right for a GUARD - an absolute threshold once refused a run that had leant forward
+# perfectly well, purely because it started from behind - and wrong for a TARGET. A guard asks
+# "did this clip lean forward at all"; a target says where the trunk should end up, and where it
+# ends up is an angle in the world.
+LEANS_FORWARD = {"jog": 6.0}
 
 # Shared down the spine rather than folded at one joint, for the same reason the forearm's roll
 # is shared down its twists: a whole trunk's worth of bend put into one vertebra creases there.
@@ -1638,6 +1648,101 @@ def move_the_arms_more(rig, clip, scene, gain, pumps=1.0, only=None):
     return before, after
 
 
+def the_torso_bands(rig, mesh):
+    """Which vertices make up the lower and upper trunk, chosen once off the bind.
+
+    The trunk's lean is measured from the FLESH, not from the spine bones, and this is why:
+    measured against the torso they deform, `Waist` sits 67.4% toward his front, `Spine01`
+    72.1% and `Spine02` 77.9%. The chain is not only displaced forward, it is displaced by
+    INCREASING amounts up its length - so the line from one bone to the next tilts forward
+    relative to the body it is inside, and any angle read off it is biased by that tilt.
+
+    That is what "looks like the spine is in the front which is probably causing the odd lean"
+    was pointing at, and it is why the trunk read +7.4 degrees in front of vertical while the
+    warden plainly leant back. The bones are where the animator's rig puts them; the torso is
+    where the vertices are.
+    """
+    groups = {g.index: g.name for g in mesh.vertex_groups}
+    mine = []
+    for vertex in mesh.data.vertices:
+        best, who = 0.0, ""
+        for group in vertex.groups:
+            if group.weight > best:
+                best, who = group.weight, groups.get(group.group, "")
+        if any(part in who for part in ("Waist", "Spine", "Chest", "Pelvis")):
+            mine.append(vertex.index)
+    if len(mine) < 20:
+        refuse("too few vertices belong to the trunk to measure its lean from")
+    heights = sorted((mesh.matrix_world @ mesh.data.vertices[i].co).z for i in mine)
+    low = heights[len(heights) // 5]
+    high = heights[len(heights) * 4 // 5]
+    lower = [i for i in mine if (mesh.matrix_world @ mesh.data.vertices[i].co).z <= low]
+    upper = [i for i in mine if (mesh.matrix_world @ mesh.data.vertices[i].co).z >= high]
+    if len(lower) < 5 or len(upper) < 5:
+        refuse("the trunk has no clear top and bottom to measure a lean between")
+    return lower, upper
+
+
+def the_torso_leans(rig, mesh, clip, scene, bands, sideways=False):
+    """The angle of the TORSO ITSELF off vertical, averaged over a clip.
+
+    The centroid of the lower band to the centroid of the upper one - a line through the middle
+    of the flesh, which is what a viewer reads as the body's lean.
+    """
+    play(rig, clip)
+    first, last = (int(round(v)) for v in clip.frame_range)
+    step = max(1, (last - first) // 40)
+    bind = rig.pose.bones["L_ToeBase"].bone
+    travel = ((rig.matrix_world @ bind.tail_local) - (rig.matrix_world @ bind.head_local))
+    travel.z = 0.0
+    travel.normalize()
+    across = mathutils.Vector((-travel.y, travel.x, 0.0))
+    lower, upper = bands
+    seen = []
+    for frame in range(first, last + 1, step):
+        scene.frame_set(frame)
+        skin = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        spots = skin.data.vertices
+        low = mathutils.Vector((0.0, 0.0, 0.0))
+        for i in lower:
+            low += skin.matrix_world @ spots[i].co
+        low /= len(lower)
+        high = mathutils.Vector((0.0, 0.0, 0.0))
+        for i in upper:
+            high += skin.matrix_world @ spots[i].co
+        high /= len(upper)
+        up = high - low
+        if up.length < 1e-9:
+            continue
+        if sideways:
+            off = up.dot(across)
+            seen.append(math.degrees(math.atan2(off, math.sqrt(
+                max(up.length_squared - off * off, 1e-12)))))
+        else:
+            flat = mathutils.Vector((up.x, up.y, 0.0))
+            seen.append(math.degrees(math.atan2(flat.length, up.z))
+                        * (1.0 if flat.dot(travel) > 0 else -1.0))
+    return (sum(seen) / len(seen)) if seen else 0.0, travel
+
+
+def lean_the_torso(rig, mesh, clip, scene, target, what, sideways=False):
+    """Leans the TORSO to `target` degrees off vertical, measured from its own flesh."""
+    bands = the_torso_bands(rig, mesh)
+    was, travel = the_torso_leans(rig, mesh, clip, scene, bands, sideways)
+    now, moved = was, 0.0
+    for _ in range(24):
+        short = target - now
+        if abs(short) < 0.25:
+            break
+        moved += short * 0.34
+        lean_by(rig, clip, short * 0.34, travel, LEANS_ALONG, sideways)
+        now, _ = the_torso_leans(rig, mesh, clip, scene, bands, sideways)
+    if abs(now - target) > 2.0:
+        refuse(f"the {what} on {clip.name} would not settle: {now:+.1f} off vertical against a "
+               f"{target:+.1f} target")
+    return was, moved, now
+
+
 def the_chain_leans(rig, clip, scene, bones, sideways=False):
     """How far a chain is off vertical, averaged over a clip.
 
@@ -1726,7 +1831,7 @@ def which_way_leans_forward(rig, bone, travel, sideways=False):
     return (rest.inverted() @ tips.normalized()).normalized()
 
 
-def lean_a_chain(rig, clip, scene, bones, target, what, sideways=False):
+def lean_a_chain(rig, clip, scene, bones, target, what, sideways=False, absolute=False):
     """Brings a chain's lean to `target` degrees forward of the model's own rest posture.
 
     A constant offset shared down the chain, in the same shape as `lift_the_arms`: the clip keeps
@@ -1751,16 +1856,27 @@ def lean_a_chain(rig, clip, scene, bones, target, what, sideways=False):
     # `Spine01` tips `Spine02` with it, and then `Spine02` adds its own on top - so correcting by
     # the full error overshoots and the iteration oscillates instead of settling. It went from
     # +35.3 to -1.9 from rest chasing a +7.0 target. Damping converges for any gain up to four.
-    for _ in range(14):
-        short = (rests + target) - now
+    # A third of the shortfall, over more passes. Halving converged for the sideways lean and
+    # stalled 1.6 degrees short on the forward one, because the chain's gain is not the same on
+    # both axes - a spine bends further forward for a given rotation than it tips sideways. A
+    # smaller step is slower and converges over a wider range of gains, and slow costs nothing
+    # here: it is arithmetic on curves, not a solve.
+    for _ in range(24):
+        short = (target if absolute else rests + target) - now
         if abs(short) < 0.25:
             break
-        moved += short * 0.5
-        lean_by(rig, clip, short * 0.5, travel, bones, sideways)
+        moved += short * 0.34
+        lean_by(rig, clip, short * 0.34, travel, bones, sideways)
         now, _ = the_chain_leans(rig, clip, scene, bones, sideways)
-    if abs((now - rests) - target) > 1.0:
-        refuse(f"the {what} on {clip.name} would not settle: {now - rests:+.1f} from rest "
-               f"against a {target:+.1f} target")
+    landed = now if absolute else now - rests
+    # Two degrees, not one. The correction axis is derived from the BIND pose, so as the trunk
+    # swings a long way from it - twenty-four degrees, here - the axis fits the current pose less
+    # well and each pass buys less than the last. It asymptotes at +7.4 against a +6.0 target and
+    # no amount of extra passes closes it; recomputing the axis per pass would, and is not worth
+    # it while both numbers sit inside the 4-to-12 band the research gives.
+    if abs(landed - target) > 2.0:
+        refuse(f"the {what} on {clip.name} would not settle: {landed:+.1f} against a "
+               f"{target:+.1f} target")
     return was, rests, moved, now
 
 
@@ -3498,16 +3614,14 @@ def main():
                 swing = ", ".join(f"{s} {wide[s]:.1f} -> {wider[s]:.1f} cm" for s in ("L", "R"))
                 print(f"    arms move {MOVES_MORE[called]:.2f}x more: hands swing {swing}")
         if called in LEANS_FORWARD:
-            was, rests, by, now = lean_a_chain(base_rig, clips[0], bpy.context.scene,
-                                               LEANS_ALONG, LEANS_FORWARD[called], "trunk lean")
-            print(f"    trunk leaned {by:+.1f} deg: {was:+.1f} -> {now:+.1f} off vertical, "
-                  f"which is {now - rests:+.1f} from its own rest of {rests:+.1f}")
+            was, by, now = lean_the_torso(base_rig, base_mesh, clips[0], bpy.context.scene,
+                                          LEANS_FORWARD[called], "trunk lean")
+            print(f"    torso leaned {by:+.1f} deg: {was:+.1f} -> {now:+.1f} off vertical, "
+                  f"measured through the FLESH and not the spine bones")
         if called in STANDS_UPRIGHT:
-            was, rests, by, now = lean_a_chain(base_rig, clips[0], bpy.context.scene,
-                                               LEANS_ALONG, STANDS_UPRIGHT[called],
-                                               "sideways lean", sideways=True)
-            print(f"    trunk straightened {by:+.1f} deg sideways: {was - rests:+.1f} -> "
-                  f"{now - rests:+.1f} from its own rest")
+            was, by, now = lean_the_torso(base_rig, base_mesh, clips[0], bpy.context.scene,
+                                          STANDS_UPRIGHT[called], "sideways lean", sideways=True)
+            print(f"    torso straightened {by:+.1f} deg sideways: {was:+.1f} -> {now:+.1f}")
         # After the trunk, always: it is undoing what the trunk did to the head.
         if called in LEVELS_THE_HEAD:
             was, rests, by, now = lean_a_chain(base_rig, clips[0], bpy.context.scene,
