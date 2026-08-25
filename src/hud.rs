@@ -195,7 +195,7 @@ fn update_hud(
          chunks: {} loaded, {} building   sculpted: {sculpted}\n\
          nearest: {nearest}\n\
          \n\
-         WASD move · Shift sprint · mouse look · wheel zoom\n\
+         WASD move · Ctrl walk · mouse look · wheel zoom\n\
          F free-fly (Q/E down-up, -/= speed) · F3 hide\n\
          F6/F7 hour back-forward · F8 back to real time\n\
          Esc back to menu",

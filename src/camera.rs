@@ -316,13 +316,14 @@ fn drive_camera(
         return;
     };
 
-    // Widen the view with speed - see `SPEED_WIDENS`. Against SPRINT_SPEED rather than the
+    // Widen the view with speed - see `SPEED_WIDENS`. Against JOG_SPEED, the fastest the
     // current gait's own top, so the kick is a single continuous ramp across walk, jog and
-    // sprint instead of resetting at each handover.
+    // warden goes, so the widen runs out where the speed does instead of resetting at a
+    // handover. It read SPRINT_SPEED until that tier was removed.
     if let Projection::Perspective(ref mut perspective) = *lens {
         let going = striding
             .single()
-            .map(|pace| (pace.speed / crate::player::SPRINT_SPEED).clamp(0.0, 1.0))
+            .map(|pace| (pace.speed / crate::player::JOG_SPEED).clamp(0.0, 1.0))
             .unwrap_or(0.0);
         let wanted = SEES + SPEED_WIDENS * going;
         let t = 1.0 - (-WIDENS_AT * time.delta_secs()).exp();

@@ -34,7 +34,7 @@ use crate::player::{Player, Striding};
 // Between the two speeds, and it has to be — this was 6.5 while WALK_SPEED was 7.0,
 // so the threshold sat BELOW walking pace and the walk clip never played once. Any
 // value here must lie strictly between `player::WALK_SPEED` and
-// `player::SPRINT_SPEED`, which `the_gait_threshold_lies_between_the_speeds` checks.
+// `player::JOG_SPEED`, which `the_gait_threshold_lies_between_the_speeds` checks.
 #[allow(dead_code)]
 const BREAKS_INTO_A_RUN: f32 = 3.4;
 
@@ -137,7 +137,7 @@ const WALK_COVERS: f32 = 2.471;
 /// longer existed, and the whole point of the footfall audit is that there is one of these.
 #[cfg(test)]
 pub const WALK_COVERS_FOR_TESTS: f32 = WALK_COVERS;
-const RUN_COVERS: f32 = 4.435;
+const JOG_COVERS: f32 = 4.435;
 
 /// How many gait CYCLES each clip contains, so cadence can be told apart from playback rate.
 ///
@@ -150,7 +150,7 @@ const RUN_COVERS: f32 = 4.435;
 /// first: the walk returns to its opening pose at frame 29 (7.18 degrees) and again at 57
 /// (0.04), so 57 frames is TWO cycles. The run's nearest repeat is 22 degrees away at its last
 /// frame and 35 at its middle, so it is one cycle and it does not close - see the note on
-/// `RUN_FRAMES`.
+/// `JOG_FRAMES`.
 ///
 /// Without this the walk reads as half the cadence it has, and the pacing tests demanded it be
 /// played at 1.21x to 3.63x to make up the difference.
@@ -158,7 +158,7 @@ const RUN_COVERS: f32 = 4.435;
 // dead - the same case as `FPS` and the frame counts above. It is a checked record of how many
 // cycles each clip holds, not a comment.
 #[allow(dead_code)]
-const CYCLES: &[(&str, f32)] = &[("walk", 2.0), ("run", 1.0)];
+const CYCLES: &[(&str, f32)] = &[("walk", 2.0), ("jog", 1.0)];
 
 /// How far a clip may be from its own native rate before it reads as broken.
 ///
@@ -220,9 +220,9 @@ const GAITS: &[(&str, f32, f32)] = &[
     // A jog clip is the real fix and is not a thing this can invent.
     ("walk", WALK_COVERS, equal_stretch_between(
         natively_carries(WALK_COVERS, WALK_FRAMES),
-        natively_carries(RUN_COVERS, RUN_FRAMES),
+        natively_carries(JOG_COVERS, JOG_FRAMES),
     )),
-    ("run", RUN_COVERS, f32::INFINITY),
+    ("jog", JOG_COVERS, f32::INFINITY),
 ];
 // The sprint row is gone with the sprint clip: three clips were delivered - a look-around, a
 // walk and a run - and faking a third gait by pointing it at the run would be a lie the cadence
@@ -249,7 +249,7 @@ const FPS: f32 = 24.0;
 #[allow(dead_code)]
 const WALK_FRAMES: f32 = 56.0;
 #[allow(dead_code)]
-const RUN_FRAMES: f32 = 24.0;
+const JOG_FRAMES: f32 = 24.0;
 
 
 /// Cadence does not transfer between bodies of different size: for dynamic similarity it
@@ -956,7 +956,7 @@ mod pacing {
     #[test]
     fn the_gait_threshold_lies_between_the_speeds() {
         let walk = crate::player::WALK_SPEED;
-        let run = crate::player::SPRINT_SPEED;
+        let run = crate::player::JOG_SPEED;
         assert!(
             walk < BREAKS_INTO_A_RUN,
             "walking at {walk} m/s is already over the {BREAKS_INTO_A_RUN} m/s              threshold, so the walk clip can never play"
@@ -990,7 +990,7 @@ mod pacing {
     #[test]
     fn the_crossover_sits_where_both_clips_stretch_alike() {
         let walk = natively_carries(WALK_COVERS, WALK_FRAMES);
-        let run = natively_carries(RUN_COVERS, RUN_FRAMES);
+        let run = natively_carries(JOG_COVERS, JOG_FRAMES);
         let at = equal_stretch_between(walk, run);
         let stretched = at / walk;
         let squashed = run / at;
@@ -1152,7 +1152,7 @@ mod pacing {
     /// distance, so a hitch cannot shift it.
     #[test]
     fn the_phase_is_the_same_however_many_steps_reached_it() {
-        let (covers, cycles, stride) = (RUN_COVERS, 1.0, 1.0);
+        let (covers, cycles, stride) = (JOG_COVERS, 1.0, 1.0);
         let whole = strides_over(10.0, covers, cycles, stride);
         for steps in [2_u32, 7, 60, 1000] {
             let each = 10.0 / steps as f32;
@@ -1174,7 +1174,7 @@ mod pacing {
     /// as the ground sliding the other way.
     #[test]
     fn standing_still_holds_the_phase() {
-        let advanced = strides_over(0.0, RUN_COVERS, 1.0, 1.0);
+        let advanced = strides_over(0.0, JOG_COVERS, 1.0, 1.0);
         assert_eq!(
             advanced, 0.0,
             "covering no ground advanced the phase by {advanced} cycles"
@@ -1189,7 +1189,7 @@ mod pacing {
     /// what makes the handover land on the same foot; this is the test that says so.
     #[test]
     fn a_gait_change_lands_on_the_same_foot() {
-        let (walk_lasts, run_lasts) = (WALK_FRAMES / 24.0, RUN_FRAMES / 24.0);
+        let (walk_lasts, run_lasts) = (WALK_FRAMES / 24.0, JOG_FRAMES / 24.0);
         for covered in [0.0_f32, 0.1, 0.4, 0.5, 0.9, 1.3, 2.7, 5.25] {
             let walking = cycle_phase(seek_for(covered, 2.0, walk_lasts), 2.0, walk_lasts);
             let running = cycle_phase(seek_for(covered, 1.0, run_lasts), 1.0, run_lasts);
@@ -1213,8 +1213,8 @@ mod pacing {
     /// warping was meant to slow it down, and would look plausible while doing it.
     #[test]
     fn a_wider_stride_churns_less() {
-        let tight = strides_over(4.0, RUN_COVERS, 1.0, 1.0);
-        let wide = strides_over(4.0, RUN_COVERS, 1.0, STRIDE_WARPS_TO);
+        let tight = strides_over(4.0, JOG_COVERS, 1.0, 1.0);
+        let wide = strides_over(4.0, JOG_COVERS, 1.0, STRIDE_WARPS_TO);
         assert!(
             wide < tight,
             "the same four metres advanced {wide} cycles at a {STRIDE_WARPS_TO}x stride and \
@@ -1299,7 +1299,7 @@ mod pacing {
         let mut checked = 0;
         for (what, speed, covers, gait, tier) in [
             ("walk", crate::player::WALK_SPEED, WALK_COVERS, "walk", 0),
-            ("jog", crate::player::JOG_SPEED, RUN_COVERS, "run", 1),
+            ("jog", crate::player::JOG_SPEED, JOG_COVERS, "jog", 1),
         ] {
             let band = (
                 CHURNS_BETWEEN[tier].0 * LEGS_SHORTER_BY,
@@ -1328,7 +1328,7 @@ mod pacing {
             // out of the ratio and does not appear here.
             let native = natively_carries(
                 covers,
-                if gait == "walk" { WALK_FRAMES } else { RUN_FRAMES },
+                if gait == "walk" { WALK_FRAMES } else { JOG_FRAMES },
             );
             let multiple = speed / native;
             println!(
@@ -1397,11 +1397,7 @@ mod pacing {
     /// frame on a slope and restarted a blend each time.
     #[test]
     fn every_handover_separates_the_speeds_it_sits_between() {
-        let driven = [
-            crate::player::WALK_SPEED,
-            crate::player::JOG_SPEED,
-            crate::player::SPRINT_SPEED,
-        ];
+        let driven = [crate::player::WALK_SPEED, crate::player::JOG_SPEED];
         for (tier, (called, _, upto)) in GAITS.iter().enumerate() {
             if upto.is_infinite() {
                 continue;
@@ -1461,7 +1457,7 @@ mod pacing {
         let mut checked = 0;
         for (gait, frames) in [
             ("walk", WALK_FRAMES),
-            ("run", RUN_FRAMES),
+            ("jog", JOG_FRAMES),
         ] {
             // A tier may have no clip. There is no sprint delivery and none is faked -
             // `find_the_clips` skips the tier and the one below carries the speed, which the
@@ -1487,8 +1483,8 @@ mod pacing {
                 rate = natively_carries(
                     match gait {
                         "walk" => WALK_COVERS,
-                        "run" => RUN_COVERS,
-                        _ => RUN_COVERS,
+                        "jog" => JOG_COVERS,
+                        _ => JOG_COVERS,
                     },
                     frames
                 ),
@@ -1514,7 +1510,7 @@ mod pacing {
         let mut checked = 0;
         for (gait, speed, covers) in [
             ("walk", crate::player::WALK_SPEED, WALK_COVERS),
-            ("run", crate::player::JOG_SPEED, RUN_COVERS),
+            ("jog", crate::player::JOG_SPEED, JOG_COVERS),
         ] {
             // A tier may have no clip. There is no sprint delivery and none is faked -
             // `find_the_clips` skips the tier and the one below carries the speed, which the

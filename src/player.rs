@@ -142,11 +142,9 @@ pub const JOG_SPEED: f32 = 4.80;
 /// cycle, but foot slide went from 0.106 to 0.178 and 0.247 - the extra sweep is past what the
 /// leg can reach, so the floor solve drags the foot to cover it. That is an argument about a
 /// stride baked into a clip, not about one warped at runtime with a hip drop underneath it.
-// The ceiling the run clip can actually serve: 4.80 m/s native times the 1.25x
-// `motion::STRIDE_WARPS_TO` allows. It was 7.40, which on this clip is a 1.54x playback - the
-// blurred legs the pacing guards exist to catch. No sprint clip was delivered, so nothing above
-// this has an animation behind it.
-pub const SPRINT_SPEED: f32 = 6.00;
+// SPRINT_SPEED was here, at 6.00 m/s, with a note that "no sprint clip was delivered, so
+// nothing above this has an animation behind it". That stayed true, and the tier is gone rather
+// than left carrying a speed nothing could animate. The game is walk and jog.
 
 /// How fast the warden swivels to face the way they're heading, in radians/sec.
 const TURN_RATE: f32 = 12.0;
@@ -470,11 +468,13 @@ pub fn move_player(
     }
     if direction != Vec3::ZERO {
         // Jogging is the DEFAULT and walking is the deliberate choice, which is the
-        // way round every game this one is measured against does it. Shift sprints,
-        // Ctrl slows to a walk.
-        let speed = if keys.any_pressed([KeyCode::ShiftLeft, KeyCode::ShiftRight]) {
-            SPRINT_SPEED
-        } else if keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]) {
+        // way round every game this one is measured against does it. Ctrl slows to a walk.
+        //
+        // There is no sprint. There never was an animation for one - the clip called `run.glb`
+        // measures out as a JOG, 23 frames a cycle at 130 steps a minute against a run's 12-16
+        // and 180-240 - and the tier was carrying a speed no clip could serve. "We probably dont
+        // even need a sprint (run) in this game."
+        let speed = if keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]) {
             WALK_SPEED
         } else {
             JOG_SPEED

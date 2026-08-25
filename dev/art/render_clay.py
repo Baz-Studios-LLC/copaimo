@@ -366,6 +366,18 @@ def main():
     # Shots aimed at a BONE still follow that bone into the pose - a hand close-up has to find
     # the hand where the clip put it. It is the framing that is fixed, not the aim.
     low, tall, middle = at_rest(body)
+    # A clip moves the whole warden, and framing anchored to the BIND then loses him off the
+    # edge - the jog's side shot came back as a pair of legs. So a posed shot follows the HIP,
+    # which is where the body is, and not the mesh's centroid, which is where its limbs happen to
+    # be. The zoom still comes from the bind, so the thing that made the gate unstable - a
+    # shoulder moving and taking the feet shot with it - stays fixed.
+    if wanted and rig is not None and "Hip" in rig.pose.bones:
+        posed = rig.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        went = ((posed.matrix_world @ posed.pose.bones["Hip"].head)
+                - (rig.matrix_world @ rig.pose.bones["Hip"].bone.head_local))
+        middle = middle + mathutils.Vector((went.x, went.y, 0.0))
+        low += went.z
+        print(f"  the clip carried him {went.length * 170.0:.1f} cm, so the framing followed")
     scene.render.resolution_x, scene.render.resolution_y = WIDE
     scene.eevee.taa_render_samples = 48
 

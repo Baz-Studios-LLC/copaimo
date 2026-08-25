@@ -41,7 +41,13 @@ DELIVERED = (
     ("idle.glb", "idle"),
     ("lookAround.glb", "look_around"),
     ("walk.glb", "walk"),
-    ("run.glb", "run"),
+    # The delivered file is called run.glb and the clip it becomes is called JOG. That is not a
+    # slip: measured against `docs/animation.md`, this clip's effective cycle is 23 frames and its
+    # cadence 130 steps a minute, where a run is 12-16 frames and 180-240. It is a jog, and the
+    # game is walk-and-jog with no sprint tier - "we probably dont even need a sprint (run) in
+    # this game". A real run clip, if one is ever wanted, comes in beside this rather than
+    # replacing it.
+    ("run.glb", "jog"),
 )
 
 # Clips laid end to end into one, and what the result is called.
@@ -125,14 +131,14 @@ DIGITS_TRAIL_BY = 3          # frames each digit lags the one before it, thumb f
 #
 # Closed by bending the last frames to meet the first, the same way `join_the_clips` bends its
 # seams. Over a third of a second here, which spreads 22 degrees at under 3 degrees a frame.
-CLOSES_THE_LOOP = ("run",)
+CLOSES_THE_LOOP = ("jog",)
 CLOSE_OVER = 8
 
 # Which clips are supposed to carry the character somewhere. Everything else is a standing
 # motion, and a standing motion with no travel is correct rather than broken - the refusal below
 # is there to catch a gait whose channels never bound, which is what an unbound action slot
 # looks like from the outside.
-TRAVELS = ("walk", "run")
+TRAVELS = ("walk", "jog")
 
 # How far two rest transforms may differ before the skeletons are called different. Tight: this
 # asks whether two exports of the same rig agree, not whether two rigs are similar.
@@ -405,7 +411,11 @@ ROLLS_ALONG = ("ForearmTwist01", "ForearmTwist02")
 # Applied BEFORE the arms are lifted and before the roll is spread, so the floor is enforced
 # on the amplified motion and the spread redistributes the amplified twist. Getting that
 # order wrong would let amplification push the inner extreme back into the ribs.
-MOVES_MORE = {"idle": 1.45, "look_around": 1.45}
+# Under 1.0 makes a clip calmer, which is what the jog needed. Measured, the delivered jog swung
+# its arms 119 degrees where its own walk swings 33 - sprint-scale, and reported as "less arm
+# swing". 0.45 brings it to about 54, which reads as a jog carrying its arms rather than driving
+# with them.
+MOVES_MORE = {"idle": 1.45, "look_around": 1.45, "jog": 0.45}
 
 # # The feet, and three faults measured on the delivered clips
 #
@@ -487,7 +497,7 @@ POINTS_THE_FEET = False
 # Gaits only. An idle has no stance-and-swing cycle - both feet are simply down - so treating a
 # five-hundred-frame stand as one stance ramped it from heel-strike to push-off across the whole
 # clip and drove the feet 12.68 cm through the floor. A roll is a property of a STEP.
-ROLLS_THROUGH_STANCE = ("walk", "run")
+ROLLS_THROUGH_STANCE = ("walk", "jog")
 
 # # The toe joint belongs at the ball of the foot
 #
@@ -547,8 +557,19 @@ PUSH_PITCH = 45.0
 
 # The toe stays straight until the heel is well up, then breaks. It is the metatarsal break, and
 # it is the thing the delivered clips have none of - every toe key in every clip is an identity.
+#
+# # Which way a toe bends, and it is the opposite of the obvious one
+#
+# Reported as "the toes bend the wrong way", and the measurement agreed: at push-off the foot
+# pitched 36.1 degrees and the toe pitched 51.6 in the world - MORE than the foot - which drove
+# the tip 6 cm through the floor.
+#
+# A toe at push-off does not curl down. It stays flat on the ground while the foot rotates up
+# OVER it, so the joint EXTENDS: the toe goes up relative to the foot by however far the foot has
+# gone down. The target is therefore the toe's world pitch staying near zero, and the break is
+# the negation of the foot's own pitch rather than an amount added to it.
 TOE_BREAKS_AFTER = 0.55
-TOE_BREAKS_TO = 35.0
+TOE_BREAKS_TO = 45.0
 
 # Frames either side of a stance over which the correction fades, so there is no step where it
 # starts and stops.
@@ -565,6 +586,37 @@ TOE_BREAKS_AT_MOST = 55.0
 # reduces the splay.
 SPLAY_ALLOWS = 10.0
 MOVES_AT = ("Clavicle", "Upperarm", "Forearm", "Hand")
+
+# # How far the trunk leans, and why this one number has bitten before
+#
+# "The jog SHOULD be easy. Less forward lean, less arm swing."
+#
+# TROUBLESHOOTING.md already holds the research, from the last character: real trunk flexion in
+# running is **4 to 12 degrees**, most economical near 6, and game guidance quoting "15 to 30 for
+# a sprint" is a two-to-four-times push that makes a character read as permanently accelerating.
+# The previous character shipped its jog at 9 degrees, measuring +6.97 from its own resting
+# posture.
+#
+# The delivered jog leans **+35.3 degrees from its own rest** - five times that, and three times
+# the top of the real range. That is a sprinter's block-exit lean held for a whole cycle.
+#
+# Measured FROM REST, never absolute: this figure stands with its trunk 7.57 degrees BEHIND
+# vertical, and the same mistake on the last character refused a run that had leant forward
+# perfectly well purely because it started from behind.
+LEANS_FORWARD = {"jog": 7.0}
+
+# Shared down the spine rather than folded at one joint, for the same reason the forearm's roll
+# is shared down its twists: a whole trunk's worth of bend put into one vertebra creases there.
+LEANS_ALONG = ("Spine01", "Spine02")
+
+# And the head, which has to be put back afterwards.
+#
+# Leaning the trunk rotates everything above it, so taking 40 degrees out of the spine took the
+# head with it and left the warden jogging along looking at the sky - 28 degrees above his own
+# resting gaze. A runner's head is level and their eyes are on the ground ahead, so this brings
+# it back to rest and no further.
+LEVELS_THE_HEAD = {"jog": 0.0}
+THE_HEAD_IS = ("Head",)
 
 
 def refuse(why):
@@ -1477,11 +1529,149 @@ def move_the_arms_more(rig, clip, scene, gain):
                 curve.update()
     after = how_far_the_hands_swing(rig, clip, scene)
     for side in ("L", "R"):
-        if after[side] <= before[side] + 0.1:
-            refuse(f"moving the arms more on {clip.name} left the {side} hand swinging "
+        # The gain may calm a clip as well as liven one, so the check is that the swing moved the
+        # way the gain asked - not that it grew. What it is really catching is a knob wired to
+        # nothing, and that shows up as no movement either way.
+        moved = after[side] - before[side]
+        if (gain > 1.0 and moved <= 0.1) or (gain < 1.0 and moved >= -0.1):
+            refuse(f"a gain of {gain} on {clip.name} left the {side} hand swinging "
                    f"{after[side]:.1f} cm against {before[side]:.1f} cm before - the gain is "
                    f"wired to nothing")
     return before, after
+
+
+def the_chain_leans(rig, clip, scene, bones):
+    """How far the trunk is off vertical, positive forward, averaged over a clip."""
+    play(rig, clip)
+    first, last = (int(round(v)) for v in clip.frame_range)
+    step = max(1, (last - first) // 60)
+    bind = rig.pose.bones["L_ToeBase"].bone
+    travel = ((rig.matrix_world @ bind.tail_local) - (rig.matrix_world @ bind.head_local))
+    travel.z = 0.0
+    if travel.length < 1e-9:
+        refuse("the bind toe has no horizontal direction, so forward cannot be established")
+    travel.normalize()
+    seen = []
+    for frame in range(first, last + 1, step):
+        scene.frame_set(frame)
+        posed = rig.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        low = posed.matrix_world @ posed.pose.bones[bones[0]].head
+        high = posed.matrix_world @ posed.pose.bones[bones[-1]].tail
+        up = high - low
+        flat = mathutils.Vector((up.x, up.y, 0.0))
+        if up.length < 1e-9:
+            continue
+        seen.append(math.degrees(math.atan2(flat.length, up.z))
+                    * (1.0 if flat.dot(travel) > 0 else -1.0))
+    return (sum(seen) / len(seen)) if seen else 0.0, travel
+
+
+def the_chain_rests_at(rig, bones):
+    """The trunk's own resting angle off vertical, from the bind and nothing else."""
+    bind = rig.pose.bones["L_ToeBase"].bone
+    travel = ((rig.matrix_world @ bind.tail_local) - (rig.matrix_world @ bind.head_local))
+    travel.z = 0.0
+    travel.normalize()
+    low = rig.matrix_world @ rig.pose.bones[bones[0]].bone.head_local
+    high = rig.matrix_world @ rig.pose.bones[bones[-1]].bone.tail_local
+    up = high - low
+    flat = mathutils.Vector((up.x, up.y, 0.0))
+    if up.length < 1e-9:
+        return 0.0
+    return (math.degrees(math.atan2(flat.length, up.z))
+            * (1.0 if flat.dot(travel) > 0 else -1.0))
+
+
+def which_way_leans_forward(rig, bone, travel):
+    """The bone-local axis that tips this spine bone's top FORWARD.
+
+    Derived, never assumed, and this exact thing has gone wrong here before: an axis measured on
+    thighs and upper arms - which point DOWN from their joints - was reused on the spine, which
+    points UP, and the identical rotation carried a thigh's foot forward and a spine's head
+    BACKWARD. The whole torso leant back at every speed. See TROUBLESHOOTING.md.
+    """
+    here = rig.pose.bones[bone]
+    kids = [b for b in rig.pose.bones if b.parent is not None and b.parent.name == bone]
+    above = min(kids, key=lambda b: (b.bone.head_local - here.bone.head_local).length) \
+        if kids else None
+    up = ((rig.matrix_world @ (above.bone.head_local if above else here.bone.tail_local))
+          - (rig.matrix_world @ here.bone.head_local))
+    if up.length < 1e-9:
+        refuse(f"{bone} has no length, so no lean axis exists")
+    # Rotating `up` about `n` moves it by `n x up`, so `up.travel` - how far forward the top of
+    # this bone points - grows fastest about `up x travel`. Not its negation: that was written
+    # first, and the guard in `lean_the_trunk` caught it immediately, turning a -28.3 degree
+    # correction into +48.8 from rest instead of +7. The third time on this character that a
+    # derived axis has been negated by hand, and the third time a check caught it rather than a
+    # render.
+    tips = up.normalized().cross(travel)
+    if tips.length < 1e-9:
+        refuse(f"{bone} points along the line of travel, so its lean is undefined")
+    rest = (rig.matrix_world @ here.bone.matrix_local).to_3x3()
+    return (rest.inverted() @ tips.normalized()).normalized()
+
+
+def lean_a_chain(rig, clip, scene, bones, target, what):
+    """Brings a chain's lean to `target` degrees forward of the model's own rest posture.
+
+    A constant offset shared down the chain, in the same shape as `lift_the_arms`: the clip keeps
+    every bit of its own motion and only the angle it is carried at moves.
+
+    Used twice - once on the spine, once on the head - because levelling a head is the same
+    problem as leaning a trunk, and the second one only exists because of the first: rotating the
+    spine back by forty degrees carried the head back with it, and the warden jogged along
+    looking at the sky, 28 degrees above where he rests.
+    """
+    was, travel = the_chain_leans(rig, clip, scene, bones)
+    rests = the_chain_rests_at(rig, bones)
+    now, moved = was, 0.0
+    # Measured, corrected, measured again, until it lands. A spine is a CHAIN: rotating a bone
+    # tips everything above it and nothing below, so how far the trunk as a whole moves for a
+    # given rotation depends on where in the chain it is applied and on the pose it is applied
+    # from. Rather than model that leverage - and be wrong about it quietly - the correction
+    # measures what it actually achieved and applies the remainder. The first version assumed
+    # one degree in gave one degree out, shared it evenly across two bones, and delivered 12.6
+    # degrees of a 28.3 degree correction.
+    # HALF the shortfall each pass, not all of it. The chain's gain is above one - rotating
+    # `Spine01` tips `Spine02` with it, and then `Spine02` adds its own on top - so correcting by
+    # the full error overshoots and the iteration oscillates instead of settling. It went from
+    # +35.3 to -1.9 from rest chasing a +7.0 target. Damping converges for any gain up to four.
+    for _ in range(14):
+        short = (rests + target) - now
+        if abs(short) < 0.25:
+            break
+        moved += short * 0.5
+        lean_by(rig, clip, short * 0.5, travel, bones)
+        now, _ = the_chain_leans(rig, clip, scene, bones)
+    if abs((now - rests) - target) > 1.0:
+        refuse(f"the {what} on {clip.name} would not settle: {now - rests:+.1f} from rest "
+               f"against a {target:+.1f} target")
+    return was, rests, moved, now
+
+
+def lean_by(rig, clip, short, travel, bones):
+    """Adds `short` degrees of forward trunk lean, shared down the spine."""
+    slot = rig.animation_data.action_slot if rig.animation_data else None
+    curves = fcurves_of(clip, slot)
+    each = short / len(bones)
+    for bone in bones:
+        path = f'pose.bones["{bone}"].rotation_quaternion'
+        parts = {c.array_index: c for c in curves if c.data_path == path}
+        if len(parts) != 4:
+            refuse(f"{clip.name} keys {len(parts)} of the 4 rotation channels on {bone}, so the "
+                   f"trunk cannot be leaned without dropping its motion")
+        offset = mathutils.Quaternion(which_way_leans_forward(rig, bone, travel),
+                                      math.radians(each))
+        for at in range(len(parts[0].keyframe_points)):
+            keyed = mathutils.Quaternion([parts[i].keyframe_points[at].co[1] for i in range(4)])
+            out = offset @ keyed
+            for i in range(4):
+                point = parts[i].keyframe_points[at]
+                point.handle_left[1] += out[i] - point.co[1]
+                point.handle_right[1] += out[i] - point.co[1]
+                point.co[1] = out[i]
+        for curve in parts.values():
+            curve.update()
 
 
 def where_the_hands_point(rig, clip, scene):
@@ -1875,6 +2065,13 @@ def hinge_the_toes_at_the_ball(rig, mesh):
         if near:
             low, high = min(p.z for p in near), max(p.z for p in near)
             moved_to.z = low + (high - low) * THE_TOE_SITS_UP
+            # And onto the shoe's own centreline. Moving the joint forward left its sideways
+            # position wherever the original was, and on the right foot that was 3.63 cm off
+            # centre on a 14.96 cm shoe - a quarter of its width, reported as "still offset".
+            across = mathutils.Vector((-ahead.y, ahead.x, 0.0))
+            edges = [p.dot(across) for p in near]
+            middle = (min(edges) + max(edges)) * 0.5
+            moved_to += across * (middle - moved_to.dot(across))
         bone.head = rig.matrix_world.inverted() @ moved_to
         bone.tail = rig.matrix_world.inverted() @ (moved_to + ahead * (tip - ball))
         moved[side] = ((ball - before) * 170.0, (before - back) / length * 100.0,
@@ -2029,8 +2226,14 @@ def roll_the_feet(rig, mesh, clip, scene):
             pitch = CONTACT_PITCH * (1.0 - share / FLAT_AT)
         else:
             pitch = PUSH_PITCH * (share - FLAT_AT) / (1.0 - FLAT_AT)
-        brk = (0.0 if share <= TOE_BREAKS_AFTER else
-               TOE_BREAKS_TO * (share - TOE_BREAKS_AFTER) / (1.0 - TOE_BREAKS_AFTER))
+        # Negative: the toe extends UP relative to the foot, by as much as the foot has pitched
+        # down, so the toe itself stays flat on the ground. Capped, because a toe only bends so
+        # far, and eased in so it does not snap straight at the moment the heel lifts.
+        if share <= TOE_BREAKS_AFTER:
+            brk = 0.0
+        else:
+            into = (share - TOE_BREAKS_AFTER) / (1.0 - TOE_BREAKS_AFTER)
+            brk = -min(max(pitch, 0.0), TOE_BREAKS_TO) * into
         return pitch, brk
 
     wanted = {}
@@ -3037,6 +3240,17 @@ def main():
             if wide is not None:
                 swing = ", ".join(f"{s} {wide[s]:.1f} -> {wider[s]:.1f} cm" for s in ("L", "R"))
                 print(f"    arms move {MOVES_MORE[called]:.2f}x more: hands swing {swing}")
+        if called in LEANS_FORWARD:
+            was, rests, by, now = lean_a_chain(base_rig, clips[0], bpy.context.scene,
+                                               LEANS_ALONG, LEANS_FORWARD[called], "trunk lean")
+            print(f"    trunk leaned {by:+.1f} deg: {was:+.1f} -> {now:+.1f} off vertical, "
+                  f"which is {now - rests:+.1f} from its own rest of {rests:+.1f}")
+        # After the trunk, always: it is undoing what the trunk did to the head.
+        if called in LEVELS_THE_HEAD:
+            was, rests, by, now = lean_a_chain(base_rig, clips[0], bpy.context.scene,
+                                               THE_HEAD_IS, LEVELS_THE_HEAD[called], "head")
+            print(f"    head levelled {by:+.1f} deg: {was - rests:+.1f} -> {now - rests:+.1f} "
+                  f"from its own rest")
         if called in LIFTS:
             was, lifted, now = lift_the_arms(base_rig, clips[0], bpy.context.scene,
                                              ARMS_REST_AT)
@@ -3131,7 +3345,7 @@ def main():
         if shut is not None:
             wanted[called] = shut
             print(f"    {called:<12s} loop closed over {CLOSE_OVER} frames")
-        if called in ("walk", "run") and foot < 0.05:
+        if called in ("walk", "jog") and foot < 0.05:
             refuse(f"the {called} clip moves its feet {foot * 100:.1f} cm, which is not a "
                    f"gait - either the clip is empty or it is not driving the rig")
 

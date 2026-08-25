@@ -626,12 +626,12 @@ def the_covers_the_game_uses():
         return {}
     with open(where, encoding="utf-8") as source:
         text = source.read()
-    found = dict(re.findall(r"const (WALK|RUN)_COVERS: f32 = ([0-9.]+);", text))
+    found = dict(re.findall(r"const (WALK|JOG)_COVERS: f32 = ([0-9.]+);", text))
     if len(found) != 2:
         raise SystemExit(
-            f"REFUSED: {where} no longer declares WALK_COVERS and RUN_COVERS the way this reads "
+            f"REFUSED: {where} no longer declares WALK_COVERS and JOG_COVERS the way this reads "
             f"them (found {sorted(found)}), so the footfall check would measure against nothing")
-    return {"walk": float(found["WALK"]), "run": float(found["RUN"])}
+    return {"walk": float(found["WALK"]), "jog": float(found["JOG"])}
 
 
 def the_footfalls(rig, scene, covers):

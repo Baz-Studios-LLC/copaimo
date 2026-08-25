@@ -1947,6 +1947,51 @@ the build: `the_shoe_runs` refuses if a shoe has no vertices or no horizontal ax
 re-weighting preserves each vertex's total, which `weights add to 1 within 0.000000` confirms.
 
 
+## The jog leant like a sprinter, and levelling it made him look at the sky
+
+**What you see.** "The jog SHOULD be easy. Less forward lean, less arm swing."
+
+**What it actually was.** Both, measured, and both large:
+
+    trunk    +35.3 deg forward OF ITS OWN REST   (the bind stands 7.6 deg behind vertical)
+    arms      119 deg of swing, where its own walk swings 33
+
+The research for this was already in this file, from the previous character: real trunk flexion
+in running is **4 to 12 degrees**, most economical near 6, and game guidance quoting "15 to 30
+for a sprint" is a two-to-four-times push that makes a character read as permanently
+accelerating. The previous character shipped its jog at +6.97 from rest. This one was at five
+times that - a sprinter's block-exit lean, held for a whole cycle.
+
+**What changed.** `lean_a_chain` brings the trunk to +7 from rest, and `MOVES_MORE` - which
+already existed to LIVEN the idle - takes the jog's arms to 0.45x. One knob, used both ways.
+
+**Three separate things went wrong on the way, and each was caught by a check rather than by
+looking:**
+
+* **The axis was negated.** The correction ran the wrong way and left the trunk at +48.8 from
+  rest instead of +7. This is the third derived axis on this character to be negated by hand.
+  The guard in `lean_a_chain` refused the build immediately.
+* **The measurement could not see half the correction.** The trunk was measured from
+  `Spine01.head` to `Spine02.head` - which IS the Spine01 bone - so rotating `Spine02` moved the
+  number not at all, and a 28.3 degree correction delivered 12.6. A chain has to be measured to
+  the TAIL of its last bone or the bones above the measurement are invisible to it.
+* **The iteration diverged.** Correcting by the full shortfall overshot, because rotating
+  `Spine01` tips `Spine02` with it and then `Spine02` adds its own: the chain's gain is above
+  one. It swung from +35.3 to -1.9 chasing +7.0. Halving each correction converges for any gain
+  up to four.
+
+**And the fix had a consequence worth naming.** Leaning the trunk back by forty degrees carried
+the head with it, and the warden jogged along looking at the sky - 28 degrees above his own
+resting gaze, which no measurement of the TRUNK would ever have reported. The same
+`lean_a_chain` levels the head afterwards. **A correction to a chain is a correction to
+everything above it**, and the thing to check is not whether the number you aimed at moved but
+what else did.
+
+**The test.** `lean_a_chain` refuses a chain that will not settle within a degree of its target,
+and reports what it achieved rather than what it asked for. The trunk now reads +6.2 from rest
+and the head -0.2.
+
+
 ## Keeping this honest
 
 Add an entry when a bug took **more than one attempt** to fix, or when the symptom
