@@ -133,7 +133,22 @@ pub const WALK_SPEED: f32 = 1.07;
 // the clip's stride is 4.435 m a cycle - **2.6 times his own height**, where a jog is about
 // 1.4 to 1.8 - so every metre of ground costs very few steps. Slowing further than this needs a
 // shorter stride, which is the clip's to give, not this constant's.
-pub const JOG_SPEED: f32 = 4.00;
+// 2.90 m/s = 10.4 km/h, against an authored stride of 2.506 m a cycle.
+//
+// The three numbers that never agreed before now do:
+//
+//     stride    1.47 x his own height   (a jog is 1.4-1.8)
+//     cadence   139 steps a minute      (recreational running is 150-170)
+//     playback  1.16x                   (the guard allows 0.80-1.25)
+//
+// It was 4.00 against the DELIVERED clip's 2.6x-height stride, which forced a 1.60x playback -
+// outside the guard - and 192 steps a minute. Before that 4.80, at 130 steps a minute and 14.4
+// km/h, which is a sprint's speed at a walk's cadence. Neither was a jog; both were a number
+// chosen by feel against a stride that could not support it.
+//
+// Still a KNOB - see the note below about the cadence bands not gating speed - but a knob with
+// a stride behind it now.
+pub const JOG_SPEED: f32 = 2.90;
 
 /// A sprint, in metres a second. Held on Shift.
 ///

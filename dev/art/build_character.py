@@ -619,6 +619,24 @@ ROLLS_THROUGH_STANCE = ()
 # them per pose is what crumpled the shoe every time.
 MIRRORS_THE_BIND = True
 
+# # A knee that is dead straight cannot be solved
+#
+# The bind stands at 100.0% of straight, and `docs/rigging.md` is explicit about what that costs:
+# "A dead-straight two-bone chain is SINGULAR to an IK solver - it cannot tell which way the joint
+# folds, and every knee froze at exactly 0.0000. Standard fix is a few degrees of bend in the
+# bind." The previous character carried `KNEE_EASE = 2.0`, and the authored gait pipeline depended
+# on it - `gait()` has no pole target because "the knee's direction comes from the bind pose being
+# BENT".
+#
+# Two degrees at the thigh and two back at the calf, so the knee rests bent 4 degrees and the
+# ANKLE stays where it was. Bending only one of them would move the foot.
+#
+# The delivered clips are compensated for the change rather than left to mean something new: a
+# bind change invalidates every key written against the old rest - "a clip cannot be copied across
+# a bind change, only retargeted" - so each affected bone's keys are pre-multiplied by the inverse
+# of the rest change, which leaves the animation looking exactly as it did.
+KNEE_EASE = 2.0
+
 # # How far apart the legs are held
 #
 # "Check frame 8 of the jog, his feet go into each other." They do: measured, the legs come
@@ -2659,6 +2677,98 @@ def cap_the_ankle(rig, mesh, clip, scene, most):
     return was, now, sum(len(v) for v in wanted.values())
 
 
+def which_way_the_knee_folds(rig, side, travel):
+    """The thigh's own axis that carries the knee FORWARD, so a leg bends the way a leg bends."""
+    bone = rig.pose.bones[f"{side}_Thigh"]
+    down = ((rig.matrix_world @ rig.pose.bones[f"{side}_Calf"].bone.head_local)
+            - (rig.matrix_world @ bone.bone.head_local))
+    if down.length < 1e-9:
+        refuse(f"the {side} thigh has no length, so no knee axis exists")
+    # Rotating `down` about `n` moves it by `n x down`, so its forward component grows fastest
+    # about `down x travel`.
+    folds = down.normalized().cross(travel)
+    if folds.length < 1e-9:
+        refuse(f"the {side} thigh lies along the line of travel")
+    return folds.normalized()
+
+
+def ease_the_knees(rig, degrees):
+    """Bends each knee a little in the BIND, and moves every clip with it.
+
+    The thigh goes forward by `degrees` and the calf comes back by the same, so the knee leads
+    and the ankle stays put. Every clip that keys either bone is compensated, because a rest
+    change silently re-interprets every key written against the old one.
+    """
+    if abs(degrees) < 1e-6:
+        return 0.0
+    bind = rig.pose.bones["L_ToeBase"].bone
+    travel = ((rig.matrix_world @ bind.tail_local) - (rig.matrix_world @ bind.head_local))
+    travel.z = 0.0
+    if travel.length < 1e-9:
+        refuse("the bind toe has no horizontal direction")
+    travel.normalize()
+
+    # Worked out before anything moves, in world terms, so the compensation below can be built
+    # from the same rotations.
+    turns = {}
+    for side in ("L", "R"):
+        axis = which_way_the_knee_folds(rig, side, travel)
+        turns[f"{side}_Thigh"] = mathutils.Quaternion(axis, math.radians(degrees))
+        turns[f"{side}_Calf"] = mathutils.Quaternion(axis, math.radians(-2.0 * degrees))
+
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode="EDIT")
+    for name, turn in turns.items():
+        bone = rig.data.edit_bones.get(name)
+        if bone is None:
+            continue
+        pivot = bone.head.copy()
+        spin = (rig.matrix_world.to_3x3().inverted() @ turn.to_matrix()
+                @ rig.matrix_world.to_3x3()).to_4x4()
+
+        def swing(here):
+            here.head = pivot + spin @ (here.head - pivot)
+            here.tail = pivot + spin @ (here.tail - pivot)
+            for kid in rig.data.edit_bones:
+                if kid.parent is not None and kid.parent.name == here.name:
+                    swing(kid)
+
+        swing(bone)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    # And every clip carried across, so nothing that was authored against the old rest moves.
+    for clip in bpy.data.actions:
+        slot = getattr(clip, "slots", None)
+        slot = slot[0] if slot else None
+        curves = fcurves_of(clip, slot)
+        for name, turn in turns.items():
+            path = f'pose.bones["{name}"].rotation_quaternion'
+            parts = {c.array_index: c for c in curves if c.data_path == path}
+            if len(parts) != 4:
+                continue
+            back = turn.inverted()
+            for at in range(len(parts[0].keyframe_points)):
+                keyed = mathutils.Quaternion(
+                    [parts[i].keyframe_points[at].co[1] for i in range(4)])
+                out = back @ keyed
+                for i in range(4):
+                    point = parts[i].keyframe_points[at]
+                    point.handle_left[1] += out[i] - point.co[1]
+                    point.handle_right[1] += out[i] - point.co[1]
+                    point.co[1] = out[i]
+            for curve in parts.values():
+                curve.update()
+
+    def bend():
+        hip = rig.matrix_world @ rig.pose.bones["L_Thigh"].bone.head_local
+        knee = rig.matrix_world @ rig.pose.bones["L_Calf"].bone.head_local
+        ankle = rig.matrix_world @ rig.pose.bones["L_Foot"].bone.head_local
+        straight = (knee - hip).length + (ankle - knee).length
+        return (ankle - hip).length / straight if straight > 1e-9 else 1.0
+
+    return bend()
+
+
 def stand_the_legs_apart(rig, degrees):
     """Rotates each thigh outward in the BIND, so every pose is that much wider.
 
@@ -4101,6 +4211,11 @@ def main():
             if MIRRORS_THE_BIND:
                 pairs, was = the_bind_is_mirrored(rig)
                 print(f"    mirrored again after the hinge: worst {was:.2f} cm")
+            if KNEE_EASE:
+                stands = ease_the_knees(rig, KNEE_EASE)
+                print(f"    eased the knees {KNEE_EASE:.1f} deg; the bind now stands at "
+                      f"{stands * 100:.1f}% of straight, and every clip came with it")
+
             # Last, so it widens a rig that is already symmetric and stays symmetric.
             if THE_LEGS_STAND_APART:
                 by = stand_the_legs_apart(rig, THE_LEGS_STAND_APART)

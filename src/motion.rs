@@ -36,7 +36,11 @@ use crate::player::{Player, Striding};
 // value here must lie strictly between `player::WALK_SPEED` and
 // `player::JOG_SPEED`, which `the_gait_threshold_lies_between_the_speeds` checks.
 #[allow(dead_code)]
-const BREAKS_INTO_A_RUN: f32 = 3.4;
+// 2.0, down from 3.4. It has to lie strictly between `player::WALK_SPEED` and
+// `player::JOG_SPEED`, and 3.4 was chosen when the jog ran at 4.80 - so when the authored stride
+// brought the jog to 2.90 the threshold sat ABOVE it and the test caught exactly what it exists
+// to catch: a threshold past the top speed means the faster clip can never play.
+const BREAKS_INTO_A_RUN: f32 = 2.0;
 
 // # EVERY NUMBER BELOW WAS MEASURED OFF A CHARACTER THAT NO LONGER EXISTS
 //
@@ -137,7 +141,16 @@ const WALK_COVERS: f32 = 2.471;
 /// longer existed, and the whole point of the footfall audit is that there is one of these.
 #[cfg(test)]
 pub const WALK_COVERS_FOR_TESTS: f32 = WALK_COVERS;
-const JOG_COVERS: f32 = 4.435;
+// AUTHORED, 2026-08-25, and this is the number that finally agrees with itself.
+//
+// 4.435 m was the delivered clip's - a stride 2.6 times his own height, which is why it could
+// only be driven at a speed above the whole run band while its cadence sat below the bottom of
+// the recreational one. The clip is authored now (`dev/art/author_gait.py`), its feet are planted
+// by construction, and `the_footfalls` measures what they actually carry: 2.506 m.
+//
+// That is 1.47 x his height, inside the 1.4-1.8 a jog wants, and it makes the whole set cohere
+// for the first time - see JOG_SPEED for the speed it now supports.
+const JOG_COVERS: f32 = 2.506;
 
 /// How many gait CYCLES each clip contains, so cadence can be told apart from playback rate.
 ///
