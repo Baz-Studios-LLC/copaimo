@@ -343,6 +343,55 @@ pub struct Warping {
     pub stride: f32,
 }
 
+/// # Distance matching: the phase follows the ground, not the clock
+///
+/// A gait clip used to be played by handing `set_speed` a rate derived from the current speed,
+/// and letting the animation player integrate its own phase from that. That is RATE matching,
+/// and it has no feedback: the player owns the phase, so anything that perturbs it - a blend
+/// restarting the node at zero, a wrap, a frame hitch, a rate set from last frame's speed and
+/// applied to this frame's delta - desyncs the feet from the ground and stays desynced. The
+/// error has nowhere to go.
+///
+/// Distance matching makes the phase a function of ground covered instead. Every frame the
+/// accumulator advances by the cycles the warden actually travelled, and the clip is SEEKED
+/// there with its own speed pinned at zero, so the player integrates nothing. A planted foot
+/// then sits at a phase that corresponds to the distance travelled by construction, which is
+/// the standard answer to foot sliding and the reason it survives acceleration.
+///
+/// It is also what stops a deceleration reading as a slide backwards: at zero speed the phase
+/// stops advancing, so the feet hold where they are instead of the clip playing itself out
+/// underneath a body that is no longer moving.
+///
+/// Counted in CYCLES rather than metres or clip fractions, which matters at a handover: the
+/// walk clip holds two cycles and the run one, so the same clip fraction means opposite feet.
+/// The same cycle phase means the same foot.
+fn strides_over(distance: f32, covers: f32, cycles: f32, stride: f32) -> f32 {
+    let a_cycle = covers / cycles.max(1.0) * stride;
+    if a_cycle <= f32::EPSILON {
+        return 0.0;
+    }
+    distance / a_cycle
+}
+
+/// Where in a clip a cycle count lands, in seconds from its start.
+///
+/// `rem_euclid` rather than `%` so a negative accumulator - a warden walked backwards - wraps
+/// into the clip instead of seeking to a negative time the player would clamp.
+fn seek_for(covered: f32, cycles: f32, lasts: f32) -> f32 {
+    let cycles = cycles.max(1.0);
+    covered.rem_euclid(cycles) / cycles * lasts
+}
+
+/// How far through its gait cycle the warden is, in cycles, from the ground he has covered.
+///
+/// Kept on the warden rather than in the animation player because the player's copy is reset by
+/// every blend, and the whole point is that the phase outlives the clip that is showing it.
+#[derive(Component, Default, Debug, Clone, Copy)]
+pub struct Strides {
+    /// Cycles of ground covered. Grows without bound; only its fractional part is played.
+    pub cycles: f32,
+}
+
 /// How much of the speed to take out of the stride, and how much to leave to the play rate.
 ///
 /// Everything up to the cap, and the remainder stays with the rate. Never below 1.0: a stride
@@ -405,6 +454,12 @@ struct Gait {
     covers: f32,
     /// How long the clip runs, in seconds — see `playback_rate`.
     lasts: f32,
+    /// How many gait cycles the clip contains — see `CYCLES`.
+    ///
+    /// Carried per gait rather than looked up at use, because the phase accumulator counts
+    /// CYCLES and not clip fractions, and that is what lets a walk of two cycles hand over to a
+    /// run of one without the feet jumping.
+    cycles: f32,
     /// Above this speed the next gait up takes over.
     upto: f32,
 }
@@ -492,6 +547,7 @@ pub fn find_the_clips(
             node: graph.add_clip(clip.clone(), 1.0, graph.root),
             covers: *covers,
             lasts,
+            cycles: cycles_in(called),
             upto: *upto,
         });
     }
@@ -558,12 +614,14 @@ pub fn hand_the_clips_over(
 pub fn match_the_clip_to_the_walking(
     mut commands: Commands,
     motions: Res<Motions>,
-    striding: Query<(Entity, &Striding), With<Player>>,
+    clock: Res<Time>,
+    striding: Query<(Entity, &Striding, Option<&Strides>), With<Player>>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
 ) {
-    let Ok((warden, pace)) = striding.single() else {
+    let Ok((warden, pace, walked)) = striding.single() else {
         return;
     };
+    let mut covered = walked.copied().unwrap_or_default();
     // Both of these read `wants`, the ASKED speed, and not the measured one. Measured
     // speed is noisy enough to sit either side of a handover ceiling on consecutive
     // frames - it counted terrain climb as ground speed until this was fixed - and every
@@ -595,21 +653,36 @@ pub fn match_the_clip_to_the_walking(
                 .repeat();
         }
         if moving {
-            // Strides a second is `speed / covers`: a clip is one stride long, so
-            // that is how many of them the warden needs, and each gait carries its
-            // own distance. Multiplied by the clip's LENGTH because `set_speed` is a
-            // multiple of its natural rate rather than a rate — see `Motions`.
-            // The stride takes what it can and the rate carries the rest, which is the whole
-            // point: `covers x stride` is the ground one cycle now carries, so dividing by the
-            // warp is what turns a wider stride into a slower, less churning clip.
+            // The stride takes what it can of the speed and the phase carries the rest:
+            // `covers x stride` is the ground one cycle now covers, so a wider stride means
+            // fewer cycles for the same distance and a less churning clip.
             let stride = warps_the_stride(pace.speed, covers, lasts);
+            // DISTANCE matching, not rate matching — see `strides_over`. The phase advances by
+            // the ground actually travelled and the clip is seeked there, with its own speed
+            // pinned at zero so the player integrates nothing of its own. Every frame re-derives
+            // the pose from distance, so a blend, a wrap or a hitch cannot leave the feet out of
+            // step with the ground.
+            covered.cycles += strides_over(
+                pace.speed * clock.delta_secs(),
+                covers,
+                gait.cycles,
+                stride,
+            );
             if let Some(active) = player.animation_mut(wanted) {
-                active.set_speed(playback_rate(pace.speed, covers * stride, lasts));
+                active.set_speed(0.0);
+                active.set_seek_time(seek_for(covered.cycles, gait.cycles, lasts));
             }
             warp = stride;
+        } else if let Some(active) = player.animation_mut(wanted) {
+            // The idle is not distance driven — there is no ground to drive it with — so it
+            // plays itself. Set explicitly because the same node may have been left at zero by
+            // a gait that was showing a moment ago.
+            active.set_speed(1.0);
         }
     }
-    commands.entity(warden).insert(Warping { stride: warp });
+    commands
+        .entity(warden)
+        .insert((Warping { stride: warp }, covered));
 }
 
 /// Whether the clips have been found yet.
@@ -646,6 +719,95 @@ mod pacing {
         );
     }
 
+    /// The cycle phase a seek time implies, which is what decides which foot is forward.
+    fn cycle_phase(seek: f32, cycles: f32, lasts: f32) -> f32 {
+        (seek / lasts * cycles).fract()
+    }
+
+    /// The same ground covered puts the feet in the same place, however many frames it took.
+    ///
+    /// This is the property rate matching does not have, and the reason the warden jittered
+    /// while running: with the animation player integrating its own phase, a long frame, a
+    /// blend restart or a rate set from the previous frame's speed all move the feet relative
+    /// to the ground and nothing ever pulls them back. Here the phase is a function of
+    /// distance, so a hitch cannot shift it.
+    #[test]
+    fn the_phase_is_the_same_however_many_steps_reached_it() {
+        let (covers, cycles, stride) = (RUN_COVERS, 1.0, 1.0);
+        let whole = strides_over(10.0, covers, cycles, stride);
+        for steps in [2_u32, 7, 60, 1000] {
+            let each = 10.0 / steps as f32;
+            let summed: f32 = (0..steps)
+                .map(|_| strides_over(each, covers, cycles, stride))
+                .sum();
+            assert!(
+                (summed - whole).abs() < 1e-3,
+                "ten metres covered in {steps} steps advanced the phase {summed} cycles \
+                 against {whole} in one step, so the feet depend on the frame rate"
+            );
+        }
+    }
+
+    /// Standing still holds the feet where they are.
+    ///
+    /// The other half of "the transition from run to stop is so abrupt it seems like he almost
+    /// moves backwards": a clip that keeps playing under a body that has stopped moving reads
+    /// as the ground sliding the other way.
+    #[test]
+    fn standing_still_holds_the_phase() {
+        let advanced = strides_over(0.0, RUN_COVERS, 1.0, 1.0);
+        assert_eq!(
+            advanced, 0.0,
+            "covering no ground advanced the phase by {advanced} cycles"
+        );
+    }
+
+    /// Walk and run hand over on the same foot.
+    ///
+    /// The walk clip holds two cycles and the run one, so the SAME CLIP FRACTION means opposite
+    /// feet - seeking a run to 0.25 through and a walk to 0.25 through puts one warden a
+    /// quarter cycle in and the other half a cycle in. Counting the accumulator in cycles is
+    /// what makes the handover land on the same foot; this is the test that says so.
+    #[test]
+    fn a_gait_change_lands_on_the_same_foot() {
+        let (walk_lasts, run_lasts) = (WALK_FRAMES / 24.0, RUN_FRAMES / 24.0);
+        for covered in [0.0_f32, 0.1, 0.4, 0.5, 0.9, 1.3, 2.7, 5.25] {
+            let walking = cycle_phase(seek_for(covered, 2.0, walk_lasts), 2.0, walk_lasts);
+            let running = cycle_phase(seek_for(covered, 1.0, run_lasts), 1.0, run_lasts);
+            assert!(
+                (walking - running).abs() < 1e-4,
+                "at {covered} cycles covered the walk sits at cycle phase {walking} and the \
+                 run at {running}, so changing gait would swap the leading foot"
+            );
+            assert!(
+                (walking - covered.fract()).abs() < 1e-4,
+                "at {covered} cycles covered the clip sits at cycle phase {walking}, which is \
+                 not where the ground says it should be"
+            );
+        }
+    }
+
+    /// A wider stride means fewer cycles for the same ground, not more.
+    ///
+    /// `covers x stride` is the distance one cycle now carries, so the warp has to DIVIDE the
+    /// phase advance. Getting that backwards would speed the clip up exactly when stride
+    /// warping was meant to slow it down, and would look plausible while doing it.
+    #[test]
+    fn a_wider_stride_churns_less() {
+        let tight = strides_over(4.0, RUN_COVERS, 1.0, 1.0);
+        let wide = strides_over(4.0, RUN_COVERS, 1.0, STRIDE_WARPS_TO);
+        assert!(
+            wide < tight,
+            "the same four metres advanced {wide} cycles at a {STRIDE_WARPS_TO}x stride and \
+             {tight} at the authored one, so warping the stride churns the clip faster"
+        );
+        assert!(
+            (wide * STRIDE_WARPS_TO - tight).abs() < 1e-4,
+            "a {STRIDE_WARPS_TO}x stride should take exactly that fraction of the cycles: \
+             {wide} against {tight}"
+        );
+    }
+
     /// And the clips play at a believable cadence at those speeds.
     ///
     /// # Measured through the clip's own length, not around it
@@ -677,9 +839,11 @@ mod pacing {
         // In steps a minute, because that is the unit the evidence is in and "cycles
         // a second" hid how bad the run once was. Two steps to a cycle.
         //
-        // What the player will actually produce: the rate handed to `set_speed`,
-        // divided by the clip's own length, because that rate is a multiple of one
-        // cycle over that length.
+        // What the warden will actually produce. Since the phase is now driven by distance
+        // rather than by `set_speed` — see `strides_over` — this is the cadence that EMERGES
+        // from covering ground at that speed: `speed / covers` cycles a second, which is what
+        // `playback_rate` computes divided by the clip's own length. The two agree by
+        // construction, so the bounds below still describe what is played.
         let steps = |speed: f32, covers: f32, gait: &str| -> f32 {
             playback_rate(speed, covers, lasts(gait)) / lasts(gait) * 120.0
         };

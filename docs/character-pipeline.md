@@ -233,7 +233,7 @@ So stage 03's real content is the two MODELLING jobs, not weight painting:
 *Unblocks:* layering. An additive layer amplifies a weight fault rather than hiding it.
 *Refuses when:* an edge stretches past ~1.35x its rest length in any frame.
 
-### 04 - Locomotion that does not slide  (part done)
+### 04 - Locomotion that does not slide  (DISTANCE MATCHING DONE 2026-08-25)
 
 `covers` is 2.542 m walking and 4.964 m running, taken from the root motion detrended out of
 each clip. Both play within 3% of native:
@@ -241,10 +241,24 @@ each clip. Both play within 3% of native:
     walk  101 steps/min at 1.07 m/s, played at 0.98x
     jog   116 steps/min at 4.80 m/s, played at 0.97x
 
-* **Close the run loop** - 22.19 deg apart, so it pops every cycle.
-* Blend tree walk<->run on speed, handover at a measured crossover.
-* **Distance matching** so the cycle's phase is driven by ground covered rather than by elapsed
-  time. This is the solved answer to foot sliding and it survives acceleration.
+* ~~Close the run loop~~ - **DONE.** The audit now reports every clip closing at 0.00-0.04 deg
+  and every hip landing 0.0 cm from where it began. The 22.19 deg figure above is stale.
+* ~~Distance matching~~ - **DONE 2026-08-25.** The phase is no longer integrated by the
+  animation player from a rate handed to `set_speed`. `Strides` accumulates the gait CYCLES the
+  warden has actually covered, the clip is seeked there, and its own speed is pinned at zero so
+  the player integrates nothing. See `strides_over` in `src/motion.rs` for why rate matching had
+  no feedback and this does.
+
+  Counted in cycles rather than metres or clip fractions on purpose: the walk clip holds two
+  cycles and the run one, so the same clip fraction means opposite feet, and
+  `a_gait_change_lands_on_the_same_foot` is the test that holds it.
+
+  This is also the fix for both remaining in-game reports - the jitter while running, and the
+  stop that read as sliding backwards. **Needs a playtest to confirm; the tests cover the
+  arithmetic, not the feel.**
+* Blend tree walk<->run on speed, handover at a measured crossover. Distance matching makes this
+  safe to build: both clips now agree on where in the cycle they are, so a cross-fade blends two
+  poses of the same gait phase instead of two arbitrary ones.
 * Turn-in-place, so standing rotation is not a skate.
 
 This run bounds: 4.96 m a cycle on a 1.7 m figure is about 1.6x a human stride for its cadence.
@@ -253,6 +267,12 @@ than refuses.
 
 *Unblocks:* ground contact. IK corrects a base pose, so the base has to be right first.
 *Refuses when:* playback multiple leaves 0.80-1.25x, or planted-foot velocity spread > 0.
+
+A note on what the 0.80-1.25x bound now means. It described the multiple handed to `set_speed`,
+and nothing is handed to `set_speed` any more. The bound still describes the cadence that emerges
+from covering ground at a given speed, because that cadence is the same `speed / covers` the old
+rate computed - `neither_gait_plays_at_a_blur` asserts on exactly that. It is a statement about
+the clips, not about the playback mechanism, and it survived the change intact.
 
 ### 05 - Ground contact  (solver exists)
 
@@ -398,3 +418,18 @@ edits do not:
 Order matters and is enforced by the build: amplify, then lift, then spread. Amplifying after the
 lift would push the inner extreme back into the ribs; spreading before amplifying would
 redistribute a twist that then gets scaled.
+
+
+## Deferred, on purpose (2026-08-25)
+
+Not forgotten, and not blocked - held back because the user asked to keep moving and do another
+pass over the whole character later.
+
+* **The fingers do not move.** "his fingers should move too but lets move on to the next step."
+  The 30 finger bones from stage 02 are rigged, weighted and unfused, and every clip leaves them
+  static. Two separate wants sit behind this and they want different work: a hand that RESPONDS
+  (grip poses, an additive finger layer over locomotion) is stage 06/07, while a hand that simply
+  is not frozen during an idle is a clip edit of the same kind as `move_the_arms_more` - a small
+  authored curl-and-release, amplified about the mean.
+* **Another pass over everything.** Explicitly requested. Worth doing after stage 06 exists,
+  because a layered-motion system changes what is worth authoring into a clip by hand.
