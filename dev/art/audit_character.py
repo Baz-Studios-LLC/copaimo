@@ -346,9 +346,12 @@ def the_hands(rig, mesh, scene):
 # strain measured on those alone says nothing about what happens when he reaches for something.
 #
 # (bone, axis, degrees) - applied on top of the rest pose, one pose at a time.
+# The axes are MEASURED, not assumed: on this rig local Z abducts (the left wrist moves 0.23
+# units away from the spine at +70 degrees), X flexes forward, and Y is the twist along the
+# bone. The first version used X for "arms overhead" and was actually posing them forward.
 TRIES = (
-    ("arms overhead", (("L_Upperarm", "X", -95.0), ("R_Upperarm", "X", -95.0))),
-    ("arms forward", (("L_Upperarm", "X", -80.0), ("R_Upperarm", "X", -80.0))),
+    ("arms out sideways", (("L_Upperarm", "Z", 85.0), ("R_Upperarm", "Z", -85.0))),
+    ("arms forward", (("L_Upperarm", "X", 80.0), ("R_Upperarm", "X", 80.0))),
     ("a long stride", (("L_Thigh", "X", -55.0), ("R_Thigh", "X", 55.0))),
     ("a deep crouch", (("L_Thigh", "X", -95.0), ("R_Thigh", "X", -95.0),
                        ("L_Calf", "X", 110.0), ("R_Calf", "X", 110.0))),

@@ -194,6 +194,25 @@ def main():
         bpy.context.view_layer.update()
         print(f"posed by {wanted} at frame {bpy.context.scene.frame_current}")
 
+    # Arms raised by so many degrees, on top of whatever pose is showing. The armpit webbing
+    # only reads with the arm AWAY from the body, and no delivered clip ever lifts one - which
+    # is exactly how it stayed invisible in every render until it was asked about.
+    # About local Z, signed per side, because that is what MEASURED as abduction: +70 deg of Z
+    # takes the left wrist 0.23 units away from the spine, where X - the assumed axis - is
+    # flexion and moves it forward instead. Y is the twist axis; 70 degrees of it moves the
+    # wrist a millimetre and shows nothing.
+    lift = flag("--lift")
+    if lift and rig is not None:
+        for name, sign in (("L_Upperarm", 1.0), ("R_Upperarm", -1.0)):
+            if name in rig.pose.bones:
+                bone = rig.pose.bones[name]
+                bone.rotation_mode = "QUATERNION"
+                bone.rotation_quaternion = (
+                    mathutils.Quaternion((0.0, 0.0, 1.0), math.radians(float(lift) * sign))
+                    @ bone.rotation_quaternion)
+        bpy.context.view_layer.update()
+        print(f"arms lifted {lift} degrees (local Z, the measured abduction axis)")
+
     marked = set()
     if highlight:
         marked = (mark_the_faults(body) if highlight == "faults"

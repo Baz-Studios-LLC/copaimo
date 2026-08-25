@@ -68,6 +68,49 @@ TRAVELS = ("walk", "run")
 # asks whether two exports of the same rig agree, not whether two rigs are similar.
 RESTS_MATCH_WITHIN = 1e-5
 
+# # The armpit webbing, face by face, LEFT SIDE ONLY so far
+#
+# The generator webbed the inner arms to the ribs where they rested close: no daylight under
+# either arm in any idle frame, and 201 edges tearing past 1.35x with the arms overhead. These
+# are the faces that both JOIN an arm to the trunk and STRETCH when the arm lifts, sitting clear
+# below the shoulder joint - measured by `webbing.py`'s criteria, rendered in red, and agreed by
+# eye before anything was cut. The 23 faces at shoulder height that also matched are the deltoid
+# cap, and they stay: a correct shoulder joins arm to trunk too.
+#
+# Recorded as CENTROIDS rather than indices, so the cut finds each face by where it is. A
+# re-delivered file with a different face order then refuses loudly instead of cutting somebody's
+# chest out. The right side waits until the left has been looked at - the two are not mirror
+# images (18 faces against 28), so each side gets its own record and its own inspection.
+WEBBING = {
+    "L": (
+        (0.084475, 0.072733, 0.660144),
+        (0.072733, 0.083170, 0.656230),
+        (0.081213, 0.063601, 0.695369),
+        (0.074038, 0.070124, 0.707111),
+        (0.075342, 0.066862, 0.719505),
+        (0.072733, 0.053816, 0.735812),
+        (0.049250, 0.096217, 0.653621),
+        (0.034247, 0.099478, 0.646445),
+        (0.030333, 0.098826, 0.636660),
+        (0.012068, 0.097521, 0.630137),
+        (0.008154, 0.094260, 0.636008),
+        (0.000978, 0.093607, 0.630137),
+        (0.000326, 0.092303, 0.645793),
+        (-0.013372, 0.086432, 0.641227),
+        (-0.021200, 0.088389, 0.664710),
+        (-0.019243, 0.097521, 0.687541),
+        (-0.025114, 0.105349, 0.709068),
+        (-0.064905, 0.096217, 0.729289),
+    ),
+}
+
+# How near a face's centroid must be to its recorded position to be the recorded face. Half a
+# millimetre at model scale; the faces themselves are centimetres apart.
+THE_SAME_FACE_WITHIN = 5e-4
+
+# Coincident split copies weld together at this grain; genuine neighbours never do.
+WELD_WITHIN = 0.00002
+
 # How far to roll each hand inward, in degrees, and which way that is per side.
 #
 # The delivered character stands SUPINATED - palms facing out, which no relaxed human does. It is
@@ -104,6 +147,179 @@ SHARED_ALONG = (("ForearmTwist01", 1.0 / 3.0), ("ForearmTwist02", 1.0 / 3.0), ("
 
 def refuse(why):
     raise SystemExit(f"REFUSED: {why}")
+
+
+def cut_the_webbing(rig, mesh):
+    """Removes the recorded webbing faces and closes each side onto its own surface.
+
+    # Found by position, refused on any doubt
+
+    Every recorded centroid must match exactly one face within `THE_SAME_FACE_WITHIN`, or
+    nothing at all is cut. Two mesh removals on the last character took the wrong thing, and
+    both began with a selection that was almost right.
+
+    # The caps do not re-bridge what was just cut
+
+    Deleting the webbing leaves ONE boundary running around the hole - along the sleeve, across
+    to the ribs, along the ribs, and back. Capping that loop as it stands would stitch the arm
+    straight back onto the torso. So the boundary vertices are split by which REGION owns them,
+    and each side is closed onto its own centre: the sleeve gets an inner wall, the ribs get a
+    side wall, and the gap between them is the daylight this exists to create.
+
+    # Two things Blender does here that would be silent
+
+    A bmesh round trip DROPS custom split normals, and on a fully split mesh those carry all of
+    the smooth shading - the melted-shoe fault, from a new direction. Every surviving loop's
+    normal is snapshotted first, keyed by face centroid and corner position, and put back after;
+    cap faces take their face normal, which is what a flat wall wants anyway.
+
+    And the mesh is SPLIT, so a stored edge on the hole's rim may have a coincident twin that
+    still has faces. Boundaries are found by welded position - an edge is on the rim only if ALL
+    copies of it together now border exactly one face.
+    """
+    import bmesh
+    from collections import defaultdict
+
+    groups = {g.index: g.name for g in mesh.vertex_groups}
+
+    def owner_of(vertex):
+        best, who = 0.0, ""
+        for group in vertex.groups:
+            if group.weight > best:
+                best, who = group.weight, groups.get(group.group, "")
+        return who
+
+    def side_of(name):
+        return "arm" if any(k in name for k in ("Upperarm", "Forearm", "Hand")) else "trunk"
+
+    def key_of(co):
+        return (round(co.x / WELD_WITHIN), round(co.y / WELD_WITHIN), round(co.z / WELD_WITHIN))
+
+    # The faces, by where they are.
+    wanted = []
+    for which, centroids in WEBBING.items():
+        for spot in centroids:
+            aim = mathutils.Vector(spot)
+            near = [p for p in mesh.data.polygons
+                    if (p.center - aim).length < THE_SAME_FACE_WITHIN]
+            if len(near) != 1:
+                refuse(f"the recorded {which} webbing face at {spot} matches {len(near)} faces "
+                       f"- this is not the mesh the record was measured on, so nothing was cut")
+            wanted.append(near[0].index)
+    if len(set(wanted)) != len(wanted):
+        refuse("two recorded centroids found the same face - nothing was cut")
+
+    # The shading, before bmesh forgets it.
+    kept_normals = {}
+    for poly in mesh.data.polygons:
+        for loop_index in poly.loop_indices:
+            loop = mesh.data.loops[loop_index]
+            co = mesh.data.vertices[loop.vertex_index].co
+            kept_normals[(key_of(poly.center), key_of(co))] = tuple(
+                mesh.data.corner_normals[loop_index].vector)
+
+    before_verts = len(mesh.data.vertices)
+    bm = bmesh.new()
+    bm.from_mesh(mesh.data)
+    bm.faces.ensure_lookup_table()
+    bm.verts.ensure_lookup_table()
+    doomed = [bm.faces[i] for i in wanted]
+    rim_candidates = {v.index for f in doomed for v in f.verts}
+    bmesh.ops.delete(bm, geom=doomed, context="FACES")
+
+    # The hole's rim, welded. An edge is on it only if its position-pair borders one face now.
+    bm.verts.ensure_lookup_table()
+    faces_on = defaultdict(int)
+    edge_at = defaultdict(list)
+    for edge in bm.edges:
+        pair = tuple(sorted((key_of(edge.verts[0].co), key_of(edge.verts[1].co))))
+        faces_on[pair] += len(edge.link_faces)
+        edge_at[pair].append(edge)
+    rim = set()
+    for pair, count in faces_on.items():
+        if count == 1:
+            for edge in edge_at[pair]:
+                for vert in edge.verts:
+                    if vert.index in rim_candidates:
+                        rim.add(vert)
+
+    # Each side closes onto its own middle - IF there is a hole to close.
+    #
+    # Measured on this mesh, there is not: 32 candidate vertices produced a rim of ONE. Almost
+    # every edge on the cut's boundary still borders a face at its welded position, which means
+    # the webbing was an extra layer OVER existing sleeve and rib walls rather than the only
+    # surface there - the 0.33 cm nearest-approach between arm and trunk was those walls. So a
+    # side with no ring is the good outcome, reported and left alone; the caps exist for the day
+    # a delivery genuinely has nothing behind its webbing.
+    deform = bm.verts.layers.deform.verify()
+    made_faces = []
+    for which in ("arm", "trunk"):
+        ring = [v for v in rim if side_of(owner_of(mesh.data.vertices[v.index])) == which]
+        # One representative per welded position, or the fan doubles up on split copies.
+        one_per_spot = {}
+        for vert in ring:
+            one_per_spot.setdefault(key_of(vert.co), vert)
+        ring = list(one_per_spot.values())
+        if len(ring) < 3:
+            print(f"    the {which} side has {len(ring)} open rim vertices - the surface "
+                  f"behind the webbing is already there, so there is nothing to close")
+            continue
+        middle = sum((v.co for v in ring), mathutils.Vector()) / len(ring)
+
+        # Ordered around the ring's own plane, so the fan walks the rim instead of jumping it.
+        away = [v.co - middle for v in ring]
+        normal = mathutils.Vector((0.0, 0.0, 0.0))
+        for a, b in zip(away, away[1:]):
+            normal += a.cross(b)
+        if normal.length < 1e-12:
+            normal = mathutils.Vector((0.0, 0.0, 1.0))
+        normal.normalize()
+        east = away[0] - normal * away[0].dot(normal)
+        if east.length < 1e-12:
+            east = mathutils.Vector((1.0, 0.0, 0.0))
+        east.normalize()
+        north = normal.cross(east)
+        ring.sort(key=lambda v: math.atan2((v.co - middle).dot(north),
+                                           (v.co - middle).dot(east)))
+
+        centre = bm.verts.new(middle)
+        weights = defaultdict(float)
+        for vert in ring:
+            for group_index, weight in vert[deform].items():
+                weights[group_index] += weight / len(ring)
+        top = sorted(weights.items(), key=lambda kv: -kv[1])[:4]
+        total = sum(w for _, w in top) or 1.0
+        for group_index, weight in top:
+            centre[deform][group_index] = weight / total
+
+        for here, there in zip(ring, ring[1:] + ring[:1]):
+            try:
+                made_faces.append(bm.faces.new((here, there, centre)))
+            except ValueError:
+                pass  # a rim pair that already shares a face; the fan simply skips it
+        print(f"    closed the {which} side with {len(ring)} rim vertices onto one centre")
+
+    bmesh.ops.recalc_face_normals(bm, faces=made_faces)
+    bm.to_mesh(mesh.data)
+    bm.free()
+    mesh.data.update()
+
+    # The shading back on: restored where it survived, taken from the face where it is new.
+    normals = []
+    for poly in mesh.data.polygons:
+        for loop_index in poly.loop_indices:
+            loop = mesh.data.loops[loop_index]
+            co = mesh.data.vertices[loop.vertex_index].co
+            normals.append(kept_normals.get((key_of(poly.center), key_of(co)),
+                                            tuple(poly.normal)))
+    mesh.data.normals_split_custom_set(normals)
+
+    print(f"  cut {len(wanted)} webbing faces "
+          f"({' + '.join(f'{len(c)} {s}' for s, c in WEBBING.items())}); "
+          f"{len(mesh.data.vertices) - before_verts} cap vertices added")
+    if not mesh.data.has_custom_normals:
+        refuse("the cut dropped the custom split normals - the whole body would be lit as a "
+               "different shape")
 
 
 def rig_of(objects):
@@ -411,6 +627,7 @@ def main():
             skeleton = skeleton_of(rig)
             print(f"  {filename}: the base - {len(rig.data.bones)} bones, "
                   f"{len(base_mesh.data.vertices)} vertices")
+            cut_the_webbing(rig, base_mesh)
         else:
             the_skeletons_match(skeleton, skeleton_of(rig), filename)
             print(f"  {filename}: same skeleton, so its clip moves across unchanged")
