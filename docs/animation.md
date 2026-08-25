@@ -153,6 +153,154 @@ key in every clip was an identity, so there was no metatarsal break anywhere.
 > in Python. **Open:** either make runtime planting absolute during stance, or emit targets for
 > the Rust solver the way `solve_a_leg_for_blender` already does.
 
+## Jogging, specifically  (researched 2026-08-25)
+
+Everything above this section is about walks, runs and sprints. Copaimo ships a WALK and a JOG
+and nothing else, and a jog is not a slow run - it has its own speed, its own cadence and its own
+foot strike. This is what the sources say, and what ours measures against it.
+
+### The speed tiers, in real units
+
+**STANDARD.** ([MoCap Online, locomotion design](https://mocaponline.com/blogs/mocap-news/locomotion-animations-game-dev))
+
+| Tier | Speed |
+|---|---|
+| Walk | 2–4 km/h |
+| **Jog** | **6–8 km/h** |
+| Run | 10–12 km/h |
+| Sprint | 15+ km/h, usually forward-only |
+
+**MEASURED (Copaimo, 2026-08-25).** `WALK_SPEED` 1.07 m/s = **3.9 km/h**, a walk, at the top of
+the band. `JOG_SPEED` 4.00 m/s = **14.4 km/h**.
+
+> **⚠ The jog is moving at sprint speed.** 14.4 km/h is past the whole RUN band and into the
+> sprint's. It is not a jog by any definition in the source; it is a sprint being played by a
+> clip authored as something else. A jog at 6–8 km/h is **1.67 to 2.22 m/s**, less than half of
+> what is driven now.
+>
+> This is the same shape of fault as `covers` describing a clip it no longer belonged to: a
+> number chosen by feel that nothing ever checked against what it claims to be. And it explains
+> why the clip has to be stretched so far - see the cadence below.
+
+### Cycle length
+
+**STANDARD.** A run cycle is **16–20 frames at 30 fps**, about half a second per stride; a sprint
+is shorter at 12–16. ([MoCap Online, run cycles](https://mocaponline.com/blogs/mocap-news/run-cycle-animation))
+A jog is conventionally animated **"on tens"** - one foot strike every 10 frames, so 20 frames a
+full cycle. ([LinkedIn Learning, 2D animation](https://www.linkedin.com/learning/2d-animation-character-attitude-walk-cycles/animating-a-jog-cycle-on-tens))
+Walks follow an **8-count** structure: 8, 16 or 32 frames, left foot on count 1 and right on
+count 5.
+
+**MEASURED (Copaimo).** The jog clip is 25 frames at 24 fps = 1.04 s a cycle. Played at
+`JOG_SPEED` it is 27.7 effective frames. Against a jog's 20-at-30fps - which is 0.67 s, or 16
+frames at our 24 - **the cycle is roughly 1.7x too long**.
+
+### Cadence
+
+**STANDARD.** Recreational runners run at **150–170 steps a minute**; efficient trained adults sit
+at **170–185**; elites exceed 180.
+([Marathon Handbook](https://marathonhandbook.com/running-form-hub/),
+[Princeton Sports Medicine](https://www.princetonmedicine.com/blog/unraveling-the-science-of-running-biomechanics))
+Raising cadence 5–10% shortens stride and cuts braking force.
+
+**MEASURED (Copaimo).** 108 steps a minute at `JOG_SPEED` 4.00, and 130 at the old 4.80. **Both
+are below the bottom of the recreational band**, at a speed above the top of the run band. That
+combination has one meaning: **the stride is far too long for the speed** - measured, 4.435 m a
+cycle, which is 2.6x his own height where a jog is nearer 1.4–1.8.
+
+### Ground contact, and what it implies for stance
+
+**STANDARD.** Ground contact in running is **200–300 ms**. At 24 fps that is **5 to 7 frames per
+foot**, and it is the same however long the cycle is.
+
+**MEASURED (Copaimo).** The jog's stances run 2 to 5 frames. The short ones are why stance
+detection has been so fragile - a two-frame contact has no middle, so a fade at each end swallows
+it whole.
+
+### Foot strike
+
+**STANDARD.** Three patterns, and they are speed-dependent
+([Frontiers in Sports and Active Living](https://www.frontiersin.org/journals/sports-and-active-living/articles/10.3389/fspor.2022.768801/full),
+[Princeton](https://www.princetonmedicine.com/blog/unraveling-the-science-of-running-biomechanics)):
+
+* **Heel strike** - the heel lands first. Common among RECREATIONAL runners, which is what a jog
+  is. Higher knee impact.
+* **Midfoot** - distributes force most evenly.
+* **Forefoot** - the ball lands first. Sprinters. Less knee load, more calf and Achilles.
+
+Stride length and foot strike are **coupled**: a longer stride pushes the foot out in front of
+the centre of mass and toward a heel strike; shortening it moves the strike back toward midfoot.
+
+> **→ For Copaimo.** A jog is a recreational pace, so heel-first is right, and that agrees with
+> what was asked for. But note the coupling: this clip's 2.6x-height stride *forces* a heel
+> strike whatever anyone intends. Fixing the stride and fixing the strike are the same job.
+
+### Trunk lean
+
+**STANDARD.** A run has a "slight forward lean"; the pronounced **15–30°** figure belongs to a
+SPRINT and nothing slower. ([MoCap Online](https://mocaponline.com/blogs/mocap-news/run-cycle-animation))
+This agrees with the biomechanics already recorded in `TROUBLESHOOTING.md`: real trunk flexion is
+4–12°, most economical near 6.
+
+**MEASURED (Copaimo).** The jog now sits at **+6.2° off vertical**, measured through the flesh.
+Correct for the tier.
+
+### Arm swing
+
+**STANDARD.** Opposite arm to opposite leg, and it is a balance mechanism rather than decoration -
+the counter-rotation cancels the torso rotation the legs produce. Runs show "stronger arm drive"
+than walks; a sprint's "aggressive arm pump" is again a sprint trait.
+
+**MEASURED (Copaimo).** 81.3° of shoulder swing with 56% of frames within 15% of an extreme,
+which is a pump rather than a glide. Elbows carried at 85° with a 68–98° range.
+
+## Foot rigging: the reverse-foot setup  (researched 2026-08-25)
+
+**STANDARD, and Copaimo does not have it.** The industry answer for feet is the **reverse foot
+rig**: a chain that runs BACKWARD from the toe tip through the ball and the heel to the ankle, so
+the foot can pivot about whichever of those points is on the ground.
+([Blender Artists](https://blenderartists.org/t/reverse-foot-ik-rig/430676),
+[Whizzy Studios](https://www.whizzystudios.com/post/how-to-set-up-a-reverse-foot-lock-in-rigging),
+[CAVE Academy](https://caveacademy.com/wiki/post-production-assets/rigging/rigging-training/introduction-to-rigging-course/07-rigging-the-feet-2/),
+[BlenderNation](https://www.blendernation.com/2021/05/29/advanced-foot-rig-made-easy-pivot-and-roll/))
+
+It gives, from a handful of bones: **heel roll, ankle pivot, ball roll, toe roll, toe pivot and
+toe wiggle**. The IK is two handles - hip to ankle for the leg, ankle to ball for the toe lift.
+
+> **⚠ This is the answer to a fault this project hit repeatedly.** A foot rolls about its CONTACT
+> POINT - the heel at strike, the ball at push-off - and Copaimo's foot rotates about its ANKLE,
+> which is why every roll correction lifted the heel off the floor instead of pivoting on it. The
+> reverse foot is exactly the machinery that makes the pivot move to where the ground is.
+>
+> **MEASURED (Copaimo).** Two bones per foot, `Foot` and `ToeBase`. No heel bone, no ball bone,
+> no reverse chain, and `docs/rigging.md`'s bone budget allows four per foot. There is room.
+>
+> It does NOT arrive for free: the export rig is FK-only (see `src/ik.rs`), so a reverse foot
+> would be authored-through rather than shipped - the pivots drive the bake, and what leaves is
+> still `Foot` and `ToeBase`. That is the normal arrangement and it is what makes it worth doing.
+
+## Locomotion systems, as AAA builds them  (researched 2026-08-25)
+
+**STANDARD.** ([MoCap Online, locomotion design](https://mocaponline.com/blogs/mocap-news/locomotion-animations-game-dev),
+[MoCap Online, state machines](https://mocaponline.com/blogs/mocap-news/animation-state-machine-design-patterns),
+[Lyra breakdown](https://www.jaydengames.com/posts/ue5-black-magic-game-core-animation/))
+
+* **Speed-based blend spaces**, not switches. A typical axis: idle 0, walk 150 cm/s, jog 375,
+  run 600.
+* **Foot IK by line trace** - trace down from each foot bone, reposition it, and rotate the ankle
+  to the surface normal. This is what `src/ik.rs` does.
+* **Additive layers for everything that is not locomotion** - breathing applied additively at all
+  times, recoil as an additive loop on the upper body, hit reactions additive by direction. Mesh
+  space additives read better on a moving character than local space.
+* **Clip counts.** Minimal loop-only 5–8. Production-complete, with starts, stops and turns,
+  **40–80**. Full AAA across stances and tiers, **80–150+**.
+* **Motion matching** (UE 5.4+) replaces the state machine entirely: pick the best-fitting clip
+  from a database each frame by pose and trajectory, rather than naming transitions.
+
+**MEASURED (Copaimo).** Three clips - idle, walk, jog - against a minimal set of 5–8. No starts,
+no stops, no turns, no strafes. That is the honest scale of what is here, and it is worth having
+in front of us before any more time goes into perfecting one of the three.
+
 ## The 12 principles, and which ones fight games
 
 **STANDARD.** Squash and stretch, anticipation, staging, straight-ahead vs pose-to-pose,
@@ -246,6 +394,19 @@ Blend out rather than cut.
 
 ## Sources
 
+- [Run Cycle Animation: The Developer's Guide — MoCap Online](https://mocaponline.com/blogs/mocap-news/run-cycle-animation)
+- [Locomotion Animations: Walk, Run, Blend Trees — MoCap Online](https://mocaponline.com/blogs/mocap-news/locomotion-animations-game-dev)
+- [Animation State Machines: Patterns for 200+ States — MoCap Online](https://mocaponline.com/blogs/mocap-news/animation-state-machine-design-patterns)
+- [The Key Poses of a Run Cycle — AnimSchool](https://blog.animschool.edu/2024/04/10/the-key-poses-of-a-run-cycle/)
+- [Animating a jog cycle on tens — LinkedIn Learning](https://www.linkedin.com/learning/2d-animation-character-attitude-walk-cycles/animating-a-jog-cycle-on-tens)
+- [The Coupling of Stride Length and Foot Strike in Running — Frontiers](https://www.frontiersin.org/journals/sports-and-active-living/articles/10.3389/fspor.2022.768801/full)
+- [Unraveling the Science of Running Biomechanics — Princeton Sports Medicine](https://www.princetonmedicine.com/blog/unraveling-the-science-of-running-biomechanics)
+- [Running Form: Cadence, Foot Strike + Drills — Marathon Handbook](https://marathonhandbook.com/running-form-hub/)
+- [Reverse Foot IK rig — Blender Artists](https://blenderartists.org/t/reverse-foot-ik-rig/430676)
+- [How to Set Up a Reverse Foot Lock in Rigging — Whizzy Studios](https://www.whizzystudios.com/post/how-to-set-up-a-reverse-foot-lock-in-rigging)
+- [Rigging the Feet — CAVE Academy](https://caveacademy.com/wiki/post-production-assets/rigging/rigging-training/introduction-to-rigging-course/07-rigging-the-feet-2/)
+- [Advanced Foot Rig Made Easy, Pivot and Roll — BlenderNation](https://www.blendernation.com/2021/05/29/advanced-foot-rig-made-easy-pivot-and-roll/)
+- [Lyra Breakdown, Game Core Animation — ebp](https://www.jaydengames.com/posts/ue5-black-magic-game-core-animation/)
 - [Distance Matching in Unreal Engine — Epic](https://dev.epicgames.com/documentation/en-us/unreal-engine/distance-matching-in-unreal-engine)
 - [Pose Warping in Unreal Engine — Epic](https://dev.epicgames.com/documentation/en-us/unreal-engine/pose-warping-in-unreal-engine)
 - [Animation in the Lyra Sample Game — Epic](https://dev.epicgames.com/documentation/unreal-engine/animation-in-lyra-sample-game-in-unreal-engine?lang=en-US)
