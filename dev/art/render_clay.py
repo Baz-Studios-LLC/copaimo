@@ -57,6 +57,10 @@ SHOTS = (
     ("armpit_L", 25.0, 0.30, "L_Upperarm"),
     ("armpit_L_front", 0.0, 0.30, "L_Upperarm"),
     ("armpit_R", -25.0, 0.30, "R_Upperarm"),
+    # The elbows, reported as digging into the mesh in the idle. Aimed at the forearm's root,
+    # which is where the joint is, from behind and outside where a crease shows.
+    ("elbow_L", 35.0, 0.26, "L_Forearm"),
+    ("elbow_R", -35.0, 0.26, "R_Forearm"),
 )
 
 WIDE = (700, 900)
@@ -143,6 +147,9 @@ def main():
     root = os.path.dirname(os.path.dirname(ART))
     model = flag("--model", os.path.join(root, "assets", "models", "person_ranger.glb"))
     out = flag("--out", os.path.join(root, "dev", "art", "clay"))
+    # EXACT names, not substrings. `--only front` also matched `armpit_L_front`, and the golden
+    # harness then kept whichever file sorted first - so `rest_front.png` in the kept sheet was
+    # an armpit close-up. A gate comparing the wrong picture passes for the wrong reason.
     only = [w for w in (flag("--only", "") or "").split(",") if w]
     textured = "--textured" in args
     silhouette = "--silhouette" in args
@@ -324,7 +331,7 @@ def main():
 
     made = []
     for name, turn, frame_is, aim_at in SHOTS:
-        if only and not any(w in name for w in only):
+        if only and name not in only:
             continue
         camera.data.ortho_scale = tall * frame_is
         angle = math.radians(turn + facing)

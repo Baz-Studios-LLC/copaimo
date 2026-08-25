@@ -358,6 +358,18 @@ pub fn warps_the_stride(speed: f32, covers: f32, clip_lasts: f32) -> f32 {
 /// like they faded into it. Long enough that the switch is not a snap.
 const BLEND: f32 = 0.18;
 
+/// How long STOPPING takes, which is not the same question.
+///
+/// Starting and stopping cross very different distances. Measured, the run's pose is 110 to 117
+/// cm from the idle's opening pose at every point in its cycle - the hands are more than a metre
+/// from where standing still puts them. Crossing that in `BLEND` is six metres a second of hand
+/// travel, and it reads as a lurch: "the transition from run to stop is so abrupt it seems like
+/// he almost moves backwards".
+///
+/// Starting keeps the short blend, because a start should look decisive and the character is
+/// accelerating into the motion anyway. Only the settle is given room.
+const SETTLES_OVER: f32 = 0.34;
+
 /// The clips, once they have been found and put in a graph.
 #[derive(Resource)]
 pub struct Motions {
@@ -576,8 +588,10 @@ pub fn match_the_clip_to_the_walking(
             (motions.idle, 0.0, motions.idle_lasts)
         };
         if !player.is_playing_animation(wanted) {
+            // Into a gait, quickly; into a stand, with room. See `SETTLES_OVER`.
+            let over = if moving { BLEND } else { SETTLES_OVER };
             moves
-                .play(&mut player, wanted, std::time::Duration::from_secs_f32(BLEND))
+                .play(&mut player, wanted, std::time::Duration::from_secs_f32(over))
                 .repeat();
         }
         if moving {

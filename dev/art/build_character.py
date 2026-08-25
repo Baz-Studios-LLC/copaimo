@@ -113,6 +113,21 @@ SPLAY_SIGNS = {"L": 1.0, "R": -1.0}
 FINGERS_FLATTEN_BY = -7.0
 DIGITS_TRAIL_BY = 3          # frames each digit lags the one before it, thumb first
 
+# # Closing a cycle that does not close
+#
+# The delivered run does not loop: 22.19 degrees between its first and last pose, which in the
+# game is the hands snapping 30.6 cm and the hip 2.10 cm, once every 1.03 seconds. Reported as
+# "either he jitters or the world does" - it was him.
+#
+# The same unclosed loop is also why he creeps backwards. Root motion is detrended as a straight
+# line from first key to last, and when the two ends are not the same pose that leaves a
+# residue: measured, -1.96 cm of net backward hip travel per cycle.
+#
+# Closed by bending the last frames to meet the first, the same way `join_the_clips` bends its
+# seams. Over a third of a second here, which spreads 22 degrees at under 3 degrees a frame.
+CLOSES_THE_LOOP = ("run",)
+CLOSE_OVER = 8
+
 # Which clips are supposed to carry the character somewhere. Everything else is a standing
 # motion, and a standing motion with no travel is correct rather than broken - the refusal below
 # is there to catch a gait whose channels never bound, which is what an unbound action slot
@@ -245,7 +260,19 @@ DIGITS = ("Thumb", "Index", "Middle", "Ring", "Pinky")
 #
 # Rolled about the bone's own Y, which is along its length - that is the axis a forearm pronates
 # about. Opposite signs per side because pronation is a mirror.
-PALMS_ROLL_IN = 90.0
+#
+# THIRTY, not ninety, and the difference is a measurement I did not take the first time. The
+# delivered clips ALREADY pronate the forearm - band by band from the elbow, the idle winds it
+# -38 to -59 degrees and plateaus - so the correction needed is only what is left over. Swept
+# against the palm-plane angle:
+#
+#     0 deg -> L 32.6 R 49.8      25 -> L 28.6 R 33.1      40 -> L 34.8 R 26.2
+#    55 deg -> L 44.8 R 25.8      90 -> L 74.9 R 51.1
+#
+# Ninety was past the far side and OVER-rotating by more than double. It read as roughly right
+# in a render because a palm 75 degrees off the thigh still looks better than one facing
+# forward.
+PALMS_ROLL_IN = 30.0
 ROLLS = {"L": 1.0, "R": -1.0}
 
 # How the roll is SHARED along the forearm, and why it has to be shared at all.
@@ -264,7 +291,21 @@ ROLLS = {"L": 1.0, "R": -1.0}
 # rides on Twist01, so it reaches two thirds - and the full amount on the hand, which hangs off
 # the forearm and therefore carries no inherited roll. That ramps the skin from nothing at the
 # elbow to everything at the wrist, which is what a forearm does.
-SHARED_ALONG = (("ForearmTwist01", 1.0 / 3.0), ("ForearmTwist02", 1.0 / 3.0), ("Hand", 1.0))
+# THE HAND ONLY, and the twist bones deliberately left alone.
+#
+# Sharing the roll along the forearm is right on a rig whose clips do not already twist it. This
+# rig's clips DO: measured band by band from the elbow, the delivered idle winds the forearm
+# -38 to -59 degrees, smoothly, plateauing at the wrist. That is a correct pronation already
+# there.
+#
+# Adding +30/+60/+90 on top FOUGHT it, because the added roll runs the other way: proximally the
+# two cancelled to -15, distally the hand over-rotated to +18, and the forearm came out
+# counter-twisted by 46 degrees along its length - the mesh wrung like a towel, reported as "a
+# twist in the mesh of the elbow render".
+#
+# Rolling only the hand leaves the clip's own twist exactly as authored and moves the one joint
+# that actually needs moving.
+SHARED_ALONG = (("Hand", 1.0),)
 
 
 def refuse(why):
@@ -1509,6 +1550,49 @@ def the_hands_stay_off_the_chest(rig, mesh, scene):
               f"before trusting either the pose or this number")
 
 
+def close_the_loop(rig, clip, scene, over):
+    """Bends the end of a cycle back to meet its beginning, in rotation AND position.
+
+    Sampled and re-keyed rather than edited in place: the correction has to reach every bone the
+    clip touches, and a clip authored at one rate against another's key times cannot be nudged
+    channel by channel without drifting out of step with itself.
+    """
+    play(rig, clip)
+    frames = sample(rig, clip, scene)
+    if len(frames) < over + 2:
+        return 0.0
+    offsets = {}
+    for name, (turn, shift, _) in frames[0].items():
+        if name not in frames[-1]:
+            continue
+        their_turn, their_shift, _ = frames[-1][name]
+        offsets[name] = (turn @ their_turn.inverted(), shift - their_shift)
+    bend_to_meet(frames, offsets, over, backwards=True)
+
+    was = clip.name
+    clip.name = f"{was}_open"
+    made, _ = join_the_clips(rig, scene, [], was) if False else (None, None)
+    # Re-keyed straight from the samples, on the clip's own name.
+    fresh = bpy.data.actions.new(was)
+    fresh.use_fake_user = True
+    rig.animation_data.action = fresh
+    slots = getattr(fresh, "slots", None)
+    if slots is not None:
+        rig.animation_data.action_slot = fresh.slots.new(id_type="OBJECT", name="Armature")
+    for at, pose in enumerate(frames):
+        scene.frame_set(at + 1)
+        for bone in rig.pose.bones:
+            if bone.name not in pose:
+                continue
+            bone.rotation_mode = "QUATERNION"
+            bone.rotation_quaternion, bone.location, bone.scale = pose[bone.name]
+            bone.keyframe_insert("rotation_quaternion", frame=at + 1)
+            bone.keyframe_insert("location", frame=at + 1)
+            bone.keyframe_insert("scale", frame=at + 1)
+    bpy.data.actions.remove(clip)
+    return fresh
+
+
 def travels(rig, clip, scene):
     """How far the body moves through one cycle, hips and feet separately.
 
@@ -1642,6 +1726,16 @@ def main():
         elif called in TRAVELS:
             refuse(f"the {called} clip has no travel to take out, which means either it is "
                    f"already in place or the channel carrying it was not found")
+
+    # AFTER the travel is out, never before. Closing the loop re-keys every channel from
+    # samples, so a detrend that runs afterwards finds no travel left to remove and refuses.
+    for called in CLOSES_THE_LOOP:
+        if called not in wanted:
+            continue
+        shut = close_the_loop(base_rig, wanted[called], scene, CLOSE_OVER)
+        if shut is not None:
+            wanted[called] = shut
+            print(f"    {called:<12s} loop closed over {CLOSE_OVER} frames")
         if called in ("walk", "run") and foot < 0.05:
             refuse(f"the {called} clip moves its feet {foot * 100:.1f} cm, which is not a "
                    f"gait - either the clip is empty or it is not driving the rig")

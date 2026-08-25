@@ -34,6 +34,7 @@ Verified in both directions before being relied on: clean passes at 0.00, a deli
 fails. A gate nobody has watched fail is a gate nobody knows works.
 """
 import os
+import shutil
 import subprocess
 import sys
 
@@ -103,6 +104,9 @@ def main():
     print(f"rendering {len(SHEET)} shots")
     for name, extra in SHEET:
         into = os.path.join(fresh, name)
+        # Emptied first: a leftover from a previous run is a second image in the directory, and
+        # the "exactly one" check below would then refuse a render that was perfectly fine.
+        shutil.rmtree(into, ignore_errors=True)
         os.makedirs(into, exist_ok=True)
         run = subprocess.run(
             [exe, "--background", "--python-exit-code", "1",
@@ -116,8 +120,11 @@ def main():
     for name, _ in SHEET:
         into = os.path.join(fresh, name)
         made = [f for f in sorted(os.listdir(into)) if f.endswith(".png")]
-        if not made:
-            raise SystemExit(f"REFUSED: {name} rendered no image")
+        if len(made) != 1:
+            raise SystemExit(
+                f"REFUSED: {name} rendered {len(made)} images ({', '.join(made)}) and this "
+                f"expects exactly one. Taking the first was how `rest_front` in the kept sheet "
+                f"became an armpit close-up.")
         now = os.path.join(into, made[0])
         keep = os.path.join(KEPT, f"{name}.png")
         if bless:
