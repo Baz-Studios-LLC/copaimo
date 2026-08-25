@@ -24,6 +24,7 @@ How far the body travels in one cycle is the single most consequential number in
 because playback rate is `lasts * speed / covers`. It is measured here and printed. A value
 belonging to a different animation is exactly what running through water looks like.
 """
+import math
 import os
 import sys
 
@@ -52,6 +53,39 @@ TRAVELS = ("walk", "run")
 # How far two rest transforms may differ before the skeletons are called different. Tight: this
 # asks whether two exports of the same rig agree, not whether two rigs are similar.
 RESTS_MATCH_WITHIN = 1e-5
+
+# How far to roll each hand inward, in degrees, and which way that is per side.
+#
+# The delivered character stands SUPINATED - palms facing out, which no relaxed human does. It is
+# in the bind, so every clip inherits it and no clip corrects it: the audit measures bind pose
+# and idle frame 1 as identical.
+#
+# Corrected in the CLIPS rather than in the bind. A bind change invalidates every clip authored
+# against it, and these were authored against this one; rolling the hand on each key preserves
+# whatever the clip does with the arm and only changes where the hand rests while it does it.
+#
+# Rolled about the bone's own Y, which is along its length - that is the axis a forearm pronates
+# about. Opposite signs per side because pronation is a mirror.
+PALMS_ROLL_IN = 90.0
+ROLLS = {"L": 1.0, "R": -1.0}
+
+# How the roll is SHARED along the forearm, and why it has to be shared at all.
+#
+# Rolling only the hand puts the whole ninety degrees into one joint, and the wrist shreds into
+# shards - visible in a clay render long before any number complains. The twist bones exist for
+# exactly this, but the hierarchy here is not the obvious one:
+#
+#     L_Forearm -> L_ForearmTwist01 -> L_ForearmTwist02
+#     L_Forearm -> L_Hand
+#
+# The hand is a SIBLING of the twists, not their child, so rolling the twists does not move it
+# and rolling it does not twist the forearm. Both are needed.
+#
+# The shares are cumulative down the chain: a third at Twist01, a third more at Twist02 - which
+# rides on Twist01, so it reaches two thirds - and the full amount on the hand, which hangs off
+# the forearm and therefore carries no inherited roll. That ramps the skin from nothing at the
+# elbow to everything at the wrist, which is what a forearm does.
+SHARED_ALONG = (("ForearmTwist01", 1.0 / 3.0), ("ForearmTwist02", 1.0 / 3.0), ("Hand", 1.0))
 
 
 def refuse(why):
@@ -180,6 +214,42 @@ def stand_still(rig, clip, scene):
     return took ** 0.5, who
 
 
+def roll_the_hands(rig, clip, degrees):
+    """Rolls each hand inward by a constant on every key, so the palms rest on the thighs.
+
+    Composed onto the keyed rotation rather than replacing it: `keyed * offset` in the bone's
+    own space, which leaves the clip's motion exactly as authored and moves only the frame it
+    happens in.
+    """
+    if abs(degrees) < 1e-6:
+        return 0
+    slot = rig.animation_data.action_slot if rig.animation_data else None
+    curves = fcurves_of(clip, slot)
+    turned = 0
+    for side, way in ROLLS.items():
+        for bone, share in SHARED_ALONG:
+            path = f'pose.bones["{side}_{bone}"].rotation_quaternion'
+            parts = {c.array_index: c for c in curves if c.data_path == path}
+            if len(parts) != 4:
+                continue
+            offset = mathutils.Quaternion((0.0, 1.0, 0.0),
+                                          math.radians(degrees * way * share))
+            for at in range(len(parts[0].keyframe_points)):
+                keyed = mathutils.Quaternion(
+                    [parts[i].keyframe_points[at].co[1] for i in range(4)])
+                rolled = keyed @ offset
+                for i in range(4):
+                    point = parts[i].keyframe_points[at]
+                    was = point.co[1]
+                    point.co[1] = rolled[i]
+                    point.handle_left[1] += rolled[i] - was
+                    point.handle_right[1] += rolled[i] - was
+            for curve in parts.values():
+                curve.update()
+            turned += 1
+    return turned
+
+
 def travels(rig, clip, scene):
     """How far the body moves through one cycle, hips and feet separately.
 
@@ -243,6 +313,10 @@ def main():
         clips[0].name = called
         clips[0].use_fake_user = True
         wanted[called] = clips[0]
+        play(base_rig, clips[0])
+        rolled = roll_the_hands(base_rig, clips[0], PALMS_ROLL_IN)
+        if rolled:
+            print(f"    rolled {rolled} hand(s) in by {PALMS_ROLL_IN:.0f} deg")
 
     # Anything else the imports brought in: spare meshes, the widget the importer invents.
     for thing in list(bpy.data.objects):

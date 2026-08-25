@@ -46,6 +46,12 @@ SHOTS = (
     ("feet", 35.0, 0.30, 0.06),
     ("feet_side", 90.0, 0.30, 0.06),
     ("torso", 20.0, 0.55, 0.68),
+    # Aimed at the HAND BONE rather than at a height, because a hand hangs at the side of the
+    # figure and a shot centred on the body's midline frames it at the very edge - which is what
+    # made a first attempt at judging the palms unreadable.
+    ("hand_L", 0.0, 0.16, "L_Hand"),
+    ("hand_L_side", 90.0, 0.16, "L_Hand"),
+    ("hand_R", 0.0, 0.16, "R_Hand"),
 )
 
 WIDE = (700, 900)
@@ -185,7 +191,12 @@ def main():
             continue
         camera.data.ortho_scale = tall * frame_is
         angle = math.radians(turn + facing)
-        aim = mathutils.Vector((middle.x, middle.y, low + tall * aim_at))
+        if isinstance(aim_at, str):
+            if rig is None or aim_at not in rig.pose.bones:
+                continue
+            aim = rig.matrix_world @ rig.pose.bones[aim_at].head
+        else:
+            aim = mathutils.Vector((middle.x, middle.y, low + tall * aim_at))
         camera.location = (
             aim.x + tall * 4.0 * math.sin(angle),
             aim.y - tall * 4.0 * math.cos(angle),

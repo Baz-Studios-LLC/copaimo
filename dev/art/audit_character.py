@@ -189,6 +189,94 @@ def the_skin(mesh):
               "influences vanish silently at export")
 
 
+def the_hands(rig, mesh, scene):
+    """Which way the palms face, in the bind AND in every clip.
+
+    # Why not the obvious plane fit
+
+    The obvious measure is the direction the hand's vertex cloud varies LEAST in - the flat of
+    the hand. On this character that returns a flatness of 0.45: the region carries the wrist and
+    the sleeve cuff, so it is a lump rather than a plane, and the "normal" of a lump is whatever
+    noise decides. It happily reported four different answers for four clips that pose the hand
+    identically.
+
+    Built instead from two things not in doubt: the forearm's own axis, and the KNUCKLE LINE, the
+    widest direction of the hand once the forearm axis is projected out of it. The palm normal is
+    perpendicular to both. Nothing to fit and no flatness required.
+
+    # Every pose, not just the bind
+
+    It read the bind only. The palm correction lives in the CLIPS - a bind change invalidates
+    every clip authored against it - so the instrument reported the one pose the fix deliberately
+    does not touch, and said "unchanged" about a change that had worked.
+    """
+    import numpy
+
+    groups = {g.index: g.name for g in mesh.vertex_groups}
+    owned = {"L": [], "R": []}
+    for vertex in mesh.data.vertices:
+        best, who = 0.0, ""
+        for group in vertex.groups:
+            if group.weight > best:
+                best, who = group.weight, groups.get(group.group, "")
+        if who.endswith("_Hand"):
+            owned[who[0]].append(vertex.index)
+
+    def palms():
+        posed = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        for side in "LR":
+            if len(owned[side]) < 12 or f"{side}_Hand" not in rig.pose.bones:
+                print(f"    {side}: no hand to measure")
+                continue
+            wrist = rig.matrix_world @ rig.pose.bones[f"{side}_Hand"].head
+            elbow = rig.matrix_world @ rig.pose.bones[f"{side}_Forearm"].head
+            along = wrist - elbow
+            if along.length < 1e-9:
+                continue
+            along.normalize()
+
+            spots = [posed.matrix_world @ posed.data.vertices[i].co for i in owned[side]]
+            middle = sum(spots, mathutils.Vector()) / len(spots)
+            flat = [(p - middle) - along * (p - middle).dot(along) for p in spots]
+            cloud = numpy.array([[v.x, v.y, v.z] for v in flat])
+            _u, _s, axes = numpy.linalg.svd(cloud, full_matrices=False)
+            knuckles = mathutils.Vector(axes[0]).normalized()
+            palm = along.cross(knuckles).normalized()
+
+            # The SIDE it faces is NOT measurable from this, and saying so is the point. A plane
+            # has two sides and nothing here knows which is the palm - there are no finger bones.
+            # An earlier version flipped the normal outward and then reported how far it was from
+            # the thigh, which forces the answer: after that flip "toward the thigh" is negative
+            # by construction. It read -83% and -85%, and both were arithmetic, not anatomy.
+            inward = mathutils.Vector((wrist.x, wrist.y, 0.0))
+            inward = inward.normalized() if inward.length > 1e-9 else mathutils.Vector((1, 0, 0))
+            off_thigh = math.degrees(math.acos(min(1.0, abs(palm.dot(inward)))))
+            off_flat = math.degrees(math.acos(min(1.0, abs(palm.z))))
+            print(f"    {side}: palm plane {off_thigh:5.1f} deg off the thigh direction, "
+                  f"{off_flat:5.1f} deg off vertical")
+
+    print("")
+    print("THE HANDS")
+    # # No bind-pose row, on purpose
+    #
+    # Clearing the action and re-reading gives the LAST EVALUATED pose, not the rest pose: the
+    # depsgraph keeps it, and stepping to the same frame is a no-op. The "bind" row came back
+    # identical to whichever clip had been measured before it, every time.
+    #
+    # Rather than print a number that cannot be trusted, it is not printed. The palm correction
+    # lives in the clips anyway - a bind change would invalidate every clip authored against it -
+    # so the per-clip rows are the ones that answer the question, and those do move.
+    for clip in sorted(bpy.data.actions, key=lambda a: a.name):
+        play(rig, clip)
+        scene.frame_set(int(round(clip.frame_range[0])))
+        bpy.context.view_layer.update()
+        print(f"  {clip.name}, frame {scene.frame_current}")
+        palms()
+    print("    palms ON the thighs means both angles small. WHICH SIDE faces in is not")
+    print("    measurable here - render the hands in clay and look.")
+
+
+
 def the_clips(rig, scene):
     if not bpy.data.actions:
         print("\nTHE CLIPS\n  none in this file")
@@ -250,6 +338,7 @@ def main():
     the_surface(mesh)
     the_skeleton(rig)
     the_skin(mesh)
+    the_hands(rig, mesh, bpy.context.scene)
     the_clips(rig, bpy.context.scene)
 
 
