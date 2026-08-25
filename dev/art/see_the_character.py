@@ -92,8 +92,16 @@ def bone_lengths_from_the_skeleton(rig):
         # looking unattached - asked as "is he missing a hip bone here that should connect to the
         # left leg?". He is not: Root -> Hip -> Pelvis -> both thighs is complete. It was the
         # drawing.
+        # A bone that has BOTH a symmetric pair of children and a single centre child continues
+        # up the centre one. `Spine02` parents L_Clavicle, R_Clavicle and NeckTwist01, and the
+        # nearest of those is a clavicle - so the spine was drawn running into the shoulder, and
+        # read as "the spine appears attached to the arm and not the head".
+        centre = [b for b in apart if not b.name.startswith(("L_", "R_"))]
         twins = [b for b in apart if b.name.startswith(("L_", "R_"))]
-        if len(twins) == 2 and twins[0].name[2:] == twins[1].name[2:]:
+        if len(centre) == 1 and twins:
+            bone.tail = centre[0].head
+            continue
+        if len(twins) == 2 and not centre and twins[0].name[2:] == twins[1].name[2:]:
             middle = (twins[0].head + twins[1].head) * 0.5
             if (middle - bone.head).length > 1e-4:
                 bone.tail = middle
@@ -193,8 +201,19 @@ def main():
     # bones are rather than where the surface is.
     rig.show_in_front = True
     rig.data.display_type = "OCTAHEDRAL"
+    # Twists are hidden because there are eighteen of them sitting on top of the joints that
+    # matter - but NOT one that is the only route to a bone worth seeing. `NeckTwist01` and
+    # `NeckTwist02` are named like roll helpers and are actually the neck: they carry 25 and 65
+    # vertices and the Head hangs off them. Hiding them cut the head loose from the skeleton.
+    def leads_somewhere(bone):
+        for kid in rig.data.bones:
+            if kid.parent is not None and kid.parent.name == bone.name:
+                if HIDE not in kid.name or leads_somewhere(kid):
+                    return True
+        return False
+
     for bone in rig.data.bones:
-        bone.hide = HIDE in bone.name
+        bone.hide = HIDE in bone.name and not leads_somewhere(bone)
     print(f"  {sum(1 for b in rig.data.bones if b.hide)} twist bones hidden; alt-H shows them")
 
     # # The clip list, visible on open

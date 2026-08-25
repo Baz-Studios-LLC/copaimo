@@ -33,6 +33,15 @@ where the standard is five, and there are no separate chest or upper-chest joint
 the bone count, that halves the skinning cost of a background character for free. Three
 animation LODs is the usual setup: full rig, simplified rig, imposter.
 
+> **⚠ The neck is named like a roll helper and is not one.** Copaimo's chain is
+> `Spine02 → NeckTwist01 → NeckTwist02 → Head`. Those two carry 25 and 65 vertices and are the
+> ONLY route from the spine to the head, so they are the neck - a `...Twist` suffix on a
+> structural bone. Anything that filters twists by name has to exclude a twist that leads
+> somewhere: `dev/art/see_the_character.py` hid them and cut the head loose from the skeleton,
+> reported as "the spine appears attached to the arm and not the head".
+>
+> The head DOES have its own bone. `Head` drives 2158 vertices and is free to move.
+
 ## Naming
 
 **STANDARD.** There is no cross-engine standard, and that is itself the important fact.
