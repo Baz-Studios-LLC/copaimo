@@ -127,6 +127,10 @@ def main():
         clip.use_fake_user = True
     names = sorted(a.name for a in bpy.data.actions)
     print(f"  clips in the file: {', '.join(names)}")
+    for clip in bpy.data.actions:
+        first, last = (int(round(v)) for v in clip.frame_range)
+        print(f"    {clip.name:<12s} frames {first}..{last}, "
+              f"{(last - first) / 24.0:.2f} s")
 
     wanted = next((a for a in bpy.data.actions if a.name == opens_on),
                   next(iter(bpy.data.actions), None))
@@ -146,6 +150,27 @@ def main():
     for bone in rig.data.bones:
         bone.hide = HIDE in bone.name
     print(f"  {sum(1 for b in rig.data.bones if b.hide)} twist bones hidden; alt-H shows them")
+
+    # # The clip list, visible on open
+    #
+    # The default layout shows a TIMELINE, which scrubs the current clip and gives no hint that
+    # others exist - "you're talking about the run but I only see the idle". The timeline area
+    # becomes a dope sheet in ACTION EDITOR mode, where every clip in the file is one dropdown
+    # away and the list is on screen rather than hidden.
+    swapped = 0
+    for screen in bpy.data.screens:
+        for area in screen.areas:
+            if area.type != "DOPESHEET_EDITOR":
+                continue
+            area.spaces.active.mode = "ACTION"
+            swapped += 1
+    for screen in bpy.data.screens:
+        for area in screen.areas:
+            if area.type == "TIMELINE":
+                area.type = "DOPESHEET_EDITOR"
+                area.spaces.active.mode = "ACTION"
+                swapped += 1
+    print(f"  {swapped} editor(s) set to the Action Editor, so every clip is one click away")
 
     low = min((mesh.matrix_world @ v.co).z for v in mesh.data.vertices)
     high = max((mesh.matrix_world @ v.co).z for v in mesh.data.vertices)

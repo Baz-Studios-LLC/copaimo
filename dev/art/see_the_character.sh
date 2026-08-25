@@ -49,6 +49,6 @@ fi
 
 echo
 echo "opening $scene"
-echo "  every clip is in the dope sheet's ACTION EDITOR - switch there. Space plays."
+echo "  the ACTION EDITOR is open at the bottom: its dropdown lists every clip. Space plays."
 echo "  twist bones are hidden; alt-H in the viewport brings them back."
 "$blender" "$(win "$scene")" >/dev/null 2>&1 &
