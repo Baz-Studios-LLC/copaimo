@@ -121,6 +121,38 @@ frame. 15 was tried and refused at 21% asymmetry between the halves, which is a 
 > making `covers` far less load-bearing. Both are even, so the verifier would accept them. It
 > re-times every arm and leg curve though, so it is a session of its own.
 
+## The key poses of a run, and what the feet do in each
+
+**SOURCE.** [The Key Poses of a Run Cycle - AnimSchool](https://blog.animschool.edu/2024/04/10/the-key-poses-of-a-run-cycle/)
+
+Four poses, and the feet are doing something different in each:
+
+| Pose | The feet |
+|---|---|
+| **Contact** | The lead foot meets the ground. Feet closer together, near the body's centre of mass. |
+| **Down** | The lowest, most squashed pose. Knee and ankle bend to absorb it; the foot is flat. |
+| **Push** | The foot rolls forward from the ball, the heel lifts, the ankle plantarflexes to drive off. |
+| **Peak** | Airborne, both feet off the ground. Knees hold their shape from Push. |
+
+**The article draws the distinction that decides the target.** A *realistic* run lands on the
+BALL of the foot. An *exaggerated* one lands heel-first with the foot farther from the body.
+Copaimo is stylised by policy, so heel-first is the target here.
+
+**MEASURED (Copaimo, 2026-08-25).** The delivered run had no roll at all. Tracking the heel and
+the toe separately, the toe sat lower than the heel through the WHOLE stance and the foot pitch
+never went negative - he contacted toe-first and stayed on his toes to push-off - and every toe
+key in every clip was an identity, so there was no metatarsal break anywhere.
+
+`build_character::roll_the_feet` now rolls each planted foot: -8 degrees of pitch at contact
+(heel down, toe up), flat by 35% of stance, +45 with a 35 degree toe break at push-off.
+
+> **⚠ It only fixes the ANGLE.** A foot rolls about its contact point - the heel at contact, the
+> ball at push-off - and rotating about the ANKLE instead leaves the ankle where the clip put it.
+> The clip puts it high: the heel is still 3-4 cm off the floor at contact. Getting it down means
+> moving the ankle, which means solving the leg, which is `src/ik.rs` and not a second copy of it
+> in Python. **Open:** either make runtime planting absolute during stance, or emit targets for
+> the Rust solver the way `solve_a_leg_for_blender` already does.
+
 ## The 12 principles, and which ones fight games
 
 **STANDARD.** Squash and stretch, anticipation, staging, straight-ahead vs pose-to-pose,

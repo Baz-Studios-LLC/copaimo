@@ -457,6 +457,56 @@ FEET_MEET_THE_FLOOR = True
 BREAKS_THE_TOES = False
 POINTS_THE_FEET = False
 
+# # The foot roll through stance: heel, flat, toe
+#
+# "Frame 20, the lead foot is angled, people don't run like that... lack of toe bend on the
+# planted foot. Remember heel -> toe. Real anatomy for a run."
+#
+# The reference is AnimSchool's key poses of a run cycle - CONTACT, DOWN, PUSH, PEAK - which the
+# user supplied and which is now in `docs/animation.md`. It also draws the distinction that
+# decides the target here: a REALISTIC run lands on the ball of the foot, an EXAGGERATED one
+# lands heel-first with the foot farther from the body. Copaimo is stylised by policy, and
+# heel-first is what was asked for, so heel-first is the target.
+#
+# What the delivered run actually does, measured per frame with the heel and toe tracked
+# separately (cm above the floor, pitch positive = toe below ankle):
+#
+#     L stance   f19  heel 3.0  toe 1.6  pitch +10.7
+#                f20  heel 2.9  toe 1.6  pitch +11.9
+#                f21  heel 2.3  toe 0.8  pitch +18.3
+#                f22  heel 3.7  toe -2.6 pitch +46.8
+#
+# The toe is lower than the heel through the WHOLE stance and the pitch never goes negative. The
+# heel never touches: he contacts toe-first and stays on his toes until push-off. There is no
+# roll, which is why the frames read wrong one after another rather than at one bad pose.
+#
+# So the correction is a roll, and it only ever touches STANCE. `docs/animation.md` is explicit
+# about why - "only apply the offset at the moment of plant, then hold it until the foot lifts" -
+# and the last attempt at this ignored it, applied a blanket rule to every frame, and deleted the
+# push-off from the one pose that needs it. Swing is the animator's.
+# Gaits only. An idle has no stance-and-swing cycle - both feet are simply down - so treating a
+# five-hundred-frame stand as one stance ramped it from heel-strike to push-off across the whole
+# clip and drove the feet 12.68 cm through the floor. A roll is a property of a STEP.
+ROLLS_THROUGH_STANCE = ("walk", "run")
+
+# A shoe within this many centimetres of the floor is down.
+STANCE_WITHIN = 3.0
+
+# The roll, as a share of stance. Heel-first contact with the toe up, flat by a third of the way
+# through, then the heel lifts and the toe takes over.
+CONTACT_PITCH = -8.0
+FLAT_AT = 0.35
+PUSH_PITCH = 45.0
+
+# The toe stays straight until the heel is well up, then breaks. It is the metatarsal break, and
+# it is the thing the delivered clips have none of - every toe key in every clip is an identity.
+TOE_BREAKS_AFTER = 0.55
+TOE_BREAKS_TO = 35.0
+
+# Frames either side of a stance over which the correction fades, so there is no step where it
+# starts and stops.
+ROLL_EASES_OVER = 2
+
 # Foot pitch beyond which the toe takes over, and how far the toe may go. A foot rolls up onto the
 # ball before the toe does anything, so the first 25 degrees stay in the ankle; past that a real
 # foot breaks rather than pointing, and 55 degrees is about where a toe stops.
@@ -1720,10 +1770,191 @@ def break_the_toes(rig, clip, scene):
     return was, broke, now
 
 
-def the_lowest_sole(rig, mesh, clip, scene):
-    """The lowest point of either shoe over a whole clip, and which frame it happens on.
+def the_foot_parts(posed, skin, shoe, side):
+    """Heel height, toe height, foot pitch and the toe's own break, for one foot on one frame."""
+    ankle = posed.matrix_world @ posed.pose.bones[f"{side}_Foot"].head
+    ball = posed.matrix_world @ posed.pose.bones[f"{side}_ToeBase"].head
+    tip = posed.matrix_world @ posed.pose.bones[f"{side}_ToeBase"].tail
+    ahead = ball - ankle
+    ahead.z = 0.0
+    if ahead.length > 1e-9:
+        ahead.normalize()
+    spots = [skin.matrix_world @ skin.data.vertices[i].co for i in shoe[side]]
+    middle = sum((p.dot(ahead) for p in spots), 0.0) / len(spots)
+    front = [p.z for p in spots if p.dot(ahead) > middle]
+    back = [p.z for p in spots if p.dot(ahead) <= middle]
+    flat = mathutils.Vector((ball.x - ankle.x, ball.y - ankle.y, 0.0)).length
+    pitch = math.degrees(math.atan2(ankle.z - ball.z, flat)) if flat > 1e-9 else 0.0
+    # The break is the angle between the foot's own line and the toe's, in the vertical plane -
+    # what a metatarsal break IS, rather than the toe bone's raw rotation angle.
+    toe_flat = mathutils.Vector((tip.x - ball.x, tip.y - ball.y, 0.0)).length
+    toe_pitch = math.degrees(math.atan2(ball.z - tip.z, toe_flat)) if toe_flat > 1e-9 else 0.0
+    return (min(back) if back else 0.0, min(front) if front else 0.0,
+            pitch, toe_pitch - pitch)
 
-    Off the SKINNED mesh, because the floor is where the shoe is and not where the ankle bone is.
+
+def the_shoe_vertices(mesh):
+    """Which vertices belong to each shoe."""
+    groups = {g.index: g.name for g in mesh.vertex_groups}
+    shoe = {"L": [], "R": []}
+    for vertex in mesh.data.vertices:
+        for group in vertex.groups:
+            name = groups.get(group.group, "")
+            if group.weight > 0.3 and ("Foot" in name or "ToeBase" in name):
+                shoe[name[0]].append(vertex.index)
+                break
+    if not shoe["L"] or not shoe["R"]:
+        refuse("one of the shoes has no vertices weighted to it")
+    return shoe
+
+
+def the_stances(down, first, last):
+    """Runs of consecutive frames where a foot is down, as (start, end) pairs.
+
+    A cycle's last stance may wrap onto its first - a foot down at frame 25 and again at frame 1
+    is one stance, not two - so a run that touches both ends is joined.
+    """
+    runs, start = [], None
+    for frame in range(first, last + 1):
+        if down.get(frame):
+            start = frame if start is None else start
+        elif start is not None:
+            runs.append((start, frame - 1))
+            start = None
+    if start is not None:
+        runs.append((start, last))
+    if len(runs) > 1 and runs[0][0] == first and runs[-1][1] == last:
+        runs = [(runs[-1][0] - (last - first + 1), runs[0][1])] + runs[1:-1]
+    return runs
+
+
+def roll_the_feet(rig, mesh, clip, scene):
+    """Rolls each planted foot heel to toe, and leaves every swing frame alone.
+
+    Contact lands heel-first with the toe up, the foot is flat by `FLAT_AT` of the way through,
+    then the heel lifts and the toe breaks. Outside stance nothing is touched: the flight and
+    recovery poses are the animator's, and the last attempt at this - a blanket rule on every
+    frame - is what flattened the push-off and was reported as "nearly every frame is wrong".
+    """
+    play(rig, clip)
+    first, last = (int(round(v)) for v in clip.frame_range)
+    shoe = the_shoe_vertices(mesh)
+    up = mathutils.Vector((0.0, 0.0, 1.0))
+
+    held, down = {}, {"L": {}, "R": {}}
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        graph = bpy.context.evaluated_depsgraph_get()
+        posed, skin = rig.evaluated_get(graph), mesh.evaluated_get(graph)
+        for side in ("L", "R"):
+            heel, toe, pitch, brk = the_foot_parts(posed, skin, shoe, side)
+            ankle = posed.matrix_world @ posed.pose.bones[f"{side}_Foot"].head
+            ball = posed.matrix_world @ posed.pose.bones[f"{side}_ToeBase"].head
+            along = ball - ankle
+            falls = -along.normalized().cross(up) if along.length > 1e-9 else None
+            held[(side, frame)] = (pitch, brk, falls,
+                                   (rig.matrix_world @ posed.pose.bones[f"{side}_Foot"].matrix)
+                                   .to_3x3(),
+                                   (rig.matrix_world
+                                    @ posed.pose.bones[f"{side}_ToeBase"].matrix).to_3x3())
+            down[side][frame] = min(heel, toe) < STANCE_WITHIN / 170.0
+
+    def rolled(share):
+        """Where the foot and the toe should be, at `share` of the way through a stance."""
+        if share <= FLAT_AT:
+            pitch = CONTACT_PITCH * (1.0 - share / FLAT_AT)
+        else:
+            pitch = PUSH_PITCH * (share - FLAT_AT) / (1.0 - FLAT_AT)
+        brk = (0.0 if share <= TOE_BREAKS_AFTER else
+               TOE_BREAKS_TO * (share - TOE_BREAKS_AFTER) / (1.0 - TOE_BREAKS_AFTER))
+        return pitch, brk
+
+    wanted = {}
+    rolls = {}
+    for side in ("L", "R"):
+        runs = the_stances(down[side], first, last)
+        rolls[side] = len(runs)
+        for began, ended in runs:
+            span = max(ended - began, 1)
+            for frame in range(began - ROLL_EASES_OVER, ended + ROLL_EASES_OVER + 1):
+                at = first + (frame - first) % (last - first + 1)
+                if (side, at) not in held:
+                    continue
+                share = min(max((frame - began) / span, 0.0), 1.0)
+                # Faded at the edges so the correction starts and stops smoothly rather than
+                # stepping into and out of the swing poses on either side.
+                fade = 1.0
+                if frame < began:
+                    fade = 1.0 - (began - frame) / (ROLL_EASES_OVER + 1.0)
+                elif frame > ended:
+                    fade = 1.0 - (frame - ended) / (ROLL_EASES_OVER + 1.0)
+                pitch, brk, falls, foot_at, toe_at = held[(side, at)]
+                if falls is None or falls.length < 1e-9:
+                    continue
+                falls = falls.normalized()
+                want_pitch, want_brk = rolled(share)
+                for bone, turn, frame_of in (
+                    (f"{side}_Foot", (want_pitch - pitch) * fade, foot_at),
+                    (f"{side}_ToeBase", (want_brk - brk) * fade, toe_at),
+                ):
+                    if abs(turn) < 0.01:
+                        continue
+                    mine = frame_of.inverted() @ falls
+                    if mine.length < 1e-9:
+                        continue
+                    wanted.setdefault(bone, {})[at] = mathutils.Quaternion(
+                        mine.normalized(), math.radians(turn))
+
+    slot = rig.animation_data.action_slot if rig.animation_data else None
+    for bone, byframe in wanted.items():
+        chans = channels_for(clip, slot, f'pose.bones["{bone}"].rotation_quaternion')
+        keyed = {}
+        for frame in byframe:
+            was = mathutils.Quaternion([chans[i].evaluate(frame) for i in range(4)])
+            keyed[frame] = mathutils.Quaternion() if was.magnitude < 1e-9 else was
+        turned = {frame: keyed[frame] @ offset for frame, offset in byframe.items()}
+        # A cycle's last frame IS its first, so whatever the roll decides for one it must decide
+        # for the other. It does not fall out on its own: a stance that wraps the seam gives the
+        # two ends different shares of the same stance, so they were corrected differently and
+        # the clip stopped looping - and the odd frame then became the deepest sole in the file
+        # and dragged the floor lift with it.
+        if first in turned or last in turned:
+            # Whichever end was corrected wins, and the other is set to match. Reading only
+            # `turned` was not enough: when the roll touched the LAST frame and not the first,
+            # the last kept its correction, the first kept none, and the clip stopped looping -
+            # 13.48 degrees apart, which the audit caught.
+            settled = turned.get(first)
+            if settled is None:
+                settled = turned.get(last)
+            if settled is not None:
+                turned[first] = settled
+                turned[last] = settled
+        for frame, out in turned.items():
+            for i in range(4):
+                chans[i].keyframe_points.insert(frame, out[i], options={"FAST"})
+        for curve in chans.values():
+            curve.update()
+    return rolls
+
+
+def the_lowest_sole(rig, mesh, clip, scene):
+    """Where the shoe rests when it is DOWN, and the deepest frame, off the skinned mesh.
+
+    Returns the height to lift by and the deepest frame, in that order.
+
+    # The typical contact, not the single deepest frame
+
+    Lifting by the minimum was the obvious thing and it was wrong. The run's deepest pose sits
+    2.6 cm below its own typical contact, so lifting the clip by that one frame put every real
+    footfall in the air: measured afterwards, only 4 of 25 frames had a foot within 3 cm of the
+    floor and the warden ran on tiptoe 4 to 25 cm up. One outlier pose decided the height of the
+    whole cycle.
+
+    So the lift is the MEDIAN of the frames where a shoe is actually down - within a window of
+    its own lowest point, the same adaptive test `the_footfalls` uses in the audit. Typical
+    contact lands on the floor, the deepest pose goes a little under, and that is the right side
+    of the error: a foot fractionally through the floor at one extreme reads as weight, a foot
+    hovering through an entire stance reads as a bug.
     """
     play(rig, clip)
     first, last = (int(round(v)) for v in clip.frame_range)
@@ -1737,14 +1968,22 @@ def the_lowest_sole(rig, mesh, clip, scene):
                 break
     if not shoe:
         refuse("no vertices are weighted to the feet, so the floor cannot be found")
-    low, when = None, first
+    soles = {}
     for frame in range(first, last + 1):
         scene.frame_set(frame)
         skin = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
-        here = min((skin.matrix_world @ skin.data.vertices[i].co).z for i in shoe)
-        if low is None or here < low:
-            low, when = here, frame
-    return (low or 0.0), when
+        soles[frame] = min((skin.matrix_world @ skin.data.vertices[i].co).z for i in shoe)
+    if not soles:
+        return 0.0, first
+    when = min(soles, key=soles.get)
+    lowest = soles[when]
+    # Frames where a shoe is DOWN: within a window of the clip's own lowest point. Widened until
+    # there are enough of them to take a median from, because a run's contact is short.
+    for window in (2.0, 3.0, 4.0, 6.0, 9.0):
+        down = sorted(z for z in soles.values() if z <= lowest + window / 170.0)
+        if len(down) >= max(3, len(soles) // 8):
+            break
+    return down[len(down) // 2], when
 
 
 def stand_on_the_floor(rig, mesh, clip, scene):
@@ -1764,7 +2003,7 @@ def stand_on_the_floor(rig, mesh, clip, scene):
     of the error a ground solver can pull back down.
     """
     low, when = the_lowest_sole(rig, mesh, clip, scene)
-    if low >= -1e-6:
+    if abs(low) < 1e-6:
         return low, 0.0, low, when
     slot = rig.animation_data.action_slot if rig.animation_data else None
     curves = fcurves_of(clip, slot)
@@ -2736,13 +2975,20 @@ def main():
                     if abs(mine - theirs) > 0.5:
                         print(f"    {called:<12s} {side} foot pointed {mine:6.1f} deg off "
                               f"travel on average -> {theirs:6.1f} deg")
+            # Floored first so stance can be detected against a real floor, rolled, then
+            # floored again because rolling a foot moves its sole.
+            if called in ROLLS_THROUGH_STANCE:
+                stand_on_the_floor(base_rig, base_mesh, clip, scene)
+                stood = roll_the_feet(base_rig, base_mesh, clip, scene)
+                print(f"    {called:<12s} rolled {stood['L']} left and {stood['R']} right "
+                      f"stance(s) heel to toe")
             was_low, lifted, now_low, when = stand_on_the_floor(
                 base_rig, base_mesh, clip, scene)
             print(f"    {called:<12s} lowest sole {was_low * 170.0:6.2f} cm at frame {when}; "
                   f"lifted {lifted * 170.0:5.2f} -> {now_low * 170.0:6.2f} cm")
-            if now_low < -0.001 / 170.0:
-                refuse(f"{called} still puts a sole {now_low * 170.0:.2f} cm through the floor "
-                       f"after being lifted, so the lift did not take")
+            if abs(now_low) > 0.2 / 170.0:
+                refuse(f"{called} rests its sole {now_low * 170.0:.2f} cm off the floor after "
+                       f"being lifted, so the lift did not take")
 
     play(base_rig, wanted["idle"])
     scene.frame_set(int(wanted["idle"].frame_range[0]))
