@@ -135,6 +135,8 @@ const CYCLES: &[(&str, f32)] = &[("walk", 2.0), ("run", 1.0)];
 /// and every authored sub-motion - the arm swing, the head bob, the chest twist - speeds up with
 /// it. The upper bound is `STRIDE_WARPS_TO`, because that is what the animation system will
 /// actually stretch before it has to raise the tempo instead.
+// Read by the pacing tests rather than at runtime - the same case as `FPS`.
+#[allow(dead_code)]
 const PLAYS_BETWEEN: (f32, f32) = (0.80, STRIDE_WARPS_TO);
 
 /// How many cycles a named clip holds, or 1.0 for one nothing has been measured about.
@@ -209,6 +211,8 @@ const RUN_FRAMES: f32 = 24.0;
 ///
 /// The error made every ceiling about 4% too generous, which is exactly the direction that
 /// lets a too-fast gait pass. A ratio is only a ratio if both ends measure the same thing.
+// Read by the pacing tests rather than at runtime - the same case as `FPS`.
+#[allow(dead_code)]
 const LEGS_SHORTER_BY: f32 = 1.019;
 
 /// The cadence band each tier lives in, in steps a minute, before the tier above takes
@@ -237,6 +241,8 @@ const LEGS_SHORTER_BY: f32 = 1.019;
 ///
 /// Scaled by `LEGS_SHORTER_BY`, which is not a realism concession - it is this character's
 /// legs being genuinely shorter than the figure the numbers were written for.
+// Read by the pacing tests rather than at runtime - the same case as `FPS`.
+#[allow(dead_code)]
 const CHURNS_BETWEEN: [(f32, f32); 3] = [(60.0, 180.0), (140.0, 330.0), (200.0, 400.0)];
 
 /// What a clip carries at its own natural rate, in metres a second.
@@ -357,13 +363,6 @@ const BLEND: f32 = 0.18;
 pub struct Motions {
     graph: Handle<AnimationGraph>,
     idle: AnimationNodeIndex,
-    /// The idle BREAK: a longer standing motion played now and then instead of the loop, so
-    /// that standing still is not the same fifteen seconds forever.
-    ///
-    /// Optional because a body that only carries an idle should still stand there rather than
-    /// refuse to animate - the same rule the moving gaits follow.
-    looks_around: Option<AnimationNodeIndex>,
-    look_lasts: f32,
     /// Every moving gait the body actually carries, slowest first.
     ///
     /// Built from `GAITS`, skipping any the file does not have — a body with only a
@@ -464,19 +463,6 @@ pub fn find_the_clips(
 
     let mut graph = AnimationGraph::new();
     let standing = graph.add_clip(idle.clone(), 1.0, graph.root);
-    // Matched on the full name. `named` matches by CONTAINS, and "idle" is a substring of
-    // nothing else here - but "look_around" would happily match a future "look_around_left",
-    // so the pair is looked up in the order that leaves no ambiguity.
-    let (looks_around, look_lasts) = match named("look_around") {
-        Some(clip) => {
-            let lasts = clips.get(clip).map(AnimationClip::duration).unwrap_or(0.0);
-            (Some(graph.add_clip(clip.clone(), 1.0, graph.root)), lasts)
-        }
-        None => {
-            info!("the body has no look_around clip, so the idle will simply loop");
-            (None, 0.0)
-        }
-    };
     let mut gaits = Vec::new();
     for (called, covers, upto) in GAITS {
         let Some(clip) = named(called) else {
@@ -529,56 +515,10 @@ pub fn find_the_clips(
     commands.insert_resource(Motions {
         graph: graphs.add(graph),
         idle: standing,
-        looks_around,
-        look_lasts,
         gaits,
         idle_lasts,
     });
     commands.remove_resource::<Waiting>();
-}
-
-/// How long the warden stands still before he looks around, and how much that varies between
-/// one body and the next.
-///
-/// The spread matters more than the number. A crowd of NPCs given the same wait all break at the
-/// same instant and the whole town turns its head together, which reads as a glitch rather than
-/// as life - so each body takes its own offset from its entity index. Deterministic, and no two
-/// adjacent spawns share it.
-const STANDS_STILL_FOR: f32 = 11.0;
-const AND_UP_TO: f32 = 9.0;
-
-/// Whether a body that has been standing `still_for` seconds should be mid-break, and how long
-/// it has been standing after the answer is applied.
-///
-/// Pulled out of the system so it can be tested. Inside a Bevy system it needed a whole world to
-/// exercise, and what went in instead was a test that asserted `x >= x` - decoration wearing a
-/// test's name. The rule is small enough to state plainly:
-///
-///   * moving at all resets both, because a warden who walked two paces has not been standing
-///   * past the wait, the break starts - if there is a clip to break to
-///   * past the wait PLUS the clip, the break has run its length and the loop takes over
-fn breaking(moving: bool, still_for: f32, waits: f32, clip: f32, has_clip: bool)
-    -> (f32, bool) {
-    if moving {
-        return (0.0, false);
-    }
-    if has_clip && still_for >= waits + clip {
-        (0.0, false)
-    } else if has_clip && still_for >= waits {
-        (still_for, true)
-    } else {
-        (still_for, false)
-    }
-}
-
-/// How long one body has been standing, and whether it is mid-break.
-///
-/// Per body rather than a resource: two wardens standing in the same town are not standing for
-/// the same length of time, and the whole point of the offset above is that they do not agree.
-#[derive(Component, Default)]
-pub struct Standing {
-    still_for: f32,
-    looking: bool,
 }
 
 /// Hands the graph to each player the scene brings in, standing still to begin.
@@ -598,7 +538,6 @@ pub fn hand_the_clips_over(
             AnimationGraphHandle(motions.graph.clone()),
             player,
             moves,
-            Standing::default(),
         ));
     }
 }
@@ -608,8 +547,7 @@ pub fn match_the_clip_to_the_walking(
     mut commands: Commands,
     motions: Res<Motions>,
     striding: Query<(Entity, &Striding), With<Player>>,
-    mut players: Query<(Entity, &mut AnimationPlayer, &mut AnimationTransitions, &mut Standing)>,
-    time: Res<Time>,
+    mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
 ) {
     let Ok((warden, pace)) = striding.single() else {
         return;
@@ -631,34 +569,9 @@ pub fn match_the_clip_to_the_walking(
         .unwrap_or_else(|| motions.gaits.last().expect("never empty"));
 
     let mut warp = 1.0_f32;
-    for (body, mut player, mut moves, mut standing) in &mut players {
-        // # Standing still, and breaking out of it
-        //
-        // Moving resets everything: a warden who walks two paces has not been standing there,
-        // and coming back to a stop should start the wait again rather than trigger a break
-        // immediately because the counter kept running.
-        if !moving {
-            standing.still_for += time.delta_secs();
-        }
-        let waits = STANDS_STILL_FOR + (body.index() % 97) as f32 * AND_UP_TO / 97.0;
-        let (still_for, looking) = breaking(
-            moving,
-            standing.still_for,
-            waits,
-            motions.look_lasts,
-            motions.looks_around.is_some(),
-        );
-        standing.still_for = still_for;
-        standing.looking = looking;
-
+    for (mut player, mut moves) in &mut players {
         let (wanted, covers, lasts) = if moving {
             (gait.node, gait.covers, gait.lasts)
-        } else if standing.looking {
-            (
-                motions.looks_around.expect("only set when there is one"),
-                0.0,
-                motions.look_lasts,
-            )
         } else {
             (motions.idle, 0.0, motions.idle_lasts)
         };
@@ -693,71 +606,6 @@ pub fn the_clips_are_ready(motions: Option<Res<Motions>>) -> bool {
 /// And whether they are still being waited for.
 pub fn still_waiting(waiting: Option<Res<Waiting>>) -> bool {
     waiting.is_some()
-}
-
-#[cfg(test)]
-mod standing {
-    use super::*;
-
-    /// The wait before an idle break has to be SPREAD across bodies, or a crowd all turns its
-    /// head on the same frame.
-    ///
-    /// This is the whole reason the offset is taken from the entity index rather than being one
-    /// constant: a town of wardens breaking in unison reads as a glitch, not as life. Checked
-    /// as a spread rather than as particular values, because the particular values are an
-    /// implementation detail and the spread is the requirement.
-    #[test]
-    fn two_bodies_do_not_look_around_at_the_same_moment() {
-        let waits = |index: u32| STANDS_STILL_FOR + (index % 97) as f32 * AND_UP_TO / 97.0;
-        let spread: Vec<f32> = (0..8).map(waits).collect();
-        for (a, b) in spread.iter().zip(spread.iter().skip(1)) {
-            assert!(
-                (a - b).abs() > 0.01,
-                "two adjacent bodies wait {a} and {b} seconds - near enough to break together"
-            );
-        }
-        let lowest = spread.iter().cloned().fold(f32::MAX, f32::min);
-        let highest = spread.iter().cloned().fold(f32::MIN, f32::max);
-        assert!(
-            lowest >= STANDS_STILL_FOR && highest <= STANDS_STILL_FOR + AND_UP_TO,
-            "the spread runs {lowest} to {highest}, outside the {STANDS_STILL_FOR} to              {} it is meant to sit in",
-            STANDS_STILL_FOR + AND_UP_TO
-        );
-    }
-
-    /// A break starts after the wait, lasts the clip, and then gives the idle back.
-    ///
-    /// Walked through as a sequence rather than asserted point by point, because the fault worth
-    /// catching is a state that never leaves - a warden looking around forever, or one who
-    /// breaks again on the very next frame because the counter was not reset.
-    #[test]
-    fn a_break_starts_after_the_wait_and_ends_with_the_clip() {
-        let (waits, clip) = (14.0_f32, 15.5833_f32);
-        let step = |still: f32| breaking(false, still, waits, clip, true);
-
-        assert_eq!(step(0.0).1, false, "breaks the instant he stops");
-        assert_eq!(step(waits - 0.1).1, false, "breaks before the wait is up");
-        assert_eq!(step(waits).1, true, "does not break when the wait is up");
-        assert_eq!(step(waits + clip * 0.5).1, true, "drops the break halfway through");
-
-        let (still, looking) = step(waits + clip);
-        assert_eq!(looking, false, "looks around forever - the break never ends");
-        assert_eq!(still, 0.0, "the wait does not start again, so he breaks every frame");
-    }
-
-    /// Moving resets the wait, and a body with no break clip never enters one.
-    #[test]
-    fn walking_resets_it_and_a_body_without_the_clip_never_breaks() {
-        let (waits, clip) = (14.0_f32, 15.5833_f32);
-        assert_eq!(
-            breaking(true, waits + 100.0, waits, clip, true),
-            (0.0, false),
-            "kept standing time while walking, so he breaks the moment he stops"
-        );
-        let (still, looking) = breaking(false, waits + 100.0, waits, 0.0, false);
-        assert_eq!(looking, false, "broke to a clip the body does not carry");
-        assert!(still > 0.0, "reset the counter on a body that has nothing to break to");
-    }
 }
 
 #[cfg(test)]

@@ -102,6 +102,22 @@ def play(rig, clip):
         rig.animation_data.action_slot = slots[0]
 
 
+def apart(first, other):
+    """The largest angle between two poses, in degrees, by the SHORTEST arc.
+
+    `Quaternion.rotation_difference(...).angle` can hand back more than 180 degrees, because a
+    rotation and its negation are the same rotation and the difference may take the long way
+    round. Measuring two standing poses that way reported 349.71 degrees between them when they
+    are 10.29 apart - and 349 reads as "these are nothing like each other", which would have
+    sent the clip join off after a problem that was not there.
+    """
+    worst = 0.0
+    for a, b in zip(first, other):
+        turn = math.degrees(a.rotation_difference(b).angle)
+        worst = max(worst, min(turn, 360.0 - turn))
+    return worst
+
+
 def the_surface(mesh):
     canon = welded(mesh)
     nodes = set(canon.values())
@@ -299,17 +315,16 @@ def the_clips(rig, scene):
                 began = hip.copy()
             travel = max(travel, (hip - began).length)
 
-        def apart(a, b):
-            return max(math.degrees(p.rotation_difference(q).angle)
-                       for p, q in zip(poses[a], poses[b]))
+        def between(a, b):
+            return apart(poses[a], poses[b])
 
-        closes = apart(first, last)
+        closes = between(first, last)
         verdict = "loops" if closes < 2.0 else f"DOES NOT LOOP"
         print(f"  {clip.name:<14s} {lasts:7.4f} s, frames {first}..{last}, "
               f"hip travels {travel * SCALE:6.1f} cm")
         print(f"  {'':<14s} first to last pose {closes:6.2f} deg  <- {verdict}")
         if closes >= 2.0:
-            best = sorted(((apart(first, f), f) for f in range(first + 4, last + 1)))[:1]
+            best = sorted(((between(first, f), f) for f in range(first + 4, last + 1)))[:1]
             if best:
                 print(f"  {'':<14s} nearest repeat is frame {best[0][1]} at {best[0][0]:.2f} deg")
 

@@ -44,6 +44,20 @@ DELIVERED = (
     ("run.glb", "run"),
 )
 
+# Clips laid end to end into one, and what the result is called.
+#
+# Standing still runs one long clip rather than a loop plus a break the game has to schedule.
+# Simpler in every direction: no timer, no state, no chance of two wardens breaking on the same
+# frame, and the animator decides how often he looks around by where they put it in the clip.
+#
+# Measured, the two joins are 10.29 and 10.60 degrees apart - small, but not nothing, so
+# `join_the_clips` bends the start of each segment to meet the end of the one before it.
+JOIN_INTO = (("idle", ("idle", "look_around")),)
+
+# Over how many frames a join is absorbed. Half a second at 24 fps: long enough that a ten-degree
+# correction is not a visible snap, short enough that it does not eat the motion it is bending.
+JOIN_OVER = 12
+
 # Which clips are supposed to carry the character somewhere. Everything else is a standing
 # motion, and a standing motion with no travel is correct rather than broken - the refusal below
 # is there to catch a gait whose channels never bound, which is what an unbound action slot
@@ -250,6 +264,99 @@ def roll_the_hands(rig, clip, degrees):
     return turned
 
 
+def sample(rig, clip, scene):
+    """Every bone's local rotation, location and scale, frame by frame.
+
+    Baked rather than re-keyed from the source curves, because the two clips are authored at
+    different rates and against different key times - and a join has to happen on a single
+    timeline whatever the pieces were written on.
+    """
+    play(rig, clip)
+    first, last = (int(round(v)) for v in clip.frame_range)
+    out = []
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        out.append({
+            bone.name: (bone.rotation_quaternion.copy(),
+                        bone.location.copy(),
+                        bone.scale.copy())
+            for bone in rig.pose.bones
+        })
+    return out
+
+
+def bend_to_meet(poses, offsets, over, backwards=False):
+    """Distributes a pose offset across `over` frames so a seam closes without a snap.
+
+    Full correction at the seam itself, easing to none by the far end of the window, so the
+    segment arrives exactly where the one before it left off and is back on its own motion
+    within half a second.
+    """
+    for step in range(min(over, len(poses))):
+        share = 1.0 - (step / over)
+        at = -(step + 1) if backwards else step
+        for name, (turn, shift) in offsets.items():
+            if name not in poses[at]:
+                continue
+            was_turn, was_shift, was_scale = poses[at][name]
+            poses[at][name] = (
+                mathutils.Quaternion().slerp(turn, share) @ was_turn,
+                was_shift + shift * share,
+                was_scale,
+            )
+
+
+def join_the_clips(rig, scene, pieces, called):
+    """Lays clips end to end into one, closing both seams and the loop.
+
+    Two seams matter, not one: where the second piece starts on the first, and where the whole
+    thing wraps back to its own beginning. A merged idle that closes the first and forgets the
+    second pops once every time round.
+    """
+    frames = []
+    for clip in pieces:
+        frames.append(sample(rig, clip, scene))
+    poses = frames[0]
+    for after in frames[1:]:
+        offsets = {}
+        for name, (turn, shift, _) in poses[-1].items():
+            if name not in after[0]:
+                continue
+            their_turn, their_shift, _ = after[0][name]
+            offsets[name] = (turn @ their_turn.inverted(), shift - their_shift)
+        bend_to_meet(after, offsets, JOIN_OVER)
+        poses = poses + after
+
+    # And the wrap: the last frame has to meet the first, or it pops once a lap.
+    offsets = {}
+    for name, (turn, shift, _) in poses[0].items():
+        if name not in poses[-1]:
+            continue
+        their_turn, their_shift, _ = poses[-1][name]
+        offsets[name] = (turn @ their_turn.inverted(), shift - their_shift)
+    bend_to_meet(poses, offsets, JOIN_OVER, backwards=True)
+
+    made = bpy.data.actions.new(called)
+    made.use_fake_user = True
+    rig.animation_data.action = made
+    slots = getattr(made, "slots", None)
+    if slots is not None:
+        slot = made.slots.new(id_type="OBJECT", name="Armature")
+        rig.animation_data.action_slot = slot
+    for at, pose in enumerate(poses):
+        scene.frame_set(at + 1)
+        for bone in rig.pose.bones:
+            if bone.name not in pose:
+                continue
+            bone.rotation_mode = "QUATERNION"
+            bone.rotation_quaternion, bone.location, bone.scale = pose[bone.name]
+            bone.keyframe_insert("rotation_quaternion", frame=at + 1)
+            bone.keyframe_insert("location", frame=at + 1)
+            bone.keyframe_insert("scale", frame=at + 1)
+    return made, len(poses)
+
+
 def travels(rig, clip, scene):
     """How far the body moves through one cycle, hips and feet separately.
 
@@ -329,12 +436,28 @@ def main():
     scene = bpy.context.scene
     if base_rig.animation_data is None:
         base_rig.animation_data_create()
+
+    for called, pieces in JOIN_INTO:
+        have = [wanted[p] for p in pieces if p in wanted]
+        if len(have) < 2:
+            continue
+        print("")
+        print(f"  joining {' + '.join(pieces)} into one '{called}'")
+        for piece in have:
+            piece.name = f"{piece.name}_piece"
+        made, frames = join_the_clips(base_rig, scene, have, called)
+        for piece in have:
+            wanted.pop(piece.name.replace("_piece", ""), None)
+            bpy.data.actions.remove(piece)
+        wanted[called] = made
+        print(f"    {frames} frames, {frames / scene.render.fps:.2f} s, joins bent over "
+              f"{JOIN_OVER} frames")
     low = min((base_mesh.matrix_world @ v.co).z for v in base_mesh.data.vertices)
     high = max((base_mesh.matrix_world @ v.co).z for v in base_mesh.data.vertices)
     print(f"\n  a {(high - low) * 100:.1f} cm figure at scene scale")
 
     print("\n  clips, measured off the file:")
-    for _, called in DELIVERED:
+    for called in sorted(wanted):
         clip = wanted[called]
         first, last = clip.frame_range
         lasts = (last - first) / scene.render.fps
