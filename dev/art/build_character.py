@@ -436,6 +436,52 @@ MOVES_MORE = {"idle": 1.45, "look_around": 1.45, "jog": 0.67}
 # Under 1.0 dwells at the ends. 1.0 is the clip as authored.
 PUMPS = {"jog": 0.55}
 
+# # The hands come up too high, and the knob for that is the SHOULDER
+#
+# Reported as "the hands come up too high", and measured on the jog:
+#
+#     L hand   +7.1 cm ABOVE the shoulder at its peak, and 41.4 cm in front of it
+#     elbow    folds 28.1 to 92.9 deg - straightening almost out at the front
+#
+# The same report, the same numbers and the same answer are in the deleted character's history.
+# From commit 5a7c815: the lead hand "reached 4.4 cm ABOVE the shoulder; RUN_ARM_FORWARD 28 -> 20
+# puts it 10.9 cm below. Worth recording that the first knob was the wrong one: at a
+# forward-and-up pose the SHOULDER governs the hand's height and the ELBOW governs its reach, so
+# cutting the shoulder angle moved the hand down and left it 43 cm forward, unchanged."
+#
+# And on what a jog's arms should do: "A jogger's elbows stay pinned near 90 deg and the hands
+# travel from the hip to the lower chest in a tight arc, peaking maybe 15-20 cm ahead." An elbow
+# opening to 28 degrees is the other half of that note - "never near 90, hence reaching rather
+# than pumping".
+#
+# So two knobs, and they are not interchangeable. This one cuts the SHOULDER's swing on top of
+# the whole-arm gain, which brings the hand down.
+# NOT a gain. Cutting the shoulder's swing to 0.35 on top of the whole-arm 0.67 left 23% of the
+# original arc: the hands came down, and the arms stopped alternating - both hung forward at waist
+# height, which is a worse fault than the one being fixed. Amplitude is what makes a pump; the
+# height belongs to where the arc is CENTRED.
+#
+# So the whole arc is rotated backward instead, which drops the forward extreme without taking
+# anything out of the swing.
+SHOULDERS_SWING = {}
+THE_SHOULDER_IS = ("Clavicle", "Upperarm")
+
+# Degrees of backward rotation applied to the whole upper arm, which lowers the hands' arc while
+# leaving every degree of swing intact.
+SHOULDERS_SIT_BACK = {"jog": 18.0}
+
+# And this one holds the ELBOW near a right angle, which pulls the hand in. A mean shift, not a
+# gain: the fold's RANGE is fine, it is the angle it is carried at that has the arm reaching.
+ELBOWS_HOLD_AT = {"jog": 85.0}
+
+# And how much the fold is allowed to VARY around that. Holding the mean at 85 still left the
+# elbow opening to 56 degrees at the front of the swing, and a straighter elbow reaches further -
+# the hand peaked 34.6 cm in front of the shoulder where the old note puts a jogger's at 15-20.
+# Tightening the range is what pulls it in, and it is a different knob from the mean: one decides
+# where the elbow is carried, the other how much it opens and shuts.
+ELBOWS_SWING = {"jog": 0.55}
+THE_ELBOW_IS = ("Forearm",)
+
 # # The feet, and three faults measured on the delivered clips
 #
 # Reported as "ground contact should solve the mesh clipping into the floor and straighten the
@@ -1527,7 +1573,7 @@ def an_average_of(turns):
     return total
 
 
-def move_the_arms_more(rig, clip, scene, gain, pumps=1.0):
+def move_the_arms_more(rig, clip, scene, gain, pumps=1.0, only=None):
     """Scales each arm bone's motion about the clip's own average pose.
 
     Returns how wide the hands swung before and after, because a gain that does not change that
@@ -1539,7 +1585,10 @@ def move_the_arms_more(rig, clip, scene, gain, pumps=1.0):
     slot = rig.animation_data.action_slot if rig.animation_data else None
     curves = fcurves_of(clip, slot)
     for side in ("L", "R"):
-        for part in MOVES_AT:
+        # `only` and not `at`: this function already uses `at` as a loop index below, and a
+        # parameter of that name was shadowed by it on the second pass - which showed up as
+        # "'int' object is not iterable" rather than as anything about arms.
+        for part in (only or MOVES_AT):
             path = f'pose.bones["{side}_{part}"].rotation_quaternion'
             parts = {c.array_index: c for c in curves if c.data_path == path}
             if len(parts) != 4:
@@ -1738,6 +1787,132 @@ def lean_by(rig, clip, short, travel, bones, sideways=False):
                 point.co[1] = out[i]
         for curve in parts.values():
             curve.update()
+
+
+def which_way_swings_the_arm_back(rig, side, travel):
+    """The upper arm's own axis that carries its elbow BACKWARD.
+
+    Derived, like every other axis here: rotating `u` about `n` moves it by `n x u`, so the
+    component of `u` along travel falls fastest about `travel x u`.
+    """
+    bone = rig.pose.bones[f"{side}_Upperarm"]
+    down = ((rig.matrix_world @ rig.pose.bones[f"{side}_Forearm"].bone.head_local)
+            - (rig.matrix_world @ bone.bone.head_local))
+    if down.length < 1e-9:
+        refuse(f"the {side} upper arm has no length, so no swing axis exists")
+    back = travel.cross(down.normalized())
+    if back.length < 1e-9:
+        refuse(f"the {side} upper arm lies along the line of travel")
+    rest = (rig.matrix_world @ bone.bone.matrix_local).to_3x3()
+    return (rest.inverted() @ back.normalized()).normalized()
+
+
+def sit_the_shoulders_back(rig, clip, scene, degrees):
+    """Rotates each whole arm backward by a constant, lowering the arc it swings through."""
+    if abs(degrees) < 1e-6:
+        return
+    bind = rig.pose.bones["L_ToeBase"].bone
+    travel = ((rig.matrix_world @ bind.tail_local) - (rig.matrix_world @ bind.head_local))
+    travel.z = 0.0
+    travel.normalize()
+    slot = rig.animation_data.action_slot if rig.animation_data else None
+    curves = fcurves_of(clip, slot)
+    for side in ("L", "R"):
+        path = f'pose.bones["{side}_Upperarm"].rotation_quaternion'
+        parts = {c.array_index: c for c in curves if c.data_path == path}
+        if len(parts) != 4:
+            continue
+        offset = mathutils.Quaternion(which_way_swings_the_arm_back(rig, side, travel),
+                                      math.radians(degrees))
+        for at in range(len(parts[0].keyframe_points)):
+            keyed = mathutils.Quaternion([parts[i].keyframe_points[at].co[1] for i in range(4)])
+            out = offset @ keyed
+            for i in range(4):
+                point = parts[i].keyframe_points[at]
+                point.handle_left[1] += out[i] - point.co[1]
+                point.handle_right[1] += out[i] - point.co[1]
+                point.co[1] = out[i]
+        for curve in parts.values():
+            curve.update()
+
+
+def the_elbows_fold(rig, clip, scene):
+    """How far each elbow is folded, in degrees, averaged over a clip. 180 is straight."""
+    play(rig, clip)
+    first, last = (int(round(v)) for v in clip.frame_range)
+    step = max(1, (last - first) // 60)
+    seen = {"L": [], "R": []}
+    for frame in range(first, last + 1, step):
+        scene.frame_set(frame)
+        posed = rig.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        for side in ("L", "R"):
+            shoulder = posed.matrix_world @ posed.pose.bones[f"{side}_Upperarm"].head
+            elbow = posed.matrix_world @ posed.pose.bones[f"{side}_Forearm"].head
+            wrist = posed.matrix_world @ posed.pose.bones[f"{side}_Hand"].head
+            up, down = shoulder - elbow, wrist - elbow
+            if up.length > 1e-9 and down.length > 1e-9:
+                seen[side].append(180.0 - math.degrees(up.angle(down)))
+    return {side: (sum(got) / len(got) if got else 0.0) for side, got in seen.items()}
+
+
+def which_way_folds_the_elbow(rig, side):
+    """The forearm's own axis that folds the elbow, derived from the arm's own geometry.
+
+    The hinge normal is perpendicular to the plane the arm lies in, which is the plane through
+    the shoulder, the elbow and the wrist. Derived and not assumed - a fixed armature axis is
+    exactly what the previous character got wrong here, and it "threw the hand laterally instead
+    of forward".
+    """
+    bone = rig.pose.bones[f"{side}_Forearm"]
+    shoulder = rig.matrix_world @ rig.pose.bones[f"{side}_Upperarm"].bone.head_local
+    elbow = rig.matrix_world @ bone.bone.head_local
+    wrist = rig.matrix_world @ rig.pose.bones[f"{side}_Hand"].bone.head_local
+    up, down = (shoulder - elbow), (wrist - elbow)
+    if up.length < 1e-9 or down.length < 1e-9:
+        refuse(f"the {side} arm has no length, so no elbow hinge exists")
+    hinge = down.normalized().cross(up.normalized())
+    if hinge.length < 1e-9:
+        refuse(f"the {side} arm is straight in the bind, so its hinge plane is undefined")
+    rest = (rig.matrix_world @ bone.bone.matrix_local).to_3x3()
+    return (rest.inverted() @ hinge.normalized()).normalized()
+
+
+def hold_the_elbows(rig, clip, scene, target):
+    """Carries each elbow at `target` degrees of fold, keeping the range the animator gave it."""
+    was = the_elbows_fold(rig, clip, scene)
+    slot = rig.animation_data.action_slot if rig.animation_data else None
+    for _ in range(8):
+        now = the_elbows_fold(rig, clip, scene)
+        if all(abs(now[side] - target) < 0.5 for side in ("L", "R")):
+            break
+        curves = fcurves_of(clip, slot)
+        for side in ("L", "R"):
+            short = (target - now[side]) * 0.5
+            if abs(short) < 0.25:
+                continue
+            path = f'pose.bones["{side}_Forearm"].rotation_quaternion'
+            parts = {c.array_index: c for c in curves if c.data_path == path}
+            if len(parts) != 4:
+                continue
+            offset = mathutils.Quaternion(which_way_folds_the_elbow(rig, side),
+                                          math.radians(short))
+            for at in range(len(parts[0].keyframe_points)):
+                keyed = mathutils.Quaternion(
+                    [parts[i].keyframe_points[at].co[1] for i in range(4)])
+                out = offset @ keyed
+                for i in range(4):
+                    point = parts[i].keyframe_points[at]
+                    point.handle_left[1] += out[i] - point.co[1]
+                    point.handle_right[1] += out[i] - point.co[1]
+                    point.co[1] = out[i]
+            for curve in parts.values():
+                curve.update()
+    now = the_elbows_fold(rig, clip, scene)
+    for side in ("L", "R"):
+        if abs(now[side] - target) > 5.0:
+            refuse(f"holding the {side} elbow on {clip.name} settled at {now[side]:.1f} deg "
+                   f"against a {target:.1f} target - the hinge axis is wrong")
+    return was, now
 
 
 def where_the_hands_point(rig, clip, scene):
@@ -3303,6 +3478,22 @@ def main():
         if called in MOVES_MORE:
             wide, wider = move_the_arms_more(base_rig, clips[0], bpy.context.scene,
                                              MOVES_MORE[called], PUMPS.get(called, 1.0))
+        if called in SHOULDERS_SIT_BACK:
+            sit_the_shoulders_back(base_rig, clips[0], bpy.context.scene,
+                                   SHOULDERS_SIT_BACK[called])
+            print(f"    shoulders sat back {SHOULDERS_SIT_BACK[called]:.0f} deg, which lowers "
+                  f"the hands without costing any swing")
+        if called in ELBOWS_SWING:
+            move_the_arms_more(base_rig, clips[0], bpy.context.scene,
+                               ELBOWS_SWING[called], 1.0, THE_ELBOW_IS)
+            print(f"    elbows open and shut {ELBOWS_SWING[called]:.2f}x, which pulls the "
+                  f"hands in")
+        # After the range, so the mean is the last word on where the elbow is carried.
+        if called in ELBOWS_HOLD_AT:
+            was, now = hold_the_elbows(base_rig, clips[0], bpy.context.scene,
+                                       ELBOWS_HOLD_AT[called])
+            print(f"    elbows held at L {was['L']:.0f} -> {now['L']:.0f} deg, "
+                  f"R {was['R']:.0f} -> {now['R']:.0f}")
             if wide is not None:
                 swing = ", ".join(f"{s} {wide[s]:.1f} -> {wider[s]:.1f} cm" for s in ("L", "R"))
                 print(f"    arms move {MOVES_MORE[called]:.2f}x more: hands swing {swing}")
