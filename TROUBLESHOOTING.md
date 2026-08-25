@@ -2037,6 +2037,40 @@ deleted; the work that went into it was not. `docs/` and `TROUBLESHOOTING.md` ar
 places and were checked - git log was not, and that is where this answer lived.
 
 
+## The finger rig is mis-segmented (OPEN)
+
+**What you see.** "Your hand bones dont fit the mesh correctly", with renders showing the finger
+bones as stubs bunched near the fingertips instead of spanning knuckle to tip.
+
+**What it actually is.** The digit basins in `add_the_fingers` are wrong on this hand. Measured -
+how long each digit's three bones are, where they start from the wrist, and how far the hand
+actually reaches in that direction:
+
+    L Middle   bones span 11.35 cm from 10.87 cm out; the hand reaches 13.84
+    L Ring     bones span 11.35 cm from 11.03 cm out; the hand reaches 13.75
+    R Middle   bones span  3.30 cm from 12.51 cm out; the hand reaches 15.82
+    L Thumb    bones span  6.28 cm from 10.39 cm out; the hand reaches 16.13
+
+L Middle's chain runs from 10.87 to 22.2 cm from the wrist on a hand that reaches 13.84 - eight
+centimetres past its own fingertip. R Middle spans 3.30 cm where L Middle spans 11.35, for
+fingers that are nearly the same length. A thumb starting 10.39 cm from the wrist is not a thumb.
+
+`the_joints_sit_inside` in the audit flags the consequence - eight bones outside the flesh they
+drive - and the vertex counts point at the cause: every flagged bone owns 7 to 12 vertices where
+a healthy one owns 25 to 81. The bones are not so much misplaced as barely skinned, because the
+basin they were built from is not the finger.
+
+**Why it is open rather than fixed.** Nothing drives these bones. Every clip leaves all thirty
+finger bones on identity, so they ride the hand rigidly and the mesh deforms today exactly as it
+would with no finger rig at all. It costs nothing until fingers are animated, which is stage
+06/07 - and the docstring in `add_the_fingers` records that naming and segmenting digits "cost
+the last character four wrong hands in a row". This is a piece of work, not a tweak, and guessing
+at `A_DIGIT_STARTS` is how that four became four.
+
+**The test.** `the_joints_sit_inside` runs on every audit and lists exactly which bones are
+adrift, so whatever fixes this can be checked rather than eyeballed.
+
+
 ## Keeping this honest
 
 Add an entry when a bug took **more than one attempt** to fix, or when the symptom
