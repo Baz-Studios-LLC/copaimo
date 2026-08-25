@@ -58,37 +58,49 @@ JOIN_INTO = (("idle", ("idle", "look_around")),)
 # correction is not a visible snap, short enough that it does not eat the motion it is bending.
 JOIN_OVER = 12
 
-# # The examine-hands moment inside the idle
+# # The examine-hands moment: ATTEMPTED, REVERTED, and what it taught
 #
-# With finger bones in, the idle can afford a beat of character: he raises both hands, palms
-# toward his face, looks down at them, and SPLAYS his fingers to look at them - then it all
-# eases back into the plain stand. Authored INTO the baked idle over a fixed window, with an
-# envelope that reaches zero at both edges, so the clip's 0.00-degree loop is untouched and
-# every frame outside the window is exactly what it was.
+# Three poses were authored by composing measured axis rotations onto the baked idle, and every
+# one failed a different way: hands at the belly with forearms crossed, hands through the
+# jacket, elbows driven into each other. The root cause is the rig itself - the elbow hinge
+# sweeps ACROSS the body, so a natural "hands up, palms toward the face" needs coordinated
+# shoulder twist per arm, and composing fixed axis offsets cannot coordinate anything. This is
+# precisely the job of hand IK: solve where the hands should BE and let the arms follow. The
+# beat returns at stage 07, posed by the solver instead of by arithmetic.
 #
-# Every axis here is MEASURED, not assumed - the assumed kind put the arms sideways twice today:
-#   toward the face   L_Upperarm Z-50 with L_Forearm X+55; R mirrors the upper arm's sign
-#   look down         Head X negative (the crown tips toward his own forward, which is +x here)
-#   palms to face     the hands roll BACK along the same axis the palm correction rolled in
+# EXAMINES stays False until then. The constants below are the measured record - which axes do
+# what on this rig - and the envelope/compose machinery is sound and reused when it returns.
+EXAMINES = False
+#   toward the face   upper-arm Y twist points the hinge forward (L-50/R+50), then forearm X
+#   look down         Head X negative (the crown tips toward his own forward)
+#   palms to face     the hands roll back along the palm-correction axis
 EXAMINES_AT = (140, 284)     # frames of the joined idle; a calm stretch of the plain stand
 EXAMINE_EASES = 30           # frames of ease at each edge of the window
 # (axis, degrees, LAG in frames). The lags are what makes it read as a person rather than a
 # machine: the upper arms lead, the forearms follow a quarter-second later, the hands turn over
 # as they arrive, and the head comes down last to meet them. Everything still eases to zero
 # inside the window, lag included.
-# A LIST, because a bone may take two turns - the upper arms both swing in (Z) and flex
-# forward (X), which is how elbows lead a raise. Tuned by rendering the peak frame and looking:
-# the first pass put the hands at belly height with the forearms crossing.
+# A LIST, because a bone may take two turns. The anatomy of examining your hands: the elbows
+# STAY AT THE RIBS and bend to ninety-odd degrees, which puts the hands a forearm's length in
+# front of the chest - they cannot clip what they are held away from. The shoulders barely move:
+# a touch of forward flexion, almost no swing. The second pass had this backwards - it swung the
+# arms inward from the shoulder, which drags the forearms across the torso, and the render was
+# read too kindly. `the_hands_stay_off_the_chest` now measures what the eye excused.
+# The elbow hinge on this rig sweeps ACROSS the body, not forward - both earlier poses folded
+# the forearms over the belly because of it. The upper arm must TWIST (its own Y) to point the
+# hinge forward before the elbow bends; measured, L wants -50 and R +50, which lands the hands
+# 20-28 cm ahead of the chest at 118-119 cm up. Sequence per side: lift a little (X), twist the
+# hinge forward (Y), bend the elbow (forearm X), turn the palm (hand Y).
 EXAMINE = (
-    ("L_Upperarm", (0.0, 0.0, 1.0), -36.0, 0),
-    ("L_Upperarm", (1.0, 0.0, 0.0), 14.0, 0),
-    ("R_Upperarm", (0.0, 0.0, 1.0), 36.0, 2),
-    ("R_Upperarm", (1.0, 0.0, 0.0), 14.0, 2),
-    ("L_Forearm", (1.0, 0.0, 0.0), 74.0, 6),
-    ("R_Forearm", (1.0, 0.0, 0.0), 70.0, 8),
-    ("L_Hand", (0.0, 1.0, 0.0), -68.0, 10),
-    ("R_Hand", (0.0, 1.0, 0.0), 68.0, 12),
-    ("Head", (1.0, 0.0, 0.0), -19.0, 14),
+    ("L_Upperarm", (1.0, 0.0, 0.0), 18.0, 0),
+    ("L_Upperarm", (0.0, 1.0, 0.0), -50.0, 0),
+    ("R_Upperarm", (1.0, 0.0, 0.0), 18.0, 2),
+    ("R_Upperarm", (0.0, 1.0, 0.0), 50.0, 2),
+    ("L_Forearm", (1.0, 0.0, 0.0), 85.0, 6),
+    ("R_Forearm", (1.0, 0.0, 0.0), 81.0, 8),
+    ("L_Hand", (0.0, 1.0, 0.0), -60.0, 10),
+    ("R_Hand", (0.0, 1.0, 0.0), 60.0, 12),
+    ("Head", (1.0, 0.0, 0.0), -20.0, 14),
 )
 # The fingers SPLAY - he spreads them to look at them, which is what a person does, and it is
 # also the pose that shows whether the digits are truly separate. Spread is about local Z (the
@@ -1091,6 +1103,16 @@ def join_the_clips(rig, scene, pieces, called):
 # webbing above it is fused wrongly. Below it, connection is anatomy.
 THE_CROTCH_ENDS = 0.22
 
+# # The unfuse: ATTEMPTED, REVERTED with the examine moment
+#
+# Deleting the 36 inter-digit faces separated the fingers, but walling the opened flanks never
+# fully worked - 45 open edges remained and they were VISIBLE holes on the hands, reported from
+# the viewport within minutes. Same shape as the armpit lesson: this mesh's webbing is the only
+# surface where it is, and deletion means holes unless the walls are built properly. That is
+# modelling work, and it rides with the stage-03 gusset. Without the splay there is nothing in
+# the clips that tears the fusion, so watertight-but-fused is strictly better today.
+UNFUSES = False
+
 
 def unfuse_the_digits(rig, mesh, assigned):
     """Separates fingers the generator fused, and walls each flank it opens.
@@ -1286,6 +1308,56 @@ def examine_the_hands(rig, clip, scene):
                f"the moment would play half-posed")
 
 
+def the_hands_stay_off_the_chest(rig, mesh, scene):
+    """Refuses if the raised hands pass behind the chest's own front - the clip-into-the-jacket
+    fault, measured instead of squinted at.
+
+    At the window's peak, every vertex a hand or forearm drives must sit FORWARD of the chest's
+    forwardmost surface, along the direction he faces. Reported as centimetres of daylight, so
+    a pass says how much room there is and not just that there is some.
+    """
+    groups = {g.index: g.name for g in mesh.vertex_groups}
+    def owner(vertex):
+        best, who = 0.0, ""
+        for group in vertex.groups:
+            if group.weight > best:
+                best, who = group.weight, groups.get(group.group, "")
+        return who
+
+    peak = (EXAMINES_AT[0] + EXAMINES_AT[1]) // 2
+    scene.frame_set(peak)
+    bpy.context.view_layer.update()
+    posed = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
+
+    # Which way he faces, from the toes - the same measured answer render_clay uses.
+    toe = rig.pose.bones["L_ToeBase"]
+    forward = (rig.matrix_world @ toe.tail) - (rig.matrix_world @ toe.head)
+    forward.z = 0.0
+    forward.normalize()
+
+    chest, hands = [], []
+    for vertex in posed.data.vertices:
+        who = owner(mesh.data.vertices[vertex.index])
+        spot = (posed.matrix_world @ vertex.co).dot(forward)
+        if who in ("Spine01", "Spine02", "Waist"):
+            chest.append(spot)
+        # HANDS and digits only. The first version included the forearms, and an elbow held at
+        # the ribs is LEGITIMATELY behind the chest's front plane - the guard refused anatomy.
+        # What must stay forward of the chest is what is held up to be looked at.
+        elif "Hand" in who or any(f"_{d}" in who for d in DIGITS):
+            hands.append((spot, vertex.index, who))
+    front = max(chest)
+    hands.sort()
+    nearest, index, who = hands[0]
+    clear = (nearest - front) * 170.0
+    where = posed.matrix_world @ posed.data.vertices[index].co
+    print(f"  at frame {peak} the rearmost hand vertex sits {clear:+.1f} cm forward of the "
+          f"chest's front: owned by {who}, at {where.z * 170.0:.0f} cm up")
+    if clear < 1.0:
+        print(f"  *** the raised hands sit behind the chest front - LOOK at the peak render "
+              f"before trusting either the pose or this number")
+
+
 def travels(rig, clip, scene):
     """How far the body moves through one cycle, hips and feet separately.
 
@@ -1344,8 +1416,9 @@ def main():
                 cut_the_webbing(rig, base_mesh)
             close_the_holes(rig, base_mesh)
             assigned = add_the_fingers(rig, base_mesh)
-            # After the closer, never before it - see unfuse_the_digits on why.
-            unfuse_the_digits(rig, base_mesh, assigned)
+            if UNFUSES:
+                # After the closer, never before it - see unfuse_the_digits on why.
+                unfuse_the_digits(rig, base_mesh, assigned)
         else:
             the_skeletons_match(skeleton, skeleton_of(rig), filename)
             print(f"  {filename}: same skeleton, so its clip moves across unchanged")
@@ -1387,9 +1460,10 @@ def main():
         wanted[called] = made
         print(f"    {frames} frames, {frames / scene.render.fps:.2f} s, joins bent over "
               f"{JOIN_OVER} frames")
-        if called == "idle":
+        if called == "idle" and EXAMINES:
             play(base_rig, made)
             examine_the_hands(base_rig, made, scene)
+            the_hands_stay_off_the_chest(base_rig, base_mesh, scene)
     low = min((base_mesh.matrix_world @ v.co).z for v in base_mesh.data.vertices)
     high = max((base_mesh.matrix_world @ v.co).z for v in base_mesh.data.vertices)
     print(f"\n  a {(high - low) * 100:.1f} cm figure at scene scale")
