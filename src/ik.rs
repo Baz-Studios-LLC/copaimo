@@ -16,9 +16,21 @@
 //!
 //! # Measured on this rig, and both numbers matter
 //!
-//! Thigh **42.00 cm**, calf **36.34 cm**, so a straight leg is 78.34 cm hip to ankle. The bind
-//! pose sits at **99.9% of that** — `prepare_rig::KNEE_EASE` is 2 degrees each way, and 4
-//! degrees of knee fold is only 0.09% off dead straight.
+//! Re-measured 2026-08-25 for the character delivered as `assets/character/*.glb`. The figures
+//! before were thigh 42.00 cm and calf 36.34 cm and belonged to a rig deleted on 2026-08-24,
+//! along with the `dev/art/ik_gait.py` this file used to cite for five of its constants. A reach
+//! budget quoted off a skeleton that no longer exists is the same fault as a `covers` that no
+//! longer describes its clip.
+//!
+//! `dev/art/audit_character.py::the_legs` measures these off the shipped `.glb` and refuses if
+//! they have moved, so they are a checked record rather than a comment:
+//!
+//!     left    thigh 38.69   calf 37.64   straight 76.33   standing 76.22 cm  (99.9%)
+//!     right   thigh 36.91   calf 40.59   straight 77.50   standing 77.16 cm  (99.6%)
+//!
+//! **The legs are not symmetric** — 1.17 cm apart in straight length, and the left is thigh-long
+//! where the right is calf-long. Nothing here may assume otherwise: [`Chain`] carries each leg's
+//! own segment lengths, measured from the bones, and the only shared numbers are ratios.
 //!
 //! Two consequences, and the first one is the whole reason this takes an argument it looks like
 //! it should not need:
@@ -29,12 +41,33 @@
 //! is given will infer it from noise, and on a straight leg it will sometimes fold the knee
 //! backwards. So `bends_toward` is passed in, and for a leg it is the body's forward.
 //!
-//! **A LEG MUST NOT BE ASKED TO GO STRAIGHT.** `dev/art/ik_gait.py` measured this on the
-//! authoring side: a leg extended 99.3% of the way "cannot be solved: there is no bend for the
-//! solver to work with and it fails to track at all", and capping it at 98% took stance slide
-//! from unusable to 0.01 mm. The same cap is [`EXTENDS_AT_MOST`] here. It is not a safety
-//! margin against floating point — it is that a straight two-bone chain is SINGULAR, the same
-//! reason `KNEE_EASE` exists in the bind at all.
+//! **A straight leg is fine HERE, and that is a change.** This said a leg must never be asked to
+//! go straight, on a measurement from `dev/art/ik_gait.py`: a leg at 99.3% "cannot be solved:
+//! there is no bend for the solver to work with and it fails to track at all", so it capped at
+//! 98%. That was true of THAT solver and is not true of this one, for two reasons that are both
+//! visible in [`reach`] above:
+//!
+//! * The singularity is in INFERRING the bend direction, and this solver does not infer it —
+//!   `bends_toward` is an argument, for exactly the reason in the paragraph before this one.
+//! * There is no `acos`. The knee comes from the law of cosines with `off` guarded by
+//!   `.max(0.0).sqrt()`, so at full extension `off` is cleanly zero rather than a NaN.
+//!
+//! And the cap was costing something real. This character's clips put the stance leg at **100.0%
+//! of straight** through the idle and the walk, so a 98% cap could not reach the ankle its own
+//! animation had authored: the target came up 1.4 cm short every frame, the hips dropped to
+//! rescue it, and the warden stood 1.4 cm lower the instant planting switched on. A test was
+//! named `flat_ground_asks_for_nothing_but_the_extension_cap` and asserted that sink, which is
+//! what a guard looks like once it has been taught to accept the thing it was meant to catch.
+//!
+//! So [`EXTENDS_AT_MOST`] is **0.999**, not 0.98 and not 1.0, and its own doc comment carries the
+//! table that picked it. 1.0 exactly is stable and finite but leaves the knee exactly on the
+//! hip-ankle line, with no bend to read or to test; 0.999 leaves a 1.71 cm knee offset for 0.08 cm
+//! of reach, because the offset grows as the SQUARE ROOT of the reach given up. The singularity is
+//! real. It is just far smaller than two percent.
+//!
+//! The IK corrects for TERRAIN; it does not restyle the pose. Soft knees, if they are wanted, are
+//! a clip edit like `motion::move_the_arms_more` — an authored choice, not something a correction
+//! layer imposes on every frame.
 //!
 //! # What it does when it cannot reach
 //!
@@ -52,18 +85,44 @@ use crate::world::terrain::TerrainSource;
 
 /// How straight a leg may be asked to go, as a share of hip-to-ankle at full extension.
 ///
-/// 0.98, matching `dev/art/ik_gait.py::STANCE_LEG_EXTENDS`, and the two want to stay equal:
-/// the authoring side solves stance legs with this cap and the runtime corrects those same
-/// poses, so a runtime that allowed straighter legs than the author did would pull a stance
-/// leg past the point the clip was built at.
-pub const EXTENDS_AT_MOST: f32 = 0.98;
+/// 0.999, and the third nine is doing real work. What the cap costs and what it buys, on this
+/// skeleton's 38.69 + 37.64 cm left leg:
+///
+///     cap      knee off the hip-ankle line     ankle short of straight
+///     1.000                 0.00 cm                    0.00 cm
+///     0.9999                0.54 cm                    0.01 cm
+///     0.999                 1.71 cm                    0.08 cm
+///     0.995                 3.81 cm                    0.38 cm
+///     0.98                  7.59 cm                    1.53 cm
+///
+/// The relationship is steeply nonlinear, which is what makes a good answer available at all: a
+/// knee offset grows as the SQUARE ROOT of the reach given up. At 0.999 the knee sits 1.71 cm off
+/// the line - a readable soft knee, and enough for `a_knee_folds_forward_whichever_way_the_warden
+/// _faces` to have something to measure - for 0.08 cm of reach, which is under a millimetre.
+///
+/// 1.0 exactly does not work, and the reason is worth keeping. It does not produce a NaN: [`reach`]
+/// guards its `sqrt` with `.max(0.0)` and takes the bend direction as an argument, so a fully
+/// straight leg solves cleanly and stably. But `off` is then EXACTLY zero, the knee sits on the
+/// hip-ankle line, and the leg has no bend to read - visually a locked knee, and untestable. The
+/// singularity that justified the old 0.98 is real; it is just far smaller than 2%.
+///
+/// It was 0.98, inherited from `dev/art/ik_gait.py`, which no longer exists. On this character
+/// that cost 1.53 cm of unauthored crouch on flat ground - the clips put the stance leg at 100.0%
+/// of straight, so a 98% cap could not reach the ankle the animation had authored and the hips
+/// dropped every frame to rescue it. 0.999 is 19x less.
+pub const EXTENDS_AT_MOST: f32 = 0.999;
 
 /// How far a leg may fold, as a share of full extension — the ankle may not come closer to the
 /// hip than this.
 ///
-/// 0.27 is where a human knee stops: about 150 degrees of flexion, which on this leg's 42.00
-/// and 36.34 cm puts the ankle 21.2 cm from the hip, or 27% of 78.34. Generous rather than
-/// tight, because this is a rail against a nonsense target and not a pose limit.
+/// 0.27 is about where a knee stops: 150 degrees of flexion, which by the cosine rule on THIS
+/// skeleton's segments puts the ankle 19.78 cm from the hip on the left and 20.37 on the right -
+/// 25.9% and 26.3% of straight. 0.27 sits just above both, which is the right side to be on for
+/// a rail against a nonsense target rather than a pose limit.
+///
+/// Re-derived rather than re-used: the old note computed it off a 42.00/36.34 cm leg that no
+/// longer exists and landed on the same 0.27 by luck. The deepest fold any delivered clip asks
+/// for is 50% of straight, in the run, so nothing comes near this.
 pub const FOLDS_AT_MOST: f32 = 0.27;
 
 /// Below this a vector has no usable direction and asking for one gives a NaN.
@@ -227,10 +286,16 @@ pub const GROUND_REACHES: f32 = 0.35;
 
 /// The most the hips will drop to let a low foot reach, in metres.
 ///
-/// `dev/art/ik_gait.py::HIP_DROPS_AT_MOST` is 0.024 model units for the AUTHORED stance, which
-/// is a different quantity - that one sets how far a stride can reach, this one only rescues a
-/// foot that the ground has moved away from. 0.20 m is about a quarter of this leg.
-pub const HIPS_DROP_AT_MOST: f32 = 0.20;
+/// 0.14 m, anchored to what the clips do on their own. The hip's own vertical travel is 1.73 cm
+/// through the idle, 3.70 through the walk and 6.83 through the run, so a correction of twice the
+/// largest of those is the point where a drop stops reading as part of the gait and starts
+/// reading as a stance change. That is 13.7 cm, and 0.14 is 18% of this leg - inside the 10-20%
+/// of leg length that hip-drop budgets are usually given.
+///
+/// It was 0.20 m, described as "about a quarter of this leg" on a leg that no longer exists.
+/// A quarter of 76 cm is a squat, and this only ever rescues a foot the ground has moved away
+/// from.
+pub const HIPS_DROP_AT_MOST: f32 = 0.14;
 
 /// How far the foot may tilt to lie along the ground, in degrees.
 ///
@@ -240,9 +305,15 @@ pub const FOOT_TILTS_AT_MOST: f32 = 30.0;
 
 /// How far either side of a foot to sample the heightfield for its ground normal, in metres.
 ///
-/// About a foot's width. Tighter picks up single-vertex noise in the sculpted edits and makes the
-/// shoe twitch; wider averages away the slope the foot is actually standing on.
-const A_FOOT_WIDE: f32 = 0.12;
+/// A foot's width, MEASURED. In the body's own frame - the warden faces 102.4 degrees off the
+/// world axes, so an axis-aligned extent is neither width nor length - the shoe is 33.08 cm long
+/// by 17.46 wide on the left and 32.59 by 18.93 on the right. Half of the wider one, rounded, is
+/// the sampling radius: it spans the shoe and no more.
+///
+/// Tighter picks up single-vertex noise in the sculpted edits and makes the shoe twitch; wider
+/// averages away the slope the foot is actually standing on. It was 0.12, "about a foot's width",
+/// which was narrower than this shoe actually is.
+const A_FOOT_WIDE: f32 = 0.09;
 
 /// How fast the hip drop follows the ground, as a share closed per second.
 ///
@@ -635,7 +706,7 @@ pub fn plant_the_feet(
     // authority and says so plainly: the rotation it produces "is applied to a model whose front
     // is -Z". Passing `Vec3::Z` put the pole BEHIND the warden, and a pole behind the knee admits
     // exactly one solution - the knee folding the wrong way. Anatomically the pole belongs in
-    // front, which is what dev/art/ik_gait.py does on the authoring side: it puts the pole "well
+    // front, which is what the authoring side did too: it put the pole "well
     // in FRONT of the knee, at hip height, so the only solution it admits is a knee pointing
     // forward".
     let forward = standing.rotation * Vec3::NEG_Z;
@@ -821,15 +892,22 @@ mod tests {
     /// Flat ground under the foot means no shift asked for, so the only thing that moves the
     /// ankle is the extension cap - the 1.5 cm this rig's 99.9% bind costs. Worth pinning,
     /// because it is the amount the character sinks the instant planting is switched on.
+    /// Flat ground asks for nothing at all, to within a fraction of a millimetre.
+    ///
+    /// This test used to REQUIRE a sink of 1 to 2 cm, and was named
+    /// `flat_ground_asks_for_nothing_but_the_extension_cap` - a guard taught to accept the very
+    /// thing it exists to catch. The sink was the 0.98 cap failing to reach an ankle the clips had
+    /// authored at 100% of straight, so the hips dropped to cover it and the warden stood shorter
+    /// the instant planting switched on. At 0.999 the same figure is under a millimetre.
     #[test]
-    fn flat_ground_asks_for_nothing_but_the_extension_cap() {
+    fn flat_ground_asks_for_nothing() {
         let leg = a_leg();
         let put = plant_one(leg.root, leg.joint, leg.end, 0.0, 0.0, 0.0, FORWARD, 1.0);
         assert_eq!(put.shift, 0.0);
         let sank = (put.now.end.y - leg.end.y).abs();
         assert!(
-            sank * 170.0 > 1.0 && sank * 170.0 < 2.0,
-            "flat ground moved the ankle {:.2} cm; the cap alone accounts for about 1.5",
+            sank * 170.0 < 0.2,
+            "flat ground moved the ankle {:.2} cm, which is height taken off the warden for              standing on nothing",
             sank * 170.0
         );
     }
@@ -865,9 +943,12 @@ mod tests {
     ///
     /// This test first asserted the ankle landed in the SAME place either way, on the reasoning
     /// that the target had not moved. It failed, and it was the assertion that was wrong -
-    /// which is the whole point of the drop. Undropped, this leg cannot reach its own bind-pose
-    /// ankle at a 98% cap and clamps 0.92 cm short of it; with the hips 5 cm down the same
-    /// target needs only 89% extension and it lands exactly.
+    /// which is the whole point of the drop.
+    ///
+    /// The numbers it used to quote came from the old 98% cap, where this leg could not even
+    /// reach its own bind-pose ankle and clamped 0.92 cm short. At 0.999 it reaches that ankle,
+    /// so what is being tested here is the case the drop is actually for: a target the leg
+    /// genuinely cannot make, where lowering the hips shortens the distance it has to cover.
     #[test]
     fn dropping_the_hips_is_what_lets_a_foot_reach() {
         let leg = a_leg();
@@ -1077,8 +1158,14 @@ mod tests {
     /// number that matters here, because A PLANTED ANKLE IS NOT ON THE GROUND. It sits an
     /// ankle's height above the sole, and a test that expects otherwise is wrong about feet.
     const ANKLE_ABOVE_SOLE: f32 = 0.071;
-    const THIGH: f32 = 0.420;
-    const CALF: f32 = 0.363;
+    // This skeleton's LEFT leg, measured off the shipped .glb by
+    // `dev/art/audit_character.py::the_legs`, which refuses if they drift. The right leg is
+    // 36.91 + 40.59 - thigh-short and calf-long where the left is the other way round - so
+    // nothing here may assume the two are the same.
+    //
+    // They were 0.420 and 0.363, which was the leg of a character deleted on 2026-08-24.
+    const THIGH: f32 = 0.3869;
+    const CALF: f32 = 0.3764;
 
     fn a_warden_standing_at(spot: Vec3) -> (App, Entity) {
         use crate::world::terrain::Terrain;
@@ -1523,14 +1610,105 @@ mod tests {
         assert_eq!(aim(Vec3::Z, Vec3::ZERO), Quat::IDENTITY);
     }
 
-    /// The runtime cap and the authoring cap have to agree, or the runtime pulls stance legs
-    /// past where the clips were built. Stated here because the authoring copy lives in a
-    /// Python file no Rust test can read, so this is the reminder rather than the check.
+    /// How far a foot can actually be put DOWN, against how far the ground is allowed to fall.
+    ///
+    /// # The bind's locked legs are the real limit, and they cost more than anything else here
+    ///
+    /// A foot reaches down by two means: straightening the knee, and dropping the hips. This
+    /// character has almost none of the first - the bind stands at 99.9% of straight, so there
+    /// is 0.08 cm of extension left in the leg - which leaves the hip drop doing all of it.
+    ///
+    /// That is not what a bind pose is normally for. A rig meant for ground contact is bound with
+    /// a real knee bend precisely so the leg has somewhere to go, and this one was not. Everything
+    /// downstream inherits it: `GROUND_REACHES` promises 35 cm of correction that the leg cannot
+    /// deliver, and `player::CLIMB_LIMIT` of 1.4 permits the ground to fall 43 cm over half a walk
+    /// step and 155 cm over half a run step - both far past what any leg on this body can follow.
+    ///
+    /// Nothing breaks: `reach` clamps and the foot lands short, which is the documented behaviour
+    /// and reads as a foot hanging over a drop rather than a leg tearing. But the numbers should
+    /// say so out loud instead of three constants quietly disagreeing, so this asserts the parts
+    /// that are true and prints the parts that are a design decision.
     #[test]
-    fn the_extension_cap_matches_the_authoring_side() {
-        assert_eq!(
-            EXTENDS_AT_MOST, 0.98,
-            "dev/art/ik_gait.py::STANCE_LEG_EXTENDS is 0.98; if that moves, this moves"
+    fn a_foot_reaches_down_as_far_as_the_hips_can_drop_and_no_further() {
+        let straight = THIGH + CALF;
+        let standing = straight * 0.999;
+        let left_in_the_leg = straight * EXTENDS_AT_MOST - standing;
+        let reaches_down = left_in_the_leg + HIPS_DROP_AT_MOST;
+
+        // Half a walk step: the distance from the warden's own footing to where a foot lands,
+        // which is the span the ground can differ across. The walk clip holds two cycles and so
+        // four steps, hence the quarter, and half of that again.
+        let step = crate::motion::WALK_COVERS_FOR_TESTS / 4.0;
+        let falls = step * 0.5 * crate::player::CLIMB_LIMIT;
+
+        println!(
+            "leg {straight:.3} m straight, standing {standing:.3}; {:.1} cm of extension left \
+             plus {:.0} cm of hip drop = {:.1} cm of downward reach",
+            left_in_the_leg * 100.0,
+            HIPS_DROP_AT_MOST * 100.0,
+            reaches_down * 100.0
+        );
+        println!(
+            "  a walk step is {step:.3} m, so a foot lands half that from the warden's footing; \
+             over that span CLIMB_LIMIT permits a fall of {:.1} cm",
+            falls * 100.0
+        );
+
+        assert!(
+            reaches_down > 0.05,
+            "a foot can only be put {:.1} cm below where the clip left it, which is not enough \
+             for any ground at all",
+            reaches_down * 100.0
+        );
+        assert!(
+            GROUND_REACHES >= reaches_down,
+            "GROUND_REACHES of {GROUND_REACHES} m is less than the {reaches_down} m the leg can \
+             actually cover, so the trace gives up before the leg does"
+        );
+        // And the one that is a design decision rather than a bug, stated where it can be seen.
+        if falls > reaches_down {
+            println!(
+                "  NOTE the ground may fall {:.1} cm where a foot can follow it {:.1} cm, so on \
+                 the steepest walkable slope a foot hangs. Fixing it means a knee-eased bind, a \
+                 lower CLIMB_LIMIT, or accepting it.",
+                falls * 100.0,
+                reaches_down * 100.0
+            );
+        }
+    }
+
+    /// The cap must not fight the clips, and it must still leave a knee to read.
+    ///
+    /// This used to assert `EXTENDS_AT_MOST == 0.98` against a copy of the number in
+    /// `dev/art/ik_gait.py` - a file that no longer exists, so the test was pinning the constant
+    /// to nothing. Worse, pinning a value is not checking it: 0.98 was wrong for this character
+    /// for a year of commits and a test asserting its exact value could never have said so.
+    ///
+    /// So this checks the two things the cap is actually FOR. The clips reach 100.0% of straight,
+    /// measured by `dev/art/audit_character.py::the_legs`, so anything below about 0.998 starts
+    /// taking visible height off an authored stance; and the cap has to stay under 1.0 or the
+    /// knee lands exactly on the hip-ankle line with no bend at all.
+    #[test]
+    fn the_cap_neither_fights_the_clips_nor_locks_the_knee() {
+        assert!(
+            EXTENDS_AT_MOST < 1.0,
+            "a cap of {EXTENDS_AT_MOST} lets the leg go dead straight, which puts the knee on              the hip-ankle line with no bend direction to read"
+        );
+        let straight = THIGH + CALF;
+        let short = straight * (1.0 - EXTENDS_AT_MOST);
+        assert!(
+            short * 170.0 < 0.2,
+            "the cap gives up {:.2} cm of reach, which the hips have to drop to cover - the              clips stand at 100% of straight, so that comes straight off the warden's height",
+            short * 170.0
+        );
+        // And it must leave a knee offset big enough to see and to test.
+        let reaches = straight * EXTENDS_AT_MOST;
+        let along = (reaches * reaches + THIGH * THIGH - CALF * CALF) / (2.0 * reaches);
+        let off = (THIGH * THIGH - along * along).max(0.0).sqrt();
+        assert!(
+            off * 170.0 > 1.0,
+            "at a {EXTENDS_AT_MOST} cap the knee sits only {:.2} cm off the hip-ankle line,              which reads as a locked leg",
+            off * 170.0
         );
     }
 

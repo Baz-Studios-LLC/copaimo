@@ -308,19 +308,69 @@ from covering ground at a given speed, because that cadence is the same `speed /
 rate computed - `neither_gait_plays_at_a_blur` asserts on exactly that. It is a statement about
 the clips, not about the playback mechanism, and it survived the change intact.
 
-### 05 - Ground contact  (solver exists)
+### 05 - Ground contact  (RE-MEASURED AND THE CLIPS FIXED 2026-08-25)
 
 The two-bone solver, the reach budget and the sole-alignment maths are in `src/ik.rs` with tests
 behind them. Generic code, written for the last character - it needs re-measuring against this
 skeleton's proportions, not rewriting.
 
+* ~~Re-measure the solver against this skeleton~~ - **DONE**, and it was not cosmetic. Every
+  constant came from a character deleted on 2026-08-24, and five of them cited
+  `dev/art/ik_gait.py`, a file that no longer exists. `EXTENDS_AT_MOST` was the expensive one: at
+  0.98 it could not reach an ankle the clips authored at 100% of straight, so the hips dropped
+  every frame and the warden stood **1.53 cm shorter the instant planting switched on** - and a
+  test called `flat_ground_asks_for_nothing_but_the_extension_cap` asserted that sink by name.
+  Now 0.999, chosen off a table in its own doc comment: a knee offset grows as the square root of
+  the reach given up, so 0.999 buys a readable 1.71 cm knee for 0.08 cm of reach where 0.98 cost
+  1.53. `HIPS_DROP_AT_MOST` 0.20 -> 0.14, anchored to the hip's own 6.83 cm bob in the run.
+  `A_FOOT_WIDE` 0.12 -> 0.09, half the shoe measured in the BODY's frame. `dev/art/audit_character
+  .py::the_legs` now reads THIGH and CALF out of `src/ik.rs` and refuses if the skeleton has moved.
+* ~~Fix what the clips do to the feet~~ - **DONE.** Three faults, all in the clips, none of which
+  runtime ground contact could ever have fixed: `ik::shift_to_ground` corrects for how far the
+  ground under one foot differs from the ground under the warden, so on flat ground it correctly
+  does nothing, and a sole authored through the floor stays through it.
+
+      the sole was below the floor on 100% of idle and walk frames and 88% of run frames
+      the toe NEVER bent - both toe bones keyed in every clip, every key an identity
+      the right foot pointed ~30 deg off travel while the left was straight
+
+  `break_the_toes` moves a foot's pitch past 25 degrees into the toe, which straightens the foot
+  and produces the bend in one operation - the run's 86.7 degree ballet point is now 30.5 with 55
+  degrees of break. `point_the_feet_along` takes the splay down to 10 degrees and keeps its sign.
+  `stand_on_the_floor` lifts each clip until nothing penetrates: **0 frames through the floor, in
+  all three clips.**
 * Foot planting - trace to the ground, solve the leg, aim the ankle so the sole lies on the
-  slope rather than the character standing on his toes.
-* Hip drop, bounded, so a leg that cannot reach lowers the body instead of snapping straight.
-* Step-up and slope limits that agree with the movement code's own climb limit.
+  slope. Code and tests exist and now run on correct constants; **not yet verified in game
+  against this character.**
+* Hip drop, bounded - exists, budget re-measured.
+* Step-up and slope limits that agree with the movement code's own climb limit - measured, and
+  they DO NOT agree. See below.
 
 *Unblocks:* the open world being walkable rather than a flat plane with scenery.
 *Refuses when:* a sole is off the ground on a slope, hips drop past budget, a knee bends back.
+All three have tests and all three pass.
+
+#### The bind's locked legs are the real ceiling on ground contact
+
+`a_foot_reaches_down_as_far_as_the_hips_can_drop_and_no_further` states it:
+
+    leg 0.763 m straight, standing 0.763
+    0.0 cm of extension left + 14 cm of hip drop = 14.0 cm of downward reach
+    a walk step is 0.618 m; over half of it CLIMB_LIMIT permits the ground to fall 43.2 cm
+
+A foot reaches down by straightening the knee and by dropping the hips. **This bind stands at
+99.9% of straight, so there is 0.08 cm of extension left in the leg** and the hip drop is doing
+all of the work. A rig meant for ground contact is bound with a real knee bend precisely so the
+leg has somewhere to go; this one was not, and everything downstream inherits it.
+
+Nothing breaks - `reach` clamps and the foot lands short, which is documented behaviour and reads
+as a foot hanging over a drop rather than a leg tearing. But on the steepest slope the movement
+code permits, a foot hangs. Three ways out, and the choice is a design one:
+
+* **A knee-eased bind.** The proper fix, and it changes the asset, so every clip retargets.
+* **A lower `player::CLIMB_LIMIT`.** Cheap, and it is a gameplay knob - it is "what makes a wall
+  a WALL" - so it is not mine to move.
+* **Accept it.** A foot hanging on a 1-in-1.4 scramble may simply not matter.
 
 ### 06 - Layered motion  (open)
 

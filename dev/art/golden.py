@@ -56,6 +56,12 @@ SHEET = (
     ("armpit_L_out", ["--lift", "70", "--only", "armpit_L_front"]),
     ("armpit_R_out", ["--lift", "70", "--only", "armpit_R"]),
     ("silhouette", ["--silhouette", "--only", "front"]),
+    # The feet, on the frames where the run does the most to them. Stage 05 moved every clip onto
+    # the floor and put 55 degrees of break into a toe that had never bent, so these are the
+    # shots that would show any of it coming undone.
+    ("foot_L_run", ["--clip", "run", "--frame", "23", "--only", "foot_L_side"]),
+    ("foot_R_run", ["--clip", "run", "--frame", "10", "--only", "foot_R_side"]),
+    ("feet_walk", ["--clip", "walk", "--frame", "35", "--only", "foot_L_side"]),
     # The worst-tearing frame of each clip, from `audit_character`'s own measurements.
     ("idle_worst", ["--clip", "idle", "--frame", "428", "--only", "quarter"]),
     ("walk_worst", ["--clip", "walk", "--frame", "49", "--only", "quarter"]),

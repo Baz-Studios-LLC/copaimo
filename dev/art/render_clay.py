@@ -49,6 +49,13 @@ SHOTS = (
     # Aimed at the HAND BONE rather than at a height, because a hand hangs at the side of the
     # figure and a shot centred on the body's midline frames it at the very edge - which is what
     # made a first attempt at judging the palms unreadable.
+    # Aimed at the FOOT BONE, for the same reason as the hands and for one more: the framing is
+    # anchored to the bind figure on purpose, so a `feet` shot at a fixed height fraction misses
+    # entirely once a clip has been lifted onto the floor. A shot of the feet has to follow them.
+    ("foot_L", 25.0, 0.42, "L_Foot"),
+    ("foot_R", 25.0, 0.42, "R_Foot"),
+    ("foot_L_side", 90.0, 0.42, "L_Foot"),
+    ("foot_R_side", 90.0, 0.42, "R_Foot"),
     ("hand_L", 0.0, 0.16, "L_Hand"),
     ("hand_L_side", 90.0, 0.16, "L_Hand"),
     ("hand_R", 0.0, 0.16, "R_Hand"),

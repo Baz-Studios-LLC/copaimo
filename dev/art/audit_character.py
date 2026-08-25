@@ -554,6 +554,65 @@ ENOUGH_PLANTS = 8
 SLIDES_PAST = 15.0
 
 
+def the_legs_the_game_uses():
+    """Every leg number `src/ik.rs` divides by, read from its own source.
+
+    The same reason as `the_covers_the_game_uses`: an audit with its own copy of these can pass
+    against values the game no longer uses. `ik.rs` held a thigh of 42.00 cm and a calf of 36.34
+    for a character deleted on 2026-08-24, and nothing said so.
+    """
+    where = os.path.join(os.path.dirname(os.path.dirname(ART)), "src", "ik.rs")
+    if not os.path.isfile(where):
+        return {}
+    with open(where, encoding="utf-8") as source:
+        text = source.read()
+    found = dict(re.findall(r"const (THIGH|CALF): f32 = ([0-9.]+);", text))
+    if len(found) != 2:
+        raise SystemExit(
+            f"REFUSED: {where} no longer declares THIGH and CALF the way this reads them "
+            f"(found {sorted(found)}), so the leg check would measure against nothing")
+    return {"thigh": float(found["THIGH"]), "calf": float(found["CALF"])}
+
+
+def the_legs(rig, claims):
+    """What each leg actually measures, against what the game believes.
+
+    The reach budget, the fold limit and the hip-drop budget in `src/ik.rs` are all fractions of
+    these two lengths, so a stale figure makes the solver refuse targets it could hit or straighten
+    a leg it should have dropped the hips for - quietly, and at every speed.
+    """
+    print("\nTHE LEGS")
+    off = []
+    for side in ("L", "R"):
+        want = [f"{side}_Thigh", f"{side}_Calf", f"{side}_Foot"]
+        if any(b not in rig.pose.bones for b in want):
+            print(f"  {side}: no leg chain")
+            continue
+
+        def at(name):
+            return rig.matrix_world @ rig.pose.bones[name].bone.head_local
+
+        thigh = (at(f"{side}_Calf") - at(f"{side}_Thigh")).length * SCALE / 100.0
+        calf = (at(f"{side}_Foot") - at(f"{side}_Calf")).length * SCALE / 100.0
+        stands = (at(f"{side}_Foot") - at(f"{side}_Thigh")).length / (
+            (at(f"{side}_Calf") - at(f"{side}_Thigh")).length
+            + (at(f"{side}_Foot") - at(f"{side}_Calf")).length)
+        print(f"  {side}: thigh {thigh * 100:6.2f} cm, calf {calf * 100:6.2f} cm, straight "
+              f"{(thigh + calf) * 100:6.2f} cm; the bind stands at {stands * 100:.1f}%")
+        # Only the LEFT leg is compared: `ik.rs` records one leg's lengths, and the right is
+        # deliberately different - 1.17 cm longer - which is why the solver takes each chain's
+        # own segment lengths rather than a constant.
+        if side == "L" and claims:
+            for what, mine, theirs in (("thigh", thigh, claims["thigh"]),
+                                       ("calf", calf, claims["calf"])):
+                if abs(mine - theirs) > 0.005:
+                    off.append(f"the left {what} measures {mine * 100:.2f} cm and src/ik.rs "
+                               f"says {theirs * 100:.2f}")
+    if off:
+        raise SystemExit("REFUSED: the leg the solver divides by is not the leg in the file -\n  "
+                         + "\n  ".join(off))
+
+
 def the_covers_the_game_uses():
     """How far the game believes each gait cycle carries the warden, read from its own source.
 
@@ -791,6 +850,7 @@ def main():
     the_deformation(rig, mesh, bpy.context.scene, owner_of(mesh))
     the_clips(rig, bpy.context.scene)
     the_footfalls(rig, bpy.context.scene, the_covers_the_game_uses())
+    the_legs(rig, the_legs_the_game_uses())
 
 
 if __name__ == "__main__":

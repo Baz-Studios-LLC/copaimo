@@ -406,6 +406,50 @@ ROLLS_ALONG = ("ForearmTwist01", "ForearmTwist02")
 # on the amplified motion and the spread redistributes the amplified twist. Getting that
 # order wrong would let amplification push the inner extreme back into the ribs.
 MOVES_MORE = {"idle": 1.45, "look_around": 1.45}
+
+# # The feet, and three faults measured on the delivered clips
+#
+# Reported as "ground contact should solve the mesh clipping into the floor and straighten the
+# feet during the run", "the feet need to have that toe bend during the run", and "feet should be
+# straight too, a lot of frames they're offset unnaturally". All three are real and all three are
+# in the CLIPS, which is why runtime ground contact cannot fix them: `ik::shift_to_ground` corrects
+# for how far the ground under one foot differs from the ground under the warden, so on flat
+# ground it correctly does nothing - and a sole authored below the floor stays below it.
+#
+# What the clips actually do, measured off the shipped .glb:
+#
+#                  lowest sole   frames through the floor   toe break     toe off travel
+#     idle           -5.02 cm      744 of 744  (100%)       0.0 deg      L  +0.5  R -30.3
+#     walk           -3.38 cm       57 of  57  (100%)       0.0 deg      L  +4.3  R -29.1
+#     run            -7.51 cm       22 of  25   (88%)       0.0 deg      L +21.1  R  -2.0
+#
+# Three separate things, in the order they have to be fixed - the first two move the soles, so
+# the floor can only be measured once they are done.
+#
+# THE TOE NEVER BENDS. Both toe bones are keyed in every clip and every key holds identity, so a
+# foot that should break at the ball of the foot instead pitches the whole shoe down - 86.7
+# degrees of it in the run, which is the ballet point that was reported. Moving the excess pitch
+# into the toe straightens the foot AND produces the bend, because they are the same operation.
+#
+# THE RIGHT FOOT IS SPLAYED about thirty degrees off the line of travel while the left is
+# straight, consistently, through both the idle and the walk. The same left/right signature as
+# the arm that rested 4 degrees tighter and the forearm whose roll all sat in one joint: these
+# clips are mirrored imperfectly.
+#
+# THE SOLES SIT BELOW THE FLOOR, in the bind pose they do not - both soles measure 0.00 cm there -
+# so this is the animation and not the mesh.
+FEET_MEET_THE_FLOOR = True
+
+# Foot pitch beyond which the toe takes over, and how far the toe may go. A foot rolls up onto the
+# ball before the toe does anything, so the first 25 degrees stay in the ankle; past that a real
+# foot breaks rather than pointing, and 55 degrees is about where a toe stops.
+TOE_BREAKS_PAST = 25.0
+TOE_BREAKS_AT_MOST = 55.0
+
+# How much toe-out to leave in. Feet do not point dead along the line of travel - about 10 degrees
+# of natural toe-out is right - so the correction only takes out what is past that, and only ever
+# reduces the splay.
+SPLAY_ALLOWS = 10.0
 MOVES_AT = ("Clavicle", "Upperarm", "Forearm", "Hand")
 
 
@@ -1341,20 +1385,30 @@ def where_the_hands_point(rig, clip, scene):
     return out
 
 
-def swing_and_twist(q):
-    """Splits a local rotation into the part that spins about the bone's length and the rest.
+def split_about(q, axis):
+    """Splits a local rotation into the part that turns about one bone-local axis, and the rest.
 
-    `q = swing * twist`, twist about bone-local +Y, which is the axis a limb bone runs along.
-    The projection is the standard swing-twist decomposition; the negation keeps it on the
-    shortest arc, without which a 10 degree twist reads as 350.
+    `q = rest * turn`, `turn` about the bone's own X, Y or Z for `axis` 0, 1 or 2. The projection
+    is the standard swing-twist decomposition; the negation keeps it on the shortest arc, without
+    which a 10 degree turn reads as 350.
+
+    Written once and used twice: a forearm's roll is the part about its LENGTH (Y), and a foot's
+    pitch is the part about its FLEX axis (X). Same arithmetic, different column.
     """
-    twist = mathutils.Quaternion((q.w, 0.0, q[2], 0.0))
-    if twist.magnitude < 1e-9:
-        twist = mathutils.Quaternion()
-    twist.normalize()
-    if twist.w < 0.0:
-        twist.negate()
-    return q @ twist.inverted(), twist
+    parts = [0.0, 0.0, 0.0]
+    parts[axis] = q[axis + 1]
+    turn = mathutils.Quaternion((q.w, *parts))
+    if turn.magnitude < 1e-9:
+        turn = mathutils.Quaternion()
+    turn.normalize()
+    if turn.w < 0.0:
+        turn.negate()
+    return q @ turn.inverted(), turn
+
+
+def swing_and_twist(q):
+    """A limb bone's roll about its own length, and whatever is left."""
+    return split_about(q, 1)
 
 
 def a_share_of(turn, share):
@@ -1508,6 +1562,317 @@ def spread_the_twist(rig, clip, mesh):
     return spread
 
 
+def which_way_points_the_toe_down(rig, side):
+    """The foot's own axis that pitches its toe toward the floor.
+
+    Derived the same way as `which_way_abducts`, and for the same reason - guessing a sign per
+    side is how the finger curls went wrong. Rotating a direction `u` about `n` moves it by
+    `n x u`, so `u.z` falls fastest about `-(u x z)`.
+    """
+    foot = rig.pose.bones[f"{side}_Foot"]
+    along = ((rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].bone.head_local)
+             - (rig.matrix_world @ foot.bone.head_local))
+    if along.length < 1e-9:
+        refuse(f"the {side} foot has no length, so no pitch axis exists")
+    down = -along.normalized().cross(mathutils.Vector((0.0, 0.0, 1.0)))
+    if down.length < 1e-9:
+        refuse(f"the {side} foot points straight up or down, so its pitch is undefined")
+    rest = (rig.matrix_world @ foot.bone.matrix_local).to_3x3()
+    return (rest.inverted() @ down.normalized()).normalized()
+
+
+def the_feet_pitch(rig, clip, scene):
+    """How far each foot's toe sits below its ankle, over a whole clip, in degrees."""
+    play(rig, clip)
+    first, last = (int(round(v)) for v in clip.frame_range)
+    step = max(1, (last - first) // 60)
+    out = {"L": [], "R": []}
+    for frame in range(first, last + 1, step):
+        scene.frame_set(frame)
+        posed = rig.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        for side in ("L", "R"):
+            ankle = posed.matrix_world @ posed.pose.bones[f"{side}_Foot"].head
+            toe = posed.matrix_world @ posed.pose.bones[f"{side}_ToeBase"].head
+            flat = mathutils.Vector((toe.x - ankle.x, toe.y - ankle.y, 0.0)).length
+            if flat > 1e-9:
+                out[side].append(math.degrees(math.atan2(ankle.z - toe.z, flat)))
+    return out
+
+
+def break_the_toes(rig, clip, scene):
+    """Moves a foot's excess downward pitch out of the ankle and into the toe.
+
+    A foot rolls onto the ball and BREAKS there; it does not point like a dancer's. The delivered
+    clips pitch the whole shoe down - 86.7 degrees of it in the run - and leave both toe bones
+    keyed to identity, so there is no break at all. Raising the ankle by the excess and bending
+    the toe down by the same amount straightens the foot and produces the bend in one operation,
+    because they are the same operation seen from two ends: the toe tip stays where the animator
+    put it and the shoe above it comes flat.
+
+    # Measured in the WORLD, not decomposed from the foot's own rotation
+
+    The first version split the foot's local rotation about its flex axis and moved a share of
+    that. It moved 5.5 degrees and changed the resulting pitch by nothing, because a foot's world
+    pitch is not in its own bone: the thigh and the calf carry most of it, and the foot's local X
+    is only the last contribution. So the excess is measured off the posed ankle-to-toe vector,
+    frame by frame, and applied as a correction - the same shape as `lift_the_arms`.
+
+    Both offsets are composed on the POSED side (`keyed * offset`, with the axis expressed in each
+    bone's own posed frame) because the pitch axis follows the foot, unlike an abduction which is
+    fixed in the shoulder.
+    """
+    was = the_feet_pitch(rig, clip, scene)
+    play(rig, clip)
+    first, last = (int(round(v)) for v in clip.frame_range)
+    up = mathutils.Vector((0.0, 0.0, 1.0))
+
+    # Every correction worked out before any of it is written, because writing a key changes what
+    # the next frame evaluates to.
+    wanted = {side: {} for side in ("L", "R")}
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        posed = rig.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        for side in ("L", "R"):
+            ankle = posed.matrix_world @ posed.pose.bones[f"{side}_Foot"].head
+            toe = posed.matrix_world @ posed.pose.bones[f"{side}_ToeBase"].head
+            along = toe - ankle
+            flat = mathutils.Vector((along.x, along.y, 0.0))
+            if flat.length < 1e-9 or along.length < 1e-9:
+                continue
+            pitch = math.degrees(math.atan2(ankle.z - toe.z, flat.length))
+            over = min(max(pitch - TOE_BREAKS_PAST, 0.0), TOE_BREAKS_AT_MOST)
+            if over <= 0.01:
+                continue
+            # The world axis about which the toe FALLS - derived, not assumed, the same way as
+            # `which_way_abducts`: rotating `u` about `n` moves it by `n x u`, so `u.z` falls
+            # fastest about `-(u x z)`.
+            falls = -along.normalized().cross(up)
+            if falls.length < 1e-9:
+                continue
+            falls.normalize()
+            for bone, way in ((f"{side}_Foot", -1.0), (f"{side}_ToeBase", 1.0)):
+                held = (rig.matrix_world @ posed.pose.bones[bone].matrix).to_3x3()
+                mine = held.inverted() @ falls
+                if mine.length < 1e-9:
+                    continue
+                wanted[side].setdefault(bone, {})[frame] = mathutils.Quaternion(
+                    mine.normalized(), math.radians(over * way))
+
+    slot = rig.animation_data.action_slot if rig.animation_data else None
+    broke = {}
+    for side in ("L", "R"):
+        if not wanted[side]:
+            continue
+        most = 0.0
+        for bone, byframe in wanted[side].items():
+            chans = channels_for(clip, slot, f'pose.bones["{bone}"].rotation_quaternion')
+            # EVERY existing value read before ANY of them is written. The toe's curves start
+            # empty, so inserting frame by frame while still reading meant each frame read back
+            # the key the previous frame had just written and composed on top of it: the run's
+            # left toe compounded from a 55 degree cap to 111.8. `spread_the_twist` gets this
+            # right and this got it wrong; the rule is the same either way.
+            keyed = {}
+            for frame in byframe:
+                held = mathutils.Quaternion([chans[i].evaluate(frame) for i in range(4)])
+                keyed[frame] = mathutils.Quaternion() if held.magnitude < 1e-9 else held
+            for frame, offset in byframe.items():
+                turned = keyed[frame] @ offset
+                for i in range(4):
+                    chans[i].keyframe_points.insert(frame, turned[i], options={"FAST"})
+                most = max(most, math.degrees(abs(offset.angle)))
+            for curve in chans.values():
+                curve.update()
+        broke[side] = most
+        print(f"      {side}: corrected {len(wanted[side].get(f'{side}_Foot', {}))} frames of "
+              f"{last - first + 1}, largest offset {most:.1f} deg")
+    now = the_feet_pitch(rig, clip, scene)
+    # The toe may not end up bent further than it was ever asked to bend. A correction that
+    # composes onto itself does not announce itself any other way.
+    play(rig, clip)
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        for side in ("L", "R"):
+            turn = rig.pose.bones[f"{side}_ToeBase"].rotation_quaternion.copy()
+            if turn.w < 0.0:
+                turn.negate()
+            bent = math.degrees(turn.angle)
+            if bent > TOE_BREAKS_AT_MOST + 5.0:
+                refuse(f"{clip.name} frame {frame}: the {side} toe ended up bent {bent:.1f} deg "
+                       f"against a {TOE_BREAKS_AT_MOST:.0f} deg cap, so the correction composed "
+                       f"onto itself somewhere")
+    return was, broke, now
+
+
+def the_lowest_sole(rig, mesh, clip, scene):
+    """The lowest point of either shoe over a whole clip, and which frame it happens on.
+
+    Off the SKINNED mesh, because the floor is where the shoe is and not where the ankle bone is.
+    """
+    play(rig, clip)
+    first, last = (int(round(v)) for v in clip.frame_range)
+    groups = {g.index: g.name for g in mesh.vertex_groups}
+    shoe = []
+    for vertex in mesh.data.vertices:
+        for group in vertex.groups:
+            name = groups.get(group.group, "")
+            if group.weight > 0.3 and ("Foot" in name or "ToeBase" in name):
+                shoe.append(vertex.index)
+                break
+    if not shoe:
+        refuse("no vertices are weighted to the feet, so the floor cannot be found")
+    low, when = None, first
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        skin = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        here = min((skin.matrix_world @ skin.data.vertices[i].co).z for i in shoe)
+        if low is None or here < low:
+            low, when = here, frame
+    return (low or 0.0), when
+
+
+def stand_on_the_floor(rig, mesh, clip, scene):
+    """Lifts a clip until no part of either shoe is below the floor.
+
+    The runtime's ground contact cannot fix this and is not meant to: `ik::shift_to_ground`
+    corrects for how far the ground under one foot differs from the ground under the warden, so
+    on flat ground it correctly does nothing - and a sole authored through the floor stays
+    through it. Measured on the delivered clips, the sole is below zero on 100% of idle and walk
+    frames and 88% of run frames. In the BIND pose both soles sit at 0.00 cm, so this is the
+    animation rather than the mesh.
+
+    A single lift per clip, applied to the root's own translation. It cannot fix the two feet
+    sitting at DIFFERENT heights - the idle's left sole rests 3.5 cm lower than its right - which
+    is a per-foot correction and therefore the runtime solver's job, not a second copy of it here.
+    What this guarantees is that nothing penetrates; anything left over floats, which is the side
+    of the error a ground solver can pull back down.
+    """
+    low, when = the_lowest_sole(rig, mesh, clip, scene)
+    if low >= -1e-6:
+        return low, 0.0, low, when
+    slot = rig.animation_data.action_slot if rig.animation_data else None
+    curves = fcurves_of(clip, slot)
+    # Whichever bone the clip moves the body with. World up expressed in ITS rest frame, because
+    # a bone's local Z is along whatever way the bone was built and not necessarily up.
+    for carrier in ("Root", "Hip", "Pelvis"):
+        if carrier not in rig.pose.bones:
+            continue
+        path = f'pose.bones["{carrier}"].location'
+        parts = {c.array_index: c for c in curves if c.data_path == path}
+        if len(parts) != 3:
+            continue
+        rest = (rig.matrix_world @ rig.pose.bones[carrier].bone.matrix_local).to_3x3()
+        up = (rest.inverted() @ mathutils.Vector((0.0, 0.0, 1.0))).normalized() * (-low)
+        for at in range(3):
+            for key in parts[at].keyframe_points:
+                key.co[1] += up[at]
+                key.handle_left[1] += up[at]
+                key.handle_right[1] += up[at]
+            parts[at].update()
+        now, _ = the_lowest_sole(rig, mesh, clip, scene)
+        return low, -low, now, when
+    refuse(f"{clip.name} keys no root translation, so it cannot be lifted onto the floor")
+
+
+def the_feet_point(rig, clip, scene):
+    """How far each toe points off the line of travel, over a whole clip, in degrees."""
+    play(rig, clip)
+    first, last = (int(round(v)) for v in clip.frame_range)
+    step = max(1, (last - first) // 60)
+    bind = rig.pose.bones["L_ToeBase"].bone
+    ahead = ((rig.matrix_world @ bind.tail_local) - (rig.matrix_world @ bind.head_local))
+    ahead.z = 0.0
+    if ahead.length < 1e-9:
+        refuse("the bind toe has no horizontal direction, so travel cannot be established")
+    ahead.normalize()
+    across = mathutils.Vector((-ahead.y, ahead.x, 0.0))
+    out = {"L": [], "R": []}
+    for frame in range(first, last + 1, step):
+        scene.frame_set(frame)
+        posed = rig.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        for side in ("L", "R"):
+            toe = posed.pose.bones[f"{side}_ToeBase"]
+            along = ((posed.matrix_world @ toe.tail) - (posed.matrix_world @ toe.head))
+            along.z = 0.0
+            if along.length > 1e-9:
+                along.normalize()
+                out[side].append(math.degrees(math.atan2(along.dot(across), along.dot(ahead))))
+    return out
+
+
+def point_the_feet_along(rig, clip, scene):
+    """Takes the excess splay out of a foot, leaving the natural toe-out in.
+
+    Measured on the delivered clips, the RIGHT foot points about thirty degrees off the line of
+    travel through both the idle and the walk while the left is straight - mean -30.3 and -29.1
+    against +0.5 and +4.3. That is the same left/right signature as the arm that rested four
+    degrees tighter to the torso and the forearm whose whole roll sat in one joint: these clips
+    are mirrored imperfectly, and it reads as "a lot of frames they're offset unnaturally".
+
+    The correction reduces the MAGNITUDE toward `SPLAY_ALLOWS` and keeps the sign, so a foot that
+    toes out naturally still toes out - it just stops doing it by thirty degrees. A foot already
+    inside the allowance is left alone entirely.
+
+    Applied at the ankle, which is the cheap place rather than the true one: a splay of this size
+    really comes from the hip, and rotating the whole leg would be the honest fix. On a stylised
+    character the ankle reads fine and it cannot disturb the hip's own motion, which the gait
+    depends on.
+    """
+    was = the_feet_point(rig, clip, scene)
+    play(rig, clip)
+    first, last = (int(round(v)) for v in clip.frame_range)
+    bind = rig.pose.bones["L_ToeBase"].bone
+    ahead = ((rig.matrix_world @ bind.tail_local) - (rig.matrix_world @ bind.head_local))
+    ahead.z = 0.0
+    if ahead.length < 1e-9:
+        refuse("the bind toe has no horizontal direction, so travel cannot be established")
+    ahead.normalize()
+    across = mathutils.Vector((-ahead.y, ahead.x, 0.0))
+    up = mathutils.Vector((0.0, 0.0, 1.0))
+
+    wanted = {"L": {}, "R": {}}
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        posed = rig.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        for side in ("L", "R"):
+            toe = posed.pose.bones[f"{side}_ToeBase"]
+            along = ((posed.matrix_world @ toe.tail) - (posed.matrix_world @ toe.head))
+            along.z = 0.0
+            if along.length < 1e-9:
+                continue
+            along.normalize()
+            points = math.degrees(math.atan2(along.dot(across), along.dot(ahead)))
+            over = max(abs(points) - SPLAY_ALLOWS, 0.0)
+            if over <= 0.01:
+                continue
+            # Toward the allowance, never past it, and never through it to the other side.
+            turn = -math.copysign(over, points)
+            held = (rig.matrix_world @ posed.pose.bones[f"{side}_Foot"].matrix).to_3x3()
+            mine = held.inverted() @ up
+            if mine.length < 1e-9:
+                continue
+            wanted[side][frame] = mathutils.Quaternion(mine.normalized(), math.radians(turn))
+
+    slot = rig.animation_data.action_slot if rig.animation_data else None
+    for side in ("L", "R"):
+        if not wanted[side]:
+            continue
+        chans = channels_for(clip, slot, f'pose.bones["{side}_Foot"].rotation_quaternion')
+        # Everything read before anything is written - see `break_the_toes` for what happens
+        # otherwise.
+        keyed = {}
+        for frame in wanted[side]:
+            held = mathutils.Quaternion([chans[i].evaluate(frame) for i in range(4)])
+            keyed[frame] = mathutils.Quaternion() if held.magnitude < 1e-9 else held
+        for frame, offset in wanted[side].items():
+            turned = keyed[frame] @ offset
+            for i in range(4):
+                chans[i].keyframe_points.insert(frame, turned[i], options={"FAST"})
+        for curve in chans.values():
+            curve.update()
+    now = the_feet_point(rig, clip, scene)
+    return was, now
+
+
 def sample(rig, clip, scene):
     """Every bone's local rotation, location and scale, frame by frame.
 
@@ -1536,6 +1901,16 @@ def bend_to_meet(poses, offsets, over, backwards=False):
     Full correction at the seam itself, easing to none by the far end of the window, so the
     segment arrives exactly where the one before it left off and is back on its own motion
     within half a second.
+
+    # The shortest arc, or the blend goes the long way round
+
+    Every offset is put on the shortest arc first. `q` and `-q` are the same rotation, but
+    slerping from IDENTITY to one of them is not the same as slerping to the other: for a `q`
+    with negative w the interpolation swings the long way, through angles larger than either
+    end. It showed up as a spike in the run's loop-closure window - the left foot's local
+    rotation reading 115.5 degrees on frame 23 where its neighbours sat near 58, and a toe
+    correction capped at 55 degrees coming out at 111.8 - and it also put one frame's sole
+    0.31 cm back through the floor after the clip had been lifted onto it.
     """
     for step in range(min(over, len(poses))):
         share = 1.0 - (step / over)
@@ -1543,9 +1918,12 @@ def bend_to_meet(poses, offsets, over, backwards=False):
         for name, (turn, shift) in offsets.items():
             if name not in poses[at]:
                 continue
+            short = turn.copy()
+            if short.w < 0.0:
+                short.negate()
             was_turn, was_shift, was_scale = poses[at][name]
             poses[at][name] = (
-                mathutils.Quaternion().slerp(turn, share) @ was_turn,
+                mathutils.Quaternion().slerp(short, share) @ was_turn,
                 was_shift + shift * share,
                 was_scale,
             )
@@ -2307,6 +2685,45 @@ def main():
         if called in ("walk", "run") and foot < 0.05:
             refuse(f"the {called} clip moves its feet {foot * 100:.1f} cm, which is not a "
                    f"gait - either the clip is empty or it is not driving the rig")
+
+    # # The feet, AFTER the joins and the loop closure
+    #
+    # Order, and it cost a round to find. The toe correction is derived per frame from the posed
+    # ankle-to-toe direction, so on a clip whose first and last frames are DIFFERENT poses - which
+    # is exactly what a clip needing its loop closed is - the correction at the two ends differs
+    # too. `close_the_loop` then reads that difference as a seam and blends it back across the
+    # last eight frames, which doubled the run's left toe from a 55 degree cap to 111.8 and
+    # crumpled the shoe on frames 22 and 23.
+    #
+    # Corrected after the loop is shut, the two ends are the same pose, the two corrections agree,
+    # and there is no seam in the toe channel to blend. Verified by turning the closure off, which
+    # dropped the same frame from 111.8 to 54.0.
+    #
+    # The floor lift follows the toe break for the same kind of reason: breaking a toe moves the
+    # sole, so the floor can only be measured once the feet have stopped changing shape.
+    if FEET_MEET_THE_FLOOR:
+        for called, clip in sorted(wanted.items()):
+            was, broke, now = break_the_toes(base_rig, clip, scene)
+            for side in ("L", "R"):
+                if side in broke and broke[side] > 0.01:
+                    print(f"    {called:<12s} {side} foot pitched up to {max(was[side]):5.1f} "
+                          f"deg; {broke[side]:5.1f} moved into the toe -> "
+                          f"{max(now[side]):5.1f} deg")
+            pointed, points = point_the_feet_along(base_rig, clip, scene)
+            for side in ("L", "R"):
+                if pointed[side] and points[side]:
+                    mine = sum(pointed[side]) / len(pointed[side])
+                    theirs = sum(points[side]) / len(points[side])
+                    if abs(mine - theirs) > 0.5:
+                        print(f"    {called:<12s} {side} foot pointed {mine:6.1f} deg off "
+                              f"travel on average -> {theirs:6.1f} deg")
+            was_low, lifted, now_low, when = stand_on_the_floor(
+                base_rig, base_mesh, clip, scene)
+            print(f"    {called:<12s} lowest sole {was_low * 170.0:6.2f} cm at frame {when}; "
+                  f"lifted {lifted * 170.0:5.2f} -> {now_low * 170.0:6.2f} cm")
+            if now_low < -0.001 / 170.0:
+                refuse(f"{called} still puts a sole {now_low * 170.0:.2f} cm through the floor "
+                       f"after being lifted, so the lift did not take")
 
     play(base_rig, wanted["idle"])
     scene.frame_set(int(wanted["idle"].frame_range[0]))

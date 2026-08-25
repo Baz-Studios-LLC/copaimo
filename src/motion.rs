@@ -130,6 +130,13 @@ const BREAKS_INTO_A_RUN: f32 = 3.4;
 // this. It is the stage 04 "planted-foot velocity spread" guard, which until now was written
 // down and not built.
 const WALK_COVERS: f32 = 2.471;
+
+/// The same number, for `ik`'s tests to reason about a step with.
+///
+/// Exported rather than copied: a second literal is how `covers` came to describe a clip that no
+/// longer existed, and the whole point of the footfall audit is that there is one of these.
+#[cfg(test)]
+pub const WALK_COVERS_FOR_TESTS: f32 = WALK_COVERS;
 const RUN_COVERS: f32 = 4.435;
 
 /// How many gait CYCLES each clip contains, so cadence can be told apart from playback rate.
