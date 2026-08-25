@@ -62,7 +62,20 @@ mesh that already carried 7.96 cm edges there.
 *Unblocks:* everything. No later stage may claim a result one of these did not print.
 *Refuses when:* a claim in a commit message has no measurement behind it.
 
-### 01 - The surface is trustworthy  (webbing CUT both sides 2026-08-24; holes and shoulder skinning remain)
+### 01 - The surface is trustworthy  (DONE 2026-08-24, with the armpit re-scoped to 03)
+
+Closed: the original 10 open edges were 3 closed loops, filled by `close_the_holes` with faces
+over their own rim vertices - welded by position first, because on a split mesh an open loop is
+not a chain of stored edges. The audit reads 0 open edges.
+
+Named, deliberately left: the 5 edges with more than two faces are the hair meeting the head (3)
+and the backpack meeting the back (2) - accessory attachment junctions, not defects. Altering
+the ear or the strap to satisfy a manifold counter would be damage.
+
+RE-SCOPED: the armpit webbing is NOT cut. Three builds proved the recorded faces are the ONLY
+surface there - the "walls behind them" were backfaces, and cutting made real chest holes. The
+46-face record stays in `build_character.py` as stage 03's measured worklist: reweight the chest
+vertices the generator hung on the forearm twists, and model a gusset where the membrane is.
 
 Bones are placed against geometry and weights are painted onto it, so faults here propagate into
 every stage after.
@@ -117,7 +130,11 @@ Already correct where it counts: at most four bones a vertex, weights summing to
 unmeasured is whether it DEFORMS well.
 
 * Strain audit - every edge's deformed length against its rest length, across every frame of
-  every clip. Turns "the shoulder looks wrong" into an edge and a frame number.
+  every clip. Turns "the shoulder looks wrong" into an edge and a frame number. **Exists.**
+* THE ARMPIT, from stage 01: reweight the chest vertices the generator hung on the forearm
+  twists, and model a gusset where the arm-to-ribs membrane is. The 46-face record in
+  `build_character.py` is the worklist; cutting it is proven wrong (real holes), so the fix is
+  weights and geometry, not deletion.
 * Twist distribution - 18 of 41 joints are twists and all are keyed in the clips, so the
   distribution is baked rather than procedural. Needs checking under poses the clips lack.
 * New finger bones arrive unweighted and need geometry to fold.

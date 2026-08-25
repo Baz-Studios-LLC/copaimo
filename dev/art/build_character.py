@@ -68,6 +68,19 @@ TRAVELS = ("walk", "run")
 # asks whether two exports of the same rig agree, not whether two rigs are similar.
 RESTS_MATCH_WITHIN = 1e-5
 
+# # The armpit is NOT cut, and the record below is why it stays anyway
+#
+# Three builds taught this the hard way. The recorded faces both join an arm to the trunk and
+# tear when the arm lifts - but cutting them made real holes ("his chest is full of holes"),
+# because the "walls behind them" that justified cutting were BACKFACES: clay renders both sides
+# of a surface, so an armpit gap showing tidy surface behind it was showing the inside of the far
+# wall. The membrane is the ONLY surface there. Deleting it means holes or fan-caps that read as
+# fins; the honest fix is stage 03's - reweight the mis-weighted chest vertices off the forearm
+# twists, and model a proper gusset where the membrane is.
+#
+# The record stays because it is the measured worklist for that stage, face by face.
+CUT_THE_WEBBING = False
+
 # # The armpit webbing, face by face, both sides
 #
 # The generator webbed the inner arms to the ribs where they rested close: no daylight under
@@ -241,6 +254,39 @@ def cut_the_webbing(rig, mesh):
     if len(set(wanted)) != len(wanted):
         refuse("two recorded centroids found the same face - nothing was cut")
 
+    # # Only faces with a WALL BEHIND them are webbing. The rest are the chest.
+    #
+    # The record's criteria - joins an arm to the trunk, tears when the arm lifts - also caught
+    # chest-surface faces whose vertices the generator mis-weighted to the forearm twists. They
+    # join regions because their WEIGHTS are wrong, not because they bridge anything, and cutting
+    # them holed the chest: 78 open edges against 10, reported as "his chest is full of holes"
+    # within minutes of the build. Webbing is a layer OVER existing walls; the chest is the only
+    # surface where it is. So each face must have another, non-neighbouring face close behind it
+    # or it is skin and it stays, with a line saying so.
+    from mathutils.bvhtree import BVHTree
+
+    tree = BVHTree.FromPolygons(
+        [v.co.copy() for v in mesh.data.vertices],
+        [tuple(p.vertices) for p in mesh.data.polygons],
+    )
+    def key_ring(poly):
+        return {key_of(mesh.data.vertices[v].co) for v in poly.vertices}
+
+    backed, skin = [], []
+    for index in wanted:
+        poly = mesh.data.polygons[index]
+        mine = key_ring(poly)
+        # Everything within 1.5 cm of this face's centre that shares no welded corner with it.
+        near = tree.find_nearest_range(poly.center, 0.009)
+        others = [hit for hit in near
+                  if hit[2] is not None and hit[2] != index
+                  and not (key_ring(mesh.data.polygons[hit[2]]) & mine)]
+        (backed if others else skin).append(index)
+    if skin:
+        print(f"    {len(skin)} recorded face(s) have NOTHING behind them - they are the chest, "
+              f"not webbing, and they stay")
+    wanted = backed
+
     # The shading, before bmesh forgets it.
     kept_normals = {}
     for poly in mesh.data.polygons:
@@ -346,12 +392,144 @@ def cut_the_webbing(rig, mesh):
                                             tuple(poly.normal)))
     mesh.data.normals_split_custom_set(normals)
 
-    print(f"  cut {len(wanted)} webbing faces "
-          f"({' + '.join(f'{len(c)} {s}' for s, c in WEBBING.items())}); "
-          f"{len(mesh.data.vertices) - before_verts} cap vertices added")
+    print(f"  cut {len(wanted)} of the "
+          f"{sum(len(c) for c in WEBBING.values())} recorded faces "
+          f"({' + '.join(f'{len(c)} {s}' for s, c in WEBBING.items())} recorded); "
+          f"vertices {before_verts} -> {len(mesh.data.vertices)}")
     if not mesh.data.has_custom_normals:
         refuse("the cut dropped the custom split normals - the whole body would be lit as a "
                "different shape")
+
+
+# A hole bigger than this many rim vertices is not filled, it is reported: something that large
+# is an intentional opening - a collar, a cuff - and capping one of those is its own bug.
+A_HOLE_IS_SMALL = 30
+
+
+def close_the_holes(rig, mesh):
+    """Fills every open loop in the surface with faces over its own rim vertices.
+
+    # Welded first, or there is nothing to find
+
+    The mesh is split at every UV seam and hard edge, so an open loop that is obvious once
+    welded is not a closed chain of stored edges - `fill_holes` selects everything and adds
+    nothing, which is documented from the last character's trouser leg. Open edges are found as
+    welded PAIRS bordering exactly one face, chained into loops by position, and filled with a
+    fan over one representative stored vertex per position.
+
+    # New faces inherit what their vertices already know
+
+    Every rim vertex already sits in a kept face, so it has weights and a UV. The fan reuses the
+    vertices themselves - no new vertex, no new weight - and each new corner copies its UV from
+    an existing corner of the same vertex, so the texture continues across the fill instead of
+    smearing from zero.
+    """
+    import bmesh
+    from collections import defaultdict
+
+    def key_of(co):
+        return (round(co.x / WELD_WITHIN), round(co.y / WELD_WITHIN), round(co.z / WELD_WITHIN))
+
+    # The shading, before bmesh forgets it - same move as the cut.
+    kept_normals = {}
+    for poly in mesh.data.polygons:
+        for loop_index in poly.loop_indices:
+            loop = mesh.data.loops[loop_index]
+            co = mesh.data.vertices[loop.vertex_index].co
+            kept_normals[(key_of(poly.center), key_of(co))] = tuple(
+                mesh.data.corner_normals[loop_index].vector)
+
+    bm = bmesh.new()
+    bm.from_mesh(mesh.data)
+    bm.verts.ensure_lookup_table()
+    uv_layer = bm.loops.layers.uv.active
+
+    faces_on = defaultdict(int)
+    for edge in bm.edges:
+        pair = tuple(sorted((key_of(edge.verts[0].co), key_of(edge.verts[1].co))))
+        faces_on[pair] += len(edge.link_faces)
+    crowded = sum(1 for n in faces_on.values() if n > 2)
+
+    # One representative stored vertex per welded position, preferring one that sits in a face
+    # so the fill can copy its UV.
+    stands_for = {}
+    for vert in bm.verts:
+        spot = key_of(vert.co)
+        if spot not in stands_for or (vert.link_faces and not stands_for[spot].link_faces):
+            stands_for[spot] = vert
+
+    # Open pairs, chained into loops by position.
+    joins = defaultdict(set)
+    for (a, b), count in faces_on.items():
+        if count == 1:
+            joins[a].add(b)
+            joins[b].add(a)
+    loops, seen = [], set()
+    for start in joins:
+        if start in seen:
+            continue
+        walk, here, came = [start], start, None
+        seen.add(start)
+        closed = False
+        while True:
+            following = [n for n in joins[here] if n != came]
+            if not following:
+                break
+            came, here = here, following[0]
+            if here == start:
+                closed = True
+                break
+            if here in seen:
+                break
+            seen.add(here)
+            walk.append(here)
+        loops.append((walk, closed))
+
+    filled, left = 0, 0
+    for walk, closed in loops:
+        ring = [stands_for[spot] for spot in walk]
+        low = min((mesh.matrix_world @ v.co).z for v in ring)
+        if not closed or len(ring) < 3 or len(ring) > A_HOLE_IS_SMALL:
+            left += 1
+            print(f"    left a {'loop' if closed else 'CHAIN'} of {len(ring)} open edges alone "
+                  f"at {low * 170.0:.0f} cm up"
+                  + ("" if closed else " - it does not close, which wants eyes"))
+            continue
+        # Each corner's UV, from any face its vertex already sits in.
+        wears = {}
+        for vert in ring:
+            for loop in vert.link_loops:
+                wears[vert] = loop[uv_layer].uv.copy()
+                break
+        for here, there in zip(ring[1:], ring[2:]):
+            try:
+                face = bm.faces.new((ring[0], here, there))
+            except ValueError:
+                continue
+            face.smooth = True
+            if uv_layer:
+                for loop in face.loops:
+                    if loop.vert in wears:
+                        loop[uv_layer].uv = wears[loop.vert]
+        filled += 1
+
+    bm.to_mesh(mesh.data)
+    bm.free()
+    mesh.data.update()
+
+    normals = []
+    for poly in mesh.data.polygons:
+        for loop_index in poly.loop_indices:
+            loop = mesh.data.loops[loop_index]
+            co = mesh.data.vertices[loop.vertex_index].co
+            normals.append(kept_normals.get((key_of(poly.center), key_of(co)),
+                                            tuple(poly.normal)))
+    mesh.data.normals_split_custom_set(normals)
+
+    print(f"  closed {filled} hole(s), left {left} alone; "
+          f"{crowded} welded edge(s) still carry more than two faces")
+    if not mesh.data.has_custom_normals:
+        refuse("closing the holes dropped the custom split normals")
 
 
 def rig_of(objects):
@@ -659,7 +837,9 @@ def main():
             skeleton = skeleton_of(rig)
             print(f"  {filename}: the base - {len(rig.data.bones)} bones, "
                   f"{len(base_mesh.data.vertices)} vertices")
-            cut_the_webbing(rig, base_mesh)
+            if CUT_THE_WEBBING:
+                cut_the_webbing(rig, base_mesh)
+            close_the_holes(rig, base_mesh)
         else:
             the_skeletons_match(skeleton, skeleton_of(rig), filename)
             print(f"  {filename}: same skeleton, so its clip moves across unchanged")
