@@ -62,7 +62,7 @@ mesh that already carried 7.96 cm edges there.
 *Unblocks:* everything. No later stage may claim a result one of these did not print.
 *Refuses when:* a claim in a commit message has no measurement behind it.
 
-### 01 - The surface is trustworthy  (open, and MEASURED 2026-08-24)
+### 01 - The surface is trustworthy  (webbing CUT both sides 2026-08-24; holes and shoulder skinning remain)
 
 Bones are placed against geometry and weights are painted onto it, so faults here propagate into
 every stage after.

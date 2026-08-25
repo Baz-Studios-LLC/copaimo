@@ -68,7 +68,7 @@ TRAVELS = ("walk", "run")
 # asks whether two exports of the same rig agree, not whether two rigs are similar.
 RESTS_MATCH_WITHIN = 1e-5
 
-# # The armpit webbing, face by face, LEFT SIDE ONLY so far
+# # The armpit webbing, face by face, both sides
 #
 # The generator webbed the inner arms to the ribs where they rested close: no daylight under
 # either arm in any idle frame, and 201 edges tearing past 1.35x with the arms overhead. These
@@ -79,8 +79,10 @@ RESTS_MATCH_WITHIN = 1e-5
 #
 # Recorded as CENTROIDS rather than indices, so the cut finds each face by where it is. A
 # re-delivered file with a different face order then refuses loudly instead of cutting somebody's
-# chest out. The right side waits until the left has been looked at - the two are not mirror
-# images (18 faces against 28), so each side gets its own record and its own inspection.
+# chest out. The two sides are not mirror images - 18 faces against 28 - so each got its own
+# record and its own inspection: the left was cut first, looked at with the arm out, and agreed;
+# the right followed. Re-measured after the left cut, the finder reports left 0, right 28, which
+# is the cut and the record confirming each other.
 WEBBING = {
     "L": (
         (0.084475, 0.072733, 0.660144),
@@ -101,6 +103,36 @@ WEBBING = {
         (-0.019243, 0.097521, 0.687541),
         (-0.025114, 0.105349, 0.709068),
         (-0.064905, 0.096217, 0.729289),
+    ),
+    "R": (
+        (0.030333, -0.102740, 0.547293),
+        (0.030333, -0.098174, 0.542074),
+        (0.006849, -0.087737, 0.544031),
+        (-0.006197, -0.085780, 0.543379),
+        (0.002935, -0.104044, 0.577299),
+        (-0.008806, -0.092955, 0.570776),
+        (0.034899, -0.094912, 0.634703),
+        (0.056425, -0.083170, 0.660796),
+        (0.042074, -0.087736, 0.657534),
+        (0.020548, -0.090998, 0.643183),
+        (0.009459, -0.089041, 0.632094),
+        (0.079909, -0.049250, 0.634051),
+        (0.081213, -0.057730, 0.653620),
+        (0.080561, -0.047945, 0.652316),
+        (0.078604, -0.034247, 0.633399),
+        (0.077299, -0.019896, 0.658839),
+        (0.057078, -0.072733, 0.695368),
+        (0.052511, -0.060992, 0.735812),
+        (0.059035, -0.049250, 0.734507),
+        (-0.030333, -0.074038, 0.578604),
+        (-0.033594, -0.068167, 0.593607),
+        (-0.038160, -0.064253, 0.610567),
+        (-0.014025, -0.078604, 0.622961),
+        (-0.044684, -0.057730, 0.610568),
+        (-0.044684, -0.054468, 0.617091),
+        (-0.040117, -0.062296, 0.621657),
+        (-0.040117, -0.062948, 0.641879),
+        (-0.047945, -0.062296, 0.664710),
     ),
 }
 
