@@ -598,6 +598,27 @@ ROLLS_THROUGH_STANCE = ()
 #
 # This is the second time on this character: the shoes were fixed by reverting to as-delivered
 # after seven passes of reshaping them.
+# # The bind is mirrored, once, and then nothing needs correcting per frame
+#
+# `docs/rigging.md` says this outright, from the previous character:
+#
+#   "The delivered rig arrived with a 17.5 deg crouch, the two sides 5.45 cm from mirrored, and
+#    the character 5.7 cm under the floor. All three are rest-pose constants, which is why
+#    per-frame corrections kept failing: CORRECTING A CONSTANT PER POSE IS WHAT TWISTED THE FEET,
+#    three separate times. Fixed once in the bind, and the authoring has no correction step at
+#    all now."
+#
+# This rig arrived the same way. Measured against its own mirror plane:
+#
+#     positions   worst 5.60 cm, mean 3.24 over 16 pairs
+#     directions  worst 16.3 deg - and the worst pair is L_Foot and L_ToeBase
+#
+# The feet are the most asymmetric bones in the rig, in the BIND. Every left/right difference
+# chased per-frame - a right foot splayed 30 degrees where the left is straight, a right arm
+# resting 4 degrees tighter to the torso - is downstream of this one constant, and correcting
+# them per pose is what crumpled the shoe every time.
+MIRRORS_THE_BIND = True
+
 HINGES_THE_TOES = False
 THE_TOE_HINGES_AT = 0.70
 # Tried at 0.15 to spread the bend, on the reasoning that an abrupt handover pinches. It does the
@@ -2386,6 +2407,79 @@ def break_the_toes(rig, clip, scene):
     return was, broke, now
 
 
+def the_bind_is_mirrored(rig):
+    """Makes the rest pose an exact mirror of itself, left to right.
+
+    The mirror plane comes from the rig: its normal is the hip-to-hip direction, and it passes
+    through the centroid of the bones that carry no side at all. Each pair is then averaged with
+    its own reflection, so neither side is imposed on the other - the result sits between them.
+
+    Done in EDIT mode with the pose at rest, so the mesh does not move: Blender deforms by the
+    difference between a bone's pose and its rest, and at rest there is none.
+
+    The clips are NOT compensated for this, and that is the point rather than an oversight. They
+    were authored symmetrically and retargeted onto an asymmetric rig; the asymmetry is in the
+    REST, so taking it out of the rest is what lets the animation come out even. Compensating the
+    keys would preserve exactly the look this is meant to fix.
+    """
+    across = ((rig.matrix_world @ rig.data.bones["R_Thigh"].head_local)
+              - (rig.matrix_world @ rig.data.bones["L_Thigh"].head_local))
+    across.z = 0.0
+    if across.length < 1e-9:
+        refuse("the hips are in the same place, so there is no mirror plane")
+    across.normalize()
+    middle = [b for b in rig.data.bones
+              if not b.name.startswith("L_") and not b.name.startswith("R_")]
+    if not middle:
+        refuse("no centre bones, so the mirror plane has nothing to pass through")
+    spine = mathutils.Vector((0.0, 0.0, 0.0))
+    for bone in middle:
+        spine += rig.matrix_world @ bone.head_local
+    spine /= len(middle)
+
+    def flip(spot):
+        away = spot - spine
+        return spine + away - across * (2.0 * away.dot(across))
+
+    pairs = []
+    for bone in rig.data.bones:
+        if bone.name.startswith("L_") and ("R_" + bone.name[2:]) in rig.data.bones:
+            pairs.append((bone.name, "R_" + bone.name[2:]))
+    if not pairs:
+        return 0, 0.0
+
+    wanted = {}
+    worst = 0.0
+    for left, right in pairs:
+        for end in ("head_local", "tail_local"):
+            here = rig.matrix_world @ getattr(rig.data.bones[left], end)
+            there = flip(rig.matrix_world @ getattr(rig.data.bones[right], end))
+            worst = max(worst, (here - there).length)
+            settled = (here + there) * 0.5
+            wanted[(left, end)] = settled
+            wanted[(right, end)] = flip(settled)
+    # The centre bones belong ON the plane, or the two sides are mirrored about a line the body
+    # is not actually built around.
+    for bone in middle:
+        for end in ("head_local", "tail_local"):
+            spot = rig.matrix_world @ getattr(bone, end)
+            wanted[(bone.name, end)] = spot - across * (spot - spine).dot(across)
+
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode="EDIT")
+    into = rig.matrix_world.inverted()
+    for (name, end), spot in wanted.items():
+        bone = rig.data.edit_bones.get(name)
+        if bone is None:
+            continue
+        if end == "head_local":
+            bone.head = into @ spot
+        else:
+            bone.tail = into @ spot
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return len(pairs), worst * 170.0
+
+
 def the_shoe_runs(rig, mesh, side):
     """The shoe's own heel-to-tip axis and extent, and which vertices belong to that foot.
 
@@ -3689,6 +3783,11 @@ def main():
             elif DEEPENS_THE_ARMPIT:
                 deepen_the_armpit(rig, base_mesh)
             close_the_holes(rig, base_mesh)
+            # Before every other rig edit, because everything downstream measures against it.
+            if MIRRORS_THE_BIND:
+                pairs, was = the_bind_is_mirrored(rig)
+                print(f"    mirrored the bind: {pairs} pairs, the worst was {was:.2f} cm from "
+                      f"its own reflection")
             # Before anything reads a toe position, and before any clip is corrected: this moves
             # the joint the whole roll pivots about.
             moved, shifted = (hinge_the_toes_at_the_ball(rig, base_mesh)

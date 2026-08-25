@@ -2071,6 +2071,52 @@ at `A_DIGIT_STARTS` is how that four became four.
 adrift, so whatever fixes this can be checked rather than eyeballed.
 
 
+## Correcting a rest-pose constant per frame, again
+
+**What you see.** Six rounds of foot corrections, each fixing a measurement and breaking
+something else, ending in "I'm really struggling to understand why getting some feet in the right
+direction is proving so difficult" and "the answer is in the docs you seem like you're refusing
+to implement".
+
+**What it actually was.** It was in the docs, and it had already been learned once.
+`docs/rigging.md`, on the character deleted in August:
+
+> "The delivered rig arrived with a 17.5 deg crouch, the two sides 5.45 cm from mirrored, and the
+> character 5.7 cm under the floor. All three are rest-pose constants, which is why per-frame
+> corrections kept failing: **correcting a constant per pose is what twisted the feet**, three
+> separate times. Fixed once in the bind, and the authoring has no correction step at all now."
+
+This rig arrived the same way, measured against its own mirror plane:
+
+    positions    worst 5.60 cm, mean 3.24 over 16 pairs
+    directions   worst 16.3 deg - and the worst pair is L_Foot and L_ToeBase
+
+The feet were the most asymmetric bones in the rig, in the BIND. Every left/right difference
+chased per-frame - the right foot 30 degrees off travel where the left is straight, the right arm
+resting 4 degrees tighter, the right shoe squashing where the left does not - sat downstream of
+that one constant.
+
+**What changed.** `the_bind_is_mirrored` averages every pair with its own reflection about the
+rig's own plane, so neither side is imposed on the other, and puts the centre bones on the plane.
+In edit mode at rest, so the mesh does not move. Afterwards the sixteen body pairs are mirrored
+to 0.0 degrees, the legs are identical at 37.72 + 38.99 where they were 38.69 + 37.64 against
+36.91 + 40.59, and the count of bones sitting outside their own flesh fell from eight to five
+without anything being aimed at them.
+
+The clips are deliberately NOT compensated for the change. They were authored symmetrically and
+retargeted onto an asymmetric rig, so the asymmetry lives in the rest; compensating the keys
+would preserve exactly the look this exists to remove.
+
+**What it did NOT fix, which matters.** The right foot still points about 30 degrees off travel
+through the idle and the walk. That survived a bind that is now mirrored to four decimal places,
+so it is in the delivered CLIP's keys and not in the rest. It is a constant over each clip, so
+the fix is a constant offset per clip in the shape of `lift_the_arms` - not a per-frame
+correction, which is the thing this whole entry is about.
+
+**The lesson, which is not a new one.** Before correcting a fault that differs left from right,
+or that holds steady across a whole clip, measure the BIND. A constant belongs in the rest pose.
+
+
 ## Keeping this honest
 
 Add an entry when a bug took **more than one attempt** to fix, or when the symptom

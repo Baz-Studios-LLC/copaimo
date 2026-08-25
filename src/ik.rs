@@ -25,12 +25,16 @@
 //! `dev/art/audit_character.py::the_legs` measures these off the shipped `.glb` and refuses if
 //! they have moved, so they are a checked record rather than a comment:
 //!
-//!     left    thigh 38.69   calf 37.64   straight 76.33   standing 76.22 cm  (99.9%)
-//!     right   thigh 36.91   calf 40.59   straight 77.50   standing 77.16 cm  (99.6%)
+//!     both    thigh 37.72   calf 38.99   straight 76.71   standing 76.71 cm  (100.0%)
 //!
-//! **The legs are not symmetric** — 1.17 cm apart in straight length, and the left is thigh-long
-//! where the right is calf-long. Nothing here may assume otherwise: [`Chain`] carries each leg's
-//! own segment lengths, measured from the bones, and the only shared numbers are ratios.
+//! **The legs ARE symmetric now, and were not.** As delivered the left was thigh-long (38.69 +
+//! 37.64) and the right calf-long (36.91 + 40.59), 1.17 cm apart in straight length and 5.60 cm
+//! from mirrored across the rig. `build_character::the_bind_is_mirrored` settles every pair on
+//! its own average, because `docs/rigging.md` is explicit that a rest-pose constant corrected per
+//! frame is what twists feet.
+//!
+//! [`Chain`] still carries each leg's own segment lengths rather than a shared constant. It costs
+//! nothing and it is what makes the code survive the next asymmetric delivery.
 //!
 //! Two consequences, and the first one is the whole reason this takes an argument it looks like
 //! it should not need:
@@ -1158,14 +1162,18 @@ mod tests {
     /// number that matters here, because A PLANTED ANKLE IS NOT ON THE GROUND. It sits an
     /// ankle's height above the sole, and a test that expects otherwise is wrong about feet.
     const ANKLE_ABOVE_SOLE: f32 = 0.071;
-    // This skeleton's LEFT leg, measured off the shipped .glb by
-    // `dev/art/audit_character.py::the_legs`, which refuses if they drift. The right leg is
-    // 36.91 + 40.59 - thigh-short and calf-long where the left is the other way round - so
-    // nothing here may assume the two are the same.
+    // This skeleton's leg, measured off the shipped .glb by
+    // `dev/art/audit_character.py::the_legs`, which refuses if they drift - and did, the moment
+    // the bind was mirrored.
     //
-    // They were 0.420 and 0.363, which was the leg of a character deleted on 2026-08-24.
-    const THIGH: f32 = 0.3869;
-    const CALF: f32 = 0.3764;
+    // BOTH legs now, and that is new. The delivered rig was 5.60 cm from mirrored at worst, with
+    // the left thigh-long (38.69 + 37.64) and the right calf-long (36.91 + 40.59); mirroring the
+    // bind settles both on the average, 37.72 + 38.99, and the two sides are now identical to
+    // four decimal places. See `build_character::the_bind_is_mirrored` and `docs/rigging.md`.
+    //
+    // Before that they were 0.420 and 0.363, which was a character deleted on 2026-08-24.
+    const THIGH: f32 = 0.3772;
+    const CALF: f32 = 0.3899;
 
     fn a_warden_standing_at(spot: Vec3) -> (App, Entity) {
         use crate::world::terrain::Terrain;
