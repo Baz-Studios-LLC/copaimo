@@ -161,13 +161,36 @@ grabbing, crouching - every one needs hands, and NPCs need them too.
 *Unblocks:* stage 07 entirely.
 *Refuses when:* a rest transform moved, or a clip no longer plays identically.
 
-### 03 - Skinning that survives motion  (measure first)
+### 03 - Skinning that survives motion  (DIAGNOSED 2026-08-25; weights are not the fault)
 
-Already correct where it counts: at most four bones a vertex, weights summing to 1.0000. What is
-unmeasured is whether it DEFORMS well.
+Already correct where it counts: at most four bones a vertex, weights summing to 1.0000. And
+measured now, the deformation is ALSO not a weighting fault.
+
+Diagnosed with the arms forward - 307 tearing edges - by asking of each whether it is a hard
+weight transition or too little geometry:
+
+    246  both mild      short edge, small weight jump
+     33  long edge      too little geometry to share the bend
+     28  weights jump   a hard transition
+
+WEIGHT SMOOTHING WAS TRIED AND MADE IT WORSE at every strength: 0.20 gave 504 tearing edges,
+0.35 gave 488, 0.50 gave 476, against 452 before. Blurring pulls the clavicle's influence onto
+spine vertices and the spine's onto the clavicle, so MORE vertices end up partly driven by a
+swinging bone - it widens the affected region rather than easing the gradient, and on a body of
+2464 vertices there is nowhere for a gradient to spread. Kept behind `SMOOTHS_WEIGHTS`, off,
+because it is the right tool on a denser mesh.
+
+AND THE TEARING IS LARGELY NOT VISIBLE. At the run's worst frame - 261 edges past 1.35x, peak
+3.77 - the character renders clean in clay from three angles: a good running pose, no
+distortion. Most of those edges are a JACKET stretching, which is what a jacket does. The
+threshold is a screening tool, not a verdict.
+
+So stage 03's real content is the two MODELLING jobs, not weight painting:
 
 * Strain audit - every edge's deformed length against its rest length, across every frame of
   every clip. Turns "the shoulder looks wrong" into an edge and a frame number. **Exists.**
+* Twist distribution - unmeasured still; the twist bones are keyed in the clips, so the
+  distribution is baked and needs checking under poses the clips lack.
 * THE ARMPIT, from stage 01: reweight the chest vertices the generator hung on the forearm
   twists, and model a gusset where the arm-to-ribs membrane is. The 46-face record in
   `build_character.py` is the worklist; cutting it is proven wrong (real holes), so the fix is

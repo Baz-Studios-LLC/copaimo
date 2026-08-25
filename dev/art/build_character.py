@@ -1131,6 +1131,170 @@ WEB_SINKS_BY = 0.08
 WEB_PINCHES_BY = 0.0
 
 
+# # Smoothing the weights where the skin tears
+#
+# Diagnosed rather than assumed. With the arms forward, 307 edges stretch past 1.35x, and the
+# split is NOT what either textbook fault looks like:
+#
+#     246  both mild      short edge, small weight jump
+#      33  long edge      too little geometry to share the bend
+#      28  weights jump   a hard transition
+#
+# The worst is x5.26 on a 0.74 cm edge with a weight jump of only 0.24 - two neighbours a
+# centimetre apart, driven similarly, ending up four centimetres apart. That is a transition
+# happening over too FEW vertices rather than a wrong one, which is what weight smoothing fixes:
+# blur each vertex's weights toward its welded neighbours' so the change spreads over the whole
+# region instead of one edge.
+#
+# Applied only where it tears, kept only if it helps. `the_skin_holds` measures strain before and
+# after and refuses to keep a pass that made things worse - a blur can bleed an arm's influence
+# onto the chest and look tidier while deforming worse.
+# MEASURED AND NOT KEPT. Smoothing made the deformation worse at every strength tried:
+#
+#     0.20 -> 504 tearing edges     0.35 -> 488     0.50 -> 476     against 452 before
+#
+# The reason is structural rather than a bad number. Blurring pulls the clavicle's influence
+# onto spine vertices AND the spine's onto clavicle vertices, so MORE vertices end up partly
+# driven by a swinging bone: it widens the affected region instead of easing the gradient. On a
+# body that welds to 2464 vertices there is no room for the gradient to spread into.
+#
+# The machinery stays, off, because it is the right tool on a denser mesh and the numbers are
+# the evidence for why it is not the tool here. `SMOOTHS_WEIGHTS` turns it on.
+SMOOTHS_WEIGHTS = False
+SMOOTHS_OVER = 3          # passes
+SMOOTHS_BY = 0.35          # how far toward the neighbourhood average each pass moves a vertex
+SMOOTHS_AROUND = 2        # rings of neighbours around a tearing vertex also smoothed
+
+
+def smooth_the_weights(rig, mesh):
+    """Blurs the weights around every vertex whose edges tear, and keeps it only if it helps."""
+    from collections import defaultdict
+
+    def key_of(co):
+        return (round(co.x / WELD_WITHIN), round(co.y / WELD_WITHIN), round(co.z / WELD_WITHIN))
+
+    canon, seen_at = {}, {}
+    for vertex in mesh.data.vertices:
+        canon[vertex.index] = seen_at.setdefault(key_of(vertex.co), vertex.index)
+    touching = defaultdict(set)
+    for edge in mesh.data.edges:
+        a, b = canon[edge.vertices[0]], canon[edge.vertices[1]]
+        if a != b:
+            touching[a].add(b)
+            touching[b].add(a)
+
+    def strain(poses):
+        """The worst stretch of every edge over a set of poses, and how many tear."""
+        at_rest()
+        posed = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        rest = {}
+        for edge in mesh.data.edges:
+            a, b = edge.vertices
+            rest[edge.index] = ((posed.matrix_world @ posed.data.vertices[a].co)
+                                - (posed.matrix_world @ posed.data.vertices[b].co)).length
+        worst, torn = {}, 0
+        for turns in poses:
+            at_rest()
+            for name, axis, degrees in turns:
+                if name in rig.pose.bones:
+                    rig.pose.bones[name].rotation_quaternion = mathutils.Quaternion(
+                        axis, math.radians(degrees))
+            bpy.context.view_layer.update()
+            posed = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
+            for edge in mesh.data.edges:
+                if rest[edge.index] < 1e-6:
+                    continue
+                a, b = edge.vertices
+                now = ((posed.matrix_world @ posed.data.vertices[a].co)
+                       - (posed.matrix_world @ posed.data.vertices[b].co)).length
+                ratio = now / rest[edge.index]
+                if ratio > worst.get(edge.index, 0.0):
+                    worst[edge.index] = ratio
+        torn = sum(1 for v in worst.values() if v > 1.35)
+        return worst, torn, max(worst.values(), default=0.0)
+
+    def at_rest():
+        if rig.animation_data:
+            rig.animation_data.action = None
+        for bone in rig.pose.bones:
+            bone.rotation_mode = "QUATERNION"
+            bone.rotation_quaternion = mathutils.Quaternion()
+            bone.location = mathutils.Vector((0.0, 0.0, 0.0))
+            bone.scale = mathutils.Vector((1.0, 1.0, 1.0))
+        bpy.context.view_layer.update()
+
+    poses = (
+        (("L_Upperarm", (1.0, 0.0, 0.0), 80.0), ("R_Upperarm", (1.0, 0.0, 0.0), 80.0)),
+        (("L_Upperarm", (0.0, 0.0, 1.0), 85.0), ("R_Upperarm", (0.0, 0.0, 1.0), -85.0)),
+        (("L_Thigh", (1.0, 0.0, 0.0), -55.0), ("R_Thigh", (1.0, 0.0, 0.0), 55.0)),
+    )
+    before, torn_before, peak_before = strain(poses)
+    hurt = {e for e, r in before.items() if r > 1.35}
+    wanted = set()
+    for edge_index in hurt:
+        for vertex in mesh.data.edges[edge_index].vertices:
+            wanted.add(canon[vertex])
+    for _ in range(SMOOTHS_AROUND):
+        wanted |= {n for v in wanted for n in touching[v]}
+    print(f"  smoothing weights around {len(wanted)} vertices, from {torn_before} tearing edges")
+
+    groups = {g.index: g.name for g in mesh.vertex_groups}
+    kept = {v.index: {g.group: g.weight for g in v.groups} for v in mesh.data.vertices}
+    at_hand = {canon[i]: w for i, w in kept.items()}
+    for _ in range(SMOOTHS_OVER):
+        fresh = {}
+        for node in wanted:
+            neighbours = [n for n in touching[node] if n in at_hand]
+            if not neighbours:
+                continue
+            blend = defaultdict(float)
+            for other in neighbours:
+                for group, weight in at_hand[other].items():
+                    blend[group] += weight / len(neighbours)
+            mine = at_hand[node]
+            mixed = defaultdict(float)
+            for group in set(mine) | set(blend):
+                mixed[group] = (mine.get(group, 0.0) * (1.0 - SMOOTHS_BY)
+                                + blend.get(group, 0.0) * SMOOTHS_BY)
+            fresh[node] = dict(mixed)
+        at_hand.update(fresh)
+
+    # Written back to every split copy, trimmed to the four glTF carries, renormalised.
+    for vertex in mesh.data.vertices:
+        node = canon[vertex.index]
+        if node not in wanted:
+            continue
+        mixed = at_hand[node]
+        top = sorted(mixed.items(), key=lambda kv: -kv[1])[:4]
+        total = sum(w for _, w in top)
+        if total <= 1e-9:
+            continue
+        for group in list(mesh.vertex_groups):
+            group.remove([vertex.index])
+        for group_index, weight in top:
+            mesh.vertex_groups[groups[group_index]].add(
+                [vertex.index], weight / total, "REPLACE")
+    mesh.data.update()
+
+    after, torn_after, peak_after = strain(poses)
+    print(f"  tearing edges {torn_before} -> {torn_after}, worst stretch "
+          f"x{peak_before:.2f} -> x{peak_after:.2f}")
+    if torn_after > torn_before:
+        print(f"  *** smoothing made it worse and was NOT kept - a blur that bleeds one limb's "
+              f"influence onto another looks tidier and deforms worse")
+        for vertex in mesh.data.vertices:
+            if canon[vertex.index] not in wanted:
+                continue
+            for group in list(mesh.vertex_groups):
+                group.remove([vertex.index])
+            for group_index, weight in kept[vertex.index].items():
+                mesh.vertex_groups[groups[group_index]].add(
+                    [vertex.index], weight, "REPLACE")
+        mesh.data.update()
+    at_rest()
+    return torn_after <= torn_before
+
+
 def unfuse_the_digits(rig, mesh, assigned):
     """Deepens the web between fused fingers, so the digits read as separate. Deletes nothing.
 
@@ -1406,6 +1570,9 @@ def main():
             if UNFUSES:
                 # After the closer, never before it - see unfuse_the_digits on why.
                 unfuse_the_digits(rig, base_mesh, assigned)
+            # Last, so it smooths the weights the fingers actually ended up with.
+            if SMOOTHS_WEIGHTS:
+                smooth_the_weights(rig, base_mesh)
         else:
             the_skeletons_match(skeleton, skeleton_of(rig), filename)
             print(f"  {filename}: same skeleton, so its clip moves across unchanged")
