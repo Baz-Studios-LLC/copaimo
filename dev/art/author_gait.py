@@ -2092,20 +2092,43 @@ REACHES_TO_WITHIN = 0.60
 # game.
 LOCKS_THE_FOOT = True
 
-# Whether the lock holds a planted ball to a LINE as well as to a speed.
+# Whether the lock holds a planted ball to a LINE as well as to a speed, and whether that line is
+# HIS FACING rather than wherever his feet happen to average out.
 #
-# Off. Measured on the delivered jog, a planted ball drifts up to 5.5 cm a frame across the line of
-# travel while its ankle drifts under 2.3 - so most of that is the foot YAWING about the ankle, and
-# translating the ankle to cancel it does not stop the yaw, it only moves the leg out from under
-# him. "His legs are way further apart than they should be" is a fault already paid for once on the
-# authored jog, and this pass is not the place to risk it again. The along-travel half is the half
-# that shows up in `covers`, and it is the half being fixed.
-HOLDS_SIDEWAYS = False
+# Both on. "Considering we want AAA/Indie quality he should just run straight in the direction the
+# player wants him to go", and that is the whole of it: the game drives the warden along the way he
+# points, so a clip whose feet travel anywhere else slides sideways for as long as it plays. Both
+# delivered clips do - the walk runs 7.07 degrees off its own hips and the jog 7.03, which agree
+# closely enough to be one systematic crab in the source rather than noise in either. Left in, that
+# is about 60 cm of sideways foot travel per clip.
+#
+# The two switches are one idea. Holding the ball to a SPEED but not to a LINE leaves the heading
+# free, so he keeps the crab; naming the line without holding it does nothing at all.
+#
+# The cost was weighed and is small. The correction is nought at mid-stance, where each plant is
+# anchored, and grows to about 5 cm at the ends of a stance - so the width he actually stands at
+# does not move, which is what "his legs are way further apart than they should be" was about.
+HOLDS_SIDEWAYS = True
+RUNS_ALONG_HIS_FACING = True
 
-# The most a planted foot may be shifted sideways or along to stop it sliding, in cm. A plant that
-# needs more than this is not a plant with skate in it, it is a different step, and moving it that
-# far would be restyling the performance rather than fixing its contact.
-A_PLANT_MAY_SHIFT = 8.0
+# How near his facing the held plants have to end up before the clip counts as running straight,
+# in degrees. A quarter of a degree over a 2.4 m cycle is a centimetre of sideways travel, which is
+# below anything an eye will find.
+RUNS_STRAIGHT_WITHIN = 0.25
+
+# The most a planted foot may be shifted sideways or along to stop it sliding, in cm.
+#
+# Twelve, raised from eight, and the reason is a decision rather than a measurement: "considering we
+# want AAA/Indie quality he should just run straight in the direction the player wants him to go."
+# Straightening a 5.36 degree crab over an 80 cm stance costs about 7.5 cm on its own, and stacked
+# with the along-travel correction the worst frame asks 10.7. Eight was chosen when the lock was
+# only ever going to fix speed, and holding a heading was explicitly not being attempted.
+#
+# It is still a real bound, and it still refuses. What it now allows is a foot moved by about
+# two-thirds of its own length at the very ends of a stance, where the foot is unweighting anyway;
+# at mid-stance, where each plant is anchored, the correction is nought and the width he stands at
+# is untouched.
+A_PLANT_MAY_SHIFT = 12.0
 
 # How close the solved chain must end up to what it was asked for, in cm, before the ask is called
 # unreachable. A leg that cannot get there has not planted the foot; it has leaned on it.
@@ -2185,7 +2208,34 @@ def where_the_feet_are_down(rig, mesh, feet, clip, scene):
         }
         if all(len(down[side]) >= A_FOOT_IS_DOWN_FOR * frames for side in "LR"):
             break
-    return soles, down, window, loops
+    return soles, {side: without_gaps(down[side], first, ends, loops) for side in down}, \
+        window, loops
+
+
+def without_gaps(down, first, ends, loops):
+    """Closes a one-frame hole in a contact, because a foot does not lift for a frame and land.
+
+    A foot on the ground for four frames whose middle one happens to sit a millimetre outside the
+    window is on the ground for four frames. Left as a hole it splits one plant into two, and the
+    frame in the middle - a frame the foot is genuinely standing on - gets treated as flight and
+    ramped, which is to say allowed to slide. Measured on the jog's right foot, whose contact runs
+    24, 1, 2, 3 across the loop seam with frame 1 a tenth of a millimetre proud: it slid 6.00 cm
+    sideways in one frame while the frames either side of it held to 0.00.
+
+    Cyclically, since that is exactly where it bit - the seam is where a contact is most likely to
+    look like two.
+    """
+    span = ends - first + 1
+    was = set(down)
+    filled = set(down)
+    for frame in range(first, ends + 1):
+        if frame in was:
+            continue
+        before = first + (frame - 1 - first) % span if loops else frame - 1
+        after = first + (frame + 1 - first) % span if loops else frame + 1
+        if before in was and after in was:
+            filled.add(frame)
+    return sorted(filled)
 
 
 def a_run_of(frames, first=None, cycle=None):
@@ -2208,7 +2258,7 @@ def a_run_of(frames, first=None, cycle=None):
     return runs
 
 
-def how_fast_the_ground_goes_by(spots, down):
+def how_fast_the_ground_goes_by(spots, down, along=None):
     """Which way a planted contact travels and how far it goes each frame, off the BALLS.
 
     No axis is assumed and no facing is consulted: the direction is the sum of what the planted
@@ -2228,7 +2278,7 @@ def how_fast_the_ground_goes_by(spots, down):
             went = spots[side][frame + 1] - spots[side][frame]
             went.z = 0.0
             steps.append(went)
-    travel, each = ik_gait.the_line_of_travel(steps)
+    travel, each = ik_gait.the_line_of_travel(steps, along)
     if travel is None:
         refuse("no plant lasts two frames that move, so there is no line of travel to hold to")
     return travel, each
@@ -2442,7 +2492,14 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
     # eased curve. It cannot be keyed as it is found, because the ramp needs to know where a plant
     # ENDS before it can taper out of it, and that is not known until the plant is over.
     cycle = (last - first) if loops else (last - first + 1)
-    travel, each = how_fast_the_ground_goes_by(balls, down)
+    faces = ik_gait.the_way_he_faces(rig)
+    ran, _ = how_fast_the_ground_goes_by(balls, down)
+    crabbed = math.degrees(ran.angle(-faces)) if ran is not None else 0.0
+    travel, each = how_fast_the_ground_goes_by(
+        balls, down, along=-faces if RUNS_ALONG_HIS_FACING else None)
+    print(f"    he faces ({faces.x:+.3f}, {faces.y:+.3f}) and the delivered clip ran "
+          f"{crabbed:.2f} deg off it"
+          + ("; held straight" if RUNS_ALONG_HIS_FACING else "; left as delivered"))
     print(f"    the planted balls travel ({travel.x:+.3f}, {travel.y:+.3f}) at "
           f"{each * 170.0:.2f} cm a frame, so a {cycle}-frame cycle covers "
           f"{each * cycle * 1.70:.3f} m")
@@ -2601,18 +2658,45 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
     # bake has already cleared, and which was never an object to remove.
     ik_gait.drop_the_helpers([h for r in rigged.values() for h in r[:2]])
 
-    worst, missed = 0.0, []
+    worst, missed, stood = 0.0, [], {"L": {}, "R": {}}
     play_it(rig, clip)
     for frame in range(first, last + 1):
         scene.frame_set(frame)
         bpy.context.view_layer.update()
         for side in "LR":
+            stood[side][frame] = (
+                rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].head).copy()
             if frame not in lift[side]:
                 continue
             off = abs(ground - ik_gait.lowest_sole(rig, mesh, feet, side)) * 170.0
             worst = max(worst, off)
             if off > REACHES_TO_WITHIN:
                 missed.append(f"{side}{frame} by {off:.2f} cm")
+
+    # # Checking the heading that was asked for, over the frames it was asked on
+    #
+    # Measured off the BAKED clip, so what is being read is what ships and not what the solver
+    # believed. Over the locked frames only: a stance window measured from outside admits the
+    # frames either side, where the correction is deliberately part-applied, and those carry the
+    # crab this is meant to have removed. Read at a 2 cm window from outside, the delivered jog's
+    # 5.36 degrees came back as 3.08 and it was not obvious whether that was residue or ruler.
+    went = []
+    for side in "LR":
+        for run in a_run_of(down[side], first, cycle if loops else None):
+            for at in range(len(run) - 1):
+                if run[at + 1] != run[at] + 1:
+                    continue
+                step = stood[side][run[at + 1]] - stood[side][run[at]]
+                step.z = 0.0
+                went.append(step)
+    heading, _ = ik_gait.the_line_of_travel(went)
+    if heading is not None:
+        drifts = math.degrees(heading.angle(-faces))
+        print(f"    over the frames it was held on, the ground now goes by {drifts:.2f} deg off "
+              f"his facing, against {crabbed:.2f} as delivered")
+        if RUNS_ALONG_HIS_FACING and drifts > RUNS_STRAIGHT_WITHIN:
+            refuse(f"the plants were held to his facing and still run {drifts:.2f} deg off it, "
+                   f"past the {RUNS_STRAIGHT_WITHIN:.2f} that counts as straight")
     shifts = [(pull[side][0][f] * pull[side][1][f]) for side in "LR" for f in pull[side][0]]
     moved = max(v.length for v in shifts) * 170.0
     sideways = max(math.hypot(v.x, v.y) for v in shifts) * 170.0

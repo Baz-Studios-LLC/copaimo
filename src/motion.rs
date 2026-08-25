@@ -155,10 +155,16 @@ pub const WALK_COVERS_FOR_TESTS: f32 = WALK_COVERS;
 // 4.871, and `build_character` measures the hip travel that was detrended out of the delivered
 // clip at 4.96. Before the plant those three disagreed by 11%, which was the clip's own footskate.
 //
-// Per CYCLE that is 2.44 m, or 1.43 x his height - the same place the authored clip landed, and
+// 4.813 rather than 4.879 since the plants are held to his FACING rather than to whatever line his
+// feet averaged out along. The delivered clip ran 5.36 degrees off the way he points - "he should
+// just run straight in the direction the player wants him to go" - and a stride measured along the
+// crab is longer than the same stride measured along the way he actually goes, by exactly the
+// cosine of it. The clip now checks this itself and refuses past a quarter degree.
+//
+// Per CYCLE that is 2.41 m, or 1.42 x his height - the same place the authored clip landed, and
 // inside the 1.4-1.8 a jog wants. The clip carries twice that because it is two cycles long, which
 // is what `CYCLES` is for.
-const JOG_COVERS: f32 = 4.879;
+const JOG_COVERS: f32 = 4.813;
 
 /// How many gait CYCLES each clip contains, so cadence can be told apart from playback rate.
 ///

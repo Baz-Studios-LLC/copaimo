@@ -393,7 +393,51 @@ def which_vertices_are_feet(mesh):
     return feet
 
 
-def the_line_of_travel(steps):
+# How far the hip line and the toes may disagree about the bind's facing, in degrees, before
+# neither is trusted. They agree to 0.22 on this rig.
+THE_BIND_AGREES_WITHIN = 5.0
+
+
+def the_way_he_faces(rig):
+    """Which way the character points in the BIND, which is the way the player aims him.
+
+    From the HIP LINE, squared. A hip line cannot toe out, and toe-out is what makes a foot a bad
+    witness here: this rig's bind toes splay 58.47 degrees apart, so either alone is off by 29.
+
+    The two toes TOGETHER are a fair second opinion, since the splay cancels between them, and they
+    are used as exactly that - a cross-check rather than an input. Measured on this rig the hip line
+    says -11.67 degrees and the toes say -11.89, which is the kind of agreement that means the bind
+    is sound and either would have done. If they ever stop agreeing, the bind has a problem that
+    picking one of them would only hide.
+    """
+    left = rig.matrix_world @ rig.pose.bones["L_Thigh"].bone.head_local
+    right = rig.matrix_world @ rig.pose.bones["R_Thigh"].bone.head_local
+    span = left - right
+    span.z = 0.0
+    if span.length < 1e-9:
+        raise SystemExit("REFUSED: the bind's hips sit on top of each other, so it has no facing")
+    span.normalize()
+    faces = mathutils.Vector((span.y, -span.x, 0.0))
+
+    toes = mathutils.Vector((0.0, 0.0, 0.0))
+    for side in "LR":
+        bone = rig.pose.bones[f"{side}_ToeBase"].bone
+        along = (rig.matrix_world @ bone.tail_local) - (rig.matrix_world @ bone.head_local)
+        along.z = 0.0
+        if along.length > 1e-9:
+            toes += along.normalized()
+    if toes.length > 1e-9:
+        toes.normalize()
+        apart = math.degrees(faces.angle(toes))
+        if apart > THE_BIND_AGREES_WITHIN:
+            raise SystemExit(
+                f"REFUSED: the bind's hips say it faces one way and its toes say another, "
+                f"{apart:.2f} degrees apart - past the {THE_BIND_AGREES_WITHIN:.1f} that means "
+                "they agree. Fix the bind rather than choosing between them.")
+    return faces
+
+
+def the_line_of_travel(steps, along=None):
     """Which way the ground goes past a planted foot, and how far it goes each frame.
 
     The one place this arithmetic lives. It is asked by the plant in `author_gait`, by the viewer
@@ -415,14 +459,20 @@ def the_line_of_travel(steps):
     """
     if len(steps) < 2:
         return None, 0.0
-    back = sum(steps, mathutils.Vector((0.0, 0.0, 0.0)))
-    if back.length < 1e-9:
-        return None, 0.0
-    back.normalize()
-    along = sorted(step.dot(back) for step in steps)
-    middle = len(along) // 2
-    each = along[middle] if len(along) % 2 else (along[middle - 1] + along[middle]) / 2.0
-    return back, each
+    if along is not None:
+        # A direction that was DECIDED rather than measured - his facing, when the clip is being
+        # held to it. The distance is still measured, as the median of what the steps do along
+        # that line, so the stride stays the animator's even when the heading does not.
+        back = along.normalized()
+    else:
+        back = sum(steps, mathutils.Vector((0.0, 0.0, 0.0)))
+        if back.length < 1e-9:
+            return None, 0.0
+        back.normalize()
+    each = sorted(step.dot(back) for step in steps)
+    middle = len(each) // 2
+    return back, (each[middle] if len(each) % 2
+                  else (each[middle - 1] + each[middle]) / 2.0)
 
 
 def which_way_he_travels(rig, mesh, feet, clip, scene, within: float = 2.0, tall: float = 170.0):
