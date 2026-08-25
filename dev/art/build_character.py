@@ -562,7 +562,10 @@ POINTS_THE_FEET = False
 # Gaits only. An idle has no stance-and-swing cycle - both feet are simply down - so treating a
 # five-hundred-frame stand as one stance ramped it from heel-strike to push-off across the whole
 # clip and drove the feet 12.68 cm through the floor. A roll is a property of a STEP.
-ROLLS_THROUGH_STANCE = ("walk", "jog")
+# OFF, with the toe hinge and for the same reason - see `HINGES_THE_TOES`. The machinery stays:
+# it is correct, it is tested, and a clip that genuinely needs a heel-to-toe roll can have one by
+# naming it here. This clip does not.
+ROLLS_THROUGH_STANCE = ()
 
 # # The toe joint belongs at the ball of the foot
 #
@@ -581,6 +584,21 @@ ROLLS_THROUGH_STANCE = ("walk", "jog")
 # used to sit on it are redistributed about the new hinge. Only the share held between `Foot` and
 # `ToeBase` is moved - each vertex keeps its total, so anything the ankle or the calf holds is
 # untouched.
+# Whether the toe joint is moved to the ball at all. A switch, so the character can be built
+# exactly as delivered and compared against - which is the check that should have come first.
+# OFF. Put side by side against the clip as delivered, moving the toe joint to the ball CRUMPLES
+# the shoe - the toe section folds and the silhouette breaks - and the stance roll on top of it
+# is worse again. The delivered feet were fine.
+#
+# The measurements that justified all of it were each true and each beside the point: the joint
+# really did sit at 45% of the shoe, the toe really never bent, the foot really did roll onto its
+# edge. None of that mattered, because the shoe reads correctly as delivered and every correction
+# made it read worse. A number improving is not the same as the thing improving, and the check
+# that settles it is the one that should have come first - build it both ways and look.
+#
+# This is the second time on this character: the shoes were fixed by reverting to as-delivered
+# after seven passes of reshaping them.
+HINGES_THE_TOES = False
 THE_TOE_HINGES_AT = 0.70
 # Tried at 0.15 to spread the bend, on the reasoning that an abrupt handover pinches. It does the
 # opposite: a wider band puts MORE vertices under two bones at once, and linear blend skinning
@@ -3673,7 +3691,8 @@ def main():
             close_the_holes(rig, base_mesh)
             # Before anything reads a toe position, and before any clip is corrected: this moves
             # the joint the whole roll pivots about.
-            moved, shifted = hinge_the_toes_at_the_ball(rig, base_mesh)
+            moved, shifted = (hinge_the_toes_at_the_ball(rig, base_mesh)
+                              if HINGES_THE_TOES else ({}, 0))
             for side, (by, before, now) in sorted(moved.items()):
                 print(f"    {side} toe joint moved {by:5.2f} cm forward, from {before:.1f}% "
                       f"to {now:.0f}% along the shoe, and the bone runs to the tip")
