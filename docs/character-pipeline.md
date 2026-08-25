@@ -180,17 +180,32 @@ swinging bone - it widens the affected region rather than easing the gradient, a
 2464 vertices there is nowhere for a gradient to spread. Kept behind `SMOOTHS_WEIGHTS`, off,
 because it is the right tool on a denser mesh.
 
-AND THE TEARING IS LARGELY NOT VISIBLE. At the run's worst frame - 261 edges past 1.35x, peak
-3.77 - the character renders clean in clay from three angles: a good running pose, no
-distortion. Most of those edges are a JACKET stretching, which is what a jacket does. The
-threshold is a screening tool, not a verdict.
+AND THE TEARING IS NOT VISIBLE - checked on ALL THREE clips, not one. Rendered in clay at each
+clip's own worst frame: run 10 (261 edges, peak 3.77), idle 428 (80 edges, peak 3.81), walk 49
+(60 edges, peak 2.03). All three read clean - good poses, no distortion. The first pass checked
+only the run and generalised, which was an inference wearing the clothes of a measurement.
+
+Most of those edges are a JACKET stretching, which is what a jacket does. The threshold is a
+screening tool, not a verdict.
+
+The hole fills were also checked TEXTURED, not only in clay: a fill with wrong UVs smears, and
+these do not - the jacket, the necklace and the trim all read continuous.
 
 So stage 03's real content is the two MODELLING jobs, not weight painting:
 
 * Strain audit - every edge's deformed length against its rest length, across every frame of
   every clip. Turns "the shoulder looks wrong" into an edge and a frame number. **Exists.**
-* Twist distribution - unmeasured still; the twist bones are keyed in the clips, so the
-  distribution is baked and needs checking under poses the clips lack.
+* Twist distribution - MEASURED 2026-08-25 and correct as a rig: all 18 lie along their
+  parent's length, all 18 carry skin (54-361 vertices each), and keying one 45 degrees moves
+  skin 6.3 cm - more than the wrist itself. `audit_character.the_twists` checks all three every
+  run, with a fresh depsgraph after each pose; a stale one reports 0.00 cm for every bone, which
+  is what a broken rig looks like and what this measured before the fix.
+
+  THE GAP IS NOT THE RIG, IT IS THE DRIVING: none of the 18 has a constraint, so they move only
+  when a clip keys them. A PROCEDURAL wrist or ankle rotation - IK, look-at, a grip pose - will
+  crease at the joint instead of winding along the limb. Standard practice is a copy-rotation
+  constraint at a fraction of the child's roll. That is stage 05/06 work and is now on their
+  lists rather than assumed handled.
 * THE ARMPIT, from stage 01: reweight the chest vertices the generator hung on the forearm
   twists, and model a gusset where the arm-to-ribs membrane is. The 46-face record in
   `build_character.py` is the worklist; cutting it is proven wrong (real holes), so the fix is

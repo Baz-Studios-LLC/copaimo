@@ -458,6 +458,82 @@ def the_deformation(rig, mesh, scene, owner):
         print("    nothing tears - the surface holds everywhere it was asked to bend")
 
 
+def the_twists(rig, mesh):
+    """Whether the twist bones are set up as twist bones, and whether anything drives them.
+
+    Eighteen of this rig's forty-one bones are twists, and a twist bone that is mis-parented,
+    unweighted or inert is dead weight in the budget. Three questions:
+
+      does it LIE ALONG its parent   a twist rolls about its parent's length; angled, it swings
+      does it CARRY SKIN             weights, or it cannot distribute anything
+      does keying it MOVE skin       the only test that catches an inert one
+
+    The third needs a FRESH depsgraph after the pose change. Re-using the one fetched before it
+    reports 0.00 cm for every bone - which is what a broken rig looks like, and what this
+    measured before the fix.
+    """
+    print("")
+    print("THE TWISTS")
+    groups = {g.index: g.name for g in mesh.vertex_groups}
+    counts = collections.Counter()
+    for vertex in mesh.data.vertices:
+        best, who = 0.0, ""
+        for group in vertex.groups:
+            if group.weight > best:
+                best, who = group.weight, groups.get(group.group, "")
+        counts[who] += 1
+
+    twists = [b for b in rig.data.bones if "Twist" in b.name]
+    askew = [b for b in twists
+             if b.parent and (b.tail_local - b.head_local).length > 1e-9
+             and (b.parent.tail_local - b.parent.head_local).length > 1e-9
+             and math.degrees((b.tail_local - b.head_local).angle(
+                 b.parent.tail_local - b.parent.head_local)) > 5.0]
+    bare = [b.name for b in twists if counts.get(b.name, 0) == 0]
+    print(f"  {len(twists)} twist bones; {len(askew)} lie off their parent's length, "
+          f"{len(bare)} carry no skin")
+    if askew:
+        print(f"    off-axis: {', '.join(b.name for b in askew[:6])}")
+    if bare:
+        print(f"    unweighted: {', '.join(bare[:6])}")
+
+    if rig.animation_data:
+        rig.animation_data.action = None
+    for bone in rig.pose.bones:
+        bone.rotation_mode = "QUATERNION"
+        bone.rotation_quaternion = mathutils.Quaternion()
+    bpy.context.view_layer.update()
+    graph = bpy.context.evaluated_depsgraph_get()
+    was = [(mesh.evaluated_get(graph).matrix_world @ v.co).copy()
+           for v in mesh.evaluated_get(graph).data.vertices]
+    inert = []
+    for bone in twists:
+        for other in rig.pose.bones:
+            other.rotation_quaternion = mathutils.Quaternion()
+        rig.pose.bones[bone.name].rotation_quaternion = mathutils.Quaternion(
+            (0.0, 1.0, 0.0), math.radians(45.0))
+        bpy.context.view_layer.update()
+        graph = bpy.context.evaluated_depsgraph_get()
+        posed = mesh.evaluated_get(graph)
+        now = [(posed.matrix_world @ v.co) for v in posed.data.vertices]
+        moved = max((a - b).length for a, b in zip(was, now)) * SCALE
+        if moved < 0.1:
+            inert.append(bone.name)
+    print(f"  keying each one 45 degrees: {len(twists) - len(inert)} move skin, "
+          f"{len(inert)} are inert")
+    if inert:
+        print(f"    inert: {', '.join(inert[:6])}")
+
+    # And the thing that matters for the runtime: are they DRIVEN by anything but a clip?
+    driven = [b.name for b in rig.pose.bones
+              if "Twist" in b.name and b.constraints]
+    print(f"  {len(driven)} have constraints driving them; the rest move only when a clip keys")
+    if not driven:
+        print("    ^ so a PROCEDURAL wrist or ankle rotation - IK, look-at, a grip pose - will")
+        print("      crease at the joint instead of winding along the limb. Standard practice is")
+        print("      a copy-rotation constraint at a fraction of the child's roll. Stage 05/06.")
+
+
 def the_clips(rig, scene):
     if not bpy.data.actions:
         print("\nTHE CLIPS\n  none in this file")
@@ -519,6 +595,7 @@ def main():
     the_skeleton(rig)
     the_skin(mesh)
     the_hands(rig, mesh, bpy.context.scene)
+    the_twists(rig, mesh)
     the_deformation(rig, mesh, bpy.context.scene, owner_of(mesh))
     the_clips(rig, bpy.context.scene)
 
