@@ -52,6 +52,11 @@ SHOTS = (
     ("hand_L", 0.0, 0.16, "L_Hand"),
     ("hand_L_side", 90.0, 0.16, "L_Hand"),
     ("hand_R", 0.0, 0.16, "R_Hand"),
+    # Under the arm, aimed at the upper-arm bone. This is where a generator webs a limb to the
+    # body it was resting against, and it is not visible in any of the shots above.
+    ("armpit_L", 25.0, 0.30, "L_Upperarm"),
+    ("armpit_L_front", 0.0, 0.30, "L_Upperarm"),
+    ("armpit_R", -25.0, 0.30, "R_Upperarm"),
 )
 
 WIDE = (700, 900)
