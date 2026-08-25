@@ -62,12 +62,29 @@ mesh that already carried 7.96 cm edges there.
 *Unblocks:* everything. No later stage may claim a result one of these did not print.
 *Refuses when:* a claim in a commit message has no measurement behind it.
 
-### 01 - The surface is trustworthy  (open)
+### 01 - The surface is trustworthy  (open, and MEASURED 2026-08-24)
 
-Bones are placed against geometry and weights are painted onto it, so faults here propagate
-into every stage after. A 27.79 cm edge against a 2.70 cm median is the generator bridging two
-limbs that sat close together; those bridges stretch when the limbs separate, and that is what
-tearing is.
+Bones are placed against geometry and weights are painted onto it, so faults here propagate into
+every stage after.
+
+    10 open edges, 5 non-manifold edges
+    648 of 11217 edges stretch past 1.35x their rest length:
+       315 in the run clip
+       201 with the arms overhead      <- the armpit
+        85 in the idle
+        47 in a deep crouch
+    worst: R_Clavicle <-> Spine02 at x6.76, arms overhead
+
+**"An edge longer than 4x the median" was the wrong test and cost two rounds.** It counted 182
+faults; rendered with them picked out in red they are the chest panel, the crotch and the
+shoulder caps - ordinary large polygons on a body that welds to 2464 vertices. Adding "and it
+spans two body regions" got it to 24, whose worst were `Waist <-> ThighTwist01` at the hip, where
+a trunk and a leg are SUPPOSED to be one surface.
+
+Length was never the question. A bridge is a bridge because it STRETCHES when the two things it
+joins move apart, and that is measurable directly. `the_deformation` measures it over every clip
+AND over four poses the clips never reach - in an idle, a walk and a run the arms barely leave
+the sides, so armpit webbing never gets pulled and reports nothing.
 
 **Do the mesh work once and commit it.** Re-deriving repairs on every build asks a classifier to
 make the same judgement forever and never once get it wrong. It cut sleeve cuffs, holed a

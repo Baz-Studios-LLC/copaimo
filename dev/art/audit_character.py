@@ -48,8 +48,17 @@ SCALE = 170.0
 # model scale.
 WELD_WITHIN = 0.00002
 
-# An edge this many times the median is not a long edge, it is a bridge between two things that
-# should not be joined. Measured on the last character: a 27.79 cm edge against a 2.79 median.
+# An edge this many times the median MIGHT be a bridge - but only if it also spans two body
+# regions. On its own the test is wrong, and the way it was wrong is worth keeping.
+#
+# It counted 182 "bridges" on this character. Rendered with them picked out in red, they are the
+# chest panel, the crotch and the shoulder caps: ordinary large polygons on a body that welds to
+# 2464 vertices. A low-poly mesh has long edges everywhere and none of them is a defect.
+#
+# A bridge is a long edge that joins an ARM to a TRUNK, or a leg to a trunk - two surfaces that
+# come close in the rest pose and separate when the character moves. There are nine of those,
+# not 182, and the difference between the two numbers is the difference between a morning's work
+# and a week of it.
 A_BRIDGE_IS = 4.0
 
 # What a game biped is expected to carry, by name. Missing entries are reported rather than
@@ -118,7 +127,19 @@ def apart(first, other):
     return worst
 
 
-def the_surface(mesh):
+def region_of(name):
+    """Which part of the body a bone belongs to, for telling a bridge from a big face."""
+    for key, part in (("Thigh", "leg"), ("Calf", "leg"), ("Foot", "leg"), ("Toe", "leg"),
+                      ("Upperarm", "arm"), ("Forearm", "arm"), ("Hand", "arm"),
+                      ("Clavicle", "trunk"), ("Spine", "trunk"), ("Waist", "trunk"),
+                      ("Hip", "trunk"), ("Pelvis", "trunk"),
+                      ("Neck", "head"), ("Head", "head")):
+        if key in name:
+            return part
+    return None
+
+
+def the_surface(mesh, owner):
     canon = welded(mesh)
     nodes = set(canon.values())
     touching = collections.defaultdict(set)
@@ -159,7 +180,18 @@ def the_surface(mesh):
         for e in mesh.data.edges
     )
     median = lengths[len(lengths) // 2]
-    bridges = sum(1 for v in lengths if v > median * A_BRIDGE_IS)
+    long_ones, bridges = 0, []
+    for edge in mesh.data.edges:
+        a, b = edge.vertices
+        span = ((mesh.matrix_world @ mesh.data.vertices[a].co)
+                - (mesh.matrix_world @ mesh.data.vertices[b].co)).length * SCALE
+        if span <= median * A_BRIDGE_IS:
+            continue
+        long_ones += 1
+        parts = {region_of(owner.get(a, "")), region_of(owner.get(b, ""))} - {None}
+        if len(parts) > 1:
+            bridges.append((span, owner.get(a, "?"), owner.get(b, "?")))
+    bridges.sort(reverse=True)
 
     print("THE SURFACE")
     print(f"  {len(mesh.data.vertices)} stored vertices weld to {len(nodes)} real ones, "
@@ -167,13 +199,29 @@ def the_surface(mesh):
     print(f"  {len(shells)} shells, largest {sorted(shells, reverse=True)[:6]}")
     print(f"  {holes} open edges (holes), {odd} edges with more than two faces")
     print(f"  edge length: median {median:.2f} cm, longest {lengths[-1]:.2f} cm; "
-          f"{bridges} past {A_BRIDGE_IS:.0f}x the median")
+          f"{long_ones} past {A_BRIDGE_IS:.0f}x the median")
+    print(f"  of those, {len(bridges)} BRIDGE two body regions - the rest are just a coarse mesh")
+    for span, a, b in bridges[:5]:
+        print(f"    {span:6.2f} cm  {a} <-> {b}")
     if bridges:
-        print(f"    ^ a long edge is the generator bridging two limbs that sat close together. "
-              f"Those stretch when the limbs separate, and that is what tearing is.")
+        print("    ^ two surfaces that sit close at rest and separate when he moves. Those")
+        print("      stretch, and that is what tearing is.")
     print(f"  custom split normals: {mesh.data.has_custom_normals}; "
           f"UV layers {[l.name for l in mesh.data.uv_layers]}")
     print(f"  colour attributes: {[l.name for l in mesh.data.color_attributes]}")
+
+
+def owner_of(mesh):
+    """Which bone drives each vertex most, by name."""
+    groups = {g.index: g.name for g in mesh.vertex_groups}
+    out = {}
+    for vertex in mesh.data.vertices:
+        best, who = 0.0, ""
+        for group in vertex.groups:
+            if group.weight > best:
+                best, who = group.weight, groups.get(group.group, "")
+        out[vertex.index] = who
+    return out
 
 
 def the_skeleton(rig):
@@ -293,6 +341,120 @@ def the_hands(rig, mesh, scene):
 
 
 
+# Poses the delivered clips do not contain, so deformation can be measured where it will
+# actually be asked for. The arms barely leave the sides in an idle, a walk or a run - so
+# strain measured on those alone says nothing about what happens when he reaches for something.
+#
+# (bone, axis, degrees) - applied on top of the rest pose, one pose at a time.
+TRIES = (
+    ("arms overhead", (("L_Upperarm", "X", -95.0), ("R_Upperarm", "X", -95.0))),
+    ("arms forward", (("L_Upperarm", "X", -80.0), ("R_Upperarm", "X", -80.0))),
+    ("a long stride", (("L_Thigh", "X", -55.0), ("R_Thigh", "X", 55.0))),
+    ("a deep crouch", (("L_Thigh", "X", -95.0), ("R_Thigh", "X", -95.0),
+                       ("L_Calf", "X", 110.0), ("R_Calf", "X", 110.0))),
+)
+
+# Past this much of its rest length an edge is tearing rather than stretching. 1.35 is the figure
+# the skinning references use, and it is where a surface starts to read as rubber.
+TEARS_PAST = 1.35
+
+
+def the_deformation(rig, mesh, scene, owner):
+    """How far every edge stretches, across every clip AND across poses the clips never reach.
+
+    # Why this replaces the length test
+
+    "An edge longer than four times the median" counted 182 faults on this character. Rendered
+    with them picked out, they are the chest panel and the crotch - ordinary large polygons on a
+    body that welds to 2464 vertices. Adding "and it spans two body regions" got it to 24, and
+    the worst of those are `Waist <-> ThighTwist01` at the hip, where a trunk and a leg are
+    SUPPOSED to be one surface.
+
+    Length was never the question. A bridge is a bridge because it STRETCHES when the two things
+    it joins move apart, and that is measurable directly rather than guessed at from geometry.
+
+    # And why the clips are not enough on their own
+
+    In an idle, a walk and a run the arms barely leave the sides, so armpit webbing never gets
+    pulled and reports nothing. `TRIES` poses the character where the game will: reaching,
+    striding, crouching.
+    """
+    def stand_at_rest():
+        """Every bone back to identity, explicitly.
+
+        Clearing the action is NOT enough - the depsgraph keeps the last evaluated pose, so the
+        "rest" lengths came out as whatever had been posed most recently. Every strain figure
+        below is divided by these, so getting them from a stale pose makes the whole section
+        fiction. Setting each bone to identity is the one way that cannot be stale.
+        """
+        if rig.animation_data:
+            rig.animation_data.action = None
+        for bone in rig.pose.bones:
+            bone.rotation_mode = "QUATERNION"
+            bone.rotation_quaternion = mathutils.Quaternion()
+            bone.location = mathutils.Vector((0.0, 0.0, 0.0))
+            bone.scale = mathutils.Vector((1.0, 1.0, 1.0))
+        bpy.context.view_layer.update()
+
+    rest = {}
+    stand_at_rest()
+    posed = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    for edge in mesh.data.edges:
+        a, b = edge.vertices
+        rest[edge.index] = ((posed.matrix_world @ posed.data.vertices[a].co)
+                            - (posed.matrix_world @ posed.data.vertices[b].co)).length
+
+    worst = {}
+
+    def look(what):
+        posed = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        for edge in mesh.data.edges:
+            a, b = edge.vertices
+            now = ((posed.matrix_world @ posed.data.vertices[a].co)
+                   - (posed.matrix_world @ posed.data.vertices[b].co)).length
+            if rest[edge.index] < 1e-6:
+                continue
+            ratio = now / rest[edge.index]
+            if ratio > worst.get(edge.index, (0.0, ""))[0]:
+                worst[edge.index] = (ratio, what, a, b)
+
+    for clip in sorted(bpy.data.actions, key=lambda a: a.name):
+        play(rig, clip)
+        first, last = (int(round(v)) for v in clip.frame_range)
+        for frame in range(first, last + 1, 2):
+            scene.frame_set(frame)
+            bpy.context.view_layer.update()
+            look(clip.name)
+
+    for what, turns in TRIES:
+        stand_at_rest()
+        for name, axis, degrees in turns:
+            if name in rig.pose.bones:
+                rig.pose.bones[name].rotation_quaternion = mathutils.Quaternion(
+                    {"X": (1, 0, 0), "Y": (0, 1, 0), "Z": (0, 0, 1)}[axis],
+                    math.radians(degrees))
+        bpy.context.view_layer.update()
+        look(what)
+
+    torn = sorted(((v[0], v[1], v[2], v[3]) for v in worst.values() if v[0] > TEARS_PAST),
+                  reverse=True)
+    print("")
+    print("THE DEFORMATION")
+    print(f"  measured over every clip and {len(TRIES)} poses they do not contain")
+    print(f"  {len(torn)} of {len(rest)} edges stretch past {TEARS_PAST:.2f}x their rest length")
+    # Broken down by WHERE, because a synthetic pose that bends a joint the wrong way produces
+    # exactly the huge numbers a genuine fault does. If the clips - which are known-good
+    # animation - tear little and only a made-up pose tears a lot, the pose is the suspect.
+    from collections import Counter
+    per = Counter(what for _, what, _, _ in torn)
+    for what, count in per.most_common():
+        print(f"    {count:4d} in {what}")
+    for ratio, what, a, b in torn[:8]:
+        print(f"    x{ratio:5.2f}  {owner.get(a, '?')} <-> {owner.get(b, '?')}   in {what}")
+    if not torn:
+        print("    nothing tears - the surface holds everywhere it was asked to bend")
+
+
 def the_clips(rig, scene):
     if not bpy.data.actions:
         print("\nTHE CLIPS\n  none in this file")
@@ -350,10 +512,11 @@ def main():
     print(f"a figure {high - low:.4f} units tall, which is {(high - low) * SCALE:.1f} cm "
           f"once the game scales it\n")
 
-    the_surface(mesh)
+    the_surface(mesh, owner_of(mesh))
     the_skeleton(rig)
     the_skin(mesh)
     the_hands(rig, mesh, bpy.context.scene)
+    the_deformation(rig, mesh, bpy.context.scene, owner_of(mesh))
     the_clips(rig, bpy.context.scene)
 
 

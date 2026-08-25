@@ -66,6 +66,73 @@ def flag(name, fallback=None):
     return args[args.index(name) + 1] if name in args else fallback
 
 
+def mark_the_faults(mesh):
+    """The faces worth pointing at: holes, non-manifold edges, and bridges.
+
+    The same three the audit counts, found the same way - welded by position first, because on
+    an unwelded glTF mesh every edge looks like a boundary.
+    """
+    import collections
+
+    grain = 0.00002
+    canon, seen = {}, {}
+    for vertex in mesh.data.vertices:
+        co = vertex.co
+        key = (round(co.x / grain), round(co.y / grain), round(co.z / grain))
+        canon[vertex.index] = seen.setdefault(key, vertex.index)
+
+    faces_on = collections.defaultdict(list)
+    for poly in mesh.data.polygons:
+        corners = list(poly.vertices)
+        for a, b in zip(corners, corners[1:] + corners[:1]):
+            ca, cb = canon[a], canon[b]
+            if ca != cb:
+                faces_on[(min(ca, cb), max(ca, cb))].append(poly.index)
+
+    lengths = sorted(
+        ((mesh.matrix_world @ mesh.data.vertices[e.vertices[0]].co)
+         - (mesh.matrix_world @ mesh.data.vertices[e.vertices[1]].co)).length
+        for e in mesh.data.edges)
+    median = lengths[len(lengths) // 2]
+
+    out = set()
+    for _, faces in faces_on.items():
+        if len(faces) != 2:
+            out.update(faces)
+    # A long edge is only a fault if it also spans two body regions. Without that test this
+    # picked out the chest panel and the crotch - ordinary large polygons on a low-poly body -
+    # and called them bridges. 189 faces, of which almost none were wrong.
+    groups = {g.index: g.name for g in mesh.vertex_groups}
+    owner = {}
+    for vertex in mesh.data.vertices:
+        best, who = 0.0, ""
+        for group in vertex.groups:
+            if group.weight > best:
+                best, who = group.weight, groups.get(group.group, "")
+        owner[vertex.index] = who
+
+    def region(name):
+        for key, part in (("Thigh", "leg"), ("Calf", "leg"), ("Foot", "leg"), ("Toe", "leg"),
+                          ("Upperarm", "arm"), ("Forearm", "arm"), ("Hand", "arm"),
+                          ("Clavicle", "trunk"), ("Spine", "trunk"), ("Waist", "trunk"),
+                          ("Hip", "trunk"), ("Pelvis", "trunk"),
+                          ("Neck", "head"), ("Head", "head")):
+            if key in name:
+                return part
+        return None
+
+    for edge in mesh.data.edges:
+        span = ((mesh.matrix_world @ mesh.data.vertices[edge.vertices[0]].co)
+                - (mesh.matrix_world @ mesh.data.vertices[edge.vertices[1]].co)).length
+        parts = {region(owner.get(edge.vertices[0], "")),
+                 region(owner.get(edge.vertices[1], ""))} - {None}
+        if span > median * 4.0 and len(parts) > 1:
+            pair = (min(canon[edge.vertices[0]], canon[edge.vertices[1]]),
+                    max(canon[edge.vertices[0]], canon[edge.vertices[1]]))
+            out.update(faces_on.get(pair, []))
+    return out
+
+
 def main():
     args = argv()
     root = os.path.dirname(os.path.dirname(ART))
@@ -74,6 +141,13 @@ def main():
     only = [w for w in (flag("--only", "") or "").split(",") if w]
     textured = "--textured" in args
     silhouette = "--silhouette" in args
+    # Faces to pick out in red: a comma-separated list of indices, or "faults" to let
+    # `mark_the_faults` find them.
+    #
+    # Nothing gets removed from this mesh without being POINTED AT first. Two removals on the
+    # last character took the wrong thing - the sleeve cuffs once, faces out of a trouser leg
+    # once - and both times the render that would have shown it was not taken or was misread.
+    highlight = flag("--highlight")
     os.makedirs(out, exist_ok=True)
 
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -115,6 +189,12 @@ def main():
         bpy.context.view_layer.update()
         print(f"posed by {wanted} at frame {bpy.context.scene.frame_current}")
 
+    marked = set()
+    if highlight:
+        marked = (mark_the_faults(body) if highlight == "faults"
+                  else {int(w) for w in highlight.split(",") if w.strip()})
+        print(f"pointing at {len(marked)} faces")
+
     if not textured:
         clay = bpy.data.materials.new("clay")
         clay.use_nodes = True
@@ -129,6 +209,19 @@ def main():
                 mesh.data.materials.append(clay)
             for slot in mesh.material_slots:
                 slot.material = clay
+
+    if marked:
+        red = bpy.data.materials.new("pointing")
+        red.use_nodes = True
+        node = red.node_tree.nodes["Principled BSDF"]
+        node.inputs["Base Color"].default_value = (0.85, 0.06, 0.05, 1.0)
+        node.inputs["Emission Color"].default_value = (0.85, 0.06, 0.05, 1.0)
+        node.inputs["Emission Strength"].default_value = 0.7
+        body.data.materials.append(red)
+        which = len(body.data.materials) - 1
+        for face in body.data.polygons:
+            if face.index in marked:
+                face.material_index = which
 
     scene = bpy.context.scene
     # Named "BLENDER_EEVEE_NEXT" for two releases and back to "BLENDER_EEVEE" in 5.x. Picked
