@@ -46,6 +46,32 @@ A_STUB_IS = 0.05
 # hidden by default. Alt-H in the viewport brings them back.
 HIDE = "Twist"
 
+# Whether to carry him forward so a treadmill clip reads as travel. See below.
+CARRIES_HIM_FORWARD = True
+
+# How far one cycle of each clip carries him, in model units - the same numbers `src/motion.rs`
+# divides by, so the viewer and the game agree about the stride.
+COVERS = {"walk": 2.471 / 1.70, "jog": 4.879 / 1.70}
+
+
+def curves_of(clip):
+    """Every fcurve in an action, on Blender 5 and on what came before.
+
+    From 4.4 an action is slots, layers, strips and channelbags rather than a flat
+    `action.fcurves`, and reaching for the old attribute raises rather than returning nothing.
+    """
+    if hasattr(clip, "fcurves"):
+        try:
+            return list(clip.fcurves)
+        except AttributeError:
+            pass
+    out = []
+    for layer in getattr(clip, "layers", []):
+        for strip in layer.strips:
+            for bag in getattr(strip, "channelbags", []):
+                out.extend(bag.fcurves)
+    return out
+
 
 def argv():
     return sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
@@ -256,6 +282,45 @@ def main():
             space.region_3d.view_distance = (high - low) * 1.5
             aimed += 1
     print(f"  aimed {aimed} saved view(s) at a {(high - low) * 170.0:.0f} cm figure")
+
+    # # He is driven FORWARD, or a treadmill reads as ice skating
+    #
+    # Every clip is a treadmill: the hips end 0.0 cm from where they began and the planted foot
+    # slides backward at the speed the character is meant to be travelling. That is correct -
+    # the game moves the warden and `motion::strides_over` drives the clip's phase from the
+    # ground he covers - but with nothing moving underneath him in a viewer it looks exactly
+    # like skating, and was reported as exactly that.
+    #
+    # So the scene carries him forward at the speed his own stride implies, and the planted foot
+    # then stands still against the floor the way it will in game. The speed comes from the clip
+    # itself - the distance one cycle covers over how long it lasts - so it is right for whatever
+    # clip is showing rather than a number typed here.
+    if wanted is not None and rig is not None and CARRIES_HIM_FORWARD:
+        first, last = (int(round(v)) for v in wanted.frame_range)
+        lasts = max((last - first) / 24.0, 1e-6)
+        covers = COVERS.get(wanted.name)
+        if covers:
+            forward = mathutils.Vector((0.0, -1.0, 0.0))
+            bind = rig.pose.bones.get("L_ToeBase")
+            if bind is not None:
+                along = ((rig.matrix_world @ bind.bone.tail_local)
+                         - (rig.matrix_world @ bind.bone.head_local))
+                along.z = 0.0
+                if along.length > 1e-9:
+                    forward = along.normalized()
+            spot = rig.location.copy()
+            for frame in (first, last):
+                rig.location = spot + forward * (covers * (frame - first) / (last - first))
+                rig.keyframe_insert("location", frame=frame)
+            for curve in curves_of(rig.animation_data.action):
+                if curve.data_path != "location":
+                    continue
+                for point in curve.keyframe_points:
+                    # Linear, or the ramp eases in and out and he skates at both ends of the
+                    # cycle - which is the very thing this exists to stop.
+                    point.interpolation = "LINEAR"
+            print(f"  carried him {covers * 170.0:.0f} cm over the cycle, so the planted foot "
+                  f"stands still instead of skating")
 
     if save_to:
         bpy.ops.wm.save_as_mainfile(filepath=save_to)

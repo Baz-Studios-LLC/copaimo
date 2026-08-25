@@ -141,16 +141,24 @@ const WALK_COVERS: f32 = 2.471;
 /// longer existed, and the whole point of the footfall audit is that there is one of these.
 #[cfg(test)]
 pub const WALK_COVERS_FOR_TESTS: f32 = WALK_COVERS;
-// AUTHORED, 2026-08-25, and this is the number that finally agrees with itself.
+// DELIVERED and PLANTED, 2026-08-25. The clip is the supplied one again, and this is what its
+// own feet carry, not what a table said they should.
 //
-// 4.435 m was the delivered clip's - a stride 2.6 times his own height, which is why it could
-// only be driven at a speed above the whole run band while its cadence sat below the bottom of
-// the recreational one. The clip is authored now (`dev/art/author_gait.py`), its feet are planted
-// by construction, and `the_footfalls` measures what they actually carry: 2.506 m.
+// 2.506 was the authored clip's, and it was right for that clip. It was left here when the
+// delivered run came back and it is what made him skate: the delivered clip holds TWO gait cycles
+// in its 25 frames, so distance matching drove the world past at not quite half the rate his feet
+// were going, and a planted foot slid backward at 2.4 m/s the whole time it was down. The clue was
+// sitting in `the_footfalls` the entire while, reading +96%.
 //
-// That is 1.47 x his height, inside the 1.4-1.8 a jog wants, and it makes the whole set cohere
-// for the first time - see JOG_SPEED for the speed it now supports.
-const JOG_COVERS: f32 = 2.506;
+// 4.879 m is measured three independent ways that now agree: `author_gait`'s plant locks the balls
+// to 20.33 cm a frame over a 24-frame cycle (4.879), `the_footfalls` reads the built asset back at
+// 4.871, and `build_character` measures the hip travel that was detrended out of the delivered
+// clip at 4.96. Before the plant those three disagreed by 11%, which was the clip's own footskate.
+//
+// Per CYCLE that is 2.44 m, or 1.43 x his height - the same place the authored clip landed, and
+// inside the 1.4-1.8 a jog wants. The clip carries twice that because it is two cycles long, which
+// is what `CYCLES` is for.
+const JOG_COVERS: f32 = 4.879;
 
 /// How many gait CYCLES each clip contains, so cadence can be told apart from playback rate.
 ///
@@ -171,7 +179,11 @@ const JOG_COVERS: f32 = 2.506;
 // dead - the same case as `FPS` and the frame counts above. It is a checked record of how many
 // cycles each clip holds, not a comment.
 #[allow(dead_code)]
-const CYCLES: &[(&str, f32)] = &[("walk", 2.0), ("jog", 1.0)];
+// The jog is TWO, not one. It was one while the clip was authored, and the delivered clip that
+// replaced it holds two: measured on the built asset, its hips dip once every 6.25 frames and each
+// foot plants twice in the 24-frame cycle, which is four contacts and two cycles. Left at one, the
+// jog reports half the cadence it has.
+const CYCLES: &[(&str, f32)] = &[("walk", 2.0), ("jog", 2.0)];
 
 /// How far a clip may be from its own native rate before it reads as broken.
 ///

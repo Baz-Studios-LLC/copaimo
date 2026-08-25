@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Builds assets/models/person_ranger.glb from assets/character/*.glb, then AUTHORS the jog onto
-# it - see dev/art/author_gait.py for why that clip is authored rather than delivered.
+# Builds assets/models/person_ranger.glb from assets/character/*.glb, then PLANTS the delivered
+# jog's feet onto the floor - see dev/art/author_gait.py for why the clip is kept and only its
+# contact with the ground is solved. Pass --author to author a gait from scratch instead.
 # dev/art/audit_character.sh checks the result.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"

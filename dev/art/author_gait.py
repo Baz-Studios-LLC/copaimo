@@ -2058,6 +2058,607 @@ RUN_ABSORBS = 0.0
 # it pitches the trunk, not the legs.
 RUN_LEAN = 15.0
 
+# How close to a foot's OWN lowest point it still counts as standing on the ground, in cm,
+# widened until enough of the cycle is stance to be a gait.
+#
+# The same ladder `audit_character.the_footfalls` walks, and for the same reason it gives: one
+# window does not fit both feet on a rig whose sides were delivered mirrored imperfectly. Measured
+# on the delivered jog, the left sole never comes closer than 0.44 cm to the floor while the right
+# reaches -1.51 cm through it, so a window measured from a shared floor calls one foot planted for
+# twice as long as the other.
+#
+# It starts TIGHT. At 3 cm the left foot's stance took in the frame after toe-off, whose sole is
+# already 3.27 cm up and climbing, and hauling a leaving foot back down to the floor is asking the
+# leg to grow: the solver saturated and drove the toe in to make up the difference. A window is a
+# contact tolerance, and a couple of centimetres is what that means on a 170 cm figure - the
+# frames either side of it belong to the ramp, not to the plant.
+STANDS_WITHIN = (2.0, 3.0, 4.5, 6.0, 8.0)
+
+# The least of a clip one foot may be down before the window is widened. Running duty factors sit
+# near a third per foot and fall with speed; a fifth is where it stops being a gait.
+A_FOOT_IS_DOWN_FOR = 0.20
+
+# How many frames the correction ramps over as a foot leaves and returns to the ground.
+#
+# Without it the ankle steps by the whole correction between the last stance frame and the first
+# swing frame - 3 cm in one frame on this clip - which is a visible tick in the shin. The ramp
+# lands on frames the foot is in the AIR, where a centimetre of ankle height is nobody's business.
+EASES_OVER = 2
+
+# The most a planted sole may still be off the floor once the leg has been solved, in cm. Past
+# this the leg could not reach and the plant is a lie, so it is refused rather than shipped.
+REACHES_TO_WITHIN = 0.60
+
+# Whether a planted foot is also held to a straight line at a steady speed, and not merely to the
+# floor.
+#
+# A foot on the ground does exactly one thing: it stays where it is while the world goes past. In a
+# clip whose root motion has been detrended out that reads as travelling BACKWARD at precisely the
+# character's speed, dead straight, every frame of the plant - `the_footfalls` is built on the same
+# statement, and calls it `speed = cadence x stride`.
+#
+# The delivered jog does not do that. Measured over its own stance intervals, the planted foot goes
+# backward between 13.6 and 19.6 cm a frame - a 2.4-fold swing, 1.4 m/s of it - and drifts up to
+# 2.5 cm a frame SIDEWAYS as well, the left foot one way and the right the other, so the feet splay
+# apart while they are supposed to be standing still. Height alone cannot touch any of that. It is
+# the thing reported as "he moves like he's ice skating", and it is in the clip rather than in the
+# game.
+LOCKS_THE_FOOT = True
+
+# Whether the lock holds a planted ball to a LINE as well as to a speed.
+#
+# Off. Measured on the delivered jog, a planted ball drifts up to 5.5 cm a frame across the line of
+# travel while its ankle drifts under 2.3 - so most of that is the foot YAWING about the ankle, and
+# translating the ankle to cancel it does not stop the yaw, it only moves the leg out from under
+# him. "His legs are way further apart than they should be" is a fault already paid for once on the
+# authored jog, and this pass is not the place to risk it again. The along-travel half is the half
+# that shows up in `covers`, and it is the half being fixed.
+HOLDS_SIDEWAYS = False
+
+# The most a planted foot may be shifted sideways or along to stop it sliding, in cm. A plant that
+# needs more than this is not a plant with skate in it, it is a different step, and moving it that
+# far would be restyling the performance rather than fixing its contact.
+A_PLANT_MAY_SHIFT = 8.0
+
+# How close the solved chain must end up to what it was asked for, in cm, before the ask is called
+# unreachable. A leg that cannot get there has not planted the foot; it has leaned on it.
+CHAIN_REACHES_TO_WITHIN = 0.50
+
+# The most the body may be nudged to bring a plant within a leg's reach, in cm.
+#
+# The standard answer to a footplant a leg cannot quite make, and the reason it is available here
+# is that a RUN has no double support: measured on this clip the two feet's stance frames do not
+# share a single frame, so at any moment at most one foot is on the ground and the body can be
+# moved to suit it without dragging the other. In a walk that would not hold and this would have to
+# be weighted between the two.
+#
+# Four centimetres, because it is a repair and not a performance. Past that the clip is asking for
+# a different step rather than the same step without slide in it.
+HIPS_MAY_SHIFT = 4.0
+CARRIES_THE_BODY = True
+
+# How many times the body may be carried before the plants are taken as good as they will get.
+HIP_TRIES = 4
+
+# How many passes the ball-and-sole fixed point is given, and how close it has to land, in model
+# units. Thirty is far more than the three or four a well-conditioned pass needs; it costs nothing
+# on the frames that converge at once and buys the awkward ones room.
+TRIES = 30
+CLOSE_ENOUGH = 0.00002
+
+# How many passes running the chain may fail to follow before it is called stuck rather than slow.
+STALLS_BEFORE_STUCK = 3
+
+# How much of a step the ankle must actually take before the step counts as followed.
+#
+# The guard against asking a straight leg to grow. Below this the chain has stopped tracking and
+# every further centimetre of ask goes into PITCHING it instead, which drives the toe through the
+# floor and reads as the stab this whole pass exists to remove. Half is generous - a chain with any
+# reach left follows within a few percent - and it only has to separate "tracking" from "stuck".
+FOLLOWS_BY = 0.5
+
+
+def play_it(rig, clip):
+    """Puts a clip on the rig, slot and all."""
+    rig.animation_data.action = clip
+    slots = getattr(clip, "slots", None)
+    if slots:
+        rig.animation_data.action_slot = slots[0]
+
+
+def where_the_feet_are_down(rig, mesh, feet, clip, scene):
+    """Which frames each foot stands on, measured off the deformed sole.
+
+    The criterion is the sole's height against that foot's OWN lowest point, which is the test
+    `the_footfalls` uses to decide what to measure, and is deliberately not "the foot is moving
+    backward" - that is the thing the plant exists to fix, so deciding stance by it would make the
+    fix agree with itself.
+    """
+    first, last = (int(round(v)) for v in clip.frame_range)
+    soles = {"L": {}, "R": {}}
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        for side in "LR":
+            soles[side][frame] = ik_gait.lowest_sole(rig, mesh, feet, side)
+
+    # A looping clip's last frame repeats its first, so it is not a frame of its own: counted as
+    # one, it inflates the stance duty and gives the seam two answers to the same question.
+    loops = all(abs(soles[side][first] - soles[side][last]) < 1e-5 for side in "LR")
+    ends = last - 1 if loops else last
+    frames = ends - first + 1
+
+    down, window = {}, STANDS_WITHIN[-1]
+    for wide in STANDS_WITHIN:
+        window = wide
+        down = {
+            side: [f for f in range(first, ends + 1)
+                   if soles[side][f] <= min(soles[side].values()) + wide / 170.0]
+            for side in "LR"
+        }
+        if all(len(down[side]) >= A_FOOT_IS_DOWN_FOR * frames for side in "LR"):
+            break
+    return soles, down, window, loops
+
+
+def a_run_of(frames, first=None, cycle=None):
+    """The contiguous stretches in a list of frame numbers, joined across the seam if it cycles.
+
+    A looping clip has no first or last plant, only plants - the right foot's stance on the jog
+    runs from frame 24 through the seam to frame 2, and read as a line that is two separate
+    contacts a frame apart. Ramping out of one and into the other put a different correction on
+    the two frames that hold the SAME pose, which is a 1.05 cm step in the ankle at the exact
+    moment the clip repeats.
+    """
+    runs = []
+    for frame in sorted(frames):
+        if runs and frame == runs[-1][-1] + 1:
+            runs[-1].append(frame)
+        else:
+            runs.append([frame])
+    if cycle and len(runs) > 1 and runs[0][0] == first and runs[-1][-1] == first + cycle - 1:
+        runs = [runs[-1] + runs[0]] + runs[1:-1]
+    return runs
+
+
+def how_fast_the_ground_goes_by(ankles, down):
+    """Which way a planted foot travels and how far it goes each frame, measured off the feet.
+
+    No axis is assumed and no facing is consulted: the direction is the sum of what the planted
+    feet actually do, which is by definition the way the character goes. `the_footfalls` takes the
+    travel direction the same way and for the same reason.
+
+    The distance is the MEDIAN of the per-frame steps, not the mean. A stance's first and last
+    intervals are half in the air and pull a mean down hard - measured on the jog, 8.28 cm against
+    a 16.71 median over the same stance - and the median is what the middle of the plant, where the
+    foot is unambiguously down, actually does.
+    """
+    steps = []
+    for side in "LR":
+        for frame in down[side]:
+            if frame + 1 not in down[side]:
+                continue
+            went = ankles[side][frame + 1] - ankles[side][frame]
+            went.z = 0.0
+            steps.append(went)
+    if len(steps) < 2:
+        refuse("no plant lasts two frames, so the line of travel cannot be measured")
+    travel = sum(steps, mathutils.Vector((0.0, 0.0, 0.0)))
+    if travel.length < 1e-9:
+        refuse("the planted feet do not move, so there is no line of travel to hold them to")
+    travel.normalize()
+    along = sorted(step.dot(travel) for step in steps)
+    middle = len(along) // 2
+    each = along[middle] if len(along) % 2 else (along[middle - 1] + along[middle]) / 2.0
+    return travel, each
+
+
+def where_a_planted_foot_belongs(run, spots, travel, each):
+    """Where every frame of one plant puts the foot, if the foot is not to slide.
+
+    Anchored on the MIDDLE of the plant rather than its start, so the correction is shared between
+    the two ends instead of accumulating across the whole contact. Counted by position in the run
+    and not by frame number, because a plant that crosses a looping clip's seam runs 24, 1, 2 and
+    frame arithmetic on that is nonsense.
+    """
+    anchor = len(run) // 2
+    held = spots[run[anchor]]
+    return {frame: held + travel * (each * (step - anchor))
+            for step, frame in enumerate(run)}
+
+
+def read_the_feet(rig, scene, first, last):
+    """Where the clip's own ankles and balls are, frame by frame.
+
+    Read with any solver switched off, because the answer wanted here is what the CLIP does. Asking
+    the rig while the IK is live returns where the solver last put things, which is the quantity
+    this is trying to compute.
+    """
+    ankles, balls = {"L": {}, "R": {}}, {"L": {}, "R": {}}
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        for side in "LR":
+            ankles[side][frame] = (
+                rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head).copy()
+            balls[side][frame] = (
+                rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].head).copy()
+    return ankles, balls
+
+
+def smoothly_between(known, first, ends, loops):
+    """Fills the frames nobody measured by running a line between the ones somebody did.
+
+    Cyclically when the clip loops, so the curve that comes out has no seam in it either - the
+    frames after the last plant lead round into the frames before the first.
+    """
+    span = ends - first + 1
+    at = sorted(known)
+    if not at:
+        return {f: mathutils.Vector((0.0, 0.0, 0.0)) for f in range(first, ends + 1)}
+    out = {}
+    for frame in range(first, ends + 1):
+        if frame in known:
+            out[frame] = known[frame].copy()
+            continue
+        before = [a for a in at if a <= frame]
+        after = [a for a in at if a >= frame]
+        if loops:
+            low = before[-1] if before else at[-1] - span
+            high = after[0] if after else at[0] + span
+        else:
+            low = before[-1] if before else at[0]
+            high = after[0] if after else at[-1]
+        if high == low:
+            out[frame] = known[low % span + first if loops else low].copy()
+            continue
+        share = (frame - low) / (high - low)
+        a = known[first + (low - first) % span] if loops else known[low]
+        b = known[first + (high - first) % span] if loops else known[high]
+        out[frame] = a.lerp(b, share)
+    return out
+
+
+def carry_the_body(rig, clip, shifts, scene, first, last, loops):
+    """Moves the whole figure by a little, frame by frame, without touching a single joint.
+
+    Written onto whichever bone the clip already travels on, in that bone's own rest frame - world
+    up is not a bone's up, and `stand_on_the_floor` learned the same lesson lifting clips onto the
+    floor. Every frame is read before any frame is written, because writing a key changes what the
+    frames around it evaluate to, and reading through a curve that is being edited underneath gives
+    each frame a different rig than the one it was measured on.
+    """
+    slot = rig.animation_data.action_slot if rig.animation_data else None
+    for carrier in ("Root", "Hip", "Pelvis"):
+        if carrier not in rig.pose.bones:
+            continue
+        rest = (rig.matrix_world @ rig.pose.bones[carrier].bone.matrix_local).to_3x3()
+        turn = rest.inverted()
+        was = {}
+        for frame in range(first, last + 1):
+            scene.frame_set(frame)
+            bpy.context.view_layer.update()
+            was[frame] = rig.pose.bones[carrier].location.copy()
+        for frame in range(first, last + 1):
+            at = first if (loops and frame == last) else frame
+            scene.frame_set(frame)
+            rig.pose.bones[carrier].location = was[frame] + (turn @ shifts[at])
+            rig.pose.bones[carrier].keyframe_insert("location", frame=frame)
+        return carrier
+    refuse(f"{clip.name} travels on no bone this knows, so the body cannot be carried")
+
+
+def how_hard_the_solver_pulls(down, lift, first, last, loops):
+    """How far to move each ankle, and how much of that to actually apply, frame by frame.
+
+    # Why the solver is switched off rather than fed the clip's own ankle
+
+    The first version of this kept the IK live across the whole clip and simply aimed it at the
+    ankle the animator had already chosen on the frames that needed nothing. That looks like a
+    no-op and is not one. A two-bone chain reaching a point has a whole CIRCLE of solutions - the
+    same degeneracy `add_leg_ik` describes - so hitting the same ankle does not mean reproducing
+    the same LEG, and the pole picks its own answer. The foot hangs off the end of that, so its
+    world tilt changes with it. Measured: the right foot's swing peak drifted from 16.63 cm to
+    20.19 cm on frames whose correction was zero.
+
+    So the solver is keyed OFF wherever nothing needs correcting, and the animator's leg is what
+    plays there - which is the whole promise this pass is making. Where it is on, influence ramps
+    it in and out over `EASES_OVER` frames of flight, which is also what does the smoothing: an
+    influence of w lands the ankle w of the way from where the clip put it to where the floor
+    wants it, so one curve serves as both the blend and the taper.
+    """
+    nowhere = mathutils.Vector((0.0, 0.0, 0.0))
+    offset = {f: nowhere.copy() for f in range(first, last + 1)}
+    strength = {f: 0.0 for f in range(first, last + 1)}
+    cycle = (last - first) if loops else (last - first + 1)
+
+    def inside(frame):
+        """Where a frame lands once the seam is taken account of, or None if there is no seam."""
+        if loops:
+            return first + (frame - first) % cycle
+        return frame if first <= frame <= last else None
+
+    for run in a_run_of(down, first, cycle if loops else None):
+        for frame in run:
+            offset[frame] = lift[frame].copy()
+            strength[frame] = 1.0
+        for edge, way in ((run[0], -1), (run[-1], 1)):
+            for step in range(1, EASES_OVER + 1):
+                frame = inside(edge + way * step)
+                if frame is None or frame in lift:
+                    continue
+                share = 1.0 - step / (EASES_OVER + 1.0)
+                if share > strength[frame]:
+                    offset[frame], strength[frame] = lift[edge].copy(), share
+    if loops:
+        # The seam frame IS the first frame, so it takes the first frame's answer by definition
+        # rather than by arithmetic that happens to agree.
+        offset[last], strength[last] = offset[first].copy(), strength[first]
+    return offset, strength
+
+
+def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
+    """Stands a DELIVERED clip's feet on the floor, leaving every angle in it exactly as authored.
+
+    # Why this can work where ten per-frame corrections could not
+
+    Every attempt at these feet before this one ROTATED the foot, because there was nothing here
+    that could move an ankle. That is the wrong thing to turn, and `foot_roll` has said so all
+    along:
+
+        "A rigid shoe does not pivot on its ball. It pivots on whichever END is touching: the heel
+         at heel-strike, the toe at toe-off, and it is flat in between. So the tilt is left alone
+         and the HEIGHT is solved. Whatever the tilt, the lowest part of the shoe is put on the
+         floor, and the pivot then emerges by itself - heel, flat, or toe, in that order, without
+         any of them being named. Which is the thing that makes this general: it never needs to
+         know which end is down."
+
+    So nothing here touches a rotation. The IK goes on the CALF, so the solver drives the ankle and
+    the foot keeps whatever local angle the animator gave it, and the single unknown is how high
+    the ankle sits. A shoe through the floor comes up; a shoe hovering over it goes down; a shoe in
+    the air is left alone, because a foot in flight is not this function's business.
+
+    # What it is actually fixing, measured
+
+    `stand_on_the_floor` lifts a whole clip until nothing penetrates, and says plainly what it
+    leaves behind: "anything left over FLOATS, which is the side of the error a ground solver can
+    pull back down." This is that solver, run once into the asset instead of every frame at
+    runtime. On the delivered jog what floats is one whole foot - the left sole sits 0.44 to
+    3.27 cm above the floor through all of its own stance while the right reaches 1.51 cm through
+    it. A foot that hovers for its entire plant has nothing to push against, and two feet
+    disagreeing by 4.8 cm about where the ground is, is what "runs with broken feet" looks like
+    from outside.
+    """
+    first, last = (int(round(v)) for v in clip.frame_range)
+    play_it(rig, clip)
+
+    soles, down, window, loops = where_the_feet_are_down(rig, mesh, feet, clip, scene)
+    frames = (last - first) if loops else (last - first + 1)
+    print(f"    {clip.name} {'loops, so its last frame is its first' if loops else 'does not loop'}"
+          f"; {frames} frames of cycle")
+    for side in "LR":
+        print(f"    {side} sole runs {min(soles[side].values()) * 170.0:+.2f}"
+              f"..{max(soles[side].values()) * 170.0:+.2f} cm; down on {len(down[side])} of "
+              f"{frames} frames ({len(down[side]) / frames * 100:.0f}%), within "
+              f"{window:.1f} cm of its own lowest")
+    if not all(down.values()):
+        refuse(f"{clip.name} never puts a foot down, so there is nothing to plant")
+
+    # Where the clip's own ankles are, read BEFORE any constraint exists. Reading them afterwards
+    # asks the rig where the solver just put them, which is the answer this is trying to compute.
+    ankles, balls = read_the_feet(rig, scene, first, last)
+
+    rigged = {side: ik_gait.add_leg_ik(rig, side) for side in "LR"}
+    targets = {side: rigged[side][0] for side in "LR"}
+    reach = ((rig.matrix_world @ rig.pose.bones["R_Foot"].bone.head_local)
+             - (rig.matrix_world @ rig.pose.bones["R_Thigh"].bone.head_local)).length
+    for side, (_, pole, hold) in rigged.items():
+        ik_gait.aim_the_pole(rig, side, pole, hold, facing[0], reach)
+
+    # # Solving, then re-applying
+    #
+    # The lift is found frame by frame with the solver running, then set aside and re-keyed as one
+    # eased curve. It cannot be keyed as it is found, because the ramp needs to know where a plant
+    # ENDS before it can taper out of it, and that is not known until the plant is over.
+    cycle = (last - first) if loops else (last - first + 1)
+    travel, each = how_fast_the_ground_goes_by(balls, down)
+    print(f"    the planted balls travel ({travel.x:+.3f}, {travel.y:+.3f}) at "
+          f"{each * 170.0:.2f} cm a frame, so a {cycle}-frame cycle covers "
+          f"{each * cycle * 1.70:.3f} m")
+
+    # Where every planted ball belongs, worked out ONCE from the clip as delivered. It must not be
+    # recomputed after the body has been carried: the target is a place on the ground, and a target
+    # that moves whenever the figure does is not a constraint, it is an echo.
+    held_at = {}
+    for side in "LR":
+        held_at[side] = {}
+        for run in a_run_of(down[side], first, cycle if loops else None):
+            held_at[side].update(
+                where_a_planted_foot_belongs(run, balls[side], travel, each)
+                if LOCKS_THE_FOOT else {f: balls[side][f] for f in run})
+
+    lift, saturated, over = {"L": {}, "R": {}}, {"L": {}, "R": {}}, {"L": {}, "R": {}}
+    for attempt in range(HIP_TRIES):
+        held = held_at
+        for side in "LR":
+            for frame in down[side]:
+                scene.frame_set(frame)
+                for other in "LR":
+                    targets[other].location = ankles[other][frame].copy()
+                targets[side].location = ankles[side][frame].copy()
+                bpy.context.view_layer.update()
+                # # One fixed point, holding the ball still and resting the sole
+                #
+                # Both halves move the same thing - the IK target, which is the ankle - so they
+                # are solved together rather than one after the other. Moving the ankle along the
+                # ground drags the sole's contact with it, and tilting is not involved in either,
+                # because nothing here touches a rotation.
+                #
+                # Converging at all rests on the foot being RIGID: with its rotation untouched,
+                # shifting the ankle a centimetre shifts the ball the same centimetre, so the
+                # horizontal correction is exact on the first pass and only the solver's own
+                # rounding brings it back. Height is the same one-for-one argument
+                # `solve_the_target` gives. What is left to iterate is the coupling: the chain
+                # rolls a little as it reaches, which turns the foot and moves the ball again.
+                #
+                # Except when the leg runs out. Asking an ankle DOWN or further OUT asks the leg
+                # to lengthen, and a leg already straight cannot; the target then walks away from
+                # the foot for as long as it is allowed to, and the sole still arrives at the
+                # floor - not because the ankle came down but because the saturated chain PITCHES,
+                # driving the toe in. That is a stabbed toe dressed up as a solved frame, and it is
+                # the exact fault this pass exists to remove. So every step is checked against what
+                # the ankle actually did, and the moment the chain stops following, the ask stops
+                # with it.
+                stalled, left = 0, None
+                for _ in range(TRIES):
+                    ball = rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].head
+                    across = held[side][frame] - ball
+                    across.z = 0.0
+                    if not HOLDS_SIDEWAYS:
+                        # Along the line of travel only. Pulling a ball back to a line as well as
+                        # to a speed moves the ANKLE sideways to do it, and how far apart his legs
+                        # stand is the animator's call, not this pass's.
+                        across = travel * across.dot(travel)
+                    short = ground - ik_gait.lowest_sole(rig, mesh, feet, side)
+                    step = across + mathutils.Vector((0.0, 0.0, short))
+                    left = step.length
+                    if left <= CLOSE_ENOUGH:
+                        break
+                    was = (rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head).copy()
+                    targets[side].location = targets[side].location + step
+                    bpy.context.view_layer.update()
+                    went = (rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head) - was
+                    # A poor first step is not saturation. The largest asks here are 8 cm of
+                    # sideways travel, and a chain that has to swing round to them follows perhaps
+                    # half the way on the opening pass and the rest on the next two - which is
+                    # ordinary damped iteration, not a leg running out. Treating one bad step as
+                    # the end aborted the solve on the frame with the BIGGEST correction, and left
+                    # its sole 1.74 cm in the air with every other frame exact. Only a chain that
+                    # will not move for several passes running has actually stopped.
+                    if went.length < step.length * FOLLOWS_BY:
+                        stalled += 1
+                        if stalled >= STALLS_BEFORE_STUCK:
+                            targets[side].location = targets[side].location - (step - went)
+                            bpy.context.view_layer.update()
+                            break
+                    else:
+                        stalled = 0
+                here = rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head
+                # What is LEFT OVER, measured fresh, and not how far the chain missed its target:
+                # a target that never converged is reached perfectly and still has the foot in the
+                # wrong place. Measuring the leftover is also what gives the body something to be
+                # moved BY, since the shortfall of a leg is exactly the nudge that would fix it.
+                ball = rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].head
+                short = held[side][frame] - ball
+                short.z = 0.0
+                if not HOLDS_SIDEWAYS:
+                    short = travel * short.dot(travel)
+                short.z = ground - ik_gait.lowest_sole(rig, mesh, feet, side)
+                over[side][frame] = short
+                saturated[side][frame] = short.length
+                lift[side][frame] = here - ankles[side][frame]
+
+        worst = max(v for side in "LR" for v in saturated[side].values())
+        if worst <= CHAIN_REACHES_TO_WITHIN / 170.0 or not CARRIES_THE_BODY:
+            break
+        if attempt == HIP_TRIES - 1:
+            break
+
+        # # Moving the body to the foot, when the foot cannot be moved to the ground
+        #
+        # A leg that comes up short has said precisely how short, and in a gait with no double
+        # support that shortfall IS the nudge: shift the figure by it and the planted foot arrives
+        # where it belongs without the leg being asked for anything it does not have. Only one foot
+        # is ever down, so nothing else is being dragged; the airborne leg rides along, which is
+        # what an airborne leg does.
+        wanted = {}
+        for side in "LR":
+            for frame, short in over[side].items():
+                wanted[frame] = wanted[frame] + short if frame in wanted else short.copy()
+        shifts = smoothly_between(wanted, first, first + cycle - 1, loops)
+        far = max(v.length for v in shifts.values()) * 170.0
+        if far > HIPS_MAY_SHIFT:
+            refuse(f"keeping the plants still would move the body {far:.2f} cm, past the "
+                   f"{HIPS_MAY_SHIFT:.1f} cm this may nudge it - that is a different performance, "
+                   "not the same one without slide in it")
+        for side in "LR":
+            rigged[side][2].influence = 0.0
+        bpy.context.view_layer.update()
+        carrier = carry_the_body(rig, clip, shifts, scene, first, last, loops)
+        # Still switched off for the reading, and only switched back on afterwards. Read with the
+        # solver live and every frame returns wherever the last solved frame left the target -
+        # measured, that put the recorded ankle 54 cm from the clip's own.
+        ankles, balls = read_the_feet(rig, scene, first, last)
+        for side in "LR":
+            rigged[side][2].influence = 1.0
+        print(f"    a leg was {worst * 170.0:.2f} cm short, so the body was carried up to "
+              f"{far:.2f} cm on {carrier} and the plants solved again")
+
+    pull = {side: how_hard_the_solver_pulls(down[side], lift[side], first, last, loops)
+            for side in "LR"}
+
+    # A clip that loops must still loop: the first and last frames hold the same pose, so they must
+    # take the same correction, and the same amount of it, or a seam opens where there was none.
+    for side in "LR":
+        offset, strength = pull[side]
+        seam = (offset[first] * strength[first]
+                - offset[last] * strength[last]).length * 170.0
+        if seam > 0.02:
+            refuse(f"the {side} plant breaks {clip.name}'s loop by {seam:.2f} cm")
+
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        for side in "LR":
+            offset, strength = pull[side]
+            targets[side].location = ankles[side][frame] + offset[frame]
+            targets[side].keyframe_insert("location", frame=frame)
+            rigged[side][2].influence = strength[frame]
+            rigged[side][2].keyframe_insert("influence", frame=frame)
+
+    ik_gait.bake_the_constraints(rig, first, last)
+    # The target and the pole only: the third of the three is the CONSTRAINT, which the
+    # bake has already cleared, and which was never an object to remove.
+    ik_gait.drop_the_helpers([h for r in rigged.values() for h in r[:2]])
+
+    worst, missed = 0.0, []
+    play_it(rig, clip)
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        for side in "LR":
+            if frame not in lift[side]:
+                continue
+            off = abs(ground - ik_gait.lowest_sole(rig, mesh, feet, side)) * 170.0
+            worst = max(worst, off)
+            if off > REACHES_TO_WITHIN:
+                missed.append(f"{side}{frame} by {off:.2f} cm")
+    shifts = [(pull[side][0][f] * pull[side][1][f]) for side in "LR" for f in pull[side][0]]
+    moved = max(v.length for v in shifts) * 170.0
+    sideways = max(math.hypot(v.x, v.y) for v in shifts) * 170.0
+    frames_over = frames * 2
+    solving = sum(1 for side in "LR" for f in range(first, first + frames)
+                  if pull[side][1][f] > 0.0)
+    stuck = max(v for side in "LR" for v in saturated[side].values()) * 170.0
+    print(f"    planted {sum(len(d) for d in down.values())} foot-frames; the ankle moved at "
+          f"most {moved:.2f} cm, {sideways:.2f} cm of that across the ground, and the chain "
+          f"followed to within {stuck:.2f} cm")
+    if sideways > A_PLANT_MAY_SHIFT:
+        refuse(f"holding a plant still would move a foot {sideways:.2f} cm across the ground, "
+               f"past the {A_PLANT_MAY_SHIFT:.1f} cm this may restyle - that is a different step, "
+               "not a step with slide in it")
+    if stuck > CHAIN_REACHES_TO_WITHIN:
+        refuse(f"a plant was left {stuck:.2f} cm from where it belongs, so the foot is being "
+               "leaned on rather than stood on")
+    print(f"    the solver is off for {frames_over - solving} of {frames_over} foot-frames, so "
+          f"those legs play exactly as delivered; every planted sole sits within {worst:.2f} cm "
+          f"of the floor")
+    if missed:
+        refuse(f"{len(missed)} planted sole(s) stayed more than {REACHES_TO_WITHIN:.2f} cm off "
+               f"the floor - the leg could not reach, so the plant would be a lie: "
+               + ", ".join(missed))
+    return clip
+
+
 def the_body(things):
     """The skinned mesh, which is the one with vertex groups and the most vertices."""
     skinned = [o for o in things if o.type == "MESH" and o.vertex_groups]
@@ -2086,7 +2687,8 @@ def main():
         rig.animation_data_create()
     scene = bpy.context.scene
     scene.render.fps = 24
-    print(f"authoring '{called}' onto {os.path.basename(model)}: "
+    doing = "authoring" if "--author" in args else "planting"
+    print(f"{doing} '{called}' onto {os.path.basename(model)}: "
           f"{len(rig.data.bones)} bones, {len(body.data.vertices)} vertices")
 
     # The knee has to be bent or there is no telling which way it folds - see the header.
@@ -2116,17 +2718,38 @@ def main():
     ground = 0.0
     print(f"  the floor is z=0; this model's sole rests at {rests_at * 170.0:+.1f} cm")
 
-    made = gait(
-        rig, body, feet, ground, called, RUN_LEG, RUN_SPAN, RUN_CONTACT,
-        RUN_SWING_LIFT, RUN_SWING_SHAPE, RUN_LANDS_AHEAD,
-        RUN_ARM_FORWARD, RUN_ARM_BACK, RUN_ELBOW_HELD, RUN_ELBOW_SWING,
-        RUN_LEAN, RUN_SHARE, RUN_SINKS, RUN_LEADS, RUN_BOUND, RUN_ABSORBS,
-        RUN_TUCK_IN, RUN_CROSSES_IN, RUN_PUMPS, RUN_TWIST, RUN_PELVIS, facing,
-    )
-    if made is None:
-        refuse("gait() authored nothing")
+    if "--author" in args:
+        made = gait(
+            rig, body, feet, ground, called, RUN_LEG, RUN_SPAN, RUN_CONTACT,
+            RUN_SWING_LIFT, RUN_SWING_SHAPE, RUN_LANDS_AHEAD,
+            RUN_ARM_FORWARD, RUN_ARM_BACK, RUN_ELBOW_HELD, RUN_ELBOW_SWING,
+            RUN_LEAN, RUN_SHARE, RUN_SINKS, RUN_LEADS, RUN_BOUND, RUN_ABSORBS,
+            RUN_TUCK_IN, RUN_CROSSES_IN, RUN_PUMPS, RUN_TWIST, RUN_PELVIS, facing,
+        )
+        if made is None:
+            refuse("gait() authored nothing")
+    else:
+        # # Planting the delivered clip, rather than authoring over it
+        #
+        # Authoring produces a gait with no measurable faults in it, and it produced one: planted
+        # soles on every frame, no slide, a stride and cadence inside the published bands. What it
+        # cannot produce is a PERFORMANCE. Reported on the authored jog - "his legs are way further
+        # apart than they should be and he runs at an angle, his hips are pointed the wrong way and
+        # dont move" - and every one of those is a thing `gait` states from a constant, which is
+        # only ever as good as the guess behind it.
+        #
+        # The delivered clip has an animator's answer to all three already. What it does not have
+        # is contact with the floor. So the clip is kept and only the contact is solved, which is
+        # the smaller and far better-posed half of the problem. See `plant_a_clip`.
+        made = next((a for a in bpy.data.actions if a.name == called), None)
+        if made is None:
+            refuse(f"there is no clip called '{called}' to plant; this file has "
+                   + ", ".join(sorted(a.name for a in bpy.data.actions)))
+        print(f"  planting the delivered '{called}', frames {made.frame_range[0]:.0f}"
+              f"..{made.frame_range[1]:.0f}")
+        plant_a_clip(rig, body, feet, ground, made, scene, facing)
     made.use_fake_user = True
-    print(f"  authored '{made.name}', frames {made.frame_range[0]:.0f}"
+    print(f"  {'authored' if '--author' in args else 'planted'} '{made.name}', frames {made.frame_range[0]:.0f}"
           f"..{made.frame_range[1]:.0f}")
 
     # The delivered clip of the same name goes, or the file ships two and the game plays one of
