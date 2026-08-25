@@ -119,17 +119,27 @@ trusted. The thumb is named by the one fact that cannot lie: its base branches o
 wrist. Verified by curling single digits by name and looking: thumb curls the innermost digit,
 pinky the outermost, on both hands.
 
-UNFUSED 2026-08-24: 36 inter-digit faces above the crotch are deleted per build, so the fingers
-are separate tubes and a splay opens real gaps. The flank walls are partial - the audit reads 45
-open edges, all of them millimetre slits inside the finger gaps, invisible at any distance the
-game shows hands. Walling them fully is on stage 03 with the armpit gusset.
+UNFUSED by DEEPENING, 2026-08-25. Deleting the 36 inter-digit faces was the wrong operation: it
+left 45 open edges that read as holes on the hands. A web between fingers is ANATOMY - every
+hand has one, down to about the crotch - and what was wrong here was that it sat almost level
+with the digits, so the hand read as a paddle. Nothing is deleted now; shared vertices sink
+toward the wrist along their digit's own axis, faded to nothing by the fingertip. The digits
+stand clear, and deleting nothing cannot open anything: 0 open edges.
 
-AUTHORED 2026-08-24: the examine-hands beat. Frames 140-284 of the joined idle: both hands rise
-to chest height with staggered lags (upper arms lead, forearms follow, hands turn over, head
-comes down last), palms turn toward the face, and the fingers SPLAY thumb-first with a slight
-straighten. Composed onto the baked keys with an envelope that reaches zero at both window
-edges, so the idle still loops at 0.00 degrees. Every axis measured; tuned by rendering the peak
-frame twice and looking.
+Two measured corrections on the way. 0.30 of the digit length sank the crotch 4.14 cm on a 9 cm
+hand and tore the left hand into ribbons - it is 0.08 now, 0.83 cm. And the "pinch toward the
+seam" was not merely too large but WRONG in direction: pulling shared vertices toward the seam
+between two digits drags both digits into each other, fusing them harder. Removed.
+
+Still open for stage 03, stated plainly: a hard 45-degree curl still tears the left hand, whose
+digits share more geometry than the right's. No clip curls the fingers today, so nothing shows.
+Fixing it properly is the gusset work - real walls between the digits, modelled not deleted.
+
+REVERTED 2026-08-25: the examine-hands beat. Three poses, three failures - hands at the belly,
+hands through the jacket, elbows into each other. The elbow hinge on this rig sweeps ACROSS the
+body, so the pose needs shoulder twist coordinated per arm against a hand TARGET, which is what
+hand IK does and what composing fixed axis offsets cannot. It returns at stage 07, posed by the
+solver. The measured axis record and the envelope machinery are kept behind `EXAMINES`.
 
 41 joints and **none of them are fingers**. Running, jumping, lifting, petting a monster,
 grabbing, crouching - every one needs hands, and NPCs need them too.

@@ -1103,30 +1103,45 @@ def join_the_clips(rig, scene, pieces, called):
 # webbing above it is fused wrongly. Below it, connection is anatomy.
 THE_CROTCH_ENDS = 0.22
 
-# # The unfuse: ATTEMPTED, REVERTED with the examine moment
+# # Unfusing by DEEPENING the web, not by deleting it
 #
-# Deleting the 36 inter-digit faces separated the fingers, but walling the opened flanks never
-# fully worked - 45 open edges remained and they were VISIBLE holes on the hands, reported from
-# the viewport within minutes. Same shape as the armpit lesson: this mesh's webbing is the only
-# surface where it is, and deletion means holes unless the walls are built properly. That is
-# modelling work, and it rides with the stage-03 gusset. Without the splay there is nothing in
-# the clips that tears the fusion, so watertight-but-fused is strictly better today.
-UNFUSES = False
+# The first attempt deleted the 36 inter-digit faces and tried to wall the flanks. It left 45
+# open edges that read as visible holes on the hands, and it was the wrong operation anyway.
+#
+# A web between fingers is ANATOMY. Every hand has one; on a real hand it runs down to about the
+# crotch of the digits. What is wrong here is not that the web exists but that it is SHALLOW -
+# it sits almost level with the digit surfaces, so the fingers read as one paddle. The
+# production fix, and what the manual workflow does by hand, is to trim and then PULL THE
+# FINGERS APART; the pulling is the half that was missing.
+#
+# So nothing is deleted. Vertices shared between two digits are pushed back toward the wrist
+# along the hand's own reach axis, and pulled in toward the line between the two digits they
+# sit between. The valley deepens, the digits stand clear of each other, and the surface stays
+# exactly as watertight as it was - deleting nothing cannot open anything.
+UNFUSES = True
+
+# How far a shared vertex sinks toward the wrist, as a share of the digit's length, and how far
+# it is drawn toward the seam between its two digits. Faded by how far along the digit it sits:
+# full at the crotch, nothing by the fingertips, so the web deepens without narrowing the tips.
+# Measured, not guessed at twice: 0.30 sank the crotch 4.14 cm on a 9 cm hand and tore the left
+# hand into ribbons. The pinch is worse than too-large - it is WRONG: pulling shared vertices
+# toward the seam between two digits drags both digits into each other, which is fusing them
+# harder rather than parting them. Sink only, gently.
+WEB_SINKS_BY = 0.08
+WEB_PINCHES_BY = 0.0
 
 
 def unfuse_the_digits(rig, mesh, assigned):
-    """Separates fingers the generator fused, and walls each flank it opens.
+    """Deepens the web between fused fingers, so the digits read as separate. Deletes nothing.
 
-    A fused pair shares faces above the crotch - faces whose corners belong to two different
-    digits. Those are deleted, and each digit's side of the opening is walled with a fan over
-    its own rim, which cannot re-bridge the gap because each fan only uses one digit's vertices.
-    The hole-closer must NEVER run after this: a finger gap is a small closed loop, exactly what
-    it fills, and it would stitch the fingers straight back together.
+    Every vertex that a face shares between two digits is sunk toward the wrist and pinched
+    toward the seam between those digits, faded to nothing by the fingertip. That turns a
+    shallow sheet into a valley, which is what a hand actually has.
 
-    Same silent hazards as the armpit cut, handled the same way: loop normals snapshotted and
-    restored across the bmesh round trip, rims counted by welded position.
+    Coincident split copies move TOGETHER - the position is what is welded, so shifting one copy
+    and not its twin would tear the surface open along a UV seam, which is the same class of
+    fault as everything else on this mesh.
     """
-    import bmesh
     from collections import defaultdict
 
     def key_of(co):
@@ -1138,99 +1153,71 @@ def unfuse_the_digits(rig, mesh, assigned):
             return None
         return (row[0], row[1])
 
-    webbing = []
+    # Which vertices sit between two digits, and which two.
+    between = defaultdict(set)
     for poly in mesh.data.polygons:
         each = [digit_of(v) for v in poly.vertices]
         parts = set(each) - {None}
-        sides = {p[0] for p in parts}
-        # Two different digits of ONE hand, and no palm corner. The first version demanded a
-        # DIFFERENT digit per corner - a triangle with two corners on the index and one on the
-        # middle failed it, and only one face in both hands qualified. Webbing is any face that
-        # touches two digits at all, as long as nothing ties it to the palm.
-        if len(parts) > 1 and len(sides) == 1 and None not in each:
-            webbing.append(poly.index)
-    if not webbing:
+        if len(parts) < 2 or len({p[0] for p in parts}) != 1:
+            continue
+        for vertex in poly.vertices:
+            if assigned.get(vertex) is not None:
+                between[vertex] |= parts
+    if not between:
         print("  no inter-digit webbing found - the fingers are already separate")
         return
-    print(f"  {len(webbing)} faces span two digits above the crotch - unfusing")
 
-    kept_normals = {}
-    for poly in mesh.data.polygons:
-        for loop_index in poly.loop_indices:
-            loop = mesh.data.loops[loop_index]
-            co = mesh.data.vertices[loop.vertex_index].co
-            kept_normals[(key_of(poly.center), key_of(co))] = tuple(
-                mesh.data.corner_normals[loop_index].vector)
+    # Each digit's own axis and tip, for the sink and the pinch.
+    tips, bases = {}, {}
+    for index, (side, digit, share) in assigned.items():
+        spot = mesh.matrix_world @ mesh.data.vertices[index].co
+        key = (side, digit)
+        if share > tips.get(key, (0.0, None))[0]:
+            tips[key] = (share, spot)
+        if share < bases.get(key, (9.9, None))[0]:
+            bases[key] = (share, spot)
 
-    bm = bmesh.new()
-    bm.from_mesh(mesh.data)
-    bm.faces.ensure_lookup_table()
-    bm.verts.ensure_lookup_table()
-    doomed = [bm.faces[i] for i in webbing]
-    candidates = {v.index for f in doomed for v in f.verts}
-    bmesh.ops.delete(bm, geom=doomed, context="FACES")
-
-    # Open pairs counted from FACES, the same way the audit counts them - summing
-    # `edge.link_faces` over stored edges disagreed with it (4 rim touches against 33 real open
-    # edges), because deletion leaves the two countings seeing different stored edges.
-    bm.verts.ensure_lookup_table()
-    bm.faces.ensure_lookup_table()
-    faces_on = defaultdict(int)
-    verts_at = defaultdict(set)
-    for face in bm.faces:
-        ring = list(face.verts)
-        for a, b in zip(ring, ring[1:] + ring[:1]):
-            pair = tuple(sorted((key_of(a.co), key_of(b.co))))
-            faces_on[pair] += 1
-            verts_at[pair].update((a, b))
-    # Scoped by digit assignment alone. It was also filtered to vertices of the DELETED faces,
-    # and that missed nearly the whole rim: on a split mesh the kept face at an open pair holds
-    # its own stored copies of those positions, not the deleted face's copies.
-    rims = defaultdict(dict)
-    for pair, count in faces_on.items():
-        if count != 1:
+    into_mesh = mesh.matrix_world.inverted()
+    moved_by = {}
+    for index, parts in between.items():
+        row = assigned.get(index)
+        if row is None or len(parts) < 2:
             continue
-        for vert in verts_at[pair]:
-            row = assigned.get(vert.index)
-            if row is None:
-                continue
-            rims[(row[0], row[1])].setdefault(key_of(vert.co), (vert, row[2]))
-    print(f"    rims per digit: "
-          f"{ {f'{s}_{d}': len(r) for (s, d), r in sorted(rims.items())} }")
-
-    walled = 0
-    for (side, digit), ring in rims.items():
-        verts = sorted(ring.values(), key=lambda pair: pair[1])
-        verts = [v for v, _ in verts]
-        if len(verts) < 3:
+        side, digit, share = row
+        pair = sorted(parts)[:2]
+        if any(p not in tips or p not in bases for p in pair):
             continue
-        made = []
-        for here, there in zip(verts[1:], verts[2:]):
-            try:
-                made.append(bm.faces.new((verts[0], here, there)))
-            except ValueError:
-                continue
-        for face in made:
-            face.smooth = True
-        if made:
-            bmesh.ops.recalc_face_normals(bm, faces=made)
-            walled += 1
-    print(f"    walled {walled} digit flank(s) with fans over their own rims")
+        spot = mesh.matrix_world @ mesh.data.vertices[index].co
 
-    bm.to_mesh(mesh.data)
-    bm.free()
+        # Toward the wrist, along this digit's own axis.
+        along = (tips[(side, digit)][1] - bases[(side, digit)][1])
+        length = along.length
+        if length < 1e-6:
+            continue
+        along = along / length
+        fades = max(0.0, 1.0 - (share - THE_CROTCH_ENDS) / max(1.0 - THE_CROTCH_ENDS, 1e-9))
+        sink = along * (-WEB_SINKS_BY * length * fades)
+
+        # And toward the seam between the two digits it sits between.
+        seam = (tips[pair[0]][1] + tips[pair[1]][1]) * 0.5
+        toward = seam - spot
+        toward -= along * toward.dot(along)
+        pinch = toward * (WEB_PINCHES_BY * fades)
+
+        moved_by[key_of(mesh.data.vertices[index].co)] = sink + pinch
+
+    # Applied by POSITION, so every split copy of a shared vertex moves with its twins.
+    shifted = 0
+    for vertex in mesh.data.vertices:
+        shift = moved_by.get(key_of(vertex.co))
+        if shift is None:
+            continue
+        vertex.co = into_mesh @ ((mesh.matrix_world @ vertex.co) + shift)
+        shifted += 1
     mesh.data.update()
-
-    normals = []
-    for poly in mesh.data.polygons:
-        for loop_index in poly.loop_indices:
-            loop = mesh.data.loops[loop_index]
-            co = mesh.data.vertices[loop.vertex_index].co
-            normals.append(kept_normals.get((key_of(poly.center), key_of(co)),
-                                            tuple(poly.normal)))
-    mesh.data.normals_split_custom_set(normals)
-    if not mesh.data.has_custom_normals:
-        refuse("unfusing dropped the custom split normals")
+    deepest = max((v.length for v in moved_by.values()), default=0.0) * 170.0
+    print(f"  deepened the web between {len(between)} shared vertices "
+          f"({shifted} stored copies), sinking the crotch up to {deepest:.2f} cm")
 
 
 def examine_the_hands(rig, clip, scene):
