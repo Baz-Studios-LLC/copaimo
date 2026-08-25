@@ -2614,7 +2614,7 @@ def roll_the_feet(rig, mesh, clip, scene):
         refuse("the bind toe has no horizontal direction, so travel cannot be established")
     travel.normalize()
 
-    held, down = {}, {"L": {}, "R": {}}
+    held, down, posed_at = {}, {"L": {}, "R": {}}, {}
     for frame in range(first, last + 1):
         scene.frame_set(frame)
         graph = bpy.context.evaluated_depsgraph_get()
@@ -2625,6 +2625,11 @@ def roll_the_feet(rig, mesh, clip, scene):
             ball = posed.matrix_world @ posed.pose.bones[f"{side}_ToeBase"].head
             along = ball - ankle
             falls = -along.normalized().cross(up) if along.length > 1e-9 else None
+            thigh = ((posed.matrix_world @ posed.pose.bones[f"{side}_Calf"].head)
+                     - (posed.matrix_world @ posed.pose.bones[f"{side}_Thigh"].head))
+            shin = ((posed.matrix_world @ posed.pose.bones[f"{side}_Foot"].head)
+                    - (posed.matrix_world @ posed.pose.bones[f"{side}_Calf"].head))
+            posed_at[(side, frame)] = (thigh, shin)
             held[(side, frame)] = (pitch, brk, falls,
                                    (rig.matrix_world @ posed.pose.bones[f"{side}_Foot"].matrix)
                                    .to_3x3(),
@@ -2655,7 +2660,12 @@ def roll_the_feet(rig, mesh, clip, scene):
         rolls[side] = len(runs)
         for began, ended in runs:
             span = max(ended - began, 1)
-            for frame in range(began - ROLL_EASES_OVER, ended + ROLL_EASES_OVER + 1):
+            # The fade has to fit inside the stance it is fading. Two fixed frames either side
+            # swallowed the right foot's whole contact - its stances run two to three frames
+            # where the left's run five - so every right-foot frame was only partly corrected and
+            # it sat 12 to 19 degrees out of its leg's plane while the left sat at 2 to 3.
+            eases = max(1, min(ROLL_EASES_OVER, span // 2))
+            for frame in range(began - eases, ended + eases + 1):
                 at = first + (frame - first) % (last - first + 1)
                 if (side, at) not in held:
                     continue
@@ -2664,26 +2674,45 @@ def roll_the_feet(rig, mesh, clip, scene):
                 # stepping into and out of the swing poses on either side.
                 fade = 1.0
                 if frame < began:
-                    fade = 1.0 - (began - frame) / (ROLL_EASES_OVER + 1.0)
+                    fade = 1.0 - (began - frame) / (eases + 1.0)
                 elif frame > ended:
-                    fade = 1.0 - (frame - ended) / (ROLL_EASES_OVER + 1.0)
+                    fade = 1.0 - (frame - ended) / (eases + 1.0)
                 pitch, brk, falls, foot_at, toe_at = held[(side, at)]
                 if falls is None or falls.length < 1e-9:
                     continue
                 falls = falls.normalized()
                 want_pitch, want_brk = rolled(share)
 
+                sideways_now, swung = None, None
                 if PLANTS_FLAT:
-                    # The whole orientation at once. `ahead` is where he is going, tipped down by
-                    # the roll's pitch; `up` is world up; the side axis follows from them, so the
-                    # sole is flat and the foot points forward by construction.
+                    # The whole orientation at once: flat about its own length, pitched by the
+                    # roll, and pointing where THE LEG points.
+                    #
+                    # Not where he is TRAVELLING, which is what this aimed at first. A foot comes
+                    # straight off its shin; forcing it to face down the line of travel while the
+                    # leg swings somewhere else kinks the ankle sideways, and that is what "the
+                    # entire foot bends to the side instead of being straight off the shin bone"
+                    # is. The leg's own plane is the one through hip, knee and ankle, and the
+                    # direction it swings in is that plane's horizontal - so the foot follows the
+                    # leg and the ankle stays straight.
+                    # TRAVEL, and the leg's own plane was tried instead. It is the better
+                    # anatomy - a foot comes straight off its shin - and the slide guard refused
+                    # it outright: the walk's planted foot dropped to 0.76 m/s against a covers
+                    # of 1.06, off by 27.9%. Turning a planted foot to follow the leg drags its
+                    # toe across the ground, and a foot that slides is a worse fault than a foot
+                    # a few degrees out of its leg's plane.
+                    #
+                    # The right way round is to move the ANKLE rather than turn the foot, which
+                    # is the leg solver's job and not a clip correction's.
+                    aims = travel
                     lean = math.radians(want_pitch)
-                    forward = (travel * math.cos(lean) - up * math.sin(lean)).normalized()
+                    forward = (aims * math.cos(lean) - up * math.sin(lean)).normalized()
                     sideways = forward.cross(up)
                     if sideways.length < 1e-9:
                         continue
                     sideways.normalize()
                     upright = sideways.cross(forward).normalized()
+                    sideways_now = sideways
                     target = mathutils.Matrix((
                         (sideways.x, forward.x, upright.x),
                         (sideways.y, forward.y, upright.y),
@@ -2694,6 +2723,10 @@ def roll_the_feet(rig, mesh, clip, scene):
                     # correction fades in and out at the edges of the stance.
                     wanted.setdefault(f"{side}_Foot", {})[at] = (
                         now.inverted() @ now.slerp(target, fade))
+                    # How far the foot itself turns IN THE WORLD. The toe rides on the foot, so
+                    # its own frame moves by this too - and the toe's hinge axis has to be
+                    # expressed in the frame the toe will be in, not the one it is in now.
+                    swung = now.slerp(target, fade) @ now.inverted()
                 elif abs(want_pitch - pitch) >= 0.01:
                     mine = foot_at.inverted() @ falls
                     if mine.length > 1e-9:
@@ -2701,10 +2734,29 @@ def roll_the_feet(rig, mesh, clip, scene):
                             mine.normalized(), math.radians((want_pitch - pitch) * fade))
 
                 if abs((want_brk - brk) * fade) >= 0.01:
-                    mine = toe_at.inverted() @ falls
+                    # About the axis of the foot's TARGET orientation, not the one it had before
+                    # the flat-and-forward correction moved it. `falls` is derived from where the
+                    # foot was pointing when the frame was measured, and the foot is then rotated
+                    # - sometimes a long way, to flat and along travel - so a toe turned about the
+                    # old axis bends out of the new foot's plane. Measured, that put as much
+                    # SIDEWAYS bend in the toe as there was proper bend: 37.8 degrees of it on the
+                    # left against 36.5 in plane, and reported as "toes still bend to the side".
+                    hinge = sideways_now if PLANTS_FLAT and sideways_now is not None else falls
+                    if swung is not None:
+                        hinge = swung.inverted() @ hinge
+                    mine = toe_at.inverted() @ hinge
                     if mine.length > 1e-9:
                         wanted.setdefault(f"{side}_ToeBase", {})[at] = mathutils.Quaternion(
                             mine.normalized(), math.radians((want_brk - brk) * fade))
+
+    # Every frame gets a key, corrected or not. Writing keys only where a correction applies
+    # leaves the curve to interpolate across the whole flight phase between one stance's last
+    # value and the next stance's first - so mid-swing the toe drifts to wherever that line
+    # passes, which measured as 32.3 degrees of SIDEWAYS bend on the right foot with none of it
+    # asked for. A toe in the air is straight; saying so explicitly is what keeps it there.
+    for bone in list(wanted):
+        for frame in range(first, last + 1):
+            wanted[bone].setdefault(frame, mathutils.Quaternion())
 
     slot = rig.animation_data.action_slot if rig.animation_data else None
     for bone, byframe in wanted.items():
