@@ -659,6 +659,58 @@ def the_skin_holds_together(rig, mesh, scene):
               f"{rest[where] * SCALE:5.2f} cm on frame {when}   [{say}]")
 
 
+def the_legs_keep_their_distance(rig, mesh, scene):
+    """How close the two legs come to each other, which is where clipping shows first.
+
+    Never checked until it was reported - "seems like you're ignoring mesh clipping so the bones
+    pass really close together". They do: 2 to 3 mm at the closest, on a 170 cm figure, which
+    with smoothed normals reads as one leg inside the other.
+    """
+    print("\nTHE LEGS, against each other")
+    names = {g.index: g.name for g in mesh.vertex_groups}
+    side_of = {}
+    for vertex in mesh.data.vertices:
+        best, who = 0.0, ""
+        for group in vertex.groups:
+            if group.weight > best:
+                best, who = group.weight, names.get(group.group, "")
+        if who[:2] in ("L_", "R_") and any(
+                p in who for p in ("Thigh", "Calf", "Foot", "ToeBase")):
+            side_of[vertex.index] = who[0]
+    left = [i for i, s in side_of.items() if s == "L"]
+    right = [i for i, s in side_of.items() if s == "R"]
+    if not left or not right:
+        print("  no legs to compare")
+        return
+    for clip in sorted(bpy.data.actions, key=lambda a: a.name):
+        play(rig, clip)
+        first, last = (int(round(v)) for v in clip.frame_range)
+        step = max(1, (last - first) // 24)
+        closest, when = 1e9, first
+        for frame in range(first, last + 1, step):
+            scene.frame_set(frame)
+            skin = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
+            spots = skin.data.vertices
+            cell, buckets = 0.02, {}
+            for i in right:
+                p = skin.matrix_world @ spots[i].co
+                buckets.setdefault(
+                    (int(p.x / cell), int(p.y / cell), int(p.z / cell)), []).append(p)
+            for i in left:
+                p = skin.matrix_world @ spots[i].co
+                key = (int(p.x / cell), int(p.y / cell), int(p.z / cell))
+                for dx in (-1, 0, 1):
+                    for dy in (-1, 0, 1):
+                        for dz in (-1, 0, 1):
+                            for q in buckets.get((key[0] + dx, key[1] + dy, key[2] + dz), ()):
+                                gap = (p - q).length
+                                if gap < closest:
+                                    closest, when = gap, frame
+        note = "  <- close enough to read as clipping" if closest * SCALE < 1.0 else ""
+        print(f"  {clip.name:<6s} the legs come within {closest * SCALE:5.2f} cm on frame "
+              f"{when}{note}")
+
+
 def the_joints_sit_inside(rig, mesh):
     """Every joint, against the flesh it drives. A joint outside its own flesh deforms wrongly.
 
@@ -948,6 +1000,7 @@ def main():
     the_legs(rig, the_legs_the_game_uses())
     the_joints_sit_inside(rig, mesh)
     the_skin_holds_together(rig, mesh, bpy.context.scene)
+    the_legs_keep_their_distance(rig, mesh, bpy.context.scene)
 
 
 if __name__ == "__main__":

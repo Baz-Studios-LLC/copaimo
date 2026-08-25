@@ -87,6 +87,17 @@ def bone_lengths_from_the_skeleton(rig):
         # and reported as "this hip bone is bigger than his body". `Root` was the same.
         apart = [b for b in kids if (b.head - bone.head).length > 1e-4]
         aim = None
+        # A bone with a SYMMETRIC PAIR of children is drawn down the middle of them, not at one.
+        # `Pelvis` parents both thighs, and pointing it at the nearer one left the other leg
+        # looking unattached - asked as "is he missing a hip bone here that should connect to the
+        # left leg?". He is not: Root -> Hip -> Pelvis -> both thighs is complete. It was the
+        # drawing.
+        twins = [b for b in apart if b.name.startswith(("L_", "R_"))]
+        if len(twins) == 2 and twins[0].name[2:] == twins[1].name[2:]:
+            middle = (twins[0].head + twins[1].head) * 0.5
+            if (middle - bone.head).length > 1e-4:
+                bone.tail = middle
+                continue
         if apart:
             aim = min(apart, key=lambda b: (b.head - bone.head).length)
             reach = (aim.head - bone.head).length

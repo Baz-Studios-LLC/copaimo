@@ -4015,6 +4015,13 @@ def main():
                 print(f"    {side} toe joint moved {by:5.2f} cm forward, from {before:.1f}% "
                       f"to {now:.0f}% along the shoe, and the bone runs to the tip")
             print(f"    re-weighted {shifted} vertices about the new hinge")
+            # And mirrored AGAIN, because the hinge undid it for the toes. Each toe is aimed
+            # along its own shoe's long axis, and the shoe MESH is not mirrored - only the bones
+            # were - so the two toes came out 16.4 degrees apart while every other bone in the
+            # rig sat at 0.0. That is the "toes angle to the side" in a straight-on shot.
+            if MIRRORS_THE_BIND:
+                pairs, was = the_bind_is_mirrored(rig)
+                print(f"    mirrored again after the hinge: worst {was:.2f} cm")
             assigned = add_the_fingers(rig, base_mesh)
             if UNFUSES:
                 # After the closer, never before it - see unfuse_the_digits on why.
