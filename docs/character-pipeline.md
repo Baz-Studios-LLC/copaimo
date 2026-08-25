@@ -109,7 +109,7 @@ Also: no `TANGENT` attribute, so the normal map has nothing to light against.
 *Unblocks:* skeleton placement, weight painting, every deformation judgement after them.
 *Refuses when:* open edges > 0, non-manifold > 0, any edge past 4x the median.
 
-### 02 - The skeleton is complete  (fingers DONE 2026-08-24; Chest remains)
+### 02 - The skeleton is complete  (DONE 2026-08-25)
 
 Done: 30 finger bones, derived per build by `add_the_fingers`. Digits found by graph distance
 from the wrist over the position-welded surface; the five furthest-and-mutually-apart vertices
@@ -147,8 +147,15 @@ grabbing, crouching - every one needs hands, and NPCs need them too.
 * **30 finger bones** - three phalanges, five digits, two hands, placed from measured hand
   geometry. A thumb is NOT the short digit, the splayed one, or the odd one out; a pinky is all
   three, and four discriminators in a row picked it before anyone looked.
-* **Chest** - the chain is `Waist -> Spine01 -> Spine02`. A fourth torso joint is what lets a
-  look-at rotate the chest rather than snapping the neck.
+* **Chest: NOT ADDED, because it already exists under another name.** Measured, `Spine02` spans
+  113 to 130 cm and is the parent of both clavicles and the neck - it IS the chest joint. Rotating
+  it 18 degrees swings the shoulder 5.5 cm, and a 60-degree look split 30/20/20/30 across
+  `Spine02` / `NeckTwist01` / `NeckTwist02` / `Head` turns the gaze the full 68 degrees with the
+  chest carrying its share. A fourth torso bone would duplicate that function and add a joint
+  every clip would have to be re-authored around.
+
+  Renaming `Spine02` to `Chest` was also rejected: clips address bones by NAME, and a rename
+  silently kills every channel path that targets it. Stage 06's look-at uses the chain as it is.
 * Build spine-outward, then limbs, then extremities.
 
 *Unblocks:* stage 07 entirely.
