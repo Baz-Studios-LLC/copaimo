@@ -489,6 +489,26 @@ POINTS_THE_FEET = False
 # clip and drove the feet 12.68 cm through the floor. A roll is a property of a STEP.
 ROLLS_THROUGH_STANCE = ("walk", "run")
 
+# # The toe joint belongs at the ball of the foot
+#
+# "The toe bones should go to the end of the mesh", after thirteen of the run's twenty-five frames
+# were called out as wrong. Measured along each shoe, heel to tip:
+#
+#     L   shoe 33.14 cm   ankle at 27.8%   TOE JOINT AT 45.1%   toe bone ends at 62.4%
+#     R   shoe 32.93 cm   ankle at 21.2%   TOE JOINT AT 38.1%   toe bone ends at 55.0%
+#
+# A ball of the foot is 65-75% along. This one hinges at the MID-ARCH, and `ToeBase` owns
+# everything from 28.7% forward - so rotating the toe folds the shoe across its own middle. That
+# is what every one of those thirteen frames shows, and no amount of tuning the roll fixes a
+# hinge in the wrong place.
+#
+# So the joint moves forward to the ball and the bone runs on to the tip, and the weights that
+# used to sit on it are redistributed about the new hinge. Only the share held between `Foot` and
+# `ToeBase` is moved - each vertex keeps its total, so anything the ankle or the calf holds is
+# untouched.
+THE_TOE_HINGES_AT = 0.70
+THE_HINGE_BLENDS_OVER = 0.08
+
 # A shoe within this many centimetres of the floor is down.
 STANCE_WITHIN = 3.0
 
@@ -1770,6 +1790,102 @@ def break_the_toes(rig, clip, scene):
     return was, broke, now
 
 
+def the_shoe_runs(rig, mesh, side):
+    """The shoe's own heel-to-tip axis and extent, and which vertices belong to that foot."""
+    toe = rig.pose.bones[f"{side}_ToeBase"].bone
+    ahead = ((rig.matrix_world @ toe.tail_local) - (rig.matrix_world @ toe.head_local))
+    ahead.z = 0.0
+    if ahead.length < 1e-9:
+        refuse(f"the {side} toe bone has no horizontal direction")
+    ahead.normalize()
+    groups = {g.index: g.name for g in mesh.vertex_groups}
+    mine, along = [], []
+    for vertex in mesh.data.vertices:
+        best, who = 0.0, ""
+        for group in vertex.groups:
+            name = groups.get(group.group, "")
+            if group.weight > best and name.startswith(side) and (
+                    "Foot" in name or "ToeBase" in name):
+                best, who = group.weight, name
+        if who:
+            mine.append(vertex.index)
+            along.append((mesh.matrix_world @ vertex.co).dot(ahead))
+    if not mine:
+        refuse(f"no vertices are weighted to the {side} foot")
+    return ahead, min(along), max(along), mine
+
+
+def hinge_the_toes_at_the_ball(rig, mesh):
+    """Moves each toe joint to the ball of the foot, runs the bone to the tip, and re-weights.
+
+    Done in EDIT mode with the rig at rest, so the mesh does not move: Blender deforms by the
+    difference between a bone's pose and its rest, and at rest there is none.
+    """
+    was = {}
+    for side in ("L", "R"):
+        ahead, back, front, _ = the_shoe_runs(rig, mesh, side)
+        was[side] = (ahead, back, front - back,
+                     (rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].bone.head_local)
+                     .dot(ahead))
+
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode="EDIT")
+    moved = {}
+    for side in ("L", "R"):
+        ahead, back, length, before = was[side]
+        bone = rig.data.edit_bones[f"{side}_ToeBase"]
+        head = rig.matrix_world @ bone.head
+        # Forward along the shoe's own axis, height unchanged: a ball of the foot is further
+        # along the foot, not higher up it.
+        ball = back + length * THE_TOE_HINGES_AT
+        tip = back + length
+        bone.head = rig.matrix_world.inverted() @ (head + ahead * (ball - head.dot(ahead)))
+        bone.tail = rig.matrix_world.inverted() @ (
+            (rig.matrix_world @ bone.head) + ahead * (tip - ball))
+        moved[side] = ((ball - before) * 170.0, (before - back) / length * 100.0,
+                       THE_TOE_HINGES_AT * 100.0)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    # The tail again, measured against the bone's NEW direction. Setting it in one pass overshot
+    # the tip by 12-19% because the extent was measured along the OLD bone's axis and the bone no
+    # longer points that way. Measure, move, measure.
+    for side in ("L", "R"):
+        ahead, back, front, _ = the_shoe_runs(rig, mesh, side)
+        head = rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].bone.head_local
+        reach = front - head.dot(ahead)
+        if reach <= 1e-6:
+            continue
+        bpy.context.view_layer.objects.active = rig
+        bpy.ops.object.mode_set(mode="EDIT")
+        bone = rig.data.edit_bones[f"{side}_ToeBase"]
+        bone.tail = rig.matrix_world.inverted() @ (head + ahead * reach)
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+    # And the weights, about the new hinge. Only the Foot/ToeBase share moves; each vertex keeps
+    # whatever total it had, so nothing the calf or the ankle holds is disturbed.
+    groups = {g.name: g for g in mesh.vertex_groups}
+    shifted = 0
+    for side in ("L", "R"):
+        ahead, back, length, _ = was[side]
+        foot, toe = groups.get(f"{side}_Foot"), groups.get(f"{side}_ToeBase")
+        if foot is None or toe is None:
+            continue
+        ball = back + length * THE_TOE_HINGES_AT
+        band = length * THE_HINGE_BLENDS_OVER
+        for vertex in mesh.data.vertices:
+            held = {g.group: g.weight for g in vertex.groups}
+            mine = held.get(foot.index, 0.0) + held.get(toe.index, 0.0)
+            if mine <= 1e-5:
+                continue
+            at = (mesh.matrix_world @ vertex.co).dot(ahead)
+            share = min(max((at - (ball - band)) / (2.0 * band), 0.0), 1.0)
+            toe.add([vertex.index], mine * share, "REPLACE")
+            foot.add([vertex.index], mine * (1.0 - share), "REPLACE")
+            shifted += 1
+    mesh.data.update()
+    return moved, shifted
+
+
 def the_foot_parts(posed, skin, shoe, side):
     """Heel height, toe height, foot pitch and the toe's own break, for one foot on one frame."""
     ankle = posed.matrix_world @ posed.pose.bones[f"{side}_Foot"].head
@@ -2818,6 +2934,13 @@ def main():
             elif DEEPENS_THE_ARMPIT:
                 deepen_the_armpit(rig, base_mesh)
             close_the_holes(rig, base_mesh)
+            # Before anything reads a toe position, and before any clip is corrected: this moves
+            # the joint the whole roll pivots about.
+            moved, shifted = hinge_the_toes_at_the_ball(rig, base_mesh)
+            for side, (by, before, now) in sorted(moved.items()):
+                print(f"    {side} toe joint moved {by:5.2f} cm forward, from {before:.1f}% "
+                      f"to {now:.0f}% along the shoe, and the bone runs to the tip")
+            print(f"    re-weighted {shifted} vertices about the new hinge")
             assigned = add_the_fingers(rig, base_mesh)
             if UNFUSES:
                 # After the closer, never before it - see unfuse_the_digits on why.

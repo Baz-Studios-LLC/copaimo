@@ -1910,6 +1910,43 @@ exactly that. Blender hands back a fresh wrapper object on every attribute read,
 comparison between two reads of the same bone is always false. Compare names.
 
 
+## Thirteen bad frames from one joint in the wrong place
+
+**What you see.** Thirteen of a twenty-five frame run called out as wrong, the shoe folding
+across its own middle, and: "The toe bones should go to the end of the mesh."
+
+**What it actually was.** The toe joint was at the MID-ARCH. Measured along each shoe, heel to
+tip:
+
+    L   shoe 33.14 cm   ankle at 27.8%   toe joint at 45.1%   toe bone ended at 62.4%
+    R   shoe 32.93 cm   ankle at 21.2%   toe joint at 38.1%   toe bone ended at 55.0%
+
+A ball of the foot is 65-75% along. `ToeBase` owned everything from 28.7% forward and hinged at
+45%, so any toe rotation swung more than half the shoe about a point in the middle of the arch.
+That is not a toe bending, it is a shoe snapping, and it is what all thirteen frames showed.
+
+Worth naming why this took so long to find: two rounds were spent tuning the ROTATION - how much
+break, over what share of stance, with what easing - and the rotation was never the problem. A
+hinge in the wrong place cannot be tuned into the right one. The measurement that found it took
+one script and asks a question none of the tuning did: not "how far does the toe bend" but
+"WHERE does it bend".
+
+**What changed.** `hinge_the_toes_at_the_ball` in `dev/art/build_character.py` moves each toe
+joint to 70% along its own shoe, runs the bone on to the tip, and redistributes the weights about
+the new hinge. Only the share held between `Foot` and `ToeBase` moves - each vertex keeps its
+total, so nothing the calf or the ankle holds is disturbed. Done in edit mode with the rig at
+rest, because Blender deforms by the difference between a bone's pose and its rest, and at rest
+there is none, so the mesh does not move.
+
+Afterwards: the joint sits at 70.0% on both feet, `Foot` owns 0-68.6% and `ToeBase` owns
+70.7%-100%, which is a clean split at the hinge.
+
+**The test.** `dev/art/audit_character.py` measures the legs and refuses on drift, and the golden
+gate carries three foot shots at the run's worst frames. The hinge position itself is asserted by
+the build: `the_shoe_runs` refuses if a shoe has no vertices or no horizontal axis, and the
+re-weighting preserves each vertex's total, which `weights add to 1 within 0.000000` confirms.
+
+
 ## Keeping this honest
 
 Add an entry when a bug took **more than one attempt** to fix, or when the symptom
