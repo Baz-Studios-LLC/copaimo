@@ -38,6 +38,10 @@ ROOT = os.path.dirname(os.path.dirname(ART))
 # parent's length instead, which is roughly what a hand or a toe tip is.
 A_LEAF_IS = 0.45
 
+# What a bone with nothing to measure against is drawn as, in model units - about 8 cm on a
+# 170 cm figure. Enough to see, small enough not to be mistaken for a limb.
+A_STUB_IS = 0.05
+
 # Twist bones sit on top of the joints that matter and there are eighteen of them, so they are
 # hidden by default. Alt-H in the viewport brings them back.
 HIDE = "Twist"
@@ -76,11 +80,21 @@ def bone_lengths_from_the_skeleton(rig):
     for bone in rig.data.edit_bones:
         kids = [b for b in rig.data.edit_bones
                 if b.parent is not None and b.parent.name == bone.name and HIDE not in b.name]
-        if kids:
-            aim = min(kids, key=lambda b: (b.head - bone.head).length)
+        # Children that sit ON this bone's head tell it nothing about its length. `Hip`'s first
+        # child is `Pelvis` at the same point, so the closest-child rule measured zero, the
+        # "too short to be meaningful" guard below skipped the bone, and it kept the importer's
+        # invented length - 84.23 cm on a 170 cm figure, drawn as a cone through the whole torso
+        # and reported as "this hip bone is bigger than his body". `Root` was the same.
+        apart = [b for b in kids if (b.head - bone.head).length > 1e-4]
+        if apart:
+            aim = min(apart, key=lambda b: (b.head - bone.head).length)
             reach = (aim.head - bone.head).length
+        elif bone.parent is not None:
+            reach = bone.parent.length * A_LEAF_IS
         else:
-            reach = (bone.parent.length * A_LEAF_IS) if bone.parent else bone.length
+            # Nothing to measure against at all: a root with everything stacked on it. A short
+            # stub says "this is here" without drawing a spear through the character.
+            reach = A_STUB_IS
         if reach < 1e-5:
             continue
         if bone.length > reach * 2.0:

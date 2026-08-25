@@ -115,7 +115,25 @@ pub const WALK_SPEED: f32 = 1.07;
 // This is SLOWER than before by about a fifth. Stride warping can buy it back - `STRIDE_WARPS_TO`
 // allows 1.25x, so this clip can serve up to 6.0 m/s - but that is a feel decision rather than a
 // measurement, and the measured value is the honest default.
-pub const JOG_SPEED: f32 = 4.80;
+// SLOWED 2026-08-25, from 4.80. "For a jog the limbs dont need to move as quickly as the run so
+// we can slow down the movements too."
+//
+// With the phase driven by distance, this IS the limb speed: cadence is `speed / covers`, so the
+// only way to calm the legs without re-authoring the clip is to move slower. What each choice
+// costs, against the clip's own native 4.43 m/s:
+//
+//     speed   playback   cadence   effective cycle
+//     4.80      1.08x       130       23.1 frames     was
+//     4.00      0.90x       108       27.7 frames     now
+//     3.55      0.80x        96       31.2 frames     the floor
+//     3.20      0.72x        87       34.6 frames     REFUSED, the feet skate
+//
+// The floor is not arbitrary: under 0.80x the legs churn slower than the ground goes by and the
+// feet slide, which `neither_gait_plays_at_a_blur` refuses. It sits as high as it does because
+// the clip's stride is 4.435 m a cycle - **2.6 times his own height**, where a jog is about
+// 1.4 to 1.8 - so every metre of ground costs very few steps. Slowing further than this needs a
+// shorter stride, which is the clip's to give, not this constant's.
+pub const JOG_SPEED: f32 = 4.00;
 
 /// A sprint, in metres a second. Held on Shift.
 ///

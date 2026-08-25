@@ -415,7 +415,26 @@ ROLLS_ALONG = ("ForearmTwist01", "ForearmTwist02")
 # its arms 119 degrees where its own walk swings 33 - sprint-scale, and reported as "less arm
 # swing". 0.45 brings it to about 54, which reads as a jog carrying its arms rather than driving
 # with them.
-MOVES_MORE = {"idle": 1.45, "look_around": 1.45, "jog": 0.45}
+MOVES_MORE = {"idle": 1.45, "look_around": 1.45, "jog": 0.67}
+
+# # A pumping arm dwells at its extremes; a gliding one does not
+#
+# "The arms still need to pump instead of whatever they're doing. This was a solved problem we
+# had so its crazy we're going through it again." It was solved, on the character deleted in
+# August, and the answer is in that commit rather than in anything derived here:
+#
+#   "A pure cosine cannot pump: it spends its time evenly. SPRINT_PUMPS = 0.55 shapes the swing
+#    with an odd-symmetric power that flattens the peaks and steepens the middle, so the arm
+#    DWELLS at the ends and snaps between them - 16 of 24 frames now sit within 15% of an
+#    extreme against the run's 12. Phase and extremes are untouched, so the cycle still closes."
+#
+# So amplitude was never the whole story, and cutting it to 0.45 made it worse: a smaller swing
+# on an arm that is HELD OUT leaves the held-out part dominating, which is "whatever they're
+# doing". 0.67 restores the old jog's 80 degrees of swing, and the shaping below is what turns a
+# swing into a pump.
+#
+# Under 1.0 dwells at the ends. 1.0 is the clip as authored.
+PUMPS = {"jog": 0.55}
 
 # # The feet, and three faults measured on the delivered clips
 #
@@ -617,6 +636,19 @@ LEANS_ALONG = ("Spine01", "Spine02")
 # it back to rest and no further.
 LEVELS_THE_HEAD = {"jog": 0.0}
 THE_HEAD_IS = ("Head",)
+
+# And the SIDEWAYS lean, which is a different fault from the forward one and was invisible to
+# every measurement of it. Asked as "do you see the lean?" over a render of the warden tilted
+# over to one side.
+#
+#     jog    -8.9 deg mean, -17.7 to +0.2, which is -12.8 from its own rest
+#     walk   -0.3 deg mean, which is -4.2 from rest
+#     idle   +1.6 deg mean
+#
+# A jog does not lean sideways. A little sway either way is the weight shifting; a mean of -12.8
+# held for the whole cycle is a list. Corrected to level, by the same machinery as the forward
+# lean and about the axis at right angles to it.
+STANDS_UPRIGHT = {"jog": 0.0}
 
 
 def refuse(why):
@@ -1495,13 +1527,13 @@ def an_average_of(turns):
     return total
 
 
-def move_the_arms_more(rig, clip, scene, gain):
+def move_the_arms_more(rig, clip, scene, gain, pumps=1.0):
     """Scales each arm bone's motion about the clip's own average pose.
 
     Returns how wide the hands swung before and after, because a gain that does not change that
     number is a knob wired to nothing - which is the failure worth catching, not a wrong value.
     """
-    if abs(gain - 1.0) < 1e-6:
+    if abs(gain - 1.0) < 1e-6 and abs(pumps - 1.0) < 1e-6:
         return None, None
     before = how_far_the_hands_swing(rig, clip, scene)
     slot = rig.animation_data.action_slot if rig.animation_data else None
@@ -1518,8 +1550,24 @@ def move_the_arms_more(rig, clip, scene, gain):
             if middle.magnitude < 1e-9:
                 continue
             back = middle.inverted()
+            # How far this bone strays from its own average, and the furthest it ever does, so
+            # the shaping below has something to normalise against.
+            strays = []
+            for was in keys:
+                off = back @ was
+                if off.w < 0.0:
+                    off.negate()
+                strays.append(abs(off.angle))
+            widest = max(strays) if strays else 0.0
             for at, was in enumerate(keys):
-                out = middle @ a_share_of(back @ was, gain)
+                # `share` is what fraction of this bone's own widest excursion this key sits at.
+                # Raising it to a power under one flattens the peaks and steepens the middle, so
+                # the arm holds near its extremes and crosses between them quickly - a pump
+                # rather than a glide. At `share` 0 and 1 it is unchanged, so the extremes and
+                # the phase are exactly where the animator put them and the cycle still closes.
+                share = (strays[at] / widest) if widest > 1e-9 else 0.0
+                shaped = (share ** pumps) / share if share > 1e-6 else 1.0
+                out = middle @ a_share_of(back @ was, gain * shaped)
                 for i in range(4):
                     point = parts[i].keyframe_points[at]
                     point.handle_left[1] += out[i] - point.co[1]
@@ -1533,15 +1581,21 @@ def move_the_arms_more(rig, clip, scene, gain):
         # way the gain asked - not that it grew. What it is really catching is a knob wired to
         # nothing, and that shows up as no movement either way.
         moved = after[side] - before[side]
-        if (gain > 1.0 and moved <= 0.1) or (gain < 1.0 and moved >= -0.1):
-            refuse(f"a gain of {gain} on {clip.name} left the {side} hand swinging "
+        if abs(moved) < 0.1:
+            refuse(f"a gain of {gain} and a pump of {pumps} on {clip.name} left the {side} "
+                   f"hand swinging "
                    f"{after[side]:.1f} cm against {before[side]:.1f} cm before - the gain is "
                    f"wired to nothing")
     return before, after
 
 
-def the_chain_leans(rig, clip, scene, bones):
-    """How far the trunk is off vertical, positive forward, averaged over a clip."""
+def the_chain_leans(rig, clip, scene, bones, sideways=False):
+    """How far a chain is off vertical, averaged over a clip.
+
+    Positive forward, or positive toward the warden's left when `sideways`. Two different faults
+    live on these two axes and neither measurement can see the other: the trunk was brought to
+    +6.2 forward while it was still listing 12.8 degrees to one side.
+    """
     play(rig, clip)
     first, last = (int(round(v)) for v in clip.frame_range)
     step = max(1, (last - first) // 60)
@@ -1551,6 +1605,7 @@ def the_chain_leans(rig, clip, scene, bones):
     if travel.length < 1e-9:
         refuse("the bind toe has no horizontal direction, so forward cannot be established")
     travel.normalize()
+    across = mathutils.Vector((-travel.y, travel.x, 0.0))
     seen = []
     for frame in range(first, last + 1, step):
         scene.frame_set(frame)
@@ -1561,13 +1616,18 @@ def the_chain_leans(rig, clip, scene, bones):
         flat = mathutils.Vector((up.x, up.y, 0.0))
         if up.length < 1e-9:
             continue
-        seen.append(math.degrees(math.atan2(flat.length, up.z))
-                    * (1.0 if flat.dot(travel) > 0 else -1.0))
+        if sideways:
+            off = up.dot(across)
+            rest = math.sqrt(max(up.length_squared - off * off, 1e-12))
+            seen.append(math.degrees(math.atan2(off, rest)))
+        else:
+            seen.append(math.degrees(math.atan2(flat.length, up.z))
+                        * (1.0 if flat.dot(travel) > 0 else -1.0))
     return (sum(seen) / len(seen)) if seen else 0.0, travel
 
 
-def the_chain_rests_at(rig, bones):
-    """The trunk's own resting angle off vertical, from the bind and nothing else."""
+def the_chain_rests_at(rig, bones, sideways=False):
+    """A chain's own resting angle off vertical, from the bind and nothing else."""
     bind = rig.pose.bones["L_ToeBase"].bone
     travel = ((rig.matrix_world @ bind.tail_local) - (rig.matrix_world @ bind.head_local))
     travel.z = 0.0
@@ -1578,11 +1638,16 @@ def the_chain_rests_at(rig, bones):
     flat = mathutils.Vector((up.x, up.y, 0.0))
     if up.length < 1e-9:
         return 0.0
+    if sideways:
+        across = mathutils.Vector((-travel.y, travel.x, 0.0))
+        off = up.dot(across)
+        return math.degrees(math.atan2(off, math.sqrt(
+            max(up.length_squared - off * off, 1e-12))))
     return (math.degrees(math.atan2(flat.length, up.z))
             * (1.0 if flat.dot(travel) > 0 else -1.0))
 
 
-def which_way_leans_forward(rig, bone, travel):
+def which_way_leans_forward(rig, bone, travel, sideways=False):
     """The bone-local axis that tips this spine bone's top FORWARD.
 
     Derived, never assumed, and this exact thing has gone wrong here before: an axis measured on
@@ -1604,14 +1669,15 @@ def which_way_leans_forward(rig, bone, travel):
     # correction into +48.8 from rest instead of +7. The third time on this character that a
     # derived axis has been negated by hand, and the third time a check caught it rather than a
     # render.
-    tips = up.normalized().cross(travel)
+    toward = mathutils.Vector((-travel.y, travel.x, 0.0)) if sideways else travel
+    tips = up.normalized().cross(toward)
     if tips.length < 1e-9:
         refuse(f"{bone} points along the line of travel, so its lean is undefined")
     rest = (rig.matrix_world @ here.bone.matrix_local).to_3x3()
     return (rest.inverted() @ tips.normalized()).normalized()
 
 
-def lean_a_chain(rig, clip, scene, bones, target, what):
+def lean_a_chain(rig, clip, scene, bones, target, what, sideways=False):
     """Brings a chain's lean to `target` degrees forward of the model's own rest posture.
 
     A constant offset shared down the chain, in the same shape as `lift_the_arms`: the clip keeps
@@ -1622,8 +1688,8 @@ def lean_a_chain(rig, clip, scene, bones, target, what):
     spine back by forty degrees carried the head back with it, and the warden jogged along
     looking at the sky, 28 degrees above where he rests.
     """
-    was, travel = the_chain_leans(rig, clip, scene, bones)
-    rests = the_chain_rests_at(rig, bones)
+    was, travel = the_chain_leans(rig, clip, scene, bones, sideways)
+    rests = the_chain_rests_at(rig, bones, sideways)
     now, moved = was, 0.0
     # Measured, corrected, measured again, until it lands. A spine is a CHAIN: rotating a bone
     # tips everything above it and nothing below, so how far the trunk as a whole moves for a
@@ -1641,15 +1707,15 @@ def lean_a_chain(rig, clip, scene, bones, target, what):
         if abs(short) < 0.25:
             break
         moved += short * 0.5
-        lean_by(rig, clip, short * 0.5, travel, bones)
-        now, _ = the_chain_leans(rig, clip, scene, bones)
+        lean_by(rig, clip, short * 0.5, travel, bones, sideways)
+        now, _ = the_chain_leans(rig, clip, scene, bones, sideways)
     if abs((now - rests) - target) > 1.0:
         refuse(f"the {what} on {clip.name} would not settle: {now - rests:+.1f} from rest "
                f"against a {target:+.1f} target")
     return was, rests, moved, now
 
 
-def lean_by(rig, clip, short, travel, bones):
+def lean_by(rig, clip, short, travel, bones, sideways=False):
     """Adds `short` degrees of forward trunk lean, shared down the spine."""
     slot = rig.animation_data.action_slot if rig.animation_data else None
     curves = fcurves_of(clip, slot)
@@ -1660,7 +1726,7 @@ def lean_by(rig, clip, short, travel, bones):
         if len(parts) != 4:
             refuse(f"{clip.name} keys {len(parts)} of the 4 rotation channels on {bone}, so the "
                    f"trunk cannot be leaned without dropping its motion")
-        offset = mathutils.Quaternion(which_way_leans_forward(rig, bone, travel),
+        offset = mathutils.Quaternion(which_way_leans_forward(rig, bone, travel, sideways),
                                       math.radians(each))
         for at in range(len(parts[0].keyframe_points)):
             keyed = mathutils.Quaternion([parts[i].keyframe_points[at].co[1] for i in range(4)])
@@ -3236,7 +3302,7 @@ def main():
             print(f"    rolled {rolled} hand(s) in by {PALMS_ROLL_IN:.0f} deg")
         if called in MOVES_MORE:
             wide, wider = move_the_arms_more(base_rig, clips[0], bpy.context.scene,
-                                             MOVES_MORE[called])
+                                             MOVES_MORE[called], PUMPS.get(called, 1.0))
             if wide is not None:
                 swing = ", ".join(f"{s} {wide[s]:.1f} -> {wider[s]:.1f} cm" for s in ("L", "R"))
                 print(f"    arms move {MOVES_MORE[called]:.2f}x more: hands swing {swing}")
@@ -3245,6 +3311,12 @@ def main():
                                                LEANS_ALONG, LEANS_FORWARD[called], "trunk lean")
             print(f"    trunk leaned {by:+.1f} deg: {was:+.1f} -> {now:+.1f} off vertical, "
                   f"which is {now - rests:+.1f} from its own rest of {rests:+.1f}")
+        if called in STANDS_UPRIGHT:
+            was, rests, by, now = lean_a_chain(base_rig, clips[0], bpy.context.scene,
+                                               LEANS_ALONG, STANDS_UPRIGHT[called],
+                                               "sideways lean", sideways=True)
+            print(f"    trunk straightened {by:+.1f} deg sideways: {was - rests:+.1f} -> "
+                  f"{now - rests:+.1f} from its own rest")
         # After the trunk, always: it is undoing what the trunk did to the head.
         if called in LEVELS_THE_HEAD:
             was, rests, by, now = lean_a_chain(base_rig, clips[0], bpy.context.scene,
@@ -3274,7 +3346,12 @@ def main():
                     off = min(off, 360.0 - off)
                     if off > worst:
                         worst, when = off, side
-            if worst > 0.5:
+            # One degree, not half. The guard catches a wrong share or a wrong conjugation, and
+            # those move a wrist by TENS of degrees - it read 46 when it last fired for real. The
+            # residue it has to tolerate is fcurve resampling: the roll is written at the union of
+            # every key time involved, and a sharper curve between keys - which is exactly what
+            # the pump shaping makes - evaluates a little differently. It refused a build at 0.67.
+            if worst > 1.0:
                 refuse(f"spreading the roll on {clips[0].name} moved the {when} hand by "
                        f"{worst:.2f} deg - the wrist must land exactly where the animator put "
                        f"it, so the shares or the rest conjugation are wrong")

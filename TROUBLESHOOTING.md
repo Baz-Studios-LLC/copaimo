@@ -1992,6 +1992,51 @@ and reports what it achieved rather than what it asked for. The trunk now reads 
 and the head -0.2.
 
 
+## Re-deriving something the repo had already solved
+
+**What you see.** "The arms still need to pump instead of whatever they're doing. This was a
+solved problem we had so its crazy we're going through it again."
+
+**What it actually was.** It HAD been solved, on the character deleted on 2026-08-24, and the
+answer was sitting in git history the whole time. From commit `5a7c815`:
+
+> "A pure cosine cannot pump: it spends its time evenly. SPRINT_PUMPS = 0.55 shapes the swing
+> with an odd-symmetric power that flattens the peaks and steepens the middle, so the arm DWELLS
+> at the ends and snaps between them - 16 of 24 frames now sit within 15% of an extreme against
+> the run's 12. Phase and extremes are untouched, so the cycle still closes."
+
+And the deleted `animate_ranger.py` still holds the constants, one commit back. It even carries
+the SAME REPORT, already answered: "when people jog their forearms are more in front of the body.
+Here the forearms are more outward" - cause, the elbow folding about a fixed armature axis; fix,
+shoulder internal rotation turning the hinge plane across the body, `RUN_TUCK_IN = 12`.
+
+Instead of that, amplitude was cut to 0.45 on the reasoning that "less arm swing" means a smaller
+swing. It made the fault worse, and the reason is worth keeping: **a smaller swing on an arm that
+is HELD OUT leaves the held-out part dominating.** Amplitude was never the axis the problem was
+on. The old work says so directly - "the fold was always the fix for 'extended too far'; the
+swing was never the problem".
+
+**What changed.** `PUMPS` in `dev/art/build_character.py`, applying that same odd-symmetric
+shaping to the delivered curves: each key's deviation from the bone's own average is normalised
+against its widest excursion and raised to a power under one. At 0 and 1 it is unchanged, so the
+extremes and the phase stay exactly where the animator put them and the loop still closes.
+Amplitude back to 0.67, which restores the old jog's 80 degrees of swing.
+
+Two other faults were found in the same pass, both invisible to every measurement then in place:
+
+* **A sideways lean of -12.8 degrees from rest**, held for the whole cycle - asked as "do you see
+  the lean?". Every lean measurement to that point was of the FORWARD axis and could not see it.
+  Two axes, two faults, and correcting one says nothing about the other.
+* **The `Hip` and `Root` bones drawn 84.23 cm long on a 170 cm figure** - "this hip bone is
+  bigger than his body". `Hip`'s first child `Pelvis` sits ON its head, so the closest-child rule
+  measured zero, the too-short guard skipped the bone, and it kept the importer's invented
+  length. A child at zero distance tells a bone nothing about its length.
+
+**The lesson.** Search the repository's own history before deriving. The previous character was
+deleted; the work that went into it was not. `docs/` and `TROUBLESHOOTING.md` are the obvious
+places and were checked - git log was not, and that is where this answer lived.
+
+
 ## Keeping this honest
 
 Add an entry when a bug took **more than one attempt** to fix, or when the symptom
