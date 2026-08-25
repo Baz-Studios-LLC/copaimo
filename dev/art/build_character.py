@@ -582,6 +582,10 @@ ROLLS_THROUGH_STANCE = ("walk", "jog")
 # `ToeBase` is moved - each vertex keeps its total, so anything the ankle or the calf holds is
 # untouched.
 THE_TOE_HINGES_AT = 0.70
+# Tried at 0.15 to spread the bend, on the reasoning that an abrupt handover pinches. It does the
+# opposite: a wider band puts MORE vertices under two bones at once, and linear blend skinning
+# loses volume exactly where influences overlap. The left shoe's worst-frame squash went from
+# 2.1% to 4.6%. Narrow is right here.
 THE_HINGE_BLENDS_OVER = 0.08
 
 # How far up the shoe the ball joint sits, where the shoe is that tall.
@@ -634,7 +638,7 @@ PUSH_PITCH = 45.0
 # gone down. The target is therefore the toe's world pitch staying near zero, and the break is
 # the negation of the foot's own pitch rather than an amount added to it.
 TOE_BREAKS_AFTER = 0.55
-TOE_BREAKS_TO = 45.0
+TOE_BREAKS_TO = 35.0
 
 # Frames either side of a stance over which the correction fades, so there is no step where it
 # starts and stops.
@@ -2365,14 +2369,61 @@ def break_the_toes(rig, clip, scene):
 
 
 def the_shoe_runs(rig, mesh, side):
-    """The shoe's own heel-to-tip axis and extent, and which vertices belong to that foot."""
-    toe = rig.pose.bones[f"{side}_ToeBase"].bone
-    ahead = ((rig.matrix_world @ toe.tail_local) - (rig.matrix_world @ toe.head_local))
-    ahead.z = 0.0
-    if ahead.length < 1e-9:
-        refuse(f"the {side} toe bone has no horizontal direction")
-    ahead.normalize()
+    """The shoe's own heel-to-tip axis and extent, and which vertices belong to that foot.
+
+    # The SHOE decides which way it points, not the bone inside it
+
+    This took its axis from the toe bone's own direction, and that bone is 15.6 degrees off the
+    shoe on the left and 16.9 on the right - about twelve of it in the horizontal. So the joint
+    was moved forward along a line that was not the shoe's, and the hinge came out aimed sideways
+    of the foot: "some small directional and compression issues".
+
+    The shoe's own long axis is the direction its vertices are most spread along, which is what
+    "which way does this shoe point" means. Found by power iteration on their covariance, because
+    Blender's bundled Python has no numpy. It comes out unsigned, so it is turned to agree with
+    the ankle-to-toe direction - the bone is wrong about the ANGLE by twelve degrees, not about
+    which end is the front.
+    """
     groups = {g.index: g.name for g in mesh.vertex_groups}
+    spots = []
+    for vertex in mesh.data.vertices:
+        best, who = 0.0, ""
+        for group in vertex.groups:
+            name = groups.get(group.group, "")
+            if group.weight > best and name.startswith(side) and (
+                    "Foot" in name or "ToeBase" in name):
+                best, who = group.weight, name
+        if who:
+            spots.append(mesh.matrix_world @ vertex.co)
+    if len(spots) < 8:
+        refuse(f"no vertices are weighted to the {side} foot")
+    middle = mathutils.Vector((0.0, 0.0, 0.0))
+    for spot in spots:
+        middle += spot
+    middle /= len(spots)
+    ahead = mathutils.Vector((1.0, 0.0, 0.0))
+    for _ in range(40):
+        nxt = mathutils.Vector((0.0, 0.0, 0.0))
+        for spot in spots:
+            away = spot - middle
+            nxt += away * away.dot(ahead)
+        if nxt.length < 1e-12:
+            break
+        ahead = nxt.normalized()
+    toe = rig.pose.bones[f"{side}_ToeBase"].bone
+    forward = ((rig.matrix_world @ toe.tail_local) - (rig.matrix_world @ toe.head_local))
+    if ahead.dot(forward) < 0.0:
+        ahead = -ahead
+    # The shoe's long axis tilts DOWN toward the toe - a toe box tapers - and flattening it left
+    # the bone 9 to 12 degrees off in the vertical even once the horizontal was within a degree.
+    # The bone follows the shoe in three dimensions; the horizontalised copy is only for deciding
+    # how far ALONG the shoe a thing is.
+    tilted = ahead.copy()
+    ahead = mathutils.Vector((ahead.x, ahead.y, 0.0))
+    if ahead.length < 1e-9:
+        refuse(f"the {side} shoe has no horizontal long axis")
+    ahead.normalize()
+    tilted.normalize()
     mine, along = [], []
     for vertex in mesh.data.vertices:
         best, who = 0.0, ""
@@ -2386,7 +2437,7 @@ def the_shoe_runs(rig, mesh, side):
             along.append((mesh.matrix_world @ vertex.co).dot(ahead))
     if not mine:
         refuse(f"no vertices are weighted to the {side} foot")
-    return ahead, min(along), max(along), mine
+    return ahead, min(along), max(along), mine, tilted
 
 
 def hinge_the_toes_at_the_ball(rig, mesh):
@@ -2397,16 +2448,16 @@ def hinge_the_toes_at_the_ball(rig, mesh):
     """
     was = {}
     for side in ("L", "R"):
-        ahead, back, front, _ = the_shoe_runs(rig, mesh, side)
+        ahead, back, front, _, tilted = the_shoe_runs(rig, mesh, side)
         was[side] = (ahead, back, front - back,
                      (rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].bone.head_local)
-                     .dot(ahead))
+                     .dot(ahead), tilted)
 
     bpy.context.view_layer.objects.active = rig
     bpy.ops.object.mode_set(mode="EDIT")
     moved = {}
     for side in ("L", "R"):
-        ahead, back, length, before = was[side]
+        ahead, back, length, before, tilted = was[side]
         bone = rig.data.edit_bones[f"{side}_ToeBase"]
         head = rig.matrix_world @ bone.head
         # Forward along the shoe's own axis, height unchanged: a ball of the foot is further
@@ -2430,7 +2481,10 @@ def hinge_the_toes_at_the_ball(rig, mesh):
             middle = (min(edges) + max(edges)) * 0.5
             moved_to += across * (middle - moved_to.dot(across))
         bone.head = rig.matrix_world.inverted() @ moved_to
-        bone.tail = rig.matrix_world.inverted() @ (moved_to + ahead * (tip - ball))
+        # Along the shoe's own tilted axis, scaled so it still reaches the tip when measured
+        # the flat way.
+        reach = (tip - ball) / max(tilted.dot(ahead), 1e-6)
+        bone.tail = rig.matrix_world.inverted() @ (moved_to + tilted * reach)
         moved[side] = ((ball - before) * 170.0, (before - back) / length * 100.0,
                        THE_TOE_HINGES_AT * 100.0)
     bpy.ops.object.mode_set(mode="OBJECT")
@@ -2439,7 +2493,7 @@ def hinge_the_toes_at_the_ball(rig, mesh):
     # the tip by 12-19% because the extent was measured along the OLD bone's axis and the bone no
     # longer points that way. Measure, move, measure.
     for side in ("L", "R"):
-        ahead, back, front, _ = the_shoe_runs(rig, mesh, side)
+        ahead, back, front, _, tilted = the_shoe_runs(rig, mesh, side)
         head = rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].bone.head_local
         reach = front - head.dot(ahead)
         if reach <= 1e-6:
@@ -2447,7 +2501,8 @@ def hinge_the_toes_at_the_ball(rig, mesh):
         bpy.context.view_layer.objects.active = rig
         bpy.ops.object.mode_set(mode="EDIT")
         bone = rig.data.edit_bones[f"{side}_ToeBase"]
-        bone.tail = rig.matrix_world.inverted() @ (head + ahead * reach)
+        bone.tail = rig.matrix_world.inverted() @ (
+            head + tilted * (reach / max(tilted.dot(ahead), 1e-6)))
         bpy.ops.object.mode_set(mode="OBJECT")
 
     # And the weights, about the new hinge. Only the Foot/ToeBase share moves; each vertex keeps
@@ -2455,7 +2510,7 @@ def hinge_the_toes_at_the_ball(rig, mesh):
     groups = {g.name: g for g in mesh.vertex_groups}
     shifted = 0
     for side in ("L", "R"):
-        ahead, back, length, _ = was[side]
+        ahead, back, length, _, _ = was[side]
         foot, toe = groups.get(f"{side}_Foot"), groups.get(f"{side}_ToeBase")
         if foot is None or toe is None:
             continue

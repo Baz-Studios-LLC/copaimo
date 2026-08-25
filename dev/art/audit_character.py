@@ -618,6 +618,47 @@ def the_legs(rig, claims):
                          + "\n  ".join(off))
 
 
+def the_skin_holds_together(rig, mesh, scene):
+    """Does the skin keep its own edge lengths as it moves, or collapse somewhere?
+
+    Edge lengths are the honest measure of a skinning collapse: a rigid bend preserves every one
+    of them, and only linear blend skinning shortens them. Reported in CENTIMETRES LOST, not as a
+    percentage, because a percentage on a tiny edge says nothing - the worst RATIOS on this
+    character are half-centimetre edges near the ankle giving up 0.25 cm, while the collapse that
+    actually shows is a 3.4 cm edge at the toe hinge losing 1.5.
+    """
+    print("\nTHE SKIN, as it moves")
+    rest = {}
+    for edge in mesh.data.edges:
+        a, b = edge.vertices
+        rest[(a, b)] = ((mesh.matrix_world @ mesh.data.vertices[a].co)
+                        - (mesh.matrix_world @ mesh.data.vertices[b].co)).length
+    for clip in sorted(bpy.data.actions, key=lambda a: a.name):
+        play(rig, clip)
+        first, last = (int(round(v)) for v in clip.frame_range)
+        step = max(1, (last - first) // 30)
+        worst, where, when = 0.0, None, first
+        for frame in range(first, last + 1, step):
+            scene.frame_set(frame)
+            skin = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
+            spots = skin.data.vertices
+            for (a, b), was in rest.items():
+                if was < 0.005:
+                    continue
+                now = ((skin.matrix_world @ spots[a].co)
+                       - (skin.matrix_world @ spots[b].co)).length
+                if (was - now) * SCALE > worst:
+                    worst, where, when = (was - now) * SCALE, (a, b), frame
+        if where is None:
+            continue
+        owns = sorted(((g.weight, g.group) for g in mesh.data.vertices[where[0]].groups),
+                      reverse=True)[:2]
+        names = {g.index: g.name for g in mesh.vertex_groups}
+        say = ", ".join(f"{names.get(i, '?')}={w:.2f}" for w, i in owns)
+        print(f"  {clip.name:<6s} worst edge loses {worst:5.2f} cm of its "
+              f"{rest[where] * SCALE:5.2f} cm on frame {when}   [{say}]")
+
+
 def the_joints_sit_inside(rig, mesh):
     """Every joint, against the flesh it drives. A joint outside its own flesh deforms wrongly.
 
@@ -906,6 +947,7 @@ def main():
     the_footfalls(rig, bpy.context.scene, the_covers_the_game_uses())
     the_legs(rig, the_legs_the_game_uses())
     the_joints_sit_inside(rig, mesh)
+    the_skin_holds_together(rig, mesh, bpy.context.scene)
 
 
 if __name__ == "__main__":
