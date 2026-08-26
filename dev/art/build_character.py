@@ -37,9 +37,50 @@ SOURCE = os.path.join(ROOT, "assets", "character")
 OUT = os.path.join(ROOT, "assets", "models", "person_ranger.glb")
 
 # The delivered file, and what the game calls the clip in it. `lookAround` becomes the idle.
+# # The delivered rig speaks a different language, and is normalised once on the way in
+#
+# The 2026-08-26 warden arrives as a 24-bone Mixamo-named skeleton - `LeftUpLeg`, `RightToeBase`,
+# `neck` - on a 34,355 vertex mesh, 1.7 units tall. Everything downstream of here, in five Python
+# files and in `src/ik.rs` and `src/motion.rs`, is written against the previous convention:
+# `L_Thigh`, `R_ToeBase`, `Neck`, on a figure one unit high. That is 373 name references and 55
+# places that turn units into centimetres by multiplying by 170.
+#
+# So the incoming asset is translated rather than the pipeline rewritten. Two operations, both at
+# import, both reversible, and nothing after them can tell the difference:
+#
+#   * the bones are RENAMED by the table below,
+#   * and the figure is SCALED to one unit tall, which is what `look::TALL` expects to be handed
+#     and what every `* 170.0` in here already assumes.
+#
+# Renaming beats rewriting here for a reason worth stating: the runtime reads bone names out of
+# the shipped glb too, so a rename in the pipeline alone would have left the game looking for
+# joints that no longer existed. Doing it to the ASSET keeps one convention across both sides.
+RENAMES = {
+    "Hips": "Hip",
+    "LeftUpLeg": "L_Thigh", "LeftLeg": "L_Calf",
+    "LeftFoot": "L_Foot", "LeftToeBase": "L_ToeBase",
+    "RightUpLeg": "R_Thigh", "RightLeg": "R_Calf",
+    "RightFoot": "R_Foot", "RightToeBase": "R_ToeBase",
+    # The spine numbers run the other way round on this rig: walking UP from the hips it is
+    # Spine02, then Spine01, then Spine. Mapped by position in the chain rather than by name,
+    # because the position is what `the_torso_bands` and the lean corrections actually use.
+    "Spine02": "Waist", "Spine01": "Spine01", "Spine": "Spine02",
+    "LeftShoulder": "L_Clavicle", "LeftArm": "L_Upperarm",
+    "LeftForeArm": "L_Forearm", "LeftHand": "L_Hand",
+    "RightShoulder": "R_Clavicle", "RightArm": "R_Upperarm",
+    "RightForeArm": "R_Forearm", "RightHand": "R_Hand",
+    "neck": "Neck",
+    "Head": "Head", "head_end": "HeadTip", "headfront": "HeadFront",
+}
+
+# How tall the figure is left, in units. One, because that is the shape of every other number in
+# this file - see RENAMES.
+STANDS_A_UNIT_TALL = 1.0
+
+# The 2026-08-26 warden delivered a WALK and a RUN and no idle, so there is no idle here. The
+# joiner below still expects one and `look.rs` still asks the game for one, which is the largest
+# open thing about this changeover - see the note on JOINED.
 DELIVERED = (
-    ("idle.glb", "idle"),
-    ("lookAround.glb", "look_around"),
     ("walk.glb", "walk"),
     # The delivered file is called run.glb and the clip it becomes is called JOG. That is not a
     # slip: measured against `docs/animation.md`, this clip's effective cycle is 23 frames and its
@@ -415,7 +456,23 @@ ROLLS_ALONG = ("ForearmTwist01", "ForearmTwist02")
 # its arms 119 degrees where its own walk swings 33 - sprint-scale, and reported as "less arm
 # swing". 0.45 brings it to about 54, which reads as a jog carrying its arms rather than driving
 # with them.
-MOVES_MORE = {"idle": 1.45, "look_around": 1.45, "jog": 0.67}
+# # Reset for the 2026-08-26 warden
+#
+# Emptied, not deleted. Every number that was in here was measured against the PREVIOUS delivery -
+# a different animator, a different skeleton, a different performance - and the first thing the
+# build did with the new one was refuse: "a gain of 0.67 and a pump of 0.55 on jog left the L hand
+# swinging 25.8 cm against 25.8 cm before - the gain is wired to nothing." The guard was right. A
+# correction tuned to one performance says nothing about another.
+#
+# The distinction that decides what stays and what goes is whether a correction is about GEOMETRY
+# or about PERFORMANCE. Mirroring the bind, squaring him onto the axis, hinging the toes at the
+# ball, easing the knees, standing the legs apart, putting the soles on the floor - those are facts
+# about a rig and they carry across unchanged. How far his arms swing, how far he leans, where his
+# elbows are held - those are facts about a clip, and this is a different clip.
+#
+# So they come back one at a time, each earned on a measurement of the NEW animation, the way the
+# old ones were. Empty until then.
+MOVES_MORE = {}
 
 # # A pumping arm dwells at its extremes; a gliding one does not
 #
@@ -434,7 +491,7 @@ MOVES_MORE = {"idle": 1.45, "look_around": 1.45, "jog": 0.67}
 # swing into a pump.
 #
 # Under 1.0 dwells at the ends. 1.0 is the clip as authored.
-PUMPS = {"jog": 0.55}
+PUMPS = {}
 
 # # The hands come up too high, and the knob for that is the SHOULDER
 #
@@ -468,18 +525,18 @@ THE_SHOULDER_IS = ("Clavicle", "Upperarm")
 
 # Degrees of backward rotation applied to the whole upper arm, which lowers the hands' arc while
 # leaving every degree of swing intact.
-SHOULDERS_SIT_BACK = {"jog": 18.0}
+SHOULDERS_SIT_BACK = {}
 
 # And this one holds the ELBOW near a right angle, which pulls the hand in. A mean shift, not a
 # gain: the fold's RANGE is fine, it is the angle it is carried at that has the arm reaching.
-ELBOWS_HOLD_AT = {"jog": 85.0}
+ELBOWS_HOLD_AT = {}
 
 # And how much the fold is allowed to VARY around that. Holding the mean at 85 still left the
 # elbow opening to 56 degrees at the front of the swing, and a straighter elbow reaches further -
 # the hand peaked 34.6 cm in front of the shoulder where the old note puts a jogger's at 15-20.
 # Tightening the range is what pulls it in, and it is a different knob from the mean: one decides
 # where the elbow is carried, the other how much it opens and shuts.
-ELBOWS_SWING = {"jog": 0.55}
+ELBOWS_SWING = {}
 THE_ELBOW_IS = ("Forearm",)
 
 # # The feet, and three faults measured on the delivered clips
@@ -875,7 +932,7 @@ MOVES_AT = ("Clavicle", "Upperarm", "Forearm", "Hand")
 # perfectly well, purely because it started from behind - and wrong for a TARGET. A guard asks
 # "did this clip lean forward at all"; a target says where the trunk should end up, and where it
 # ends up is an angle in the world.
-LEANS_FORWARD = {"jog": 6.0}
+LEANS_FORWARD = {}
 
 # Shared down the spine rather than folded at one joint, for the same reason the forearm's roll
 # is shared down its twists: a whole trunk's worth of bend put into one vertebra creases there.
@@ -887,7 +944,7 @@ LEANS_ALONG = ("Spine01", "Spine02")
 # head with it and left the warden jogging along looking at the sky - 28 degrees above his own
 # resting gaze. A runner's head is level and their eyes are on the ground ahead, so this brings
 # it back to rest and no further.
-LEVELS_THE_HEAD = {"jog": 0.0}
+LEVELS_THE_HEAD = {}
 THE_HEAD_IS = ("Head",)
 
 # And the SIDEWAYS lean, which is a different fault from the forward one and was invisible to
@@ -901,7 +958,7 @@ THE_HEAD_IS = ("Head",)
 # A jog does not lean sideways. A little sway either way is the weight shifting; a mean of -12.8
 # held for the whole cycle is a list. Corrected to level, by the same machinery as the forward
 # lean and about the axis at right angles to it.
-STANDS_UPRIGHT = {"jog": 0.0}
+STANDS_UPRIGHT = {}
 
 
 def refuse(why):
@@ -1483,6 +1540,190 @@ def close_the_holes(rig, mesh):
           f"{crowded} welded edge(s) still carry more than two faces")
     if not mesh.data.has_custom_normals:
         refuse("closing the holes dropped the custom split normals")
+
+
+# The stub a childless bone gets, as a fraction of its parent's length.
+A_TIP_IS = 0.4
+
+
+def point_the_bones_at_their_children(rig):
+    """Rebuilds every bone's TAIL from the skeleton, because the delivered ones are invented.
+
+    # glTF has no idea how long a bone is
+
+    It stores joints as points. A bone's length and direction are Blender's guess on the way in,
+    and on this rig the guess is wild: the hips come in 11.72 units long on a figure 1.7 units
+    tall, the thighs 35.6. Nothing downstream can survive that - `stand_the_legs_apart` reported
+    moving a knee 8492 cm, and the bind mirror reported halves 288 cm from each other, both of them
+    reading a tail that means nothing.
+
+    A joint's real direction is toward the next joint, so that is what is used. A bone with one
+    child points at it. A bone with several - the hips, the chest - points at their middle, except
+    that a MIRRORED pair of children says nothing about direction and is ignored in favour of any
+    single centre child. A bone with no children continues its parent, shortened, which is the only
+    honest answer for a fingertip or a toe tip.
+    """
+    bpy.context.view_layer.objects.active = rig
+    bpy.ops.object.mode_set(mode="EDIT")
+    edits = rig.data.edit_bones
+    for bone in edits:
+        kids = [k for k in edits if k.parent is bone]
+        aim = None
+        if len(kids) == 1:
+            aim = kids[0].head.copy()
+        elif len(kids) > 1:
+            # A centre child - one that is not half of a left/right pair - is the honest heading.
+            middles = [k for k in kids if abs(k.head.x - bone.head.x) < 1e-4]
+            picked = middles if middles else kids
+            aim = sum((k.head for k in picked), mathutils.Vector()) / len(picked)
+        if aim is not None and (aim - bone.head).length > 1e-5:
+            bone.tail = aim
+    # Leaves last, so they continue a parent that has already been straightened.
+    for bone in edits:
+        if any(k.parent is bone for k in edits):
+            continue
+        along = (bone.head - bone.parent.head) if bone.parent else mathutils.Vector((0, 0, 1))
+        if along.length < 1e-6:
+            along = mathutils.Vector((0.0, 0.0, 1.0))
+        bone.tail = bone.head + along.normalized() * (along.length * A_TIP_IS)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    return len(rig.data.bones)
+
+
+def carry_the_clips_into_the_new_scale(clips, factor):
+    """Scales an action's translation channels by the same factor the figure was resized by.
+
+    Rotations do not care about scale; translations do, and they are expressed in DATA units, so
+    they change by the WHOLE change a data unit undergoes - the object's own scale as well as the
+    resize. Per file, for the same reason the renaming is per file: the base's action is the only
+    one that exists while the base is being normalised, and the run arrived afterwards. Left out,
+    its hips carried 571 cm of travel across a 16-frame clip on a figure one unit tall.
+    """
+    if abs(factor - 1.0) < 1e-12:
+        return 0
+    moved = 0
+    for clip in clips:
+        for curve in fcurves_of(clip, None):
+            if not curve.data_path.endswith(".location"):
+                continue
+            for key in curve.keyframe_points:
+                key.co[1] *= factor
+                key.handle_left[1] *= factor
+                key.handle_right[1] *= factor
+            curve.update()
+            moved += 1
+    return moved
+
+
+def speak_the_clips_language(clips):
+    """Rewrites an action's channel names onto the pipeline's convention. See RENAMES.
+
+    Every delivered file needs this, not just the one the skeleton is taken from. An fcurve
+    addresses its bone by name inside its data path, so a clip imported from a file whose bones
+    were never renamed points at joints that do not exist on the base rig - and Blender says
+    nothing. The clip simply drives nothing and plays as a rest pose.
+
+    That is how the run arrived: the walk was the base and got renamed, the run came second and did
+    not, and the loop-closing bake then froze a dead action into 540 curves of stationary
+    character. It exported cleanly. The first sign was the plant measuring a sole that read 2.71 cm
+    on every frame of a run.
+    """
+    moved = 0
+    for clip in clips:
+        for curve in fcurves_of(clip, None):
+            for was, becomes in RENAMES.items():
+                head = 'pose.bones["%s"]' % was
+                if was != becomes and curve.data_path.startswith(head):
+                    curve.data_path = ('pose.bones["%s"]' % becomes) + curve.data_path[len(head):]
+                    moved += 1
+                    break
+    return moved
+
+
+def speak_the_pipeline_s_language(rig, meshes):
+    """Renames the incoming skeleton and scales the figure to one unit. See RENAMES.
+
+    The vertex groups are renamed with the bones or the skin comes off them - a group is bound to
+    a bone by NAME, and nothing warns when the two stop matching. Blender renames the groups for
+    you when you rename a bone through the UI; setting `bone.name` from a script does not.
+    """
+    named = 0
+    for was, becomes in RENAMES.items():
+        bone = rig.data.bones.get(was)
+        if bone is None or was == becomes:
+            continue
+        if rig.data.bones.get(becomes) is not None:
+            refuse(f"cannot rename {was} to {becomes}: something already holds that name")
+        bone.name = becomes
+        for mesh in meshes:
+            group = mesh.vertex_groups.get(was)
+            if group is not None:
+                group.name = becomes
+        # # And the animation, which does NOT come with it
+        #
+        # An fcurve addresses a bone by name inside its data path - `pose.bones["LeftUpLeg"].
+        # rotation_quaternion` - and setting `bone.name` from a script leaves every one of them
+        # pointing at a bone that no longer exists. Blender does not warn; the channels simply stop
+        # driving anything and the clip plays as a rest pose.
+        #
+        # It is silent in a particularly nasty way, too. The build ran to completion and exported,
+        # and the first sign was the plant reporting a sole that measured 2.71 cm on every frame of
+        # a run. A clip that does not move looks like a clip until something measures it.
+        was_path = 'pose.bones["%s"]' % was
+        now_path = 'pose.bones["%s"]' % becomes
+        for clip in bpy.data.actions:
+            for curve in fcurves_of(clip, None):
+                if curve.data_path.startswith(was_path):
+                    curve.data_path = now_path + curve.data_path[len(was_path):]
+        named += 1
+
+    strays = [b.name for b in rig.data.bones
+              if b.name not in RENAMES.values() and b.name not in RENAMES]
+
+    # The SKINNED mesh decides how tall he is. The file also carries a two-unit Icosphere that the
+    # build drops later, and taking the tallest of everything measured him against that instead -
+    # a 1.700 figure reported as 2.000 and scaled by 0.5 rather than 0.588.
+    tall = 0.0
+    for mesh in meshes:
+        if not mesh.data.vertices or not mesh.vertex_groups:
+            continue
+        zs = [(mesh.matrix_world @ v.co).z for v in mesh.data.vertices]
+        tall = max(tall, max(zs) - min(zs))
+    # # One space, and only one
+    #
+    # The delivered objects carry a 0.01 scale: the data is in centimetres and the object shrinks
+    # it to metres. That is a perfectly ordinary way to ship a model and it quietly breaks anything
+    # that computes a displacement in WORLD units and then writes it to a bone channel, because a
+    # bone channel is in DATA units and the two differ by a hundred.
+    #
+    # `stand_on_the_floor` is exactly that: it works out how far to lift, turns world up into the
+    # carrier's rest frame, NORMALISES it - which throws the scale away - and multiplies by a
+    # world-space distance. Measured, it asked for 1.51 cm of lift and moved the sole 0.02.
+    #
+    # So the object transforms are baked into the data and reset to identity, and the figure is
+    # scaled to one unit in the same operation. After this a data unit IS a world unit, everywhere,
+    # and the question cannot come up again.
+    grew = 1.0
+    if tall > 1e-6:
+        grew = STANDS_A_UNIT_TALL / tall
+    settle = mathutils.Matrix.Scale(grew, 4)
+
+    # The curve factor is the WHOLE change a data unit undergoes - the object's own scale as well
+    # as the resize - because that is what a location value is measured in.
+    carried = rig.matrix_world.to_scale()
+    factor = grew * (sum(carried) / 3.0)
+
+    rig.data.transform(settle @ rig.matrix_world)
+    rig.matrix_world = mathutils.Matrix.Identity(4)
+    for mesh in meshes:
+        mesh.data.transform(settle @ mesh.matrix_world)
+        mesh.matrix_world = mathutils.Matrix.Identity(4)
+
+    bpy.context.view_layer.update()
+    # The clips are NOT scaled here. Only the base's exists at this point, and every later file
+    # brings its own - see `carry_the_clips_into_the_new_scale`, which the import loop calls per
+    # file with the factor handed back from here.
+    return named, tall, grew, strays, factor
 
 
 def which_way_he_faces(rig):
@@ -2365,7 +2606,10 @@ def where_the_roll_skin_sits(rig, mesh, side):
     for bone in ROLLS_ALONG:
         index = groups.get(f"{side}_{bone}")
         if index is None:
-            refuse(f"the mesh has no weights for {side}_{bone}, so the twist cannot be spread")
+            # A rig with no twist bones is simpler, not broken. The 2026-08-26 warden carries none
+            # where the previous one had eighteen, and refusing here stopped a whole build over a
+            # bone that was never delivered. Nothing to spread means nothing to do.
+            return {}
         heavy = weighted = 0.0
         for vertex in mesh.data.vertices:
             for group in vertex.groups:
@@ -2425,6 +2669,10 @@ def spread_the_twist(rig, clip, mesh):
         if len(arm) != 4:
             continue
         sits = where_the_roll_skin_sits(rig, mesh, side)
+        if not sits:
+            # No roll bones on this rig - see `where_the_roll_skin_sits`. The forearm keeps its
+            # whole twist, which is what a rig without them means.
+            continue
         so_far, takes = 0.0, []
         for bone in ROLLS_ALONG:
             takes.append((f"{side}_{bone}", sits[bone] - so_far))
@@ -4308,6 +4556,8 @@ def main():
         bpy.data.objects.remove(stale, do_unlink=True)
 
     base_rig, base_mesh, skeleton = None, None, None
+    # How much the base was resized on the way in, so every later file's clips can follow it.
+    shrank = 1.0
     wanted = {}
     for filename, called in DELIVERED:
         path = os.path.join(SOURCE, filename)
@@ -4323,6 +4573,15 @@ def main():
         clips = [a for a in bpy.data.actions if a not in known]
         if len(clips) != 1:
             refuse(f"{filename} carries {len(clips)} clips, and this expects exactly one")
+        # Before anything touches the clip, and for EVERY file rather than only the base.
+        renamed_paths = speak_the_clips_language(clips)
+        if renamed_paths:
+            print(f"    pointed {renamed_paths} animation channels at the renamed bones")
+        if base_rig is not None:
+            carried = carry_the_clips_into_the_new_scale(clips, shrank)
+            if carried:
+                print(f"    scaled {carried} translation channel(s) by {shrank:.6f} to match the "
+                      "figure the base was resized to")
 
         if base_rig is None:
             base_rig = rig
@@ -4330,6 +4589,21 @@ def main():
             skeleton = skeleton_of(rig)
             print(f"  {filename}: the base - {len(rig.data.bones)} bones, "
                   f"{len(base_mesh.data.vertices)} vertices")
+            # FIRST of everything, before a single measurement: every function below this line
+            # asks for bones by the pipeline's names and reports in centimetres of a unit figure.
+            named, tall, grew, strays, shrank = speak_the_pipeline_s_language(
+                rig, [o for o in fresh if o.type == "MESH"])
+            carried = carry_the_clips_into_the_new_scale(clips, shrank)
+            if carried:
+                print(f"    scaled {carried} translation channel(s) by {shrank:.6f} to match")
+            aimed = point_the_bones_at_their_children(rig)
+            print(f"    rebuilt {aimed} bone tails from the skeleton - glTF does not carry them "
+                  "and the imported guesses were up to 20x the figure's height")
+            print(f"    renamed {named} bones onto the pipeline's convention; scaled a "
+                  f"{tall:.3f} unit figure by {grew:.4f} to stand {STANDS_A_UNIT_TALL:.1f} tall, "
+                  "and baked the object transforms in so a data unit is a world unit")
+            if strays:
+                print(f"    not in the table, left alone: {', '.join(sorted(strays))}")
             if CUT_THE_WEBBING:
                 cut_the_webbing(rig, base_mesh)
             elif DEEPENS_THE_ARMPIT:
@@ -4530,8 +4804,17 @@ def main():
             print(f"    {called:<12s} carried {covers:.4f} units on {who}; taken out, the root "
                   f"moves {after:.4f} -> COVERS = {covers:.4f}")
         elif called in TRAVELS:
-            refuse(f"the {called} clip has no travel to take out, which means either it is "
-                   f"already in place or the channel carrying it was not found")
+            # Not a fault by itself. The 2026-08-26 warden's clips arrive as treadmills already -
+            # its hips move 0.6 cm across a whole run - which is the state this step exists to
+            # produce, so there is nothing for it to do. It refused here, on a clip that was
+            # already correct.
+            #
+            # What it DOES cost is the `covers` reading, which came from the travel that was taken
+            # out. Without it, `the_footfalls` measuring the planted feet is the only source - and
+            # it is the better one anyway, since it is what distance matching actually has to
+            # agree with.
+            print(f"    {called:<12s} arrives in place - hips move {hips * 100:.1f} cm across it - "
+                  "so there is no travel to take out; COVERS comes from the feet")
 
     # AFTER the travel is out, never before. Closing the loop re-keys every channel from
     # samples, so a detrend that runs afterwards finds no travel left to remove and refuses.
@@ -4617,8 +4900,16 @@ def main():
                 refuse(f"{called} rests its sole {now_low * 170.0:.2f} cm off the floor after "
                        f"being lifted, so the lift did not take")
 
-    play(base_rig, wanted["idle"])
-    scene.frame_set(int(wanted["idle"].frame_range[0]))
+    # The clip the file is left showing. The idle when there is one, since that is what a warden
+    # does most of the time - and whatever else there is when there is not. The 2026-08-26 delivery
+    # is a walk and a run with no idle at all, which is the one genuinely open thing about it: the
+    # game asks for `idle` by name in `look.rs` and there is nothing to give it.
+    resting = wanted.get("idle") or wanted.get("walk") or next(iter(wanted.values()))
+    if "idle" not in wanted:
+        print(f"  NO IDLE was delivered - the file is left on '{resting.name}'. The game needs an "
+              "idle clip; this build cannot invent a performance.")
+    play(base_rig, resting)
+    scene.frame_set(int(resting.frame_range[0]))
 
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.export_scene.gltf(

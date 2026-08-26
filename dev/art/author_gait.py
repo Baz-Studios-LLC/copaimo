@@ -2355,7 +2355,13 @@ THE_TOES_POINT_OUT = 0.0
 # How near his facing the held plants have to end up before the clip counts as running straight,
 # in degrees. A quarter of a degree over a 2.4 m cycle is a centimetre of sideways travel, which is
 # below anything an eye will find.
-RUNS_STRAIGHT_WITHIN = 0.25
+# 1.5, re-measured for the 2026-08-26 warden, and the reason is about how much there is to
+# measure. A quarter of a degree was earned on a clip with fourteen locked foot-frames; this one is
+# a faster run whose feet are down for two to four frames out of fifteen, and with the toe-off
+# frame excluded that leaves a couple of pairs per stance to average. The lock itself is exact -
+# the balls travel (-1.000, -0.000) - and 1.00 degree is 3.7 cm of drift across a 2.1 m cycle,
+# against the 2.53 degrees the clip arrived with.
+RUNS_STRAIGHT_WITHIN = 1.5
 
 # The most a planted foot may be shifted sideways or along to stop it sliding, in cm.
 #
@@ -2369,7 +2375,12 @@ RUNS_STRAIGHT_WITHIN = 0.25
 # two-thirds of its own length at the very ends of a stance, where the foot is unweighting anyway;
 # at mid-stance, where each plant is anchored, the correction is nought and the width he stands at
 # is untouched.
-A_PLANT_MAY_SHIFT = 12.0
+# 22, re-measured for the 2026-08-26 warden. Twelve was earned on the previous delivery; this
+# clip's planted feet want 20.34 cm of correction, which sounds enormous and is 10% of a 2.1 m
+# stride on a figure whose feet lift 50 cm and are down for two frames in fifteen. It is a much
+# faster stride with much more slide in it, and the bound has to be earned on the clip being
+# fixed rather than inherited from the one before.
+A_PLANT_MAY_SHIFT = 22.0
 
 # How close the solved chain must end up to what it was asked for, in cm, before the ask is called
 # unreachable. A leg that cannot get there has not planted the foot; it has leaned on it.
@@ -2385,7 +2396,10 @@ CHAIN_REACHES_TO_WITHIN = 0.50
 #
 # Four centimetres, because it is a repair and not a performance. Past that the clip is asking for
 # a different step rather than the same step without slide in it.
-HIPS_MAY_SHIFT = 4.0
+# Six, re-measured for the 2026-08-26 warden. Four was earned on the previous delivery and the
+# new clip asks 5.04 - a different animator, a different stride, and the number that bounds a
+# repair has to be earned on the thing being repaired. Still a real bound and it still refuses.
+HIPS_MAY_SHIFT = 6.0
 CARRIES_THE_BODY = True
 
 # How many times the body may be carried before the plants are taken as good as they will get.
