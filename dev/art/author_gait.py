@@ -2288,6 +2288,15 @@ A_FOOT_IS_DOWN = 0.5
 CAPS_THE_ANKLE = True
 THE_FOOT_POINTS_AT_MOST = 20.0
 THE_FOOT_LIFTS_AT_MOST = 25.0
+# How far the foot may be twisted about its own length, in degrees, either way.
+#
+# The thing the reference photographs are about: in a shot of a runner from behind, every lifted
+# sole faces straight back, not off to one side. Measured as a twist about the ankle-to-ball line,
+# this clip rolls the right foot to -65 degrees and the left to +78, which is a sole facing the
+# camera. Twelve is enough for the natural give of an ankle and nothing like enough to read as a
+# foot turned over.
+THE_FOOT_ROLLS_AT_MOST = 12.0
+
 THE_TOE_HANGS_AT_MOST = 10.0
 THE_TOE_LIFTS_AT_MOST = 45.0
 THE_TOES_POINT_OUT = 0.0
@@ -2830,6 +2839,53 @@ def how_far_the_foot_points(rig, side, faces):
     return now - rest
 
 
+def how_far_the_foot_rolls(rig, side):
+    """How far the foot is twisted about its OWN length, in degrees, against the bind. Signed.
+
+    # Twist, not tilt
+
+    This is the quantity the reference photographs are about: "notice how the feet are NOT twisted
+    oddly". In a photograph of a runner from behind, every lifted sole faces straight back. It does
+    not face off to one side, whatever the foot is doing fore and aft.
+
+    Measured as a TWIST about the ankle-to-ball line rather than as the sole normal's sideways
+    lean, because the second one is worthless when the foot points steeply down - the normal goes
+    horizontal there and its sideways component becomes noise. That reading is what put this rig's
+    right foot at 178 degrees of roll on one frame, which was never true; measured as a twist it is
+    a third of that and it is real.
+
+    The bind's own up is carried onto the posed axis by the shortest arc first, so that turning the
+    foot down does not read as rolling it - only what is left over after that is twist.
+    """
+    world = rig.matrix_world
+    bone = rig.pose.bones[f"{side}_Foot"]
+    toe = rig.pose.bones[f"{side}_ToeBase"]
+
+    rest_axis = (world @ toe.bone.head_local) - (world @ bone.bone.head_local)
+    axis = (world @ toe.head) - (world @ bone.head)
+    if rest_axis.length < 1e-9 or axis.length < 1e-9:
+        return 0.0, None
+    rest_axis.normalize()
+    axis.normalize()
+
+    upright = mathutils.Vector((0.0, 0.0, 1.0))
+    rest_frame = (world @ bone.bone.matrix_local).to_3x3()
+    local_up = rest_frame.inverted() @ upright
+    rest_up = (rest_frame @ local_up).normalized()
+    now_up = (bone.matrix.to_3x3() @ local_up).normalized()
+
+    # Swing first: carry the bind's up along with the axis, so pitch is not counted as twist.
+    swung = (rest_axis.rotation_difference(axis) @ rest_up).normalized()
+    flat_a = (swung - axis * swung.dot(axis))
+    flat_b = (now_up - axis * now_up.dot(axis))
+    if flat_a.length < 1e-9 or flat_b.length < 1e-9:
+        return 0.0, axis
+    flat_a.normalize()
+    flat_b.normalize()
+    turned = math.degrees(math.atan2(flat_a.cross(flat_b).dot(axis), flat_a.dot(flat_b)))
+    return turned, axis
+
+
 def hold_the_ankle_inside_its_range(rig, mesh, feet, ground, scene, faces, across, level,
                                     first, last, loops):
     """Clamps each foot's pitch, and its toe's bend, to what an ankle and a toe can actually do.
@@ -2848,7 +2904,7 @@ def hold_the_ankle_inside_its_range(rig, mesh, feet, ground, scene, faces, acros
     floor - has already let go of it. Frame 4 sat in exactly that gap, getting neither, which is
     the frame that was reported.
     """
-    caught = {"foot": 0, "toe": 0}
+    caught = {"foot": 0, "roll": 0, "toe": 0}
     worst = 0.0
     for frame in range(first, last + 1):
         scene.frame_set(frame)
@@ -2881,6 +2937,24 @@ def hold_the_ankle_inside_its_range(rig, mesh, feet, ground, scene, faces, acros
                     if abs(answers) < 1e-6:
                         break
                     turn_further_absolutely(rig, bone, max(-90.0, min(90.0, by / answers)), across)
+                    bpy.context.view_layer.update()
+                posed = rig.pose.bones[bone]
+                posed.rotation_mode = "QUATERNION"
+                posed.keyframe_insert("rotation_quaternion", frame=frame)
+
+            twist, axis = how_far_the_foot_rolls(rig, side)
+            allowed = max(-THE_FOOT_ROLLS_AT_MOST, min(THE_FOOT_ROLLS_AT_MOST, twist))
+            if axis is not None and abs(allowed - twist) > 0.05:
+                caught["roll"] += 1
+                worst = max(worst, abs(allowed - twist))
+                bone = f"{side}_Foot"
+                # About the foot's OWN length, which is what twist means, so nothing it does fore
+                # and aft is disturbed - only which way the sole faces.
+                for _ in range(8):
+                    here, along = how_far_the_foot_rolls(rig, side)
+                    if along is None or abs(allowed - here) < 0.05:
+                        break
+                    turn_further_absolutely(rig, bone, allowed - here, along)
                     bpy.context.view_layer.update()
                 posed = rig.pose.bones[bone]
                 posed.rotation_mode = "QUATERNION"
@@ -3487,9 +3561,9 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
     if CAPS_THE_ANKLE:
         caught, worst = hold_the_ankle_inside_its_range(
             rig, mesh, feet, ground, scene, faces, across, level, first, last, loops)
-        print(f"    held {caught['foot']} foot-frames and {caught['toe']} toe-frames back inside "
-              f"what an ankle can do, the worst by {worst:.1f} deg; everything already inside the "
-              "band is untouched")
+        print(f"    held the ankle inside its range: {caught['foot']} foot-frames untwisted fore "
+              f"and aft, {caught['roll']} untwisted sideways, {caught['toe']} toes; the worst by "
+              f"{worst:.1f} deg, and everything already inside the band is untouched")
 
     # # Laying the soles down LAST, once every leg is settled
     #
