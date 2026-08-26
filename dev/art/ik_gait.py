@@ -43,6 +43,7 @@ import math
 
 import bpy
 import mathutils
+import mathutils.bvhtree
 import mathutils.kdtree
 
 # How high a swinging foot lifts, as a share of the leg's length. A toe needs very
@@ -461,26 +462,82 @@ def which_vertices_are_legs(mesh):
     return legs
 
 
-def how_clear_the_legs_are(mesh, legs):
-    """The least distance between the two legs' DEFORMED flesh, in model units.
+# Which bones' flesh is the LOWER leg - the part a runner keeps off its neighbour.
+A_LOWER_LEG_IS = ("Calf", "Shin", "Knee", "Foot", "Toe")
 
-    Off a k-d tree over one side and every vertex of the other, so the answer is the real minimum
-    rather than the minimum over a sample. Sampling matters here: taking every second vertex on
-    each side reported 0.45 cm of daylight on a frame whose meshes were actually interpenetrating,
-    which is the difference between "close" and "through", and the difference the report turned on.
+
+def the_leg_triangles(mesh, legs, lower_only=False):
+    """Each leg's own triangles, as vertex indices. Computed once - deforming does not retopologise.
+
+    A face counts as a leg's only if EVERY corner of it belongs to that leg, so the faces that
+    bridge hip to body are nobody's and cannot make a false contact.
+
+    `lower_only` keeps the calf, knee and foot and drops the thigh. Two thighs brushing at the top
+    of the stride is what a stride does - measured on this clip it happens on ten frames and is
+    invisible under any clothing - while "the lower legs dont touch even if they get close" is a
+    rule about shins. Correcting both meant correcting a thigh pass that was never wrong.
+    """
+    groups = {g.index: g.name for g in mesh.vertex_groups}
+    side_of = {}
+    for side in "LR":
+        for at in legs[side]:
+            if lower_only:
+                heaviest = max(mesh.data.vertices[at].groups, key=lambda g: g.weight, default=None)
+                name = groups.get(heaviest.group, "") if heaviest else ""
+                if not any(part in name for part in A_LOWER_LEG_IS):
+                    continue
+            side_of[at] = side
+    tris = {"L": [], "R": []}
+    for face in mesh.data.polygons:
+        corners = list(face.vertices)
+        sides = {side_of.get(at) for at in corners}
+        if len(sides) != 1:
+            continue
+        side = sides.pop()
+        if side is None:
+            continue
+        for at in range(1, len(corners) - 1):
+            tris[side].append((corners[0], corners[at], corners[at + 1]))
+    return tris
+
+
+def how_clear_the_legs_are(mesh, legs, tris, only=None):
+    """How much daylight there is between the two legs, in model units. NEGATIVE if they overlap.
+
+    # Why this had to stop being a distance between vertices
+
+    It was, and it was wrong every time it mattered. A shin carries about ten vertices around its
+    circumference, so the gaps BETWEEN them are wider than any clearance worth measuring: two
+    surfaces can pass clean through each other while every vertex on one is a centimetre from every
+    vertex on the other. Measured that way this clip read 1.01 cm clear at its worst, and 18 of its
+    24 frames were actually interpenetrating, one of them across 246 triangles. Three rounds of
+    "the legs still go into each other" came out of that one bad ruler.
+
+    So the test is `BVHTree.overlap`, which asks the only question that matters - do any two
+    triangles cross - and answers it about the surfaces rather than about a point cloud. When they
+    do overlap the count comes back negative, so that more overlap is always worse than any amount
+    of daylight and a hill-climb can walk out of a collision without special-casing it. When they
+    do not, the distance is measured from vertices to the other leg's SURFACE, which is a proper
+    lower bound rather than a sample of one.
     """
     evaluated = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
     baked = evaluated.to_mesh()
     try:
         matrix = evaluated.matrix_world
-        right = [matrix @ baked.vertices[i].co for i in legs["R"]]
-        if not right or not legs["L"]:
-            return None
-        tree = mathutils.kdtree.KDTree(len(right))
-        for at, spot in enumerate(right):
-            tree.insert(spot, at)
-        tree.balance()
-        return min(tree.find(matrix @ baked.vertices[i].co)[2] for i in legs["L"])
+        spots = [matrix @ vertex.co for vertex in baked.vertices]
+        trees = {
+            side: mathutils.bvhtree.BVHTree.FromPolygons(spots, tris[side], all_triangles=True)
+            for side in "LR"
+        }
+        crossing = trees["L"].overlap(trees["R"])
+        if crossing:
+            return -0.001 * len(crossing)
+        far = None
+        for at in (only or legs["L"]):
+            found = trees["R"].find_nearest(spots[at])
+            if found and found[3] is not None and (far is None or found[3] < far):
+                far = found[3]
+        return far
     finally:
         evaluated.to_mesh_clear()
 

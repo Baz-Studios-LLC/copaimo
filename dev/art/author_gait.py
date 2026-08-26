@@ -2135,15 +2135,45 @@ UNCROSSES_THE_LEGS = False
 #
 # A centimetre, because at half that the two surfaces still read as fused in a render and at two he
 # starts to look like he is avoiding himself.
-THE_LEGS_KEEP_CLEAR_BY = 1.0
+# Half a centimetre, not one: this is now a SURFACE distance rather than a distance between
+# vertices, so it means what it says, and the point is only that they do not touch.
+THE_LEGS_KEEP_CLEAR_BY = 0.5
+
+# Whether only the LOWER legs are held apart. Two thighs brushing at the top of a stride is what a
+# stride does; "the lower legs dont touch" is the rule that was actually given.
+ONLY_THE_LOWER_LEGS = True
+
+# How far both thighs are abducted, in degrees, for the whole clip.
+#
+# # Why a constant, when everything else here is per-frame
+#
+# Because the fault is a constant. Measured with a real surface test, this clip's lower legs cross
+# on six frames and they are not near-misses - frame 8 crosses across 181 triangles. Nudging single
+# frames could not clear them and was never going to: the legs are not colliding at a moment, they
+# are colliding through the whole passing phase, because this figure's legs are thick relative to
+# the stance the clip runs at. A per-frame correction applied to a standing condition is how you
+# get the robotic look, since every frame gets its own answer to the same question.
+#
+# Swept, with both thighs abducted together and nothing else changed:
+#
+#     0 deg   6 frames crossing, worst -20.4      feet move   0.0 cm
+#     4 deg   4 frames crossing, worst  -4.6      feet move   4.8 cm
+#     6 deg   1 frame  crossing, worst  -1.0      feet move   7.3 cm
+#     8 deg   0 frames crossing                   feet move   9.7 cm
+#
+# Four, not eight. Eight clears everything on its own and stands him 19 cm wider than the animator
+# drew him, which is a different character walking; four costs half that and leaves a residue small
+# enough for `keep_the_legs_apart` to finish off a frame at a time - which is what a per-frame
+# correction is actually good for.
+THE_LEGS_STAND_APART_BY = 4.0
 KEEPS_THE_LEGS_APART = True
 # The most a thigh may be turned, in degrees, in total on any one frame.
-A_THIGH_MAY_SWING = 8.0
+A_THIGH_MAY_SWING = 14.0
 
 # How far the planted leg's knee may be swung round its own hip-to-ankle line to get its shin out
 # of the way, in degrees, and in what steps. The ankle does not move while it happens - only where
 # the knee points - so this is cheap in a way that moving a planted foot never is.
-A_POLE_MAY_TURN = 30.0
+A_POLE_MAY_TURN = 45.0
 POLE_STEP = 3.0
 
 # The most a planted sole may still be off the floor once the leg has been solved, in cm. Past
@@ -2209,6 +2239,10 @@ SOLES_LIE_WITHIN = 1.5
 
 LIES_THE_SOLE_FLAT = True
 THE_SOLE_LIES_AT = 0.0
+
+# How close the sole must be to the floor before it is laid flat at all, in cm. See the flatness
+# pass: a toe straightening out in mid-air is a fault of its own.
+THE_SOLE_FLATTENS_WITHIN = 3.0
 THE_TOES_POINT_OUT = 0.0
 
 # How near his facing the held plants have to end up before the clip counts as running straight,
@@ -2604,6 +2638,8 @@ def keep_the_legs_apart(rig, mesh, scene, pull, rigged, faces, first, last, loop
     undo the plant.
     """
     legs = ik_gait.which_vertices_are_legs(mesh)
+    tris = ik_gait.the_leg_triangles(mesh, legs, lower_only=ONLY_THE_LOWER_LEGS)
+    only = sorted({at for tri in tris["L"] for at in tri}) if ONLY_THE_LOWER_LEGS else None
     want = THE_LEGS_KEEP_CLEAR_BY / 170.0
     # ABDUCTION - about the way he FACES - and not yaw about the vertical.
     #
@@ -2618,7 +2654,7 @@ def keep_the_legs_apart(rig, mesh, scene, pull, rigged, faces, first, last, loop
         at = first if (loops and frame == last) else frame
         scene.frame_set(frame)
         bpy.context.view_layer.update()
-        gap = ik_gait.how_clear_the_legs_are(mesh, legs)
+        gap = ik_gait.how_clear_the_legs_are(mesh, legs, tris, only)
         if gap is None or gap >= want:
             continue
         free = [side for side in "LR" if pull[side][1][at] <= 0.0]
@@ -2664,21 +2700,35 @@ def keep_the_legs_apart(rig, mesh, scene, pull, rigged, faces, first, last, loop
                 axes = [swings_out, mathutils.Vector((0.0, 0.0, 1.0))]
                 if along.length > 1e-9:
                     axes.append(along.normalized())
+                # # Several step sizes, because the objective has plateaus
+                #
+                # A single degree is not always enough to change ANYTHING. The measure counts
+                # crossing triangles, so it only moves when a triangle actually stops crossing, and
+                # a shallow overlap can sit through a degree of rotation unchanged. Offering only
+                # one step size read that plateau as "nowhere left to go" and stopped with the legs
+                # still through each other by a centimetre on two frames.
+                #
+                # So each axis is probed at a degree, two and four, both ways, and the best of all
+                # of them is taken. Every probe is undone before the next, so they are compared
+                # against the same pose rather than against each other's leavings.
+                took, best_here = None, best
                 for axis in axes:
-                    for step in (1.0, -2.0):
+                    for step in (1.0, 2.0, 4.0, -1.0, -2.0, -4.0):
+                        if abs(turned[side] + step) > A_THIGH_MAY_SWING:
+                            continue
                         turn_further_absolutely(rig, bone, step, axis)
                         bpy.context.view_layer.update()
-                        now = ik_gait.how_clear_the_legs_are(mesh, legs)
-                        if now is not None and now > best + 1e-9:
-                            best = now
-                            turned[side] += 1.0 if step > 0 else -1.0
-                            better = True
-                            break
-                    else:
-                        turn_further_absolutely(rig, bone, 1.0, axis)
+                        now = ik_gait.how_clear_the_legs_are(mesh, legs, tris, only)
+                        if now is not None and now > best_here + 1e-9:
+                            best_here, took = now, (axis, step)
+                        turn_further_absolutely(rig, bone, -step, axis)
                         bpy.context.view_layer.update()
-                        continue
-                    break
+                if took is not None:
+                    turn_further_absolutely(rig, bone, took[1], took[0])
+                    bpy.context.view_layer.update()
+                    best = best_here
+                    turned[side] += took[1]
+                    better = True
             if better:
                 continue
 
@@ -2698,7 +2748,7 @@ def keep_the_legs_apart(rig, mesh, scene, pull, rigged, faces, first, last, loop
                 for step in (POLE_STEP, -2.0 * POLE_STEP):
                     hold.pole_angle += math.radians(step)
                     bpy.context.view_layer.update()
-                    now = ik_gait.how_clear_the_legs_are(mesh, legs)
+                    now = ik_gait.how_clear_the_legs_are(mesh, legs, tris, only)
                     if now is not None and now > best + 1e-9:
                         best = now
                         poled[(side, frame)] = poled.get((side, frame), 0.0) + (
@@ -2841,6 +2891,24 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
     if not all(down.values()):
         refuse(f"{clip.name} never puts a foot down, so there is nothing to plant")
 
+    # Widened FIRST, before a single foot is read, because it moves every one of them. Everything
+    # downstream - where the balls sit, what the stride measures, where the soles land - is then
+    # measured on the stance he is actually going to run at.
+    faces = ik_gait.the_way_he_faces(rig)
+    across = mathutils.Vector((0.0, 0.0, 1.0)).cross(faces).normalized()
+    if THE_LEGS_STAND_APART_BY:
+        for frame in range(first, last + 1):
+            scene.frame_set(frame)
+            bpy.context.view_layer.update()
+            for side, hand in (("L", 1.0), ("R", -1.0)):
+                turn_further_absolutely(rig, f"{side}_Thigh",
+                                        THE_LEGS_STAND_APART_BY * hand, faces)
+                posed = rig.pose.bones[f"{side}_Thigh"]
+                posed.rotation_mode = "QUATERNION"
+                posed.keyframe_insert("rotation_quaternion", frame=frame)
+        print(f"    stood him {THE_LEGS_STAND_APART_BY:.1f} deg wider at both hips, which is a "
+              "standing condition and so is applied to every frame alike")
+
     # Where the clip's own ankles are, read BEFORE any constraint exists. Reading them afterwards
     # asks the rig where the solver just put them, which is the answer this is trying to compute.
     ankles, balls = read_the_feet(rig, scene, first, last)
@@ -2858,8 +2926,6 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
     # eased curve. It cannot be keyed as it is found, because the ramp needs to know where a plant
     # ENDS before it can taper out of it, and that is not known until the plant is over.
     cycle = (last - first) if loops else (last - first + 1)
-    faces = ik_gait.the_way_he_faces(rig)
-    across = mathutils.Vector((0.0, 0.0, 1.0)).cross(faces).normalized()
 
     # # Where the ball sits once the foot is FLAT, which is not where it sat while it was tilted
     #
@@ -3131,6 +3197,20 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
             bpy.context.view_layer.update()
             for side in "LR":
                 share = flatly[side][1][first if (loops and frame == last) else frame]
+                # # Flatness follows the FLOOR, not the frame count
+                #
+                # The ramp alone put a foot's toe most of the way flat while it was still seven
+                # centimetres up, because it eases over a fixed number of frames and says nothing
+                # about where the foot is. Reported as "frames 7 and 17 are bending the toes
+                # midflight", and that is exactly what it was.
+                #
+                # A foot lands flat, so the flattening is tied to the landing: full on the floor,
+                # nothing once the sole is more than `THE_SOLE_FLATTENS_WITHIN` up, and in between
+                # in proportion. The frame ramp still caps it, so nothing outside a plant's
+                # neighbourhood is touched at all.
+                sole = ik_gait.lowest_sole(rig, mesh, feet, side) - ground
+                near = 1.0 - sole / (THE_SOLE_FLATTENS_WITHIN / 170.0)
+                share = min(share, max(0.0, min(1.0, near)))
                 if share <= 0.0:
                     continue
                 bones = (f"{side}_Foot", f"{side}_ToeBase")
