@@ -784,6 +784,10 @@ THE_HINGE_BLENDS_OVER = 0.08
 # metatarsophalangeal joint sits LOW in the foot; the ankle is the high one.
 THE_TOE_SITS_UP = 0.30
 
+# How much of the shoe's length counts as the toe box, for putting the toe bone's tip in the middle
+# of it. A tenth of a 33 cm shoe is the front 3.3 cm, which is the toe and not the ball.
+THE_TIP_IS_THE_FRONT = 0.10
+
 # A shoe within this many centimetres of the floor is down.
 STANCE_WITHIN = 3.0
 
@@ -3092,20 +3096,33 @@ def hinge_the_toes_at_the_ball(rig, mesh):
                        THE_TOE_HINGES_AT * 100.0)
     bpy.ops.object.mode_set(mode="OBJECT")
 
-    # The tail again, measured against the bone's NEW direction. Setting it in one pass overshot
-    # the tip by 12-19% because the extent was measured along the OLD bone's axis and the bone no
-    # longer points that way. Measure, move, measure.
+    # # The tail lands IN the toe box, not on a line aimed at it
+    #
+    # This used to run the bone along the shoe's own tilted long axis and scale it until it reached
+    # the front measured flatly. Two things went wrong at once and they compounded: the long axis of
+    # a shoe tilts DOWN toward the toe because the shoe tapers, so scaling it to reach the front
+    # horizontally overshoots the front AND sinks below the sole. Measured on the built character,
+    # both tips ended up past the end of the shoe - 112.5% and 110.0% along it - and 3.7 and 3.3 cm
+    # BELOW the sole. A toe bone sticking out through the bottom of a shoe cannot bend a toe
+    # convincingly whatever angle it is given, which is what "the toe bends incorrectly" kept
+    # coming back to, on both feet alike rather than on one of them.
+    #
+    # So the tail is not aimed at all. It is placed on the middle of the flesh at the front of the
+    # shoe, which is inside the shoe by construction and at the height a toe tip actually sits.
     for side in ("L", "R"):
-        ahead, back, front, _, tilted = the_shoe_runs(rig, mesh, side)
+        ahead, back, front, shoe, _ = the_shoe_runs(rig, mesh, side)
         head = rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].bone.head_local
-        reach = front - head.dot(ahead)
-        if reach <= 1e-6:
+        spots = [mesh.matrix_world @ mesh.data.vertices[i].co for i in shoe]
+        toe_box = [p for p in spots
+                   if p.dot(ahead) >= front - (front - back) * THE_TIP_IS_THE_FRONT]
+        if not toe_box:
+            continue
+        tip = sum(toe_box, mathutils.Vector((0.0, 0.0, 0.0))) / len(toe_box)
+        if (tip - head).length <= 1e-6:
             continue
         bpy.context.view_layer.objects.active = rig
         bpy.ops.object.mode_set(mode="EDIT")
-        bone = rig.data.edit_bones[f"{side}_ToeBase"]
-        bone.tail = rig.matrix_world.inverted() @ (
-            head + tilted * (reach / max(tilted.dot(ahead), 1e-6)))
+        rig.data.edit_bones[f"{side}_ToeBase"].tail = rig.matrix_world.inverted() @ tip
         bpy.ops.object.mode_set(mode="OBJECT")
 
     # And the weights, about the new hinge. Only the Foot/ToeBase share moves; each vertex keeps
@@ -3131,6 +3148,50 @@ def hinge_the_toes_at_the_ball(rig, mesh):
             shifted += 1
     mesh.data.update()
     return moved, shifted
+
+
+def weight_the_toes_about_the_hinge(rig, mesh):
+    """Splits each foot's flesh between foot and toe about where the toe joint ACTUALLY ended up.
+
+    # Why this has to happen last
+
+    The hinge already re-weighted once, against the ball position it was aiming for, measured
+    before it moved anything. Then the joint moved, and then the bind was mirrored again - and a
+    mirror shifts a joint that was not symmetric to start with. So the crease and the joint drifted
+    apart, by different amounts on each side: measured on the built character, the left toe's
+    influence reached 0.62 at 60% of the shoe while its joint sat at 69%, and the right reached
+    0.31 at the same place with its joint at 66%. One shoe creased 3.6 cm behind its own hinge and
+    the other creased on it, which is two feet bending differently however carefully their angles
+    are matched.
+
+    Reading the joint back off the rig costs nothing and cannot drift, so it is read back.
+
+    Only the foot-and-toe share moves. Each vertex keeps whatever total those two held, so nothing
+    the calf or the ankle owns is touched.
+    """
+    groups = {g.name: g for g in mesh.vertex_groups}
+    shifted, where = 0, {}
+    for side in ("L", "R"):
+        ahead, back, front, _, _ = the_shoe_runs(rig, mesh, side)
+        foot, toe = groups.get(f"{side}_Foot"), groups.get(f"{side}_ToeBase")
+        if foot is None or toe is None:
+            continue
+        length = front - back
+        ball = (rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].bone.head_local).dot(ahead)
+        band = length * THE_HINGE_BLENDS_OVER
+        where[side] = (ball - back) / length * 100.0
+        for vertex in mesh.data.vertices:
+            held = {g.group: g.weight for g in vertex.groups}
+            mine = held.get(foot.index, 0.0) + held.get(toe.index, 0.0)
+            if mine <= 1e-5:
+                continue
+            at = (mesh.matrix_world @ vertex.co).dot(ahead)
+            share = min(max((at - (ball - band)) / (2.0 * band), 0.0), 1.0)
+            toe.add([vertex.index], mine * share, "REPLACE")
+            foot.add([vertex.index], mine * (1.0 - share), "REPLACE")
+            shifted += 1
+    mesh.data.update()
+    return shifted, where
 
 
 def the_foot_parts(posed, skin, shoe, side):
@@ -4308,6 +4369,13 @@ def main():
             if MIRRORS_THE_BIND:
                 pairs, was = the_bind_is_mirrored(rig)
                 print(f"    mirrored again after the hinge: worst {was:.2f} cm")
+            # And the toe weights LAST of all, about where the joint finally sits rather than
+            # where the hinge meant to put it - see `weight_the_toes_about_the_hinge`.
+            if HINGES_THE_TOES:
+                again, where = weight_the_toes_about_the_hinge(rig, base_mesh)
+                print("    re-weighted the toes about the settled hinge: "
+                      + ", ".join(f"{side} at {at:.0f}% along the shoe"
+                                  for side, at in sorted(where.items())))
             if KNEE_EASE:
                 stands = ease_the_knees(rig, KNEE_EASE)
                 print(f"    eased the knees {KNEE_EASE:.1f} deg; the bind now stands at "
