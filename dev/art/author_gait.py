@@ -2294,6 +2294,31 @@ THE_TOES_ARE_HINGES = True
 # still left one axis free - and it was the one that showed.
 STATES_EVERY_FOOT = True
 
+# # When the toe bends, and how far
+#
+# "The toe bend is happening at the wrong time." Measured against the frames the foot is actually
+# on the ground, it was happening two and three frames late and in mid-air: the left toe reaching
+# +39.7 degrees on frame 10 with its foot 9 cm up, having been dead flat on frames 7 and 8 when it
+# was down. The right the same, +36.0 on frame 5 with the foot 20 cm up.
+#
+# Both halves of that are this pass's own doing. The flattening states a planted sole FLAT, which
+# erases the dorsiflexion a real toe has at push-off; and what was left was the animator's bend,
+# which is late, playing out over a foot that had already gone.
+#
+# A toe dorsiflexes because the heel lifts while the toe stays down - the foot pivots over the ball
+# and the joint is forced open. That happens AT toe-off, by definition, and it is over almost at
+# once: the toe unloads as the foot leaves and hangs near neutral through the swing. So the bend is
+# driven from the phase rather than read from the clip, which is the same decision the heading
+# already took and for the same reason - there is nothing stable in the clip to correct FROM.
+#
+# Forty at the moment of leaving, because that is where the metatarsophalangeal joint sits at
+# push-off and the shoe's own crease is built for it. Ten on the way back down, which is a toe
+# lifting to clear the ground before the heel arrives.
+THE_TOE_LIFTS_AT_TOE_OFF = 40.0
+THE_TOE_UNCURLS_OVER = 2.0
+THE_TOE_LIFTS_BEFORE_LANDING = 10.0
+THE_TOE_LIFTS_OVER = 2.0
+
 CAPS_THE_ANKLE = False
 THE_FOOT_POINTS_AT_MOST = 20.0
 THE_FOOT_LIFTS_AT_MOST = 25.0
@@ -2973,7 +2998,34 @@ def how_far_the_foot_rolls(rig, side):
     return turned, axis
 
 
-def state_every_foot(rig, mesh, feet, ground, scene, faces, across, first, last):
+def how_far_the_toe_should_bend(frame, down, first, last, loops):
+    """The toe's bend for this frame, from where the foot is in its own step.
+
+    Counted in frames since the foot left the ground and frames until it lands again, cyclically,
+    so the shape is tied to the step and not to a frame number. Push-off is the big one and it
+    decays fast; the lift before landing is small and rises into it.
+    """
+    if not down:
+        return 0.0
+    span = (last - first) if loops else (last - first + 1)
+
+    def away(way):
+        for step in range(1, span):
+            at = first + (frame - first + way * step) % span
+            if at in down:
+                return step
+        return None
+
+    since, until = away(-1), away(1)
+    off, on = 0.0, 0.0
+    if since is not None:
+        off = THE_TOE_LIFTS_AT_TOE_OFF * max(0.0, 1.0 - (since - 1) / THE_TOE_UNCURLS_OVER)
+    if until is not None:
+        on = THE_TOE_LIFTS_BEFORE_LANDING * max(0.0, 1.0 - (until - 1) / THE_TOE_LIFTS_OVER)
+    return max(off, on)
+
+
+def state_every_foot(rig, mesh, feet, ground, scene, faces, across, down, first, last, loops):
     """States each foot's whole orientation on every frame: heading, pitch, and no bank.
 
     # Why the whole orientation, and not one axis at a time
@@ -2999,22 +3051,27 @@ def state_every_foot(rig, mesh, feet, ground, scene, faces, across, first, last)
     A foot on the floor is left alone. The flattening pass owns those, and it says something
     stricter than this does.
     """
+    # The PLANT's own stance set, not a fresh measurement of the soles.
+    #
+    # Re-measuring here read the soles mid-pipeline, after the plant had keyed them and before the
+    # flattening had finished with them, and got a different answer on one side: the left's set
+    # picked up a frame the right's did not, so its toe-off landed a frame late and the two feet
+    # disagreed about their own timing. `down` is what every other pass here means by planted, and
+    # it already excludes the lift-off frame - which is exactly the frame the bend belongs on.
+    grounded = {side: set(down[side]) for side in "LR"}
     caught, worst = 0, 0.0
     for frame in range(first, last + 1):
         scene.frame_set(frame)
         bpy.context.view_layer.update()
         for side in "LR":
-            if ik_gait.lowest_sole(rig, mesh, feet, side) - ground <= (A_FOOT_IS_DOWN / 170.0):
+            if frame in grounded[side]:
                 continue
 
-            # Read the two things worth keeping BEFORE anything is stated, or they are read off
-            # the answer instead of off the clip.
+            # The PITCH is read off the clip, before anything is stated, or it is read off the
+            # answer instead. The bend is not read at all - see `how_far_the_toe_should_bend`.
             points = how_far_the_foot_points(rig, side, faces)
-            bends, _ = how_the_toe_bends(rig, side)
-            bends -= the_bind_toe_bend(rig, side)
-
             held = max(-THE_FOOT_LIFTS_AT_MOST, min(THE_FOOT_POINTS_AT_MOST, points))
-            bent = max(-THE_TOE_HANGS_AT_MOST, min(THE_TOE_LIFTS_AT_MOST, bends))
+            bent = how_far_the_toe_should_bend(frame, grounded[side], first, last, loops)
             was = how_far_the_foot_turns_out(rig, side, faces, across)
 
             # `point_the_foot` takes pitch POSITIVE as toe-up, and `how_far_the_foot_points`
@@ -3728,7 +3785,7 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
 
     if STATES_EVERY_FOOT:
         turned, worst = state_every_foot(
-            rig, mesh, feet, ground, scene, faces, across, first, last)
+            rig, mesh, feet, ground, scene, faces, across, down, first, last, loops)
         print(f"    stated every airborne foot's whole orientation - heading along his travel, no "
               f"bank, the animator's pitch kept inside an ankle's range; {turned} of them were "
               f"pointing off, the worst by {worst:.1f} deg")
