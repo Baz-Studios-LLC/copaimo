@@ -11,5 +11,13 @@ quiet='^(Blender [0-9]|Read prefs|Fra:|Saved:|Info:|Warning: |[0-9]{2}:[0-9]{2}:
 "$blender" --background --python-exit-code 1 --python "$here/build_character.py" 2>&1 \
   | grep -viE "$quiet"
 echo
-"$blender" --background --python-exit-code 1 --python "$here/author_gait.py" 2>&1 \
-  | grep -viE "$quiet"
+# Both travelling clips, each planted in its own pass. The walk needs it as much as the jog -
+# same soles, same floor, same slide - and planting it is also the only exact source of its
+# COVERS, since these clips arrive with no root motion to measure it from.
+# The walk is not planted yet: its balls measure 0.64 cm a frame against the jog's 14.08, and
+# the plant breaks its loop by 12.24 cm - it does not close the way the jog does. Add it back here
+# once that is understood.
+for clip in jog; do
+  "$blender" --background --python-exit-code 1 --python "$here/author_gait.py" -- \
+    --name "$clip" 2>&1 | grep -viE "$quiet"
+done

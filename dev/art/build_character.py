@@ -77,6 +77,22 @@ RENAMES = {
 # this file - see RENAMES.
 STANDS_A_UNIT_TALL = 1.0
 
+# # A still idle, held from the walk
+#
+# The 2026-08-26 delivery is a walk and a run with no idle, and the game asks for one by name -
+# `look.rs` names the clip and `motion.rs` blends out of it. "We dont need an idle I think, he can
+# just stand there for now", so he stands.
+#
+# The pose is TAKEN rather than authored: the frame of the walk where his two feet are closest
+# together and both nearest the floor, which is the moment a walk passes through standing. That is
+# a real pose by a real animator with his arms and shoulders where they belong, and it costs
+# nothing to be wrong about, unlike a pose invented here.
+#
+# Two seconds of it, keyed at both ends so the clip has a duration to blend across and no motion
+# to notice. When a real idle arrives this whole thing is one line to delete.
+STANDS_STILL_FROM = "walk"
+STANDS_STILL_FOR = 48
+
 # The 2026-08-26 warden delivered a WALK and a RUN and no idle, so there is no idle here. The
 # joiner below still expects one and `look.rs` still asks the game for one, which is the largest
 # open thing about this changeover - see the note on JOINED.
@@ -1613,6 +1629,50 @@ def carry_the_clips_into_the_new_scale(clips, factor):
             curve.update()
             moved += 1
     return moved
+
+
+def stand_him_still(rig, walk, scene, called="idle"):
+    """Freezes the walk's most standing-like frame into a still clip. See STANDS_STILL_FROM.
+
+    Chosen by measurement, not by picking a frame number: feet closest together, and lowest, wins.
+    """
+    first, last = (int(round(v)) for v in walk.frame_range)
+    play(rig, walk)
+    best, at = None, first
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        left = rig.matrix_world @ rig.pose.bones["L_Foot"].head
+        right = rig.matrix_world @ rig.pose.bones["R_Foot"].head
+        apart = (left - right).length
+        high = max(left.z, right.z)
+        score = apart + high
+        if best is None or score < best:
+            best, at = score, frame
+
+    scene.frame_set(at)
+    bpy.context.view_layer.update()
+    held = {bone.name: bone.matrix_basis.copy() for bone in rig.pose.bones}
+
+    still = bpy.data.actions.new(called)
+    still.use_fake_user = True
+    rig.animation_data.action = still
+    slots = getattr(still, "slots", None)
+    if slots is not None:
+        try:
+            rig.animation_data.action_slot = still.slots.new("OBJECT", rig.name)
+        except Exception:
+            pass
+    for frame in (1, STANDS_STILL_FOR):
+        scene.frame_set(frame)
+        for bone in rig.pose.bones:
+            bone.matrix_basis = held[bone.name]
+            bone.rotation_mode = "QUATERNION"
+        bpy.context.view_layer.update()
+        for bone in rig.pose.bones:
+            bone.keyframe_insert("rotation_quaternion", frame=frame)
+            bone.keyframe_insert("location", frame=frame)
+    return still, at
 
 
 def speak_the_clips_language(clips):
@@ -4899,6 +4959,13 @@ def main():
             if abs(now_low) > 0.2 / 170.0:
                 refuse(f"{called} rests its sole {now_low * 170.0:.2f} cm off the floor after "
                        f"being lifted, so the lift did not take")
+
+    if "idle" not in wanted and STANDS_STILL_FROM in wanted:
+        still, took = stand_him_still(base_rig, wanted[STANDS_STILL_FROM], scene)
+        wanted["idle"] = still
+        print(f"  no idle was delivered, so he stands: held frame {took} of the "
+              f"{STANDS_STILL_FROM} - the frame his feet are closest and lowest - for "
+              f"{STANDS_STILL_FOR} frames")
 
     # The clip the file is left showing. The idle when there is one, since that is what a warden
     # does most of the time - and whatever else there is when there is not. The 2026-08-26 delivery

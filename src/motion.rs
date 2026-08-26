@@ -161,6 +161,14 @@ pub const WALK_COVERS_FOR_TESTS: f32 = WALK_COVERS;
 // crab is longer than the same stride measured along the way he actually goes, by exactly the
 // cosine of it. The clip now checks this itself and refuses past a quarter degree.
 //
+// 2.113 for the 2026-08-26 warden, which is a different character on a different stride and
+// carries none of the reasoning below with it. It comes from `author_gait`'s own lock: the planted
+// balls are held to 14.08 cm a frame over a 15-frame cycle, which is what distance matching has to
+// agree with by construction. WALK_COVERS is still the old asset's and is WRONG - that clip is not
+// planted yet, so there is no exact source for it.
+//
+// The history below is the previous warden's and is kept because the reasoning still holds.
+//
 // It fell again, to 4.039, when the planted soles were laid FLAT: a pointed toe reaches
 // further than a flat one, and the stride measured through flat feet is 16.83 cm a frame
 // against 20.12 through tilted ones.
@@ -168,7 +176,7 @@ pub const WALK_COVERS_FOR_TESTS: f32 = WALK_COVERS;
 // Per CYCLE that is 2.02 m, or 1.19 x his height - the same place the authored clip landed, and
 // inside the 1.4-1.8 a jog wants. The clip carries twice that because it is two cycles long, which
 // is what `CYCLES` is for.
-const JOG_COVERS: f32 = 4.039;
+const JOG_COVERS: f32 = 2.113;
 
 /// How many gait CYCLES each clip contains, so cadence can be told apart from playback rate.
 ///
