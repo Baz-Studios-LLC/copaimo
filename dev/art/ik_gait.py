@@ -43,6 +43,7 @@ import math
 
 import bpy
 import mathutils
+import mathutils.kdtree
 
 # How high a swinging foot lifts, as a share of the leg's length. A toe needs very
 # little to clear the ground and a lifted knee reads as high-stepping.
@@ -439,6 +440,49 @@ def the_way_he_faces(rig):
                 f"{apart:.2f} degrees apart - past the {THE_BIND_AGREES_WITHIN:.1f} that means "
                 "they agree. Fix the bind rather than choosing between them.")
     return faces
+
+
+# Which bones' flesh counts as a leg, for the purpose of two legs not passing through each other.
+A_LEG_IS = ("Thigh", "Calf", "Knee", "Foot", "Toe", "Shin")
+
+
+def which_vertices_are_legs(mesh):
+    """Which vertices belong to each whole leg, by dominant weight."""
+    groups = {g.index: g.name for g in mesh.vertex_groups}
+    legs = {"L": [], "R": []}
+    for vertex in mesh.data.vertices:
+        heaviest = max(vertex.groups, key=lambda g: g.weight, default=None)
+        if heaviest is None:
+            continue
+        name = groups.get(heaviest.group, "")
+        for side in "LR":
+            if name.startswith(side + "_") and any(part in name for part in A_LEG_IS):
+                legs[side].append(vertex.index)
+    return legs
+
+
+def how_clear_the_legs_are(mesh, legs):
+    """The least distance between the two legs' DEFORMED flesh, in model units.
+
+    Off a k-d tree over one side and every vertex of the other, so the answer is the real minimum
+    rather than the minimum over a sample. Sampling matters here: taking every second vertex on
+    each side reported 0.45 cm of daylight on a frame whose meshes were actually interpenetrating,
+    which is the difference between "close" and "through", and the difference the report turned on.
+    """
+    evaluated = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    baked = evaluated.to_mesh()
+    try:
+        matrix = evaluated.matrix_world
+        right = [matrix @ baked.vertices[i].co for i in legs["R"]]
+        if not right or not legs["L"]:
+            return None
+        tree = mathutils.kdtree.KDTree(len(right))
+        for at, spot in enumerate(right):
+            tree.insert(spot, at)
+        tree.balance()
+        return min(tree.find(matrix @ baked.vertices[i].co)[2] for i in legs["L"])
+    finally:
+        evaluated.to_mesh_clear()
 
 
 def the_line_of_travel(steps, along=None):

@@ -2124,7 +2124,27 @@ THE_FEET_MAY_CROSS_BY = 4.0
 # a body that travels where it points. The machinery stays because it is measured and guarded, and
 # a clip that genuinely plaits can have it by naming it here.
 UNCROSSES_THE_LEGS = False
-A_THIGH_MAY_SWING = 12.0
+
+# How much daylight the two legs must keep between their flesh, in cm.
+#
+# "When a person runs the lower legs dont touch even if they get close otherwise they'd fall down."
+# That is the rule, and it is a much smaller one than the crossover rules that came before it: it
+# says nothing about where a leg should be, only that it may not be inside the other one. So the
+# correction is whatever the overlap is and not a centimetre more, which is why this can be on when
+# those are off.
+#
+# A centimetre, because at half that the two surfaces still read as fused in a render and at two he
+# starts to look like he is avoiding himself.
+THE_LEGS_KEEP_CLEAR_BY = 1.0
+KEEPS_THE_LEGS_APART = True
+# The most a thigh may be turned, in degrees, in total on any one frame.
+A_THIGH_MAY_SWING = 8.0
+
+# How far the planted leg's knee may be swung round its own hip-to-ankle line to get its shin out
+# of the way, in degrees, and in what steps. The ankle does not move while it happens - only where
+# the knee points - so this is cheap in a way that moving a planted foot never is.
+A_POLE_MAY_TURN = 30.0
+POLE_STEP = 3.0
 
 # The most a planted sole may still be off the floor once the leg has been solved, in cm. Past
 # this the leg could not reach and the plant is a lie, so it is refused rather than shipped.
@@ -2560,6 +2580,153 @@ def where_he_crosses_over(ankles, across, first, last):
     return strayed
 
 
+def keep_the_legs_apart(rig, mesh, scene, pull, rigged, faces, first, last, loops):
+    """Swings whichever leg is free until the two legs stop passing through each other.
+
+    # The rule, and why it is allowed where the others were not
+
+    "When a person runs the lower legs dont touch even if they get close otherwise they'd fall
+    down." That is a statement about INTERPENETRATION and nothing else. It does not say where a leg
+    should be, how wide he should stand or whether his feet may cross - all of which are the
+    animator's, and all of which were corrected here once and had to be taken out again for making
+    him robotic. It says only that two solid things may not occupy the same place.
+
+    So the correction is the overlap and not a millimetre more, measured off the DEFORMED flesh
+    rather than off the bones, and it stops the moment there is daylight. On this clip that is
+    around a centimetre on a handful of frames, against the seven and a half the crossover clamp
+    wanted.
+
+    # At the hip, and only on a leg that is free
+
+    Turning the thigh moves hip, knee, shin and foot as one piece, so the knee keeps the bend the
+    animator gave it and the shin keeps its line - the leg is AIMED differently and not reshaped. A
+    planted foot takes no share of it, since it is being held on the ground and swinging it would
+    undo the plant.
+    """
+    legs = ik_gait.which_vertices_are_legs(mesh)
+    want = THE_LEGS_KEEP_CLEAR_BY / 170.0
+    # ABDUCTION - about the way he FACES - and not yaw about the vertical.
+    #
+    # Turning a thigh about the vertical swings the leg fore and aft, which is the wrong plane
+    # entirely: on frame 8 it could not open the gap in either direction and the climb stalled at
+    # 0.65 cm. Rotating about the line of travel swings the leg OUT, away from its neighbour, which
+    # is the motion the report is asking for and the one a person actually uses to keep their shins
+    # off each other.
+    swings_out = faces.normalized()
+    parted, poled = {}, {}
+    for frame in range(first, last + 1):
+        at = first if (loops and frame == last) else frame
+        scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        gap = ik_gait.how_clear_the_legs_are(mesh, legs)
+        if gap is None or gap >= want:
+            continue
+        free = [side for side in "LR" if pull[side][1][at] <= 0.0]
+        held = [side for side in "LR" if pull[side][1][at] > 0.0]
+        if not free and not held:
+            continue
+        # # Climbed a degree at a time, not stepped to a computed answer
+        #
+        # The obvious version divides the shortfall by how far one degree opened the gap and takes
+        # that step. It diverges, because the closest pair of vertices JUMPS - shin to shin one
+        # moment, ankle to calf the next - so a degree can open the gap by almost nothing and the
+        # division then asks for hundreds. Measured, it wound a thigh 85 degrees round.
+        #
+        # A degree at a time, kept only if it actually opened the gap, and capped. It cannot
+        # diverge, it needs no model of the geometry, and the cost is a handful of extra passes on
+        # the five frames that need any.
+        turned = {side: 0.0 for side in free}
+        best = gap
+        for _ in range(TRIES):
+            if best >= want:
+                break
+            better = False
+            for side in free:
+                if abs(turned[side]) >= A_THIGH_MAY_SWING:
+                    continue
+                bone = f"{side}_Thigh"
+                # # Three axes offered, and the leg picks
+                #
+                # Abduction alone is not enough. It swings a STRAIGHT leg out beautifully and does
+                # almost nothing for a deeply flexed one, because with the knee folded the shin
+                # points back and up and abducting the thigh carries it fore and aft instead of
+                # sideways. Frame 8 is exactly that: shin against shin at 34 cm off the floor, mid
+                # swing, and the climb could not move it a millimetre either way.
+                #
+                # With the knee bent, the thing that swings the lower leg out is rotation about the
+                # THIGH's own length - which is what a person uses, and why a footballer turns their
+                # hip out to clear their standing leg. So all three are offered and whichever opens
+                # the gap wins. Nothing here needs to know which one that will be, and on a rig
+                # already mirrored, hinged and squared, guessing the sign of any of them would be
+                # its own bug.
+                thigh = rig.pose.bones[bone]
+                along = (rig.matrix_world @ thigh.tail) - (rig.matrix_world @ thigh.head)
+                axes = [swings_out, mathutils.Vector((0.0, 0.0, 1.0))]
+                if along.length > 1e-9:
+                    axes.append(along.normalized())
+                for axis in axes:
+                    for step in (1.0, -2.0):
+                        turn_further_absolutely(rig, bone, step, axis)
+                        bpy.context.view_layer.update()
+                        now = ik_gait.how_clear_the_legs_are(mesh, legs)
+                        if now is not None and now > best + 1e-9:
+                            best = now
+                            turned[side] += 1.0 if step > 0 else -1.0
+                            better = True
+                            break
+                    else:
+                        turn_further_absolutely(rig, bone, 1.0, axis)
+                        bpy.context.view_layer.update()
+                        continue
+                    break
+            if better:
+                continue
+
+            # # The planted leg's own lever: where its KNEE points
+            #
+            # When the free leg cannot help - and on frame 8 it cannot, because the two legs are
+            # close over a whole stretch of shin and moving one rigidly just trades one contact for
+            # another - the leg that is standing still has a degree of freedom nobody has spent. A
+            # two-bone chain reaching a fixed point can put its knee anywhere on a circle; that is
+            # the ambiguity `add_leg_ik` describes and the pole exists to resolve. Turning the pole
+            # swings the knee and the shin round that circle while the ANKLE does not move at all,
+            # so the plant is untouched and the shin gets out of the way.
+            for side in held:
+                if abs(poled.get((side, frame), 0.0)) >= A_POLE_MAY_TURN:
+                    continue
+                hold = rigged[side][2]
+                for step in (POLE_STEP, -2.0 * POLE_STEP):
+                    hold.pole_angle += math.radians(step)
+                    bpy.context.view_layer.update()
+                    now = ik_gait.how_clear_the_legs_are(mesh, legs)
+                    if now is not None and now > best + 1e-9:
+                        best = now
+                        poled[(side, frame)] = poled.get((side, frame), 0.0) + (
+                            POLE_STEP if step > 0 else -POLE_STEP)
+                        better = True
+                        break
+                else:
+                    hold.pole_angle += math.radians(POLE_STEP)
+                    bpy.context.view_layer.update()
+            if not better:
+                break
+        for side in "LR":
+            if (side, frame) in poled:
+                rigged[side][2].keyframe_insert("pole_angle", frame=frame)
+        print(f"      frame {frame}: gap {gap * 170.0:.2f} -> {best * 170.0:.2f} cm, "
+              f"free {free}, turned " + ", ".join(f"{k}{v:+.1f}" for k, v in turned.items())
+              + "".join(f", {k[0]} pole {v:+.0f}" for k, v in poled.items() if k[1] == frame))
+        for side in free:
+            if abs(turned.get(side, 0.0)) > 1e-9:
+                parted[(side, frame)] = turned[side]
+        for side in free:
+            if (side, frame) in parted:
+                posed = rig.pose.bones[f"{side}_Thigh"]
+                posed.rotation_mode = "QUATERNION"
+                posed.keyframe_insert("rotation_quaternion", frame=frame)
+    return parted
+
+
 def uncross_from_the_hip(rig, scene, across, pull, first, last, loops):
     """Swings a crossed leg back onto its own side by turning the THIGH, not by moving the foot.
 
@@ -2941,10 +3108,20 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
             rigged[side][2].influence = strength[frame]
             rigged[side][2].keyframe_insert("influence", frame=frame)
 
-    # # Laying the soles down, after the legs are keyed and before they are baked
+    if KEEPS_THE_LEGS_APART:
+        parted = keep_the_legs_apart(rig, mesh, scene, pull, rigged, faces,
+                                    first, last, loops)
+        if parted:
+            print(f"    the legs were touching on {len(parted)} frame(s); swung the free thigh at "
+                  f"most {max(abs(v) for v in parted.values()):.2f} deg to put daylight between "
+                  "them")
+
+    # # Laying the soles down LAST, once every leg is settled
     #
-    # A second pass, because a foot's LOCAL rotation depends on where the solver put its shin, and
-    # the shin is not settled until the targets and their influence have been keyed. Ramped by the
+    # A foot's local rotation depends on where the solver put its shin, so the shin has to stop
+    # moving first: the targets keyed, their influence keyed, and the legs parted. Laying the soles
+    # before the parting had the pole turn the calf out from under a foot that was already flat and
+    # take 5.87 degrees of that flatness with it. Ramped by the
     # same strength the solver uses, so a foot does not snap from the animator's angle to a flat
     # one in a single frame - it arrives flat as it lands and leaves as it lifts.
     if LIES_THE_SOLE_FLAT:
