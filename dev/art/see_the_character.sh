@@ -3,6 +3,7 @@
 #
 #   dev/art/see_the_character.sh                 opens on the idle
 #   dev/art/see_the_character.sh --clip walk     opens on the walk
+#   dev/art/see_the_character.sh --in-place      runs him on the spot, to watch the feet land
 #
 # Closes any Blender already open first, on purpose: the point is that there is ONE window
 # showing the CURRENT build. Two windows is how a fault gets reported against a stale one.

@@ -25,6 +25,7 @@ as a bag of spheres instead of as bones. Reported as "no spheres, I want to see 
 And from Blender 4.4 an action holds SLOTS - until one is bound the action is attached and
 inert, playing nothing while reporting success.
 """
+import math
 import os
 import sys
 
@@ -307,7 +308,21 @@ def main():
     # then stands still against the floor the way it will in game. The speed comes from the clip
     # itself - the distance one cycle covers over how long it lasts - so it is right for whatever
     # clip is showing rather than a number typed here.
-    if wanted is not None and rig is not None and CARRIES_HIM_FORWARD and mesh is not None:
+    # # Carried, or running on the spot
+    #
+    # Two different questions, and one view cannot answer both. Carrying him forward is how you see
+    # whether a planted foot SLIDES, because the floor stands still and the foot should too. Running
+    # him on the spot is how you see how a foot LANDS - the contact stays under the camera instead
+    # of leaving it, and the same frames come round again every cycle.
+    #
+    # So it is a flag rather than a setting. `--in-place` for the landings; carried by default,
+    # because slide is the thing that goes unnoticed.
+    on_the_spot = "--in-place" in argv()
+    if on_the_spot:
+        print("  running him ON THE SPOT: the clip is a treadmill and is being shown as one, so "
+              "watch where each foot meets the floor rather than whether it slides")
+    if (wanted is not None and rig is not None and CARRIES_HIM_FORWARD and mesh is not None
+            and not on_the_spot):
         first, last = (int(round(v)) for v in wanted.frame_range)
         play(rig, wanted)
         feet = ik_gait.which_vertices_are_feet(mesh)

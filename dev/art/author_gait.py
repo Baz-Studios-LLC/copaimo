@@ -2072,6 +2072,60 @@ A_FOOT_IS_DOWN_FOR = 0.20
 # lands on frames the foot is in the AIR, where a centimetre of ankle height is nobody's business.
 EASES_OVER = 2
 
+# How many frames at the END of a contact are treated as the foot lifting rather than standing.
+# See `less_the_lift_off`. Nought keeps the whole contact.
+LIFTS_OFF_OVER = 1
+
+# How far outward the knee is aimed, in degrees.
+#
+# The pole is what decides which way a knee points - see `ik_gait.add_leg_ik` on the circle of
+# solutions a two-bone chain has - and this was 16 while the solver only ever ran on PLANTED
+# frames, to open up shins that were passing within 4.78 cm.
+#
+# It is nought now, and the reason is a lesson about reaching for a knob twice. Once the uncrossing
+# turned the solver on through the SWING as well, that same 16 degrees threw the swinging knee 28 cm
+# off his centre line - bandy, on the frames the leg is most visible. And it had stopped being
+# needed: uncrossing the feet separates the legs by itself, and took the closest knees from 6.68 cm
+# to over 20 without any help from here. So the knee is left to the pole's own knee-over-toe aim.
+THE_KNEES_TRACK_OUT = 0.0
+
+# How much clear air the two feet must keep between them, across the line of travel, in cm.
+#
+# "Frame 11 his lead leg crosses over in front of the back leg." Measured, frames 10 to 12 do not
+# merely brush - the feet swap sides completely, the left ankle sitting 5.01 cm to his RIGHT while
+# the right sits 6.72 cm to his LEFT, 11.73 cm past each other. A runner's feet land close to the
+# line of travel and a stylised one may land right on it, but they do not plait.
+#
+# How far the two feet may pass each other before it counts as crossing, in cm.
+#
+# Not nought. At nought the rule fires on every frame where the feet merely swap by a millimetre,
+# which through the passing phase is most of them: it pinned nine frames' ankles to the same line,
+# left the solver driving 41 of 48 foot-frames, and threw the swinging knee 21 cm off centre. A
+# correction that takes over the whole clip to fix three frames is the wrong correction.
+#
+# Four centimetres is about half a foot's width, so feet that merely brush past are left alone and
+# the plaits - which run to 8 cm here - are pulled back to touching.
+THE_FEET_MAY_CROSS_BY = 4.0
+
+# Whether a crossed leg is swung back at the hip, and the most a thigh may be turned to do it, in
+# degrees per pass.
+#
+# OFF, and the reason is a calibration rather than a measurement: "if a movement matches a real
+# jogging gait it's fine, I dont want him robotic either."
+#
+# A jogger's feet land close to the line of travel and his knees pass close on the way through -
+# that is what a gait IS, and every version of this correction was fighting it rather than fixing
+# anything. Held at the ankle it took the solver from driving 10 foot-frames to 41 and threw the
+# swinging knee 21 cm wide; held at the hip it wanted 29 degrees of thigh yaw and STILL left the
+# same frames crossed. Two different mechanisms, the same answer: the thing being corrected was not
+# broken.
+#
+# What was broken, and is fixed, is contact - a sole flat on the floor, a foot that does not slide,
+# a body that travels where it points. The machinery stays because it is measured and guarded, and
+# a clip that genuinely plaits can have it by naming it here.
+UNCROSSES_THE_LEGS = False
+A_THIGH_MAY_SWING = 12.0
+
 # The most a planted sole may still be off the floor once the leg has been solved, in cm. Past
 # this the leg could not reach and the plant is a lie, so it is refused rather than shipped.
 REACHES_TO_WITHIN = 0.60
@@ -2110,6 +2164,32 @@ LOCKS_THE_FOOT = True
 # does not move, which is what "his legs are way further apart than they should be" was about.
 HOLDS_SIDEWAYS = True
 RUNS_ALONG_HIS_FACING = True
+
+# Whether a planted sole is laid FLAT on the floor, and which way it points while it is there.
+#
+# "The soles of the mesh need to be flat on the ground when they're planted."
+#
+# Solving the height alone does not do this, and the measurements said everything was fine while it
+# was plainly wrong: putting the LOWEST part of a shoe on the floor is satisfied by a corner. What
+# the frames actually did was touch on one edge - the planted soles sat between 15 and 68 degrees
+# off flat with their lowest point dutifully at 0.00 cm.
+#
+# `foot_roll` argues the other way, that the tilt should be left alone so the heel-flat-toe pivot
+# emerges by itself, and for a rolling foot that is right. It is not what this game wants. The ask
+# has been the same one four times now - "he needs to run on the flats of his feet", "he's running
+# on the sides of his shoes", "toes are above the foot" - and a stylised jog reads better flat-
+# footed than it does anatomically rolling. So the pitch is STATED at nought through the whole
+# plant, which is `point_the_foot`'s own idea of what a foot control is for: "the foot's
+# orientation is an input, not a consequence."
+#
+# Straight ahead, no toe-out: "everything should be pointing straight in front of him." The bind
+# splays its toes 29 degrees a side, so this is a real change and a deliberate one.
+# How far off flat a planted sole may still lie, in degrees.
+SOLES_LIE_WITHIN = 1.5
+
+LIES_THE_SOLE_FLAT = True
+THE_SOLE_LIES_AT = 0.0
+THE_TOES_POINT_OUT = 0.0
 
 # How near his facing the held plants have to end up before the clip counts as running straight,
 # in degrees. A quarter of a degree over a 2.4 m cycle is a centimetre of sideways travel, which is
@@ -2208,8 +2288,29 @@ def where_the_feet_are_down(rig, mesh, feet, clip, scene):
         }
         if all(len(down[side]) >= A_FOOT_IS_DOWN_FOR * frames for side in "LR"):
             break
-    return soles, {side: without_gaps(down[side], first, ends, loops) for side in down}, \
+    return soles, {side: less_the_lift_off(without_gaps(down[side], first, ends, loops), first, ends, loops) for side in down}, \
         window, loops
+
+
+def less_the_lift_off(down, first, ends, loops):
+    """Drops the last frame of each contact, because that frame is the foot LEAVING.
+
+    A foot at toe-off is up on its toes with the body already past it, and asking that frame to lay
+    its sole flat asks the leg to reach down and back at once - measured, 11.3 cm further than it
+    has. Every frame that could not be reached was the last of its own contact, and no frame that
+    was not: L22, R3, R16. That is not a tuning failure, it is what push-off IS.
+
+    So the standing part of a contact is held flat and locked, and the frame it lifts on keeps the
+    animator's own angle, ramped out by `how_hard_the_solver_pulls` like any other airborne frame.
+    """
+    if LIFTS_OFF_OVER <= 0:
+        return down
+    span = ends - first + 1
+    keep = set(down)
+    for run in a_run_of(down, first, span if loops else None):
+        for step in range(min(LIFTS_OFF_OVER, len(run) - 1)):
+            keep.discard(run[-1 - step])
+    return sorted(keep)
 
 
 def without_gaps(down, first, ends, loops):
@@ -2428,6 +2529,104 @@ def how_hard_the_solver_pulls(down, lift, first, last, loops):
     return offset, strength
 
 
+def where_he_crosses_over(ankles, across, first, last):
+    """Where the two feet have gone PAST each other, and how far, frame by frame.
+
+    # The pair, not the midline
+
+    The first version of this asked each foot to stay on its own side of the body's centre line,
+    and flagged 28 of 48 foot-frames. That is not a crossover, that is running: a runner's feet land
+    close to the line of travel and at speed they land very nearly on it, so a rule written against
+    the midline condemns most of a normal stride.
+
+    What was actually reported is narrower and is a fact about the two feet together - "his lead leg
+    crosses over IN FRONT OF the back leg". So the test is on the pair: his left foot may come as
+    close to his right as it likes, and may not end up to the right of it. Measured that way the
+    delivered jog crosses on three frames, 10 to 12, by up to 11.73 cm, which is the thing that was
+    seen.
+
+    The correction is SPLIT between the two feet, half each, so neither is singled out and the pair
+    stays centred where the animator put it.
+    """
+    room = -THE_FEET_MAY_CROSS_BY / 170.0
+    strayed = {"L": {}, "R": {}}
+    for frame in range(first, last + 1):
+        apart = (ankles["L"][frame] - ankles["R"][frame]).dot(across)
+        if apart >= room:
+            continue
+        half = (room - apart) * 0.5
+        strayed["L"][frame] = across * half
+        strayed["R"][frame] = across * -half
+    return strayed
+
+
+def uncross_from_the_hip(rig, scene, across, pull, first, last, loops):
+    """Swings a crossed leg back onto its own side by turning the THIGH, not by moving the foot.
+
+    # Why the hip and not the ankle
+
+    The first version of this pulled the foot sideways with the same IK that plants it, and it
+    worked in the sense that the feet stopped crossing. What it cost was the clip: the solver went
+    from driving 10 foot-frames to driving 41 of 48, so the animator's swing legs were replaced
+    almost everywhere by whatever the pole happened to choose, and the swinging knee ended up 21 cm
+    off his centre line. A correction that takes over the whole clip to fix three frames is the
+    wrong correction.
+
+    A leg swings from the hip. Turning the thigh about the vertical moves the whole leg - hip,
+    knee, shin, foot - as one piece, so the knee keeps exactly the bend it was given and the shin
+    keeps its line; only where the leg is AIMED changes. That is also the thing that was actually
+    asked for: "his legs, knees, shins, feet, toes need to point straight."
+
+    The turn is found rather than computed. One degree is tried, the ankle is measured, and the
+    rest follows from that slope - the geometry of how far an ankle moves per degree depends on how
+    folded the leg is at that instant, and measuring it is cheaper and safer than deriving it.
+    """
+    room = -THE_FEET_MAY_CROSS_BY / 170.0
+    upright = mathutils.Vector((0.0, 0.0, 1.0))
+    swung = {}
+    for frame in range(first, last + 1):
+        at = first if (loops and frame == last) else frame
+        scene.frame_set(frame)
+        bpy.context.view_layer.update()
+
+        def apart():
+            return ((rig.matrix_world @ rig.pose.bones["L_Foot"].head)
+                    - (rig.matrix_world @ rig.pose.bones["R_Foot"].head)).dot(across)
+
+        if apart() >= room:
+            continue
+        for _ in range(TRIES):
+            short = room - apart()
+            if short <= CLOSE_ENOUGH:
+                break
+            # Split between whichever legs are free. A planted foot is being held on the ground
+            # and must not be swung off it, so it takes no share.
+            free = [side for side in "LR" if pull[side][1][at] <= 0.0]
+            if not free:
+                break
+            hand = {"L": 1.0, "R": -1.0}
+            for side in free:
+                bone = f"{side}_Thigh"
+                was = (rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head).dot(across)
+                turn_further_absolutely(rig, bone, 1.0, upright)
+                bpy.context.view_layer.update()
+                per = (rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head).dot(across) - was
+                if abs(per) < 1e-7:
+                    turn_further_absolutely(rig, bone, -1.0, upright)
+                    continue
+                wants = (short / len(free)) * hand[side]
+                more = max(-A_THIGH_MAY_SWING, min(A_THIGH_MAY_SWING, wants / per - 1.0))
+                turn_further_absolutely(rig, bone, more, upright)
+                bpy.context.view_layer.update()
+                swung[(side, frame)] = swung.get((side, frame), 0.0) + 1.0 + more
+        for side in "LR":
+            if (side, frame) in swung:
+                posed = rig.pose.bones[f"{side}_Thigh"]
+                posed.rotation_mode = "QUATERNION"
+                posed.keyframe_insert("rotation_quaternion", frame=frame)
+    return swung
+
+
 def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
     """Stands a DELIVERED clip's feet on the floor, leaving every angle in it exactly as authored.
 
@@ -2484,7 +2683,7 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
     reach = ((rig.matrix_world @ rig.pose.bones["R_Foot"].bone.head_local)
              - (rig.matrix_world @ rig.pose.bones["R_Thigh"].bone.head_local)).length
     for side, (_, pole, hold) in rigged.items():
-        ik_gait.aim_the_pole(rig, side, pole, hold, facing[0], reach)
+        ik_gait.aim_the_pole(rig, side, pole, hold, facing[0], reach, THE_KNEES_TRACK_OUT)
 
     # # Solving, then re-applying
     #
@@ -2493,6 +2692,57 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
     # ENDS before it can taper out of it, and that is not known until the plant is over.
     cycle = (last - first) if loops else (last - first + 1)
     faces = ik_gait.the_way_he_faces(rig)
+    across = mathutils.Vector((0.0, 0.0, 1.0)).cross(faces).normalized()
+
+    # # Where the ball sits once the foot is FLAT, which is not where it sat while it was tilted
+    #
+    # A foot is rigid, so laying it flat swings the ball about the ankle - up to 68 degrees' worth
+    # on this clip. Asking the flattened foot to keep the ball where the TILTED foot had it is
+    # asking for a different ankle entirely, and the first attempt at this wanted the body carried
+    # 19.04 cm to make up the difference before the guard stopped it.
+    #
+    # So the foot is flattened and settled onto the floor FIRST, with nothing held sideways, and
+    # the ball is read there. That reading is what the lock is then anchored on. The stride comes
+    # from it too, since a stride measured through tilted feet is not the one the flat ones walk.
+    if LIES_THE_SOLE_FLAT:
+        swung = 0.0
+        for side in "LR":
+            for frame in down[side]:
+                scene.frame_set(frame)
+                for other in "LR":
+                    targets[other].location = ankles[other][frame].copy()
+                bpy.context.view_layer.update()
+                # # The leg stays put; the FOOT turns at the ankle
+                #
+                # Straightening a foot rotates it about its contact, so with the ball where it was
+                # the ankle swings out from under him - measured, 8.8 cm on this bind, whose toes
+                # splay 29 degrees a side. That narrowed his stance until his feet crossed on
+                # frames they had never crossed on, and made the legs pass closer, not further.
+                #
+                # Which is backwards. A person turning their foot straight turns it at the ankle
+                # and their LEG does not move. So the ankle's place across the line of travel is
+                # held to the animator's, and the ball is what swings.
+                keeps = ankles[side][frame].dot(across)
+                for _ in range(TRIES):
+                    ik_gait.point_the_foot(rig, side, THE_SOLE_LIES_AT, THE_TOES_POINT_OUT,
+                                           faces, across)
+                    bpy.context.view_layer.update()
+                    here = rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head
+                    sideways = across * (keeps - here.dot(across))
+                    short = ground - ik_gait.lowest_sole(rig, mesh, feet, side)
+                    step = sideways + mathutils.Vector((0.0, 0.0, short))
+                    if step.length <= CLOSE_ENOUGH:
+                        break
+                    targets[side].location = targets[side].location + step
+                    bpy.context.view_layer.update()
+                here = rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head
+                swung = max(swung, abs(here.dot(across) - keeps))
+                ankles[side][frame] = here.copy()
+                balls[side][frame] = (
+                    rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].head).copy()
+        print(f"    soles laid flat and aimed straight, with each ankle held across the line of "
+              f"travel to within {swung * 170.0:.2f} cm of where it was")
+
     ran, _ = how_fast_the_ground_goes_by(balls, down)
     crabbed = math.degrees(ran.angle(-faces)) if ran is not None else 0.0
     travel, each = how_fast_the_ground_goes_by(
@@ -2511,9 +2761,16 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
     for side in "LR":
         held_at[side] = {}
         for run in a_run_of(down[side], first, cycle if loops else None):
+            # Anchored on the ball, but with the ANKLE's place across the line of travel, for the
+            # reason the settle pass gives: the leg is the animator's and only the foot has turned.
+            anchor = {}
+            for f in run:
+                spot = balls[side][f].copy()
+                spot += across * ((ankles[side][f] - spot).dot(across))
+                anchor[f] = spot
             held_at[side].update(
-                where_a_planted_foot_belongs(run, balls[side], travel, each)
-                if LOCKS_THE_FOOT else {f: balls[side][f] for f in run})
+                where_a_planted_foot_belongs(run, anchor, travel, each)
+                if LOCKS_THE_FOOT else anchor)
 
     lift, saturated, over = {"L": {}, "R": {}}, {"L": {}, "R": {}}, {"L": {}, "R": {}}
     for attempt in range(HIP_TRIES):
@@ -2549,16 +2806,31 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
                 # with it.
                 stalled, left = 0, None
                 for _ in range(TRIES):
+                    # The sole is laid flat INSIDE the loop, before anything is measured, for the
+                    # reason `solve_the_target` gives: "tilting the foot moves the sole and the
+                    # sole is the thing being aimed. Doing it afterwards changes the answer after
+                    # it has been found." It moves the ball too, which is the other thing being
+                    # aimed, so both measurements below have to come after it.
+                    if LIES_THE_SOLE_FLAT:
+                        ik_gait.point_the_foot(rig, side, THE_SOLE_LIES_AT, THE_TOES_POINT_OUT,
+                                               faces, across)
+                        bpy.context.view_layer.update()
                     ball = rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].head
-                    across = held[side][frame] - ball
-                    across.z = 0.0
+                    # `wander`, not `across`: `across` is the body's LATERAL AXIS in this function
+                    # and rebinding it here quietly emptied it. The crossover check ran against a
+                    # vector this loop had converged to nought and reported every foot as sitting
+                    # exactly on the centre line.
+                    here = rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head
+                    # Along the line of travel the BALL is the contact and is what must not slide;
+                    # across it the ANKLE is what carries the leg. Two different points, because
+                    # they answer two different questions - see the settle pass above.
+                    wander = travel * (held[side][frame] - ball).dot(travel)
+                    wander += across * (held[side][frame] - here).dot(across)
+                    wander.z = 0.0
                     if not HOLDS_SIDEWAYS:
-                        # Along the line of travel only. Pulling a ball back to a line as well as
-                        # to a speed moves the ANKLE sideways to do it, and how far apart his legs
-                        # stand is the animator's call, not this pass's.
-                        across = travel * across.dot(travel)
+                        wander = travel * wander.dot(travel)
                     short = ground - ik_gait.lowest_sole(rig, mesh, feet, side)
-                    step = across + mathutils.Vector((0.0, 0.0, short))
+                    step = wander + mathutils.Vector((0.0, 0.0, short))
                     left = step.length
                     if left <= CLOSE_ENOUGH:
                         break
@@ -2587,7 +2859,8 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
                 # wrong place. Measuring the leftover is also what gives the body something to be
                 # moved BY, since the shortfall of a leg is exactly the nudge that would fix it.
                 ball = rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].head
-                short = held[side][frame] - ball
+                short = travel * (held[side][frame] - ball).dot(travel)
+                short += across * (held[side][frame] - here).dot(across)
                 short.z = 0.0
                 if not HOLDS_SIDEWAYS:
                     short = travel * short.dot(travel)
@@ -2616,6 +2889,10 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
         shifts = smoothly_between(wanted, first, first + cycle - 1, loops)
         far = max(v.length for v in shifts.values()) * 170.0
         if far > HIPS_MAY_SHIFT:
+            print("    what each plant is short by, cm: "
+                  + ", ".join(f"{side}{f} {over[side][f].length * 170.0:.1f}"
+                              for side in "LR" for f in sorted(over[side])
+                              if over[side][f].length * 170.0 > 0.5))
             refuse(f"keeping the plants still would move the body {far:.2f} cm, past the "
                    f"{HIPS_MAY_SHIFT:.1f} cm this may nudge it - that is a different performance, "
                    "not the same one without slide in it")
@@ -2632,8 +2909,19 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
         print(f"    a leg was {worst * 170.0:.2f} cm short, so the body was carried up to "
               f"{far:.2f} cm on {carrier} and the plants solved again")
 
+    # # One curve, not two competing ones
+    #
+    # The plant and the uncrossing both move the same IK target, so they cannot each own a share of
+    # it. The first attempt let the plant win wherever it had any say, which included its own RAMP
+    # frames - and those are airborne, which is precisely where the crossing happens. The clamp was
+    # discarded on the frames that needed it and the crossings simply moved: 10-12 became 9, 10, 12,
+    # 22, 23, 24.
+    #
+    # So they are added into one displacement per frame and ramped together. Where a foot is truly
+    # planted the crossing correction is nought anyway, since its ankle is already held.
     pull = {side: how_hard_the_solver_pulls(down[side], lift[side], first, last, loops)
             for side in "LR"}
+    flatly = pull
 
     # A clip that loops must still loop: the first and last frames hold the same pose, so they must
     # take the same correction, and the same amount of it, or a seam opens where there was none.
@@ -2653,12 +2941,58 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
             rigged[side][2].influence = strength[frame]
             rigged[side][2].keyframe_insert("influence", frame=frame)
 
+    # # Laying the soles down, after the legs are keyed and before they are baked
+    #
+    # A second pass, because a foot's LOCAL rotation depends on where the solver put its shin, and
+    # the shin is not settled until the targets and their influence have been keyed. Ramped by the
+    # same strength the solver uses, so a foot does not snap from the animator's angle to a flat
+    # one in a single frame - it arrives flat as it lands and leaves as it lifts.
+    if LIES_THE_SOLE_FLAT:
+        laid = 0
+        for frame in range(first, last + 1):
+            scene.frame_set(frame)
+            bpy.context.view_layer.update()
+            for side in "LR":
+                share = flatly[side][1][first if (loops and frame == last) else frame]
+                if share <= 0.0:
+                    continue
+                bones = (f"{side}_Foot", f"{side}_ToeBase")
+                was = {n: rig.pose.bones[n].matrix.to_3x3().to_quaternion() for n in bones}
+                ik_gait.point_the_foot(rig, side, THE_SOLE_LIES_AT, THE_TOES_POINT_OUT,
+                                       faces, across)
+                bpy.context.view_layer.update()
+                for name in bones:
+                    posed = rig.pose.bones[name]
+                    flat = posed.matrix.to_3x3().to_quaternion()
+                    spot = posed.matrix.translation.copy()
+                    turned = was[name].slerp(flat, share).to_matrix().to_4x4()
+                    turned.translation = spot
+                    posed.rotation_mode = "QUATERNION"
+                    posed.matrix = turned
+                    bpy.context.view_layer.update()
+                    posed.keyframe_insert("rotation_quaternion", frame=frame)
+                laid += 1
+        print(f"    laid {laid} planted soles flat on the floor, pointing straight ahead")
+
+    if UNCROSSES_THE_LEGS:
+        swung = uncross_from_the_hip(rig, scene, across, pull, first, last, loops)
+        if swung:
+            print(f"    uncrossed {len(swung)} frame(s) at the hip, turning a thigh at most "
+                  f"{max(abs(v) for v in swung.values()):.2f} deg, so every knee and shin keeps "
+                  "the bend the animator gave it")
+
     ik_gait.bake_the_constraints(rig, first, last)
     # The target and the pole only: the third of the three is the CONSTRAINT, which the
     # bake has already cleared, and which was never an object to remove.
     ik_gait.drop_the_helpers([h for r in rigged.values() for h in r[:2]])
 
-    worst, missed, stood = 0.0, [], {"L": {}, "R": {}}
+    worst, missed, stood, leans = 0.0, [], {"L": {}, "R": {}}, 0.0
+    # The sole's own normal in each foot bone's frame, taken from the BIND, where the sole lies flat
+    # on the floor by construction - so "flat" needs no plane fitted to it and no vertex named.
+    level = {}
+    for side in "LR":
+        rest = (rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].bone.matrix_local).to_3x3()
+        level[side] = rest.inverted() @ mathutils.Vector((0.0, 0.0, 1.0))
     play_it(rig, clip)
     for frame in range(first, last + 1):
         scene.frame_set(frame)
@@ -2666,10 +3000,14 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
         for side in "LR":
             stood[side][frame] = (
                 rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].head).copy()
-            if frame not in lift[side]:
+            # `down`, not `lift`: `lift` now carries the uncrossing frames too, and those are in
+            # the AIR. Checking their soles for flatness measured a swinging foot and read 87 deg.
+            if frame not in down[side]:
                 continue
             off = abs(ground - ik_gait.lowest_sole(rig, mesh, feet, side)) * 170.0
             worst = max(worst, off)
+            tilted = rig.pose.bones[f"{side}_Foot"].matrix.to_3x3() @ level[side]
+            leans = max(leans, math.degrees(tilted.angle(mathutils.Vector((0.0, 0.0, 1.0)))))
             if off > REACHES_TO_WITHIN:
                 missed.append(f"{side}{frame} by {off:.2f} cm")
 
@@ -2714,6 +3052,10 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
     if stuck > CHAIN_REACHES_TO_WITHIN:
         refuse(f"a plant was left {stuck:.2f} cm from where it belongs, so the foot is being "
                "leaned on rather than stood on")
+    print(f"    the worst planted sole lies {leans:.2f} deg off flat")
+    if LIES_THE_SOLE_FLAT and leans > SOLES_LIE_WITHIN:
+        refuse(f"a planted sole ended {leans:.2f} deg off flat, past the {SOLES_LIE_WITHIN:.1f} "
+               "that counts as lying on the floor")
     print(f"    the solver is off for {frames_over - solving} of {frames_over} foot-frames, so "
           f"those legs play exactly as delivered; every planted sole sits within {worst:.2f} cm "
           f"of the floor")

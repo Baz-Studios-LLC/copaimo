@@ -147,7 +147,8 @@ def add_leg_ik(rig, side: str):
     return target, pole, hold
 
 
-def aim_the_pole(rig, side: str, pole, hold, forward, leg_length: float) -> float:
+def aim_the_pole(rig, side: str, pole, hold, forward, leg_length: float,
+                 out: float = 0.0) -> float:
     """Sets the pole so the FOOT points forward, by trying every angle and measuring.
 
     # What a pole is actually needed for here
@@ -175,8 +176,11 @@ def aim_the_pole(rig, side: str, pole, hold, forward, leg_length: float) -> floa
     # Along THIS FOOT's heading, not dead ahead: a pole straight in front of the hip
     # points both knees parallel while the feet toe out 7 degrees, and a knee inside
     # its own toe line reads as knock-knees from behind. Knee over toe is the rule.
+    # `out` swings the knee AWAY from the midline, positive being outward on both sides. The
+    # cross product below makes his left the positive lateral, so the hand flips the sign for the
+    # right and one number moves both knees the same way relative to his own body.
     hand = 1.0 if side == "L" else -1.0
-    yaw = math.radians(TOES_POINT_OUT * hand)
+    yaw = math.radians((TOES_POINT_OUT + out) * hand)
     up = mathutils.Vector((0.0, 0.0, 1.0))
     across = up.cross(forward).normalized()
     heading = (forward * math.cos(yaw) + across * math.sin(yaw)).normalized()
