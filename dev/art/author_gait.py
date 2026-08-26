@@ -2314,6 +2314,20 @@ STATES_EVERY_FOOT = True
 # Forty at the moment of leaving, because that is where the metatarsophalangeal joint sits at
 # push-off and the shoe's own crease is built for it. Ten on the way back down, which is a toe
 # lifting to clear the ground before the heel arrives.
+# How far the heel lifts on the last frame a foot is down, in degrees of foot pitch.
+#
+# "F3 and 25 have the bend happening early still." Frame 3's foot is already 8.65 cm off the ground
+# when it takes the peak, and it was taking it there because the peak had nowhere else to go: the
+# flattening states every planted frame FLAT, so there was no frame in the clip where the toe was
+# bent AND still touching. The bend was landing on the first airborne frame by elimination.
+#
+# A toe dorsiflexes at push-off because the HEEL lifts while the toe stays down. So the last frame
+# of each contact gets that pose instead of a flat one, and `point_the_foot` already does exactly
+# this when asked - its default toe rule is "flat under a rising heel while planted", which puts
+# the toe pad on the floor while the foot pitches over it. The bend then peaks on a frame the foot
+# is actually on, and the air only ever sees it decaying.
+THE_HEEL_LIFTS_AT_TOE_OFF = 30.0
+
 THE_TOE_LIFTS_AT_TOE_OFF = 40.0
 THE_TOE_UNCURLS_OVER = 2.0
 THE_TOE_LIFTS_BEFORE_LANDING = 10.0
@@ -3019,7 +3033,10 @@ def how_far_the_toe_should_bend(frame, down, first, last, loops):
     since, until = away(-1), away(1)
     off, on = 0.0, 0.0
     if since is not None:
-        off = THE_TOE_LIFTS_AT_TOE_OFF * max(0.0, 1.0 - (since - 1) / THE_TOE_UNCURLS_OVER)
+        # From `since` and not `since - 1`: the peak belongs on the last frame the foot was DOWN,
+        # which the flattening now poses as a toe-off, so the first airborne frame is already on
+        # its way back to neutral rather than at maximum.
+        off = THE_TOE_LIFTS_AT_TOE_OFF * max(0.0, 1.0 - since / THE_TOE_UNCURLS_OVER)
     if until is not None:
         on = THE_TOE_LIFTS_BEFORE_LANDING * max(0.0, 1.0 - (until - 1) / THE_TOE_LIFTS_OVER)
     return max(off, on)
@@ -3064,14 +3081,18 @@ def state_every_foot(rig, mesh, feet, ground, scene, faces, across, down, first,
         scene.frame_set(frame)
         bpy.context.view_layer.update()
         for side in "LR":
-            if frame in grounded[side]:
+            # A looping clip's last frame IS its first, so it asks the same question and must
+            # get the same answer. Asked as itself it fell outside every stance run and was handed
+            # a fresh toe-off - reported as the bend happening early on frame 25.
+            at = first if (loops and frame == last) else frame
+            if at in grounded[side]:
                 continue
 
             # The PITCH is read off the clip, before anything is stated, or it is read off the
             # answer instead. The bend is not read at all - see `how_far_the_toe_should_bend`.
             points = how_far_the_foot_points(rig, side, faces)
             held = max(-THE_FOOT_LIFTS_AT_MOST, min(THE_FOOT_POINTS_AT_MOST, points))
-            bent = how_far_the_toe_should_bend(frame, grounded[side], first, last, loops)
+            bent = how_far_the_toe_should_bend(at, grounded[side], first, last, loops)
             was = how_far_the_foot_turns_out(rig, side, faces, across)
 
             # `point_the_foot` takes pitch POSITIVE as toe-up, and `how_far_the_foot_points`
@@ -3750,6 +3771,11 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
             for side in "LR"}
     flatly = pull
 
+    # The last frame of each contact - the one that rolls onto the ball rather than lying flat.
+    # Wanted by the flattening, which poses it, and by the check, which must not then fail it.
+    leaving = {side: {run[-1] for run in a_run_of(
+        down[side], first, (last - first) if loops else None)} for side in "LR"}
+
     # A clip that loops must still loop: the first and last frames hold the same pose, so they must
     # take the same correction, and the same amount of it, or a seam opens where there was none.
     for side in "LR":
@@ -3808,8 +3834,9 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
         for frame in range(first, last + 1):
             scene.frame_set(frame)
             bpy.context.view_layer.update()
+            at = first if (loops and frame == last) else frame
             for side in "LR":
-                share = flatly[side][1][first if (loops and frame == last) else frame]
+                share = flatly[side][1][at]
                 # # Flatness follows the FLOOR, not the frame count
                 #
                 # The ramp alone put a foot's toe most of the way flat while it was still seven
@@ -3828,8 +3855,14 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
                     continue
                 bones = (f"{side}_Foot", f"{side}_ToeBase")
                 was = {n: rig.pose.bones[n].matrix.to_3x3().to_quaternion() for n in bones}
-                ik_gait.point_the_foot(rig, side, THE_SOLE_LIES_AT, THE_TOES_POINT_OUT,
-                                       faces, across)
+                # The LAST frame of a contact rolls onto the ball instead of lying flat: heel up,
+                # toe pad still down. `point_the_foot`'s own toe rule handles the second half -
+                # "flat under a rising heel while planted" - so only the pitch is asked for.
+                lifting = at in leaving[side]
+                ik_gait.point_the_foot(
+                    rig, side,
+                    -THE_HEEL_LIFTS_AT_TOE_OFF if lifting else THE_SOLE_LIES_AT,
+                    THE_TOES_POINT_OUT, faces, across)
                 bpy.context.view_layer.update()
                 for name in bones:
                     posed = rig.pose.bones[name]
@@ -3841,6 +3874,22 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
                     posed.matrix = turned
                     bpy.context.view_layer.update()
                     posed.keyframe_insert("rotation_quaternion", frame=frame)
+
+                # # And put it back on the floor
+                #
+                # Rolling onto the ball pitches the foot about its ANKLE, and the ankle is where
+                # the solver left it - so the ball swings up and the sole comes off the ground.
+                # Measured, 7.13 cm of it. The height was solved before the orientation changed, so
+                # it has to be solved again after: same fixed point as the plant, a few passes of
+                # moving the target by whatever is left over.
+                if lifting and share > 0.0:
+                    for _ in range(TRIES):
+                        short = ground - ik_gait.lowest_sole(rig, mesh, feet, side)
+                        if abs(short) <= CLOSE_ENOUGH:
+                            break
+                        targets[side].location.z += short
+                        targets[side].keyframe_insert("location", frame=frame)
+                        bpy.context.view_layer.update()
                 laid += 1
         print(f"    laid {laid} planted soles flat on the floor, pointing straight ahead")
 
@@ -3850,6 +3899,48 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
             print(f"    uncrossed {len(swung)} frame(s) at the hip, turning a thigh at most "
                   f"{max(abs(v) for v in swung.values()):.2f} deg, so every knee and shin keeps "
                   "the bend the animator gave it")
+
+    if loops:
+        # # The seam, tied once at the end rather than trusted to every pass
+        #
+        # A looping clip's last frame IS its first. Four passes here key poses per frame and each
+        # one mapped the seam for itself - and one of them did not, or did it before another pass
+        # moved the thing it had mapped. Measured, frames 1 and 25 came out 24.55 degrees apart on
+        # the right toe and 16.28 on the right foot, which is the bend "happening early on frame
+        # 25". Rather than audit four mappings, the seam is copied outright, last, from the pose
+        # that has actually been settled.
+        scene.frame_set(first)
+        bpy.context.view_layer.update()
+        opening = {bone.name: bone.matrix.copy() for bone in rig.pose.bones}
+        scene.frame_set(last)
+        bpy.context.view_layer.update()
+        for bone in rig.pose.bones:
+            bone.rotation_mode = "QUATERNION"
+            bone.matrix = opening[bone.name]
+            bpy.context.view_layer.update()
+        for bone in rig.pose.bones:
+            bone.keyframe_insert("rotation_quaternion", frame=last)
+            bone.keyframe_insert("location", frame=last)
+        # The IK-driven bones cannot be fixed by keying a rotation - the solver overrides it at
+        # bake time - so what has to match at the seam is what the solver READS: the target's
+        # place, how much say it has, and which way the pole points. Left out, the right thigh and
+        # calf stayed 4.61 degrees and 1.52 cm apart while every other bone matched.
+        scene.frame_set(first)
+        bpy.context.view_layer.update()
+        opened = {side: (targets[side].location.copy(), rigged[side][2].influence,
+                         rigged[side][2].pole_angle) for side in "LR"}
+        scene.frame_set(last)
+        for side in "LR":
+            spot, sway, pole = opened[side]
+            targets[side].location = spot
+            targets[side].keyframe_insert("location", frame=last)
+            rigged[side][2].influence = sway
+            rigged[side][2].keyframe_insert("influence", frame=last)
+            rigged[side][2].pole_angle = pole
+            rigged[side][2].keyframe_insert("pole_angle", frame=last)
+        bpy.context.view_layer.update()
+        print("    copied the opening pose onto the closing frame, targets and poles with it, so "
+              "the loop cannot drift")
 
     ik_gait.bake_the_constraints(rig, first, last)
     # The target and the pole only: the third of the three is the CONSTRAINT, which the
@@ -3870,6 +3961,10 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
                 continue
             off = abs(ground - ik_gait.lowest_sole(rig, mesh, feet, side)) * 170.0
             worst = max(worst, off)
+            # A toe-off frame is pitched on purpose - heel up, toe pad down - so it is asked to be
+            # ON the floor like every other planted frame, and not asked to be FLAT on it.
+            if frame in leaving[side]:
+                continue
             tilted = rig.pose.bones[f"{side}_Foot"].matrix.to_3x3() @ level[side]
             leans = max(leans, math.degrees(tilted.angle(mathutils.Vector((0.0, 0.0, 1.0)))))
             if off > REACHES_TO_WITHIN:
@@ -3887,6 +3982,12 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
         for run in a_run_of(down[side], first, cycle if loops else None):
             for at in range(len(run) - 1):
                 if run[at + 1] != run[at] + 1:
+                    continue
+                # Not the toe-off frame. It is deliberately re-posed after the lock - rolled onto
+                # the ball and put back on the floor - so its ball no longer sits on the line the
+                # lock drew, and including it read the whole clip as 1.11 deg crooked when the
+                # frames actually being held were exact.
+                if run[at] in leaving[side] or run[at + 1] in leaving[side]:
                     continue
                 step = stood[side][run[at + 1]] - stood[side][run[at]]
                 step.z = 0.0
