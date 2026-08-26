@@ -2289,7 +2289,12 @@ A_FOOT_IS_DOWN = 0.5
 # `make_the_toes_hinges`; this decides which AXES a toe has, not how far it may move in them.
 THE_TOES_ARE_HINGES = True
 
-CAPS_THE_ANKLE = True
+# Whether every airborne foot's orientation is STATED rather than corrected axis by axis. See
+# `state_every_foot`. This supersedes the separate pitch, roll and yaw clamps, which between them
+# still left one axis free - and it was the one that showed.
+STATES_EVERY_FOOT = True
+
+CAPS_THE_ANKLE = False
 THE_FOOT_POINTS_AT_MOST = 20.0
 THE_FOOT_LIFTS_AT_MOST = 25.0
 # How far the foot may be twisted about its own length, in degrees, either way.
@@ -2303,6 +2308,9 @@ THE_FOOT_ROLLS_AT_MOST = 12.0
 
 THE_TOE_HANGS_AT_MOST = 10.0
 THE_TOE_LIFTS_AT_MOST = 45.0
+# How far out the foot is aimed, in degrees, on every frame alike. Nought: "neither foot should
+# twist out during the movement, toes especially." The bind's own 24 degrees of toe-out goes with
+# it, which is the point - it was only ever taken out on the frames that touched the floor.
 THE_TOES_POINT_OUT = 0.0
 
 # How near his facing the held plants have to end up before the clip counts as running straight,
@@ -2963,6 +2971,87 @@ def how_far_the_foot_rolls(rig, side):
     flat_b.normalize()
     turned = math.degrees(math.atan2(flat_a.cross(flat_b).dot(axis), flat_a.dot(flat_b)))
     return turned, axis
+
+
+def state_every_foot(rig, mesh, feet, ground, scene, faces, across, first, last):
+    """States each foot's whole orientation on every frame: heading, pitch, and no bank.
+
+    # Why the whole orientation, and not one axis at a time
+
+    A foot has three axes and this pass has been correcting them one at a time, each in its own
+    place, each with its own measurement - and the one it never touched was the one that mattered.
+    Measured, the planted foot is straightened to 1.6 degrees of toe-out because the flattening
+    states it outright, and then the very next airborne frame snaps back to 30, and the toe to 55.
+    The bind carries 24 degrees of toe-out of its own and nothing had ever taken it out except on
+    the frames that touch the floor. That snap is the "angles the foot out abnormally".
+
+    `point_the_foot` exists for exactly this and says so: "the foot's orientation is an input, not
+    a consequence... Every earlier version nudged the foot from wherever it happened to be, and
+    both fail for the same reason, which is that the shin is solved by IK and swings more than
+    forty degrees a frame, so there is nothing stable to correct FROM."
+
+    So the heading is STATED - along the way he travels, with whatever toe-out is asked for, the
+    same on every frame - the bank is zero by construction, and the only thing read off the clip is
+    the PITCH, which is the animator's and is kept inside what an ankle can do. The toe rides on
+    top of it with the bend the animator drew, held to its own hinge because that is what
+    `point_the_foot` does with `toes_at`.
+
+    A foot on the floor is left alone. The flattening pass owns those, and it says something
+    stricter than this does.
+    """
+    caught, worst = 0, 0.0
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        for side in "LR":
+            if ik_gait.lowest_sole(rig, mesh, feet, side) - ground <= (A_FOOT_IS_DOWN / 170.0):
+                continue
+
+            # Read the two things worth keeping BEFORE anything is stated, or they are read off
+            # the answer instead of off the clip.
+            points = how_far_the_foot_points(rig, side, faces)
+            bends, _ = how_the_toe_bends(rig, side)
+            bends -= the_bind_toe_bend(rig, side)
+
+            held = max(-THE_FOOT_LIFTS_AT_MOST, min(THE_FOOT_POINTS_AT_MOST, points))
+            bent = max(-THE_TOE_HANGS_AT_MOST, min(THE_TOE_LIFTS_AT_MOST, bends))
+            was = how_far_the_foot_turns_out(rig, side, faces, across)
+
+            # `point_the_foot` takes pitch POSITIVE as toe-up, and `how_far_the_foot_points`
+            # returns positive for toe-DOWN, so the sign flips on the way in. The toe is stated
+            # absolutely too - its own pitch, which is the foot's plus whatever bend it had.
+            ik_gait.point_the_foot(rig, side, -held, THE_TOES_POINT_OUT, faces, across,
+                                   toes_at=-held + bent)
+            bpy.context.view_layer.update()
+            for name in (f"{side}_Foot", f"{side}_ToeBase"):
+                posed = rig.pose.bones[name]
+                posed.rotation_mode = "QUATERNION"
+                posed.keyframe_insert("rotation_quaternion", frame=frame)
+            now = how_far_the_foot_turns_out(rig, side, faces, across)
+            if abs(was - now) > 0.5:
+                caught += 1
+                worst = max(worst, abs(was - now))
+    return caught, worst
+
+
+def how_far_the_foot_turns_out(rig, side, faces, across):
+    """How far the foot points away from the way he travels, in degrees. Positive is outward.
+
+    Off the foot's own frame rather than off the ankle-to-ball line's shadow on the ground, because
+    that shadow vanishes when the foot points steeply down and its direction is then noise - which
+    is what reported a foot at 170 degrees of toe-out on frames where it was merely vertical.
+    """
+    hand = 1.0 if side == "L" else -1.0
+    bone = rig.pose.bones[f"{side}_Foot"]
+    rest = (rig.matrix_world @ bone.bone.matrix_local).to_3x3()
+    forward = (bone.matrix.to_3x3() @ (rest.inverted() @ (
+        (rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].bone.head_local)
+        - (rig.matrix_world @ bone.bone.head_local)).normalized()))
+    forward.z = 0.0
+    if forward.length < 1e-6:
+        return 0.0
+    forward.normalize()
+    return math.degrees(math.atan2(forward.dot(across) * hand, forward.dot(faces)))
 
 
 def hold_the_ankle_inside_its_range(rig, mesh, feet, ground, scene, faces, across, level,
@@ -3637,12 +3726,12 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
         print(f"    gave the {took} foot the other one's pitch and toe bend, {lag} frames behind "
               f"it: tipped at most {tipped:.1f} deg, toe turned at most {bent:.1f} deg")
 
-    if CAPS_THE_ANKLE:
-        caught, worst = hold_the_ankle_inside_its_range(
-            rig, mesh, feet, ground, scene, faces, across, level, first, last, loops)
-        print(f"    held the ankle inside its range: {caught['foot']} foot-frames untwisted fore "
-              f"and aft, {caught['roll']} untwisted sideways, {caught['toe']} toes; the worst by "
-              f"{worst:.1f} deg, and everything already inside the band is untouched")
+    if STATES_EVERY_FOOT:
+        turned, worst = state_every_foot(
+            rig, mesh, feet, ground, scene, faces, across, first, last)
+        print(f"    stated every airborne foot's whole orientation - heading along his travel, no "
+              f"bank, the animator's pitch kept inside an ankle's range; {turned} of them were "
+              f"pointing off, the worst by {worst:.1f} deg")
 
     if THE_TOES_ARE_HINGES:
         off = make_the_toes_hinges(rig, scene, first, last)
