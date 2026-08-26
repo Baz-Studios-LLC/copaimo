@@ -2285,6 +2285,10 @@ THE_TOE_BEND_COMES_FROM = "L"
 # alone. Tighter than the flattening window, because the flattening is only partly applied there.
 A_FOOT_IS_DOWN = 0.5
 
+# Whether each toe is held to its own hinge - bending only, no yaw and no twist. See
+# `make_the_toes_hinges`; this decides which AXES a toe has, not how far it may move in them.
+THE_TOES_ARE_HINGES = True
+
 CAPS_THE_ANKLE = True
 THE_FOOT_POINTS_AT_MOST = 20.0
 THE_FOOT_LIFTS_AT_MOST = 25.0
@@ -2837,6 +2841,81 @@ def how_far_the_foot_points(rig, side, faces):
                  rig.matrix_world @ toe.bone.head_local)
     now = below(rig.matrix_world @ bone.head, rig.matrix_world @ toe.head)
     return now - rest
+
+
+def the_toe_hinge(rig):
+    """The axis each toe is allowed to turn about, and its bind relation to its own foot.
+
+    Both in the FOOT's local frame, so they travel with the foot and never need re-deriving from a
+    pose. The axis is across the foot at the ball, which is what a metatarsophalangeal joint is.
+    """
+    world = rig.matrix_world
+    axis, rest = {}, {}
+    for side in "LR":
+        foot = rig.pose.bones[f"{side}_Foot"].bone
+        toe = rig.pose.bones[f"{side}_ToeBase"].bone
+        along = ((world @ toe.head_local) - (world @ foot.head_local))
+        if along.length < 1e-9:
+            continue
+        across = along.normalized().cross(mathutils.Vector((0.0, 0.0, 1.0)))
+        if across.length < 1e-9:
+            across = mathutils.Vector((0.0, 1.0, 0.0))
+        across.normalize()
+        frame = (world @ foot.matrix_local).to_3x3()
+        axis[side] = (frame.inverted() @ across).normalized()
+        rest[side] = frame.inverted() @ ((world @ toe.matrix_local).to_3x3())
+    return axis, rest
+
+
+def make_the_toes_hinges(rig, scene, first, last):
+    """Takes out everything a toe is doing that a toe joint cannot do.
+
+    # A toe bends. It does not yaw, and it does not twist.
+
+    Every correction here so far has argued about how FAR the toe bends, and left it free in the
+    other two axes the whole time. Measured against its own foot and its own bind, the right toe is
+    turned up to 33 degrees off its hinge and the left up to 11 - and on exactly the frames it
+    bends on, so every flex came with a yaw and a twist bundled into it. "Even with references the
+    toes still bend in odd directions" is that, precisely: the direction was never constrained,
+    only the amount.
+
+    So the toe's rotation against its foot is split about the hinge axis - swing and twist - and
+    the swing, which is all of the illegal part, is discarded. Whatever bend the animator drew
+    survives untouched, because the bend IS the twist about the hinge and nothing here scales it.
+    That is the difference between this and every clamp before it: nothing is being decided about
+    how a toe should move, only about which axes it has.
+    """
+    axis, rest = the_toe_hinge(rig)
+    worst = 0.0
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        for side in "LR":
+            if side not in axis:
+                continue
+            foot = rig.pose.bones[f"{side}_Foot"]
+            toe = rig.pose.bones[f"{side}_ToeBase"]
+            planted = foot.matrix.to_3x3()
+            against = planted.inverted() @ toe.matrix.to_3x3()
+            strayed = (rest[side].inverted() @ against).to_quaternion()
+
+            turned = mathutils.Vector((strayed.x, strayed.y, strayed.z))
+            about = axis[side] * turned.dot(axis[side])
+            bends = mathutils.Quaternion((strayed.w, about.x, about.y, about.z))
+            if bends.magnitude < 1e-9:
+                continue
+            bends.normalize()
+            off = math.degrees((strayed @ bends.conjugated()).angle)
+            worst = max(worst, min(off, 360.0 - off))
+
+            spot = toe.matrix.translation.copy()
+            wants = (planted @ (rest[side] @ bends.to_matrix())).to_4x4()
+            wants.translation = spot
+            toe.rotation_mode = "QUATERNION"
+            toe.matrix = wants
+            bpy.context.view_layer.update()
+            toe.keyframe_insert("rotation_quaternion", frame=frame)
+    return worst
 
 
 def how_far_the_foot_rolls(rig, side):
@@ -3564,6 +3643,11 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
         print(f"    held the ankle inside its range: {caught['foot']} foot-frames untwisted fore "
               f"and aft, {caught['roll']} untwisted sideways, {caught['toe']} toes; the worst by "
               f"{worst:.1f} deg, and everything already inside the band is untouched")
+
+    if THE_TOES_ARE_HINGES:
+        off = make_the_toes_hinges(rig, scene, first, last)
+        print(f"    took the yaw and twist out of both toes - they were turned up to {off:.1f} deg "
+              "off their own hinge; whatever bend was drawn is untouched")
 
     # # Laying the soles down LAST, once every leg is settled
     #
