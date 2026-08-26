@@ -2257,6 +2257,39 @@ THE_SOLE_FLATTENS_WITHIN = 3.0
 # offset is measured off the soles rather than assumed, because a clip that is two cycles long has
 # more than one plausible answer and the wrong one would look like a limp.
 THE_TOE_BEND_COMES_FROM = "L"
+
+# How far the ankle may point the foot DOWN and lift it UP, in degrees, while the foot is off the
+# ground. And how far the toe may hang below its own foot.
+#
+# # What this is fixing
+#
+# "The red is the foot which is not aligned how a natural foot should be in this movement. The
+# orange is the toes which are even more misaligned from the foot."
+#
+# Measured as where the ball sits against the ankle - which is the reading that finally matched
+# what the render showed - the bind has the ball 13.6 cm FORWARD of the ankle and 6.0 cm below it,
+# a foot lying along its own sole. Through swing the delivered clip swings it to 3.0 cm BEHIND the
+# ankle and 14.6 below: hanging straight down and slightly back, a ballet point, with the toe
+# hanging off the end of that. Both feet do it; it is not the mirroring.
+#
+# An ankle plantarflexes about 50 degrees at its limit and a jogger's is near neutral through
+# swing, because a foot hanging at full stretch drags its toe. Thirty down and twenty-five up is a
+# band that leaves the animator's shape everywhere it is already inside it - most of the clip - and
+# only catches the extremes.
+#
+# This is a per-frame correction on frames nobody authored a fault into, which is the kind of thing
+# that has been switched off here twice for making him robotic. It earns its place by being a
+# CLAMP: a frame already within the band is not touched at all, so nothing is restyled that was not
+# already outside what an ankle can do.
+# How close a sole must be to the floor to count as down, in cm, for the purpose of leaving it
+# alone. Tighter than the flattening window, because the flattening is only partly applied there.
+A_FOOT_IS_DOWN = 0.5
+
+CAPS_THE_ANKLE = True
+THE_FOOT_POINTS_AT_MOST = 20.0
+THE_FOOT_LIFTS_AT_MOST = 25.0
+THE_TOE_HANGS_AT_MOST = 10.0
+THE_TOE_LIFTS_AT_MOST = 45.0
 THE_TOES_POINT_OUT = 0.0
 
 # How near his facing the held plants have to end up before the clip counts as running straight,
@@ -2772,6 +2805,101 @@ def copy_the_foot_from_the_other_side(rig, scene, soles, faces, across, level,
         posed.rotation_mode = "QUATERNION"
         posed.keyframe_insert("rotation_quaternion", frame=frame)
     return to_side, lag, tipped, bent
+
+
+def how_far_the_foot_points(rig, side, faces):
+    """How far the foot is plantarflexed past its bind, in degrees, from the ANKLE-TO-BALL line.
+
+    Not from the sole's normal, which is what this used and which is wrong for the job: a normal
+    carries the foot's ROLL as well as its pitch, so a rolled foot under-reports. Measured at frame
+    4 the normal said the foot was tipped 29 degrees - inside any sane band - while the ankle-to-
+    ball line was 62 degrees below horizontal, which is a foot hanging vertically in mid-air. The
+    line between the two joints cannot be fooled that way, and it is also the thing anyone looking
+    at the rig actually sees.
+    """
+    def below(a, b):
+        span = b - a
+        flat = mathutils.Vector((span.x, span.y, 0.0)).length
+        return math.degrees(math.atan2(-span.z, max(flat, 1e-9)))
+
+    bone = rig.pose.bones[f"{side}_Foot"]
+    toe = rig.pose.bones[f"{side}_ToeBase"]
+    rest = below(rig.matrix_world @ bone.bone.head_local,
+                 rig.matrix_world @ toe.bone.head_local)
+    now = below(rig.matrix_world @ bone.head, rig.matrix_world @ toe.head)
+    return now - rest
+
+
+def hold_the_ankle_inside_its_range(rig, mesh, feet, ground, scene, faces, across, level,
+                                    first, last, loops):
+    """Clamps each foot's pitch, and its toe's bend, to what an ankle and a toe can actually do.
+
+    A clamp, not a correction: a frame already inside the band is left exactly as delivered. Only
+    the frames outside it move, and only as far as the edge.
+
+    The pitch is SOLVED rather than turned by the difference, for the reason `copy_the_foot_from_
+    the_other_side` gives - a degree about the body's lateral is not a degree of pitch on a foot
+    that is also rolled, and is not reliably even the same sign.
+
+    Only the frames whose soles are actually being laid on the floor are skipped, and they are
+    skipped by measuring the SOLE rather than by asking whether the solver has any influence there.
+    Those are not the same set: the plant's influence ramps over frames either side of a contact,
+    and on those frames the foot is several centimetres up and the flattening - which follows the
+    floor - has already let go of it. Frame 4 sat in exactly that gap, getting neither, which is
+    the frame that was reported.
+    """
+    caught = {"foot": 0, "toe": 0}
+    worst = 0.0
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        for side in "LR":
+            # Only a foot that is genuinely ON the floor is exempt. The earlier version stood
+            # down wherever the flattening had any say, and the flattening's say is PARTIAL over
+            # its last few centimetres - at 2 cm up it is a third applied - so a foot could be
+            # plantarflexed 39 degrees, be flattened a third of the way out of it, and be skipped
+            # by the clamp for the other two thirds. Frame 4 was exactly that.
+            if ik_gait.lowest_sole(rig, mesh, feet, side) - ground <= (A_FOOT_IS_DOWN / 170.0):
+                continue
+
+            pitch = how_far_the_foot_points(rig, side, faces)
+            wants = max(-THE_FOOT_LIFTS_AT_MOST, min(THE_FOOT_POINTS_AT_MOST, pitch))
+            if abs(wants - pitch) > 0.05:
+                caught["foot"] += 1
+                worst = max(worst, abs(wants - pitch))
+                bone = f"{side}_Foot"
+                for _ in range(8):
+                    here = how_far_the_foot_points(rig, side, faces)
+                    by = wants - here
+                    if abs(by) < 0.05:
+                        break
+                    turn_further_absolutely(rig, bone, 1.0, across)
+                    bpy.context.view_layer.update()
+                    answers = how_far_the_foot_points(rig, side, faces) - here
+                    turn_further_absolutely(rig, bone, -1.0, across)
+                    bpy.context.view_layer.update()
+                    if abs(answers) < 1e-6:
+                        break
+                    turn_further_absolutely(rig, bone, max(-90.0, min(90.0, by / answers)), across)
+                    bpy.context.view_layer.update()
+                posed = rig.pose.bones[bone]
+                posed.rotation_mode = "QUATERNION"
+                posed.keyframe_insert("rotation_quaternion", frame=frame)
+
+            bend, hinge = how_the_toe_bends(rig, side)
+            if hinge is None:
+                continue
+            rest = the_bind_toe_bend(rig, side)
+            free = bend - rest
+            held = max(-THE_TOE_HANGS_AT_MOST, min(THE_TOE_LIFTS_AT_MOST, free))
+            if abs(held - free) > 0.05:
+                caught["toe"] += 1
+                turn_further_absolutely(rig, f"{side}_ToeBase", held - free, hinge)
+                posed = rig.pose.bones[f"{side}_ToeBase"]
+                posed.rotation_mode = "QUATERNION"
+                posed.keyframe_insert("rotation_quaternion", frame=frame)
+                bpy.context.view_layer.update()
+    return caught, worst
 
 
 def keep_the_legs_apart(rig, mesh, scene, pull, rigged, faces, first, last, loops):
@@ -3355,6 +3483,13 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
             last - 1 if loops else last, loops)
         print(f"    gave the {took} foot the other one's pitch and toe bend, {lag} frames behind "
               f"it: tipped at most {tipped:.1f} deg, toe turned at most {bent:.1f} deg")
+
+    if CAPS_THE_ANKLE:
+        caught, worst = hold_the_ankle_inside_its_range(
+            rig, mesh, feet, ground, scene, faces, across, level, first, last, loops)
+        print(f"    held {caught['foot']} foot-frames and {caught['toe']} toe-frames back inside "
+              f"what an ankle can do, the worst by {worst:.1f} deg; everything already inside the "
+              "band is untouched")
 
     # # Laying the soles down LAST, once every leg is settled
     #
