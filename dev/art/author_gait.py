@@ -2243,6 +2243,20 @@ THE_SOLE_LIES_AT = 0.0
 # How close the sole must be to the floor before it is laid flat at all, in cm. See the flatness
 # pass: a toe straightening out in mid-air is a fault of its own.
 THE_SOLE_FLATTENS_WITHIN = 3.0
+
+# Which foot's toe the other one copies, or None to leave both as delivered.
+#
+# "Just get the right foot not bending correctly." Measured at the ball, in each foot's own plane,
+# the two toes bend OPPOSITE WAYS: the left runs 0 to +40 degrees and lifts, the right runs -33 to
+# +10 and curls under. The bind is symmetric to two decimal places - both feet 14.01 degrees, both
+# toes 16.04 cm - so this is not the rig. It is the same "delivered mirrored imperfectly" signature
+# this asset keeps producing, and it is in the clip.
+#
+# The two feet are half a cycle apart, so copying is a phase shift and not a reflection: the right
+# toe at a frame does what the left toe did however many frames earlier its own plant lags by. That
+# offset is measured off the soles rather than assumed, because a clip that is two cycles long has
+# more than one plausible answer and the wrong one would look like a limp.
+THE_TOE_BEND_COMES_FROM = "L"
 THE_TOES_POINT_OUT = 0.0
 
 # How near his facing the held plants have to end up before the clip counts as running straight,
@@ -2612,6 +2626,95 @@ def where_he_crosses_over(ankles, across, first, last):
         strayed["L"][frame] = across * half
         strayed["R"][frame] = across * -half
     return strayed
+
+
+def how_the_toe_bends(rig, side):
+    """How far a toe is bent at the ball, in degrees, in its own foot's plane. Up is positive."""
+    foot = rig.pose.bones[f"{side}_Foot"]
+    toe = rig.pose.bones[f"{side}_ToeBase"]
+    along = ((rig.matrix_world @ foot.tail) - (rig.matrix_world @ foot.head))
+    points = ((rig.matrix_world @ toe.tail) - (rig.matrix_world @ toe.head))
+    if along.length < 1e-9 or points.length < 1e-9:
+        return 0.0, None
+    along.normalize()
+    points.normalize()
+    up = (foot.matrix.to_3x3() @ mathutils.Vector((0.0, 0.0, 1.0))).normalized()
+    hinge = along.cross(up)
+    if hinge.length < 1e-9:
+        return 0.0, None
+    hinge.normalize()
+    lifts = hinge.cross(along).normalized()
+    return math.degrees(math.atan2(points.dot(lifts), points.dot(along))), hinge
+
+
+def the_bind_toe_bend(rig, side):
+    """The same angle in the BIND, which is the zero every posed reading is against."""
+    foot = rig.pose.bones[f"{side}_Foot"].bone
+    toe = rig.pose.bones[f"{side}_ToeBase"].bone
+    along = ((rig.matrix_world @ foot.tail_local) - (rig.matrix_world @ foot.head_local))
+    points = ((rig.matrix_world @ toe.tail_local) - (rig.matrix_world @ toe.head_local))
+    along.normalize()
+    points.normalize()
+    up = ((rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].bone.matrix_local).to_3x3()
+          @ mathutils.Vector((0.0, 0.0, 1.0))).normalized()
+    hinge = along.cross(up).normalized()
+    lifts = hinge.cross(along).normalized()
+    return math.degrees(math.atan2(points.dot(lifts), points.dot(along)))
+
+
+def how_far_the_feet_lag(soles, first, ends):
+    """How many frames one foot's cycle trails the other's, measured off their sole heights.
+
+    Not assumed. A clip two cycles long has more than one offset that half-fits, and the wrong one
+    reads as a limp - so the whole range is tried and the one whose sole curves actually line up
+    wins.
+    """
+    span = ends - first + 1
+    best, at = None, 0
+    for lag in range(span):
+        off = sum(abs(soles["L"][first + (f - first) % span]
+                      - soles["R"][first + (f - first + lag) % span])
+                  for f in range(first, ends + 1))
+        if best is None or off < best:
+            best, at = off, lag
+    return at
+
+
+def copy_the_toe_bend(rig, scene, soles, first, last, ends, loops):
+    """Gives one foot's toe the other's bend, shifted by the phase between them.
+
+    Rotated about the toe's own HINGE - the axis across the foot - so nothing but the bend changes:
+    the toe keeps its heading and its roll, and only the angle it makes with its own foot moves.
+    """
+    from_side = THE_TOE_BEND_COMES_FROM
+    to_side = "R" if from_side == "L" else "L"
+    span = ends - first + 1
+    lag = how_far_the_feet_lag(soles, first, ends)
+
+    was = {}
+    for frame in range(first, last + 1):
+        scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        was[frame] = {side: how_the_toe_bends(rig, side)[0] for side in "LR"}
+    rest = {side: the_bind_toe_bend(rig, side) for side in "LR"}
+
+    worst = 0.0
+    for frame in range(first, last + 1):
+        at = first + (frame - first) % span
+        source = first + (at - first - lag) % span
+        wants = (was[source][from_side] - rest[from_side]) + rest[to_side]
+        scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        here, hinge = how_the_toe_bends(rig, to_side)
+        if hinge is None:
+            continue
+        by = wants - here
+        worst = max(worst, abs(by))
+        turn_further_absolutely(rig, f"{to_side}_ToeBase", by, hinge)
+        posed = rig.pose.bones[f"{to_side}_ToeBase"]
+        posed.rotation_mode = "QUATERNION"
+        posed.keyframe_insert("rotation_quaternion", frame=frame)
+    return to_side, lag, worst
 
 
 def keep_the_legs_apart(rig, mesh, scene, pull, rigged, faces, first, last, loops):
@@ -3181,6 +3284,12 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
             print(f"    the legs were touching on {len(parted)} frame(s); swung the free thigh at "
                   f"most {max(abs(v) for v in parted.values()):.2f} deg to put daylight between "
                   "them")
+
+    if THE_TOE_BEND_COMES_FROM:
+        took, lag, worst = copy_the_toe_bend(rig, scene, soles, first, last,
+                                             last - 1 if loops else last, loops)
+        print(f"    gave the {took} toe the other one's bend, {lag} frames behind it, turning it "
+              f"at most {worst:.1f} deg - the two were bending opposite ways")
 
     # # Laying the soles down LAST, once every leg is settled
     #
