@@ -2680,11 +2680,33 @@ def how_far_the_feet_lag(soles, first, ends):
     return at
 
 
-def copy_the_toe_bend(rig, scene, soles, first, last, ends, loops):
-    """Gives one foot's toe the other's bend, shifted by the phase between them.
+def how_the_foot_pitches(rig, side, faces, level):
+    """How far a foot is tipped toe-up or toe-down, in degrees. Positive lifts the toe.
 
-    Rotated about the toe's own HINGE - the axis across the foot - so nothing but the bend changes:
-    the toe keeps its heading and its roll, and only the angle it makes with its own foot moves.
+    Off the SOLE's own normal, taken from the bind where the sole is flat by construction, so it
+    means the same thing on both feet without either of them being told which way is down.
+    """
+    normal = (rig.pose.bones[f"{side}_Foot"].matrix.to_3x3() @ level[side]).normalized()
+    return math.degrees(math.atan2(-normal.dot(faces),
+                                   normal.dot(mathutils.Vector((0.0, 0.0, 1.0)))))
+
+
+def copy_the_foot_from_the_other_side(rig, scene, soles, faces, across, level,
+                                      first, last, ends, loops):
+    """Gives one foot the other's PITCH and toe bend, shifted by the phase between them.
+
+    # Why the pitch had to come too
+
+    Copying the toe alone made it worse, and the render is what said so: the right shoe came out
+    kinked at the ball, its toe box lifted while its heel pointed steeply down, where the left at
+    the same moment was smooth. The numbers agree - at matched phase the right foot pitches 60
+    degrees further down than the left, so the same 40 degrees of toe lift that reads as a normal
+    foot on one leg reads as a broken one on the other. "His foot is still angled wrong so the toe
+    bends incorrectly", and that is the causal order: the foot first, then the toe on top of it.
+
+    Both are scalars in the foot's own terms - how far it tips fore and aft, and how far the toe
+    bends against it - so neither needs a rotation mirrored, and neither disturbs where the foot
+    POINTS. On a rig whose heading and roll were got right the hard way, that matters.
     """
     from_side = THE_TOE_BEND_COMES_FROM
     to_side = "R" if from_side == "L" else "L"
@@ -2695,26 +2717,61 @@ def copy_the_toe_bend(rig, scene, soles, first, last, ends, loops):
     for frame in range(first, last + 1):
         scene.frame_set(frame)
         bpy.context.view_layer.update()
-        was[frame] = {side: how_the_toe_bends(rig, side)[0] for side in "LR"}
+        was[frame] = {
+            side: (how_the_foot_pitches(rig, side, faces, level),
+                   how_the_toe_bends(rig, side)[0])
+            for side in "LR"
+        }
     rest = {side: the_bind_toe_bend(rig, side) for side in "LR"}
 
-    worst = 0.0
+    tipped, bent = 0.0, 0.0
     for frame in range(first, last + 1):
         at = first + (frame - first) % span
         source = first + (at - first - lag) % span
-        wants = (was[source][from_side] - rest[from_side]) + rest[to_side]
         scene.frame_set(frame)
         bpy.context.view_layer.update()
+
+        # # The foot first, and SOLVED rather than turned by the difference
+        #
+        # Turning it by however many degrees it is out only works if a degree about the body's
+        # lateral is a degree of pitch, and on a foot that is also rolled it is not - it is not even
+        # reliably the same SIGN. Applied open-loop it drove the right foot from -71 degrees to -110
+        # while trying to bring it to -11. So a degree is spent finding out what a degree is worth
+        # at this pose, and the step follows from that; a handful of passes settles it.
+        wanted = was[source][from_side][0]
+        started = how_the_foot_pitches(rig, to_side, faces, level)
+        bone = f"{to_side}_Foot"
+        for _ in range(8):
+            here = how_the_foot_pitches(rig, to_side, faces, level)
+            by = wanted - here
+            if abs(by) < 0.05:
+                break
+            turn_further_absolutely(rig, bone, 1.0, across)
+            bpy.context.view_layer.update()
+            answers = how_the_foot_pitches(rig, to_side, faces, level) - here
+            turn_further_absolutely(rig, bone, -1.0, across)
+            bpy.context.view_layer.update()
+            if abs(answers) < 1e-6:
+                break
+            turn_further_absolutely(rig, bone, max(-90.0, min(90.0, by / answers)), across)
+            bpy.context.view_layer.update()
+        tipped = max(tipped, abs(how_the_foot_pitches(rig, to_side, faces, level) - started))
+        posed = rig.pose.bones[bone]
+        posed.rotation_mode = "QUATERNION"
+        posed.keyframe_insert("rotation_quaternion", frame=frame)
+        bpy.context.view_layer.update()
+
+        wants = (was[source][from_side][1] - rest[from_side]) + rest[to_side]
         here, hinge = how_the_toe_bends(rig, to_side)
         if hinge is None:
             continue
         by = wants - here
-        worst = max(worst, abs(by))
+        bent = max(bent, abs(by))
         turn_further_absolutely(rig, f"{to_side}_ToeBase", by, hinge)
         posed = rig.pose.bones[f"{to_side}_ToeBase"]
         posed.rotation_mode = "QUATERNION"
         posed.keyframe_insert("rotation_quaternion", frame=frame)
-    return to_side, lag, worst
+    return to_side, lag, tipped, bent
 
 
 def keep_the_legs_apart(rig, mesh, scene, pull, rigged, faces, first, last, loops):
@@ -2981,6 +3038,13 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
     """
     first, last = (int(round(v)) for v in clip.frame_range)
     play_it(rig, clip)
+
+    # The sole's own normal in each foot bone's frame, taken from the BIND, where the sole lies flat
+    # on the floor by construction - so "flat" needs no plane fitted to it and no vertex named.
+    level = {}
+    for side in "LR":
+        rest = (rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].bone.matrix_local).to_3x3()
+        level[side] = rest.inverted() @ mathutils.Vector((0.0, 0.0, 1.0))
 
     soles, down, window, loops = where_the_feet_are_down(rig, mesh, feet, clip, scene)
     frames = (last - first) if loops else (last - first + 1)
@@ -3286,10 +3350,11 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
                   "them")
 
     if THE_TOE_BEND_COMES_FROM:
-        took, lag, worst = copy_the_toe_bend(rig, scene, soles, first, last,
-                                             last - 1 if loops else last, loops)
-        print(f"    gave the {took} toe the other one's bend, {lag} frames behind it, turning it "
-              f"at most {worst:.1f} deg - the two were bending opposite ways")
+        took, lag, tipped, bent = copy_the_foot_from_the_other_side(
+            rig, scene, soles, faces, across, level, first, last,
+            last - 1 if loops else last, loops)
+        print(f"    gave the {took} foot the other one's pitch and toe bend, {lag} frames behind "
+              f"it: tipped at most {tipped:.1f} deg, toe turned at most {bent:.1f} deg")
 
     # # Laying the soles down LAST, once every leg is settled
     #
@@ -3353,12 +3418,6 @@ def plant_a_clip(rig, mesh, feet, ground, clip, scene, facing):
     ik_gait.drop_the_helpers([h for r in rigged.values() for h in r[:2]])
 
     worst, missed, stood, leans = 0.0, [], {"L": {}, "R": {}}, 0.0
-    # The sole's own normal in each foot bone's frame, taken from the BIND, where the sole lies flat
-    # on the floor by construction - so "flat" needs no plane fitted to it and no vertex named.
-    level = {}
-    for side in "LR":
-        rest = (rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].bone.matrix_local).to_3x3()
-        level[side] = rest.inverted() @ mathutils.Vector((0.0, 0.0, 1.0))
     play_it(rig, clip)
     for frame in range(first, last + 1):
         scene.frame_set(frame)
