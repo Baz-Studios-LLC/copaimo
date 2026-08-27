@@ -1561,6 +1561,26 @@ def close_the_holes(rig, mesh):
 # The stub a childless bone gets, as a fraction of its parent's length.
 A_TIP_IS = 0.4
 
+# # Whether the tails are rebuilt. OFF, and this is the expensive lesson of the changeover.
+#
+# The delivered tails are junk - glTF does not carry a bone length, so Blender invents one, and
+# here it invented hips 11.72 units long on a figure 1.7 units tall. Rebuilding them from the
+# skeleton makes every REPORT sane: `stand_the_legs_apart` stops claiming it moved a knee 8492 cm
+# and the bind mirror stops claiming halves 288 cm apart.
+#
+# And it destroys the animation. A bone's rest ORIENTATION is its head-to-tail direction, so
+# re-aiming a tail redefines the frame that every keyed local rotation is measured in. Nothing
+# needs to touch a key for the whole clip to mean something else. Rendered, the run became a man
+# rocking on the spot with his arms flung out - "why did you make him breakdance" - and it was the
+# only step that did it: with every other correction on and this one off, the run is the delivered
+# run.
+#
+# It can come back, but only WITH the compensation a bind change needs - capture each bone's world
+# pose per frame, change the rest, put the pose back - which is the same thing `ease_the_knees`
+# already does for its two degrees. Until then the reports read oddly and the animation is right,
+# which is the correct way round.
+POINTS_THE_BONES = False
+
 
 def point_the_bones_at_their_children(rig):
     """Rebuilds every bone's TAIL from the skeleton, because the delivered ones are invented.
@@ -4656,7 +4676,7 @@ def main():
             carried = carry_the_clips_into_the_new_scale(clips, shrank)
             if carried:
                 print(f"    scaled {carried} translation channel(s) by {shrank:.6f} to match")
-            aimed = point_the_bones_at_their_children(rig)
+            aimed = point_the_bones_at_their_children(rig) if POINTS_THE_BONES else 0
             print(f"    rebuilt {aimed} bone tails from the skeleton - glTF does not carry them "
                   "and the imported guesses were up to 20x the figure's height")
             print(f"    renamed {named} bones onto the pipeline's convention; scaled a "

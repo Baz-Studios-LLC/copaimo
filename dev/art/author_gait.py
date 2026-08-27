@@ -2241,7 +2241,17 @@ RUNS_ALONG_HIS_FACING = True
 # keyed LOCALLY, against a shin the solver re-evaluates at bake time, and on this rig that
 # disagreement is bigger. Worth chasing when the feet are next in front of me - a 30 cm shoe tilted
 # 2.23 degrees lifts one end just over a centimetre, which is small but not nothing.
-SOLES_LIE_WITHIN = 3.0
+# # These four were widened for the 2026-08-26 changeover, and are back where they were
+#
+# Every one of them was raised to let a build through that was fighting a broken bind: the tails
+# had been rebuilt without compensating the clips, which reinterpreted the whole animation, and the
+# plant was then trying to repair a run that had become a man rocking on the spot. It asked for
+# 20.34 cm of foot movement and 5.04 cm of body carry to do it.
+#
+# With the bind left alone the same clip needs 5.39 cm and no carry at all, and lands every planted
+# sole at 0.00 cm off the floor and 0.00 degrees off flat. The guards were right and I was widening
+# them to get past my own fault - which is the one thing a guard exists to stop.
+SOLES_LIE_WITHIN = 1.5
 
 LIES_THE_SOLE_FLAT = True
 THE_SOLE_LIES_AT = 0.0
@@ -2367,7 +2377,7 @@ THE_TOES_POINT_OUT = 0.0
 # frame excluded that leaves a couple of pairs per stance to average. The lock itself is exact -
 # the balls travel (-1.000, -0.000) - and 1.00 degree is 3.7 cm of drift across a 2.1 m cycle,
 # against the 2.53 degrees the clip arrived with.
-RUNS_STRAIGHT_WITHIN = 1.5
+RUNS_STRAIGHT_WITHIN = 0.25
 
 # How many held frame-pairs it takes before a measured heading is worth believing.
 ENOUGH_TO_JUDGE_A_HEADING = 4
@@ -2389,7 +2399,7 @@ ENOUGH_TO_JUDGE_A_HEADING = 4
 # stride on a figure whose feet lift 50 cm and are down for two frames in fifteen. It is a much
 # faster stride with much more slide in it, and the bound has to be earned on the clip being
 # fixed rather than inherited from the one before.
-A_PLANT_MAY_SHIFT = 22.0
+A_PLANT_MAY_SHIFT = 12.0
 
 # How close the solved chain must end up to what it was asked for, in cm, before the ask is called
 # unreachable. A leg that cannot get there has not planted the foot; it has leaned on it.
@@ -2408,7 +2418,7 @@ CHAIN_REACHES_TO_WITHIN = 0.50
 # Six, re-measured for the 2026-08-26 warden. Four was earned on the previous delivery and the
 # new clip asks 5.04 - a different animator, a different stride, and the number that bounds a
 # repair has to be earned on the thing being repaired. Still a real bound and it still refuses.
-HIPS_MAY_SHIFT = 6.0
+HIPS_MAY_SHIFT = 4.0
 CARRIES_THE_BODY = True
 
 # How many times the body may be carried before the plants are taken as good as they will get.
