@@ -133,7 +133,10 @@ const BREAKS_INTO_A_RUN: f32 = 2.0;
 // The audit now REFUSES above 15% disagreement, so a re-authored clip cannot quietly reintroduce
 // this. It is the stage 04 "planted-foot velocity spread" guard, which until now was written
 // down and not built.
-const WALK_COVERS: f32 = 2.471;
+// 1.479 for the 2026-08-26 warden, measured by `the_footfalls` off the planted feet of the
+// DELIVERED clip - the clips are final and nothing may correct them, so the game's numbers move
+// to the clip rather than the other way round.
+const WALK_COVERS: f32 = 1.479;
 
 /// The same number, for `ik`'s tests to reason about a step with.
 ///
@@ -176,7 +179,8 @@ pub const WALK_COVERS_FOR_TESTS: f32 = WALK_COVERS;
 // Per CYCLE that is 2.02 m, or 1.19 x his height - the same place the authored clip landed, and
 // inside the 1.4-1.8 a jog wants. The clip carries twice that because it is two cycles long, which
 // is what `CYCLES` is for.
-const JOG_COVERS: f32 = 2.611;
+// 2.982, same source and same policy as WALK_COVERS: measured off the delivered feet.
+const JOG_COVERS: f32 = 2.982;
 
 /// How many gait CYCLES each clip contains, so cadence can be told apart from playback rate.
 ///
@@ -201,7 +205,9 @@ const JOG_COVERS: f32 = 2.611;
 // replaced it holds two: measured on the built asset, its hips dip once every 6.25 frames and each
 // foot plants twice in the 24-frame cycle, which is four contacts and two cycles. Left at one, the
 // jog reports half the cadence it has.
-const CYCLES: &[(&str, f32)] = &[("walk", 2.0), ("jog", 2.0)];
+// One each on the 2026-08-26 delivery: the walk plants each foot once across its 25 frames and
+// the jog once across its 15, which is one gait cycle apiece.
+const CYCLES: &[(&str, f32)] = &[("walk", 1.0), ("jog", 1.0)];
 
 /// How far a clip may be from its own native rate before it reads as broken.
 ///
@@ -290,9 +296,9 @@ const FPS: f32 = 24.0;
 // They are not authored at the same rate - the walk's first key lands at 1/24 s and the run's
 // at 0 - which is exactly why nothing here converts between them by counting frames.
 #[allow(dead_code)]
-const WALK_FRAMES: f32 = 56.0;
+const WALK_FRAMES: f32 = 25.0;
 #[allow(dead_code)]
-const JOG_FRAMES: f32 = 24.0;
+const JOG_FRAMES: f32 = 15.0;
 
 
 /// Cadence does not transfer between bodies of different size: for dynamic similarity it

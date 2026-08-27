@@ -188,7 +188,7 @@ DIGITS_TRAIL_BY = 3          # frames each digit lags the one before it, thumb f
 #
 # Closed by bending the last frames to meet the first, the same way `join_the_clips` bends its
 # seams. Over a third of a second here, which spreads 22 degrees at under 3 degrees a frame.
-CLOSES_THE_LOOP = ("jog",)
+CLOSES_THE_LOOP = ()
 CLOSE_OVER = 8
 
 # Which clips are supposed to carry the character somewhere. Everything else is a standing
@@ -355,7 +355,7 @@ DIGITS = ("Thumb", "Index", "Middle", "Ring", "Pinky")
 # Ninety was past the far side and OVER-rotating by more than double. It read as roughly right
 # in a render because a palm 75 degrees off the thigh still looks better than one facing
 # forward.
-PALMS_ROLL_IN = 30.0
+PALMS_ROLL_IN = 0.0
 ROLLS = {"L": 1.0, "R": -1.0}
 
 # How the roll is SHARED along the forearm, and why it has to be shared at all.
@@ -601,7 +601,7 @@ THE_ELBOW_IS = ("Forearm",)
 # Both are per-frame corrections applied to poses an animator chose. They are off. The lesson is
 # the one already in TROUBLESHOOTING.md under a different name: a correction layer may fix
 # CONTACT with the world, and must not restyle a performance.
-FEET_MEET_THE_FLOOR = True
+FEET_MEET_THE_FLOOR = False
 BREAKS_THE_TOES = False
 POINTS_THE_FEET = False
 
@@ -715,13 +715,54 @@ ROLLS_THROUGH_STANCE = ()
 # Bone-local animation is unaffected by construction, since a pose is stated relative to a rest
 # that has turned with it, and the root's translation keys live in that same rest frame. An object
 # rotation would have shipped as a node transform for something downstream to forget about.
+# # The delivered clips are final. Nothing here may change them.
+#
+# "I gave you a new glb of a run that was fine. Whatever you did broke that... Do not change the
+# run at all, if something would affect it let me know but only implement changes that do not
+# affect the run and walk."
+#
+# So this file now does exactly three things to the delivery, and every one of them leaves the
+# performance bit-for-bit intact:
+#
+#   * RENAMES the bones onto the pipeline's convention, and the animation channels with them. A
+#     rename moves nothing.
+#   * SCALES the figure to one unit and bakes the object transforms in. A uniform scale about the
+#     origin changes no joint angle anywhere.
+#   * SQUARES him onto the axis. A rigid rotation of the whole rig, bones and flesh together, so
+#     every local rotation in every clip is untouched - and it is what makes `look::Build::turn`
+#     land him facing the game's forward.
+#
+# Everything else is off, listed here so the cost is visible rather than buried:
+#
+#   MIRRORS_THE_BIND        moves bind joints; the clips are compensated but the bind moves
+#   HINGES_THE_TOES         moves the toe joint and re-weights the shoe
+#   KNEE_EASE               bends the bind knee 2 degrees
+#   THE_LEGS_STAND_APART    abducts the bind hips
+#   ADDS_THE_FINGERS        adds 30 bones and takes weight off the hand
+#   UNFUSES                 moves mesh vertices between the fingers
+#   PALMS_ROLL_IN           rotates the hands 30 degrees in the clip
+#   FLATTENS_THE_TOES       rotates toes per frame
+#   FEET_MEET_THE_FLOOR     translates the whole clip vertically
+#   CLOSES_THE_LOOP         re-keys every channel from samples
+#   CLOSES_THE_HOLES        welds mesh
+#   and `author_gait` - the whole plant - which is the largest of them by far
+#
+# What that costs is written up for the user rather than hidden: the soles are not on the floor,
+# the feet are not flat, nothing is planted, and the toes keep whatever the animator gave them.
+# Those come back one at a time, each shown against the delivered clip first.
+THE_DELIVERY_IS_FINAL = True
+
+# Neither of these had a switch before, and both change the skin.
+ADDS_THE_FINGERS = False
+CLOSES_THE_HOLES = False
+
 SQUARES_HIM_UP = True
 FACES_ALONG = (1.0, 0.0)
 
 # How far off the axis he may still be once he has been turned, in degrees.
 SQUARE_WITHIN = 0.05
 
-MIRRORS_THE_BIND = True
+MIRRORS_THE_BIND = False
 
 # # A knee that is dead straight cannot be solved
 #
@@ -739,7 +780,7 @@ MIRRORS_THE_BIND = True
 # bind change invalidates every key written against the old rest - "a clip cannot be copied across
 # a bind change, only retargeted" - so each affected bone's keys are pre-multiplied by the inverse
 # of the rest change, which leaves the animation looking exactly as it did.
-KNEE_EASE = 2.0
+KNEE_EASE = 0.0
 
 # # How far apart the legs are held
 #
@@ -763,7 +804,7 @@ KNEE_EASE = 2.0
 # 1.6 is the best of them and it is a small improvement, not a fix. The legs pass close because
 # the CLIP swings them close; widening the bind moves where they nearly touch rather than
 # stopping them nearly touching.
-THE_LEGS_STAND_APART = 1.6
+THE_LEGS_STAND_APART = 0.0
 
 # # How far the ankle may point down, and why this is the only foot correction left
 #
@@ -807,7 +848,7 @@ CAPS_THE_ANKLE = ()
 # POINT, and rotating about the ankle is what lifted the heel off the floor every previous time.
 #
 # It needs the joint at the ball, or the bend folds the arch. See `HINGES_THE_TOES`.
-FLATTENS_THE_TOES = ("walk", "jog")
+FLATTENS_THE_TOES = ()
 
 # How far below horizontal a toe may still point once it has been flattened. Not zero: a shoe has
 # a sole with some thickness and a toe box that curves up, so a few degrees reads as the toe
@@ -842,7 +883,7 @@ THE_TOE_BENDS_AT_MOST = 40.0
 #
 # The joint has to be at the ball for `flatten_the_toes` to work at all: a toe that bends at the
 # mid-arch folds the shoe across its middle.
-HINGES_THE_TOES = True
+HINGES_THE_TOES = False
 THE_TOE_HINGES_AT = 0.70
 # Tried at 0.15 to spread the bend, on the reasoning that an abrupt handover pinches. It does the
 # opposite: a wider band puts MORE vertices under two bones at once, and linear blend skinning
@@ -4099,7 +4140,7 @@ THE_CROTCH_ENDS = 0.22
 # along the hand's own reach axis, and pulled in toward the line between the two digits they
 # sit between. The valley deepens, the digits stand clear of each other, and the surface stays
 # exactly as watertight as it was - deleting nothing cannot open anything.
-UNFUSES = True
+UNFUSES = False
 
 # How far a shared vertex sinks toward the wrist, as a share of the digit's length, and how far
 # it is drawn toward the seam between its two digits. Faded by how far along the digit it sits:
@@ -4688,7 +4729,8 @@ def main():
                 cut_the_webbing(rig, base_mesh)
             elif DEEPENS_THE_ARMPIT:
                 deepen_the_armpit(rig, base_mesh)
-            close_the_holes(rig, base_mesh)
+            if CLOSES_THE_HOLES:
+                close_the_holes(rig, base_mesh)
             # Before every other rig edit, because everything downstream measures against it.
             if MIRRORS_THE_BIND:
                 pairs, was = the_bind_is_mirrored(rig)
@@ -4740,7 +4782,7 @@ def main():
                 by = stand_the_legs_apart(rig, THE_LEGS_STAND_APART)
                 print(f"    stood the legs {THE_LEGS_STAND_APART:.1f} deg apart, which moves "
                       f"each knee {by:.2f} cm out")
-            assigned = add_the_fingers(rig, base_mesh)
+            assigned = add_the_fingers(rig, base_mesh) if ADDS_THE_FINGERS else {}
             if UNFUSES:
                 # After the closer, never before it - see unfuse_the_digits on why.
                 unfuse_the_digits(rig, base_mesh, assigned)
