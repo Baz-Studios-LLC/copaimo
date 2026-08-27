@@ -251,9 +251,30 @@ def main():
                     return True
         return False
 
+    # And MARKER bones - leaves that drive no skin at all. The 2026-08-26 warden ships two,
+    # `head_end` and `headfront`, which its generation site exports to mark the skull top and the
+    # face direction. They deform nothing (0.000 total weight, measured), but Blender invents
+    # tails for them - glTF stores no bone length - and headfront's invented tail runs sixteen
+    # metres out of the face. Reported as "the bones coming out of the face", reasonably. Hidden
+    # here, in the viewer session only; the shipped file keeps them exactly as delivered.
+    weighs = {g.name: 0.0 for m in bpy.data.objects if m.type == "MESH"
+              for g in m.vertex_groups}
+    for m in bpy.data.objects:
+        if m.type != "MESH":
+            continue
+        names = {g.index: g.name for g in m.vertex_groups}
+        for v in m.data.vertices:
+            for g in v.groups:
+                weighs[names[g.group]] = weighs.get(names[g.group], 0.0) + g.weight
+    markers = 0
     for bone in rig.data.bones:
-        bone.hide = HIDE in bone.name and not leads_somewhere(bone)
-    print(f"  {sum(1 for b in rig.data.bones if b.hide)} twist bones hidden; alt-H shows them")
+        a_leaf = not any(k.parent is not None and k.parent.name == bone.name
+                         for k in rig.data.bones)
+        a_marker = a_leaf and weighs.get(bone.name, 0.0) < 1e-6
+        bone.hide = (HIDE in bone.name and not leads_somewhere(bone)) or a_marker
+        markers += a_marker
+    print(f"  {sum(1 for b in rig.data.bones if b.hide)} bone(s) hidden "
+          f"({markers} skinless markers among them); alt-H shows them")
 
     # # The clip list, visible on open
     #
