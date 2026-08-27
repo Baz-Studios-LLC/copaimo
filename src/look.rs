@@ -87,10 +87,12 @@ impl Build {
     /// time they sent a new one.
     pub fn turn(self) -> f32 {
         match self {
-            // Nought for the delivered warden: he is authored facing Blender +Y, which the
-            // glTF export carries to -Z - and -Z is already the game's forward. The quarter turn
-            // belonged to the previous asset, which the build used to rotate onto +X first.
-            Build::Ranger => 0.0,
+            // A half turn, MEASURED rather than derived - the derivation got it backwards
+            // once already ("he runs backwards in game"). The rig carries its own answer: the
+            // delivered `headfront` marker sits 11 cm in front of the face, and read straight out
+            // of the shipped glb's JSON it points +Z. The game's forward is -Z, so he needs
+            // turning half way round, and nothing about the asset changes.
+            Build::Ranger => std::f32::consts::PI,
             Build::Male | Build::Female => 0.0,
         }
     }
