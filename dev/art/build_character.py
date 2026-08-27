@@ -446,7 +446,8 @@ LIFTS = ("idle", "look_around")
 # The hand has to move too, and that is correctness rather than polish: with the forearm no
 # longer twisting, the wrist only stays where the animator put it if the hand takes the whole
 # twist locally. That is the invariant this pass is checked against.
-SPREADS_THE_TWIST = True
+# Off: this rig carries no twist bones to spread onto, and the check around it reads hands.
+SPREADS_THE_TWIST = False
 
 # Where each roll bone's share comes from: MEASURED, not the usual one-third/two-thirds. A
 # roll bone should carry the twist belonging to the stretch of arm its skin actually covers,
@@ -752,11 +753,35 @@ ROLLS_THROUGH_STANCE = ()
 # Those come back one at a time, each shown against the delivered clip first.
 THE_DELIVERY_IS_FINAL = True
 
+# # And the delivered NAMES, SCALE and FACING are final too
+#
+# "Are you adding bones? literally go back to the original." The earlier translate-at-the-door
+# renamed his bones and rescaled him so the pipeline's tools could keep their vocabulary. That was
+# the wrong direction: the asset is the artist's and the tools are ours, so the tools adapt.
+#
+# The shipped skeleton is now the delivered one - LeftUpLeg, RightToeBase, Hips, 24 bones, his
+# scale, his orientation. The game side follows it: `look::Build::turn` is 0 because Blender +Y
+# exports to glTF -Z, which IS the game's forward, and `authored_height` is what the file measures.
+# The one thing still renamed is the ACTIONS - walking_man to walk, running to jog - because a
+# clip's name is a label, not motion.
+KEEPS_THE_DELIVERED_NAMES = True
+
+
+def the_bone(rig, name):
+    """The pose bone for a pipeline name, on either naming. Reads, never renames."""
+    if name in rig.pose.bones:
+        return rig.pose.bones[name]
+    for was, becomes in RENAMES.items():
+        if becomes == name and was in rig.pose.bones:
+            return rig.pose.bones[was]
+    refuse(f"no bone answers to {name} on this rig")
+
 # Neither of these had a switch before, and both change the skin.
 ADDS_THE_FINGERS = False
 CLOSES_THE_HOLES = False
 
-SQUARES_HIM_UP = True
+# Off with the delivered facing kept: `look::Build::turn` is 0 instead, which turns nothing.
+SQUARES_HIM_UP = False
 FACES_ALONG = (1.0, 0.0)
 
 # How far off the axis he may still be once he has been turned, in degrees.
@@ -1703,8 +1728,8 @@ def stand_him_still(rig, walk, scene, called="idle"):
     for frame in range(first, last + 1):
         scene.frame_set(frame)
         bpy.context.view_layer.update()
-        left = rig.matrix_world @ rig.pose.bones["L_Foot"].head
-        right = rig.matrix_world @ rig.pose.bones["R_Foot"].head
+        left = rig.matrix_world @ the_bone(rig, "L_Foot").head
+        right = rig.matrix_world @ the_bone(rig, "R_Foot").head
         apart = (left - right).length
         high = max(left.z, right.z)
         score = apart + high
@@ -3895,7 +3920,7 @@ def stand_on_the_floor(rig, mesh, clip, scene):
     curves = fcurves_of(clip, slot)
     # Whichever bone the clip moves the body with. World up expressed in ITS rest frame, because
     # a bone's local Z is along whatever way the bone was built and not necessarily up.
-    for carrier in ("Root", "Hip", "Pelvis"):
+    for carrier in ("Root", "Hip", "Pelvis", "Hips"):
         if carrier not in rig.pose.bones:
             continue
         path = f'pose.bones["{carrier}"].location'
@@ -4658,7 +4683,7 @@ def travels(rig, clip, scene):
     bpy.context.view_layer.update()
 
     def at(name):
-        return (rig.matrix_world @ rig.pose.bones[name].head).copy()
+        return (rig.matrix_world @ the_bone(rig, name).head).copy()
 
     began = {n: at(n) for n in ("Hip", "L_Foot", "R_Foot")}
     hips, feet = 0.0, {"L_Foot": 0.0, "R_Foot": 0.0}
@@ -4695,14 +4720,14 @@ def main():
         if len(clips) != 1:
             refuse(f"{filename} carries {len(clips)} clips, and this expects exactly one")
         # Before anything touches the clip, and for EVERY file rather than only the base.
-        renamed_paths = speak_the_clips_language(clips)
-        if renamed_paths:
-            print(f"    pointed {renamed_paths} animation channels at the renamed bones")
-        if base_rig is not None:
-            carried = carry_the_clips_into_the_new_scale(clips, shrank)
-            if carried:
-                print(f"    scaled {carried} translation channel(s) by {shrank:.6f} to match the "
-                      "figure the base was resized to")
+        if not KEEPS_THE_DELIVERED_NAMES:
+            renamed_paths = speak_the_clips_language(clips)
+            if renamed_paths:
+                print(f"    pointed {renamed_paths} animation channels at the renamed bones")
+            if base_rig is not None:
+                carried = carry_the_clips_into_the_new_scale(clips, shrank)
+                if carried:
+                    print(f"    scaled {carried} translation channel(s) by {shrank:.6f} to match")
 
         if base_rig is None:
             base_rig = rig
@@ -4712,19 +4737,21 @@ def main():
                   f"{len(base_mesh.data.vertices)} vertices")
             # FIRST of everything, before a single measurement: every function below this line
             # asks for bones by the pipeline's names and reports in centimetres of a unit figure.
-            named, tall, grew, strays, shrank = speak_the_pipeline_s_language(
-                rig, [o for o in fresh if o.type == "MESH"])
-            carried = carry_the_clips_into_the_new_scale(clips, shrank)
-            if carried:
-                print(f"    scaled {carried} translation channel(s) by {shrank:.6f} to match")
-            aimed = point_the_bones_at_their_children(rig) if POINTS_THE_BONES else 0
-            print(f"    rebuilt {aimed} bone tails from the skeleton - glTF does not carry them "
-                  "and the imported guesses were up to 20x the figure's height")
-            print(f"    renamed {named} bones onto the pipeline's convention; scaled a "
-                  f"{tall:.3f} unit figure by {grew:.4f} to stand {STANDS_A_UNIT_TALL:.1f} tall, "
-                  "and baked the object transforms in so a data unit is a world unit")
-            if strays:
-                print(f"    not in the table, left alone: {', '.join(sorted(strays))}")
+            if KEEPS_THE_DELIVERED_NAMES:
+                print("    the delivered rig ships as delivered: names, scale and facing are the "
+                      "artist's, and the game and tools adapt to them")
+            else:
+                named, tall, grew, strays, shrank = speak_the_pipeline_s_language(
+                    rig, [o for o in fresh if o.type == "MESH"])
+                carried = carry_the_clips_into_the_new_scale(clips, shrank)
+                if carried:
+                    print(f"    scaled {carried} translation channel(s) by {shrank:.6f} to match")
+                if POINTS_THE_BONES:
+                    aimed = point_the_bones_at_their_children(rig)
+                    print(f"    rebuilt {aimed} bone tails from the skeleton")
+                print(f"    renamed {named} bones; scaled a {tall:.3f} unit figure by {grew:.4f}")
+                if strays:
+                    print(f"    not in the table, left alone: {', '.join(sorted(strays))}")
             if CUT_THE_WEBBING:
                 cut_the_webbing(rig, base_mesh)
             elif DEEPENS_THE_ARMPIT:
@@ -4799,7 +4826,7 @@ def main():
         clips[0].use_fake_user = True
         wanted[called] = clips[0]
         play(base_rig, clips[0])
-        rolled = roll_the_hands(base_rig, clips[0], PALMS_ROLL_IN)
+        rolled = roll_the_hands(base_rig, clips[0], PALMS_ROLL_IN) if PALMS_ROLL_IN else 0
         if rolled:
             print(f"    rolled {rolled} hand(s) in by {PALMS_ROLL_IN:.0f} deg")
         if called in MOVES_MORE:

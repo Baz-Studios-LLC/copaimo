@@ -65,7 +65,9 @@ impl Build {
     /// insisting the file be rebuilt.
     pub fn authored_height(self) -> f32 {
         match self {
-            Build::Ranger => 1.00,
+            // The 2026-08-26 warden ships exactly as delivered - "literally go back to the
+            // original" - and the file measures 1.70 m on its own.
+            Build::Ranger => 1.70,
             Build::Male | Build::Female => 1.70,
         }
     }
@@ -85,7 +87,10 @@ impl Build {
     /// time they sent a new one.
     pub fn turn(self) -> f32 {
         match self {
-            Build::Ranger => std::f32::consts::FRAC_PI_2,
+            // Nought for the delivered warden: he is authored facing Blender +Y, which the
+            // glTF export carries to -Z - and -Z is already the game's forward. The quarter turn
+            // belonged to the previous asset, which the build used to rotate onto +X first.
+            Build::Ranger => 0.0,
             Build::Male | Build::Female => 0.0,
         }
     }

@@ -321,6 +321,14 @@ def main():
     if on_the_spot:
         print("  running him ON THE SPOT: the clip is a treadmill and is being shown as one, so "
               "watch where each foot meets the floor rather than whether it slides")
+    # The 2026-08-26 warden ships with the artist's own bone names, and the carry measures
+    # through pipeline names - so it stands down rather than crashing, and he runs on the spot.
+    # The measurement can learn the delivered names when it next matters; the viewer's job today
+    # is to show the file exactly as it ships.
+    if rig is not None and "L_ToeBase" not in rig.pose.bones and not on_the_spot:
+        on_the_spot = True
+        print("  the delivered rig keeps its own bone names, which the carry measurement does "
+              "not speak yet - showing him on the spot instead")
     if (wanted is not None and rig is not None and CARRIES_HIM_FORWARD and mesh is not None
             and not on_the_spot):
         first, last = (int(round(v)) for v in wanted.frame_range)
