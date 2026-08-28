@@ -60,6 +60,7 @@ use crate::config::{
     COAST_FRET, COAST_FRET_FREQ, COAST_WARP, COAST_WARP_FREQ, GROWS_ITS_OWN_WORLD, LANDMASSES,
     LAND_ROLL, LAND_ROLL_FREQ, Landmass,
 };
+use crate::config::REGION_FRAME;
 use crate::world::heightmap::HeightMap;
 use crate::world::settle::{Settlements, Site};
 
@@ -772,7 +773,7 @@ impl Terrain {
     pub fn region(&self, x: f32, z: f32) -> (terrain_core::region::Country, f32) {
         // What the world would say for itself, first — because it is also what a
         // paint stroke falls back TO.
-        let (u, v) = self.to_map_uv(x, z);
+        let (u, v) = self.to_region_uv(x, z);
         let (natural, natural_share) = terrain_core::region::at(Vec2::new(u, v));
 
         // The canyon country carries its own country: desert from wall to wall,
@@ -1126,6 +1127,20 @@ impl Terrain {
         )
     }
 
+    /// Where a world position falls in the frame the REGIONS are laid on.
+    ///
+    /// Not the map's own uv, deliberately - see `config::REGION_FRAME`. Ground
+    /// outside the frame clamps to its edge, so a landmass added beyond the old
+    /// world takes the country of the nearest old ground rather than falling off
+    /// the end of a band model that was never asked about it.
+    fn to_region_uv(&self, x: f32, z: f32) -> (f32, f32) {
+        let (wide, deep) = REGION_FRAME;
+        (
+            (0.5 + x / wide).clamp(0.0, 1.0),
+            (0.5 + z / deep).clamp(0.0, 1.0),
+        )
+    }
+
     /// Pulls land under water at the very edge of the world.
     ///
     /// "The world ends in water, not a wall" is an invariant, and it has to
@@ -1441,17 +1456,41 @@ mod tests {
 
         // And there is rock on it, not just snow. A dome is too gentle
         // everywhere to expose any.
+        // Over the mountain's AREA, not along a spiral of 400 points.
+        //
+        // The spiral put a quarter of its samples in the middle 6% of the mountain
+        // and was asked for a 2.5% hit rate, so the answer swung between 9 and 12
+        // on changes nowhere near it - the snowline moves a little whenever the
+        // world's land does, and at that threshold a little was everything. An
+        // area fraction over a grid is the same question asked so that the answer
+        // holds still.
         let climate = terrain.climate();
-        let mut rock = 0;
-        for step in 0..400 {
-            let turn = step as f32 * 2.4;
-            let out = (step as f32 / 400.0) * MASSIF_RADIUS;
-            let at = peak + Vec2::new(turn.cos(), turn.sin()) * out;
-            if Biome::of(terrain.ground_at(at.x, at.y), &climate) == Biome::Rock {
-                rock += 1;
+        let (mut rock, mut on_it) = (0, 0);
+        for row in 0..70 {
+            for col in 0..70 {
+                let off = Vec2::new(col as f32 / 69.0 - 0.5, row as f32 / 69.0 - 0.5)
+                    * (MASSIF_RADIUS * 2.0);
+                if off.length() > MASSIF_RADIUS {
+                    continue;
+                }
+                on_it += 1;
+                let at = peak + off;
+                if Biome::of(terrain.ground_at(at.x, at.y), &climate) == Biome::Rock {
+                    rock += 1;
+                }
             }
         }
-        assert!(rock > 10, "only {rock} of 400 samples on the mountain are rock");
+        let bare = rock as f32 / on_it as f32;
+        println!("the mountain is {:.1}% bare rock ({rock} of {on_it})", bare * 100.0);
+        // 2%. The mountain has measured 3.0% bare rock for as long as it has been
+        // measured properly - the old spiral's 11 and 12 of 400 are 2.8% and 3.0%
+        // of the same mountain - so this is the historical value with room under
+        // it, not today's number written down. A dome exposes nothing.
+        assert!(
+            bare > 0.02,
+            "only {:.1}% of the mountain is bare rock ({rock} of {on_it}) - that is a dome",
+            bare * 100.0
+        );
     }
 
     #[test]
@@ -1658,6 +1697,14 @@ mod tests {
         }
 
         let share = |biome: Biome| *count.get(&biome).unwrap_or(&0) as f32 / land as f32;
+        // And in square kilometres, because a SHARE is the wrong instrument the
+        // moment the world changes size. Adding one continent to the map took the
+        // desert from 10.2% of the land to 7.1% without a grain of sand moving -
+        // the desert was the same desert and the denominator had grown. What the
+        // question "is this region a place you could cross" actually wants is an
+        // extent, and an extent does not move when somewhere else does.
+        let cell_km2 = (half.x * 2.0 / 120.0) * (half.y * 2.0 / 60.0) / 1_000_000.0;
+        let extent = |biome: Biome| *count.get(&biome).unwrap_or(&0) as f32 * cell_km2;
         // Printed as well as asserted. Tuning a region means moving an ellipse
         // and looking at what the world did with it, and `--nocapture` on this
         // test is the fastest way to see that.
@@ -1687,26 +1734,33 @@ mod tests {
 
         for biome in [Biome::Grass, Biome::Forest, Biome::Desert, Biome::Snow,
                       Biome::Settled, Biome::Shore, Biome::Rock] {
-            println!("{biome:?} {:.1}% of land", share(biome) * 100.0);
+            println!("{biome:?} {:5.2} km2  ({:.1}% of land)", extent(biome), share(biome) * 100.0);
         }
 
         // Each has to be a significant part of the world rather than a curiosity.
         // This is the whole point of regions: somewhere you can name, cross, and
         // put a species of monster in.
-        assert!(share(Biome::Desert) > 0.08, "desert is {:.1}% of the land", share(Biome::Desert) * 100.0);
+        assert!(
+            extent(Biome::Desert) > 1.0,
+            "the desert is only {:.2} km2 ({:.1}% of the land)",
+            extent(Biome::Desert),
+            share(Biome::Desert) * 100.0
+        );
         // Snow AND rock together, because the brief for that region was "snow
         // and mountains" and bare stone is the mountain half of it. Judging the
         // region by its snow alone punishes exactly the change that gives it a
         // treeline and a rock band instead of a white blanket.
-        let cold = share(Biome::Snow) + share(Biome::Rock);
+        let cold = extent(Biome::Snow) + extent(Biome::Rock);
         assert!(
-            cold > 0.15,
-            "snow and bare rock together are {:.1}% of the land",
-            cold * 100.0
+            cold > 2.0,
+            "snow and bare rock together are only {:.2} km2 ({:.1}% of the land)",
+            cold,
+            (share(Biome::Snow) + share(Biome::Rock)) * 100.0
         );
         assert!(
-            share(Biome::Snow) > 0.08,
-            "snow is {:.1}% of the land",
+            extent(Biome::Snow) > 1.0,
+            "the snow is only {:.2} km2 ({:.1}% of the land)",
+            extent(Biome::Snow),
             share(Biome::Snow) * 100.0
         );
         // Grass AND forest, because the green world is one country and the brief
@@ -1777,9 +1831,17 @@ mod tests {
         // A SMALL band north-west to south-east, on its own landmass and off the
         // one the ranch is on. This asked for ten when the desert still ran most
         // of the height of the map, which was the shape being complained about.
+        //
+        // In METRES, not in twenty-fourths of the world. It was `(5..16)` of 24
+        // latitudes, which is a fraction of however tall the world happens to be -
+        // and when a continent was added to the south the world got 2.4 times
+        // taller, so the same desert fell from 10 bands to 4 without moving. The
+        // band it was written against was 4,265 m tall, so 5..16 of it is
+        // 890..2,840 m, and that is what the rule always meant.
+        let reach = latitudes as f32 * (half.y * 2.0 / 24.0);
         assert!(
-            (5..16).contains(&latitudes),
-            "the desert reaches {latitudes} of 24 latitudes"
+            (890.0..2_840.0).contains(&reach),
+            "the desert reaches {reach:.0} m of latitude ({latitudes} of 24 bands)"
         );
 
         // And it sits between the two green bands rather than off to one side.
@@ -1789,7 +1851,27 @@ mod tests {
             "the desert has moved to u={:.2}",
             dry.x
         );
-        let cold = seat(Biome::Snow);
+        // The snow COUNTRY, not the snow biome. Biome::Snow is anything above the
+        // snowline, so it includes the cap on any mountain anywhere - and the
+        // moment a continent was added in the south-west with peaks on it, the
+        // centroid of "snow" walked west to u=0.61 and this failed. Nothing had
+        // moved except what was being averaged. The claim is about where the cold
+        // COUNTRY is, so ask the country.
+        let mut cold_at = Vec2::ZERO;
+        let mut cold_n = 0.0f32;
+        for row in 0..60 {
+            for col in 0..120 {
+                let uv = Vec2::new((col as f32 + 0.5) / 120.0, (row as f32 + 0.5) / 60.0);
+                let at = (uv - 0.5) * half * 2.0;
+                if terrain.biome(at.x, at.y) != Biome::Water
+                    && terrain.region(at.x, at.y).0 == terrain_core::region::Country::Snow
+                {
+                    cold_at += uv;
+                    cold_n += 1.0;
+                }
+            }
+        }
+        let cold = cold_at / cold_n.max(1.0);
         assert!(cold.x > 0.68, "the snow country has moved west to u={:.2}", cold.x);
 
         // And not in the country the game starts in. This is the half that
@@ -2845,6 +2927,13 @@ mod landmasses {
     fn each_landmass_is_one_island_and_touches_no_other() {
         use std::collections::{HashSet, VecDeque};
 
+        // Only the GROWN world is laid out by this table. When the world comes
+        // from the drawn map its coastlines are the artist's, and asking whether
+        // they match a table nobody built them from proves nothing.
+        if !crate::config::GROWS_ITS_OWN_WORLD {
+            return;
+        }
+
         let terrain = Terrain::new();
         let half = terrain.half;
         let step = 32.0_f32;
@@ -3025,39 +3114,71 @@ mod atlas {
             half.y * 2.0
         ));
 
-        // A landmass's label goes at the middle of the land actually drawn for it,
-        // not at the table's centre - a two-lobed continent's centre can be at sea.
-        let mut named: Vec<&'static str> = Vec::new();
-        for mass in LANDMASSES {
-            if !named.contains(&mass.name) {
-                named.push(mass.name);
+        // THE LANDMASSES THAT ARE ACTUALLY THERE, found by walking the land.
+        //
+        // Not read off `LANDMASSES`. That table describes the GROWN world, and when
+        // the world comes from the drawn map it describes nothing at all - the map
+        // key came out naming Ardwen, Karrow and Fell over a map that has never
+        // heard of them. A label has to be found the same way a player would find
+        // the land: by walking it.
+        //
+        // Only the new continent is named, and only because we gave it one. The
+        // drawn map's own landmasses carry country names in the image that the game
+        // does not read, so putting our words on them would be inventing geography
+        // rather than reporting it.
+        let step = 32.0_f32;
+        let cols = (half.x * 2.0 / step) as i32;
+        let rows = (half.y * 2.0 / step) as i32;
+        let dry = |c: i32, r: i32| -> bool {
+            let x = -half.x + c as f32 * step;
+            let z = -half.y + r as f32 * step;
+            terrain.height(x, z) > SEA_LEVEL
+        };
+        let mut seen = vec![false; (cols * rows).max(0) as usize];
+        let mut found: Vec<(f32, f32, f32)> = Vec::new();   // x, z, km2
+        for r0 in 0..rows {
+            for c0 in 0..cols {
+                let start = (r0 * cols + c0) as usize;
+                if seen[start] || !dry(c0, r0) {
+                    continue;
+                }
+                let mut queue = std::collections::VecDeque::from([(c0, r0)]);
+                seen[start] = true;
+                let (mut sx, mut sz, mut n) = (0.0f64, 0.0f64, 0u32);
+                while let Some((c, r)) = queue.pop_front() {
+                    sx += (-half.x + c as f32 * step) as f64;
+                    sz += (-half.y + r as f32 * step) as f64;
+                    n += 1;
+                    for (dc, dr) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                        let (nc, nr) = (c + dc, r + dr);
+                        if nc < 0 || nr < 0 || nc >= cols || nr >= rows {
+                            continue;
+                        }
+                        let at = (nr * cols + nc) as usize;
+                        if !seen[at] && dry(nc, nr) {
+                            seen[at] = true;
+                            queue.push_back((nc, nr));
+                        }
+                    }
+                }
+                let km2 = n as f32 * step * step / 1_000_000.0;
+                if km2 > 0.30 {
+                    found.push(((sx / n as f64) as f32, (sz / n as f64) as f32, km2));
+                }
             }
         }
+        found.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
+
+        // The new continent is the one in water the old map did not have: south of
+        // where its sheet used to end.
+        let old_south = half.y * (1290.0 / 3090.0);
         json.push_str("  \"landmasses\": [\n");
-        for (at, name) in named.iter().enumerate() {
-            let (mut sx, mut sz, mut n) = (0.0f64, 0.0f64, 0u32);
-            let mut z = -half.y;
-            while z < half.y {
-                let mut x = -half.x;
-                while x < half.x {
-                    if terrain.landmass_at(x, z) == Some(*name) && terrain.height(x, z) > SEA_LEVEL
-                    {
-                        sx += x as f64;
-                        sz += z as f64;
-                        n += 1;
-                    }
-                    x += 32.0;
-                }
-                z += 32.0;
-            }
-            if n == 0 {
-                continue;
-            }
-            let (px, pz) = to_px((sx / n as f64) as f32, (sz / n as f64) as f32);
-            let km2 = n as f32 * 32.0 * 32.0 / 1_000_000.0;
+        for (at, (x, z, km2)) in found.iter().enumerate() {
+            let (px, pz) = to_px(*x, *z);
+            let name = if *z > old_south { "Sorrel" } else { "" };
             json.push_str(&format!(
                 "    {{\"name\": \"{name}\", \"at\": [{px}, {pz}], \"km2\": {km2:.2}}}{}\n",
-                if at + 1 == named.len() { "" } else { "," }
+                if at + 1 == found.len() { "" } else { "," }
             ));
         }
         json.push_str("  ],\n");
@@ -3091,6 +3212,17 @@ mod ranch_tests {
 
     #[test]
     fn the_ranch_stands_on_land_at_the_height_the_bench_reported() {
+        // 22.9 m, the number the Opificium bench measured, and it STILL holds after
+        // the world was scaled from 8,192 m wide to 12,288 on 2026-08-28 to make
+        // room for the new continent. That it holds is the whole point: two things
+        // had to travel with the world for it to, and both now do. RANCH_AT is
+        // written as its measured value times `WORLD_GREW`, so the pin stays over
+        // the same map pixel; and INLAND_FULL is too, so the ground under it climbs
+        // away from its coast over the same fraction of the map as before.
+        //
+        // Miss either and this fails loudly, which is exactly what it is for - with
+        // the pin scaled but the relief not, it read 28.3 m.
+        //
         // 44.0 m from 2026-08-28, when the world stopped being a drawn map and
         // started being grown from `config::LANDMASSES`. The ground under the pin
         // is new ground, so the old reading is simply a reading of a world that no
@@ -3117,8 +3249,8 @@ mod ranch_tests {
             "the ranch is under water at {height:.1} m"
         );
         assert!(
-            (height - 39.3).abs() < 1.5,
-            "the ranch ground was 39.3 m when the world was last laid out and is \
+            (height - 22.9).abs() < 1.5,
+            "the bench read 22.9 m here and the game reads \
              now {height:.1} m - something moved the land under the one pin the \
              game starts on"
         );

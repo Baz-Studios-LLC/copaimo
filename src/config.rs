@@ -43,12 +43,47 @@
 /// doorstep.
 pub const WORLD_WIDTH: f32 = 12_288.0;
 
+/// The width the map's own metre coordinates were measured against.
+///
+/// Everything anybody ever pinned by hand - the ranch, the canyon, the frame the
+/// regions are laid on - was measured on an 8,192 m world. The map decides SHAPE
+/// and `WORLD_WIDTH` decides SCALE, so raising the scale slides the land out from
+/// under every one of those pins unless they come along.
+///
+/// They come along now: each is written as its measured value times `WORLD_GREW`,
+/// so the world can be resized by the one number it was always supposed to be
+/// resized by, and the things standing on it stay standing on the same ground.
+pub const WORLD_WAS: f32 = 8192.0;
+
+/// How much bigger the world is than it was when those numbers were taken.
+pub const WORLD_GREW: f32 = WORLD_WIDTH / WORLD_WAS;
+
 /// Aspect ratio (width / depth) assumed if no map image is present and we fall
 /// back to pure procedural generation.
 pub const FALLBACK_ASPECT: f32 = 2.0;
 
 /// Path to the source elevation map, relative to the crate root. Grayscale or
 /// color both work — brightness is read as elevation.
+/// The world the REGIONS were laid on, in metres.
+///
+/// # Why the regions need their own frame
+///
+/// `terrain_core::region` answers in NORMALISED coordinates - the desert is at
+/// u 0.42, v 0.31, the snow begins at 0.72 along a tilted axis. Normalised against
+/// what, though? It was the map image, which means the regions slide whenever the
+/// image's shape changes.
+///
+/// That bit on 2026-08-28. A continent was added by growing the map southward, and
+/// although every existing coastline kept its exact world coordinates, the sheet
+/// went from 1,290 rows to 3,090 - so the same ground that had been at v 0.31 was
+/// now at v 0.62, and the desert walked off the continent it belongs to and out
+/// into the new ocean. Nothing had moved; the ruler had.
+///
+/// So the regions are anchored HERE instead: to the world as it stood when they
+/// were laid, 8,192 by 4,265 m. Adding sea to the map cannot move a desert now,
+/// and ground beyond the old frame takes the country of the nearest edge.
+pub const REGION_FRAME: (f32, f32) = (WORLD_WIDTH, 4265.0 * WORLD_GREW);
+
 pub const HEIGHTMAP_PATH: &str = "assets/world/heightmap.png";
 
 /// Where hand-sculpted terrain edits are saved, relative to the crate root.
@@ -416,7 +451,22 @@ pub const INLAND_RISE: f32 = 28.0;
 /// above that number and nothing ever counts as inland, so the mountains
 /// silently never appear — which is exactly what happened at 1100 m on a map
 /// whose deepest interior is 820 m.
-pub const INLAND_FULL: f32 = 620.0;
+// Scales with the world, like MASSIF_RADIUS: this is the distance over which land
+// climbs away from its coast, so it belongs to the shape of the map rather than to
+// a number of metres, and a world that grows by half should not become half again
+// as mountainous for free.
+//
+// The proof it is right is the RANCH. Scaling the world to 12,288 m took the ranch
+// ground from 22.9 m to 28.3 - the same pin over the same map pixel standing half
+// again as proud, because it had become half again as far inland in metres. With
+// this scaled the ranch reads 22.2 m, back inside the tolerance on the 22.9 the
+// Opificium bench measured, and the relief profile survives a resize intact.
+//
+// It is NOT the whole story of the snow, which is the thing I reached for it to
+// explain: snow went 8.8% of the land to 15.1% across the resize and this recovers
+// about a point of that, to 14.1. The rest is still unaccounted for. The change
+// earns its place on the ranch and on its own reasoning, not on that.
+pub const INLAND_FULL: f32 = 620.0 * WORLD_GREW;
 
 /// Height of land where the map is at maximum brightness. Only used when the
 /// source is a true grayscale heightmap carrying real elevation.
@@ -506,7 +556,7 @@ pub const TREE_SCALE_HIGH: f32 = 1.35;
 ///
 /// Exported in `world.json`, because the bench must level the same ground or a
 /// farm sculpted there would sit at the wrong height in the game.
-pub const RANCH_AT: (f32, f32) = (-3064.0, 659.0);
+pub const RANCH_AT: (f32, f32) = (-3064.0 * WORLD_GREW, 659.0 * WORLD_GREW);
 pub const RANCH_RADIUS: f32 = 130.0;
 
 /// The one great mountain: how high it stands above the ground it sits on, and
@@ -524,7 +574,13 @@ pub const RANCH_RADIUS: f32 = 130.0;
 ///
 /// Set `MASSIF_HEIGHT` to 0 for a world with no such landmark.
 pub const MASSIF_HEIGHT: f32 = 340.0;
-pub const MASSIF_RADIUS: f32 = 950.0;
+// Scales with the world. It is THE landmark - "the great mountain" - and a
+// landmark that keeps its metres while the world around it grows by half is not
+// the same feature any more: its flanks blend into relief that grew with the
+// world, and the rock that made it read as a mountain rather than a dome stopped
+// showing. Its HEIGHT does not scale, because height in this terrain is absolute
+// and a 340 m mountain is a 340 m mountain whatever the map is worth.
+pub const MASSIF_RADIUS: f32 = 950.0 * WORLD_GREW;
 
 /// The radius of the summit PLATEAU, in metres.
 ///
@@ -606,7 +662,11 @@ pub const WARP_STRENGTH: f32 = 26.0;
 /// True is the game's world. False hands the shape back to `HEIGHTMAP_PATH`, for
 /// a maker who would rather draw one — the loader and everything that reads it
 /// are untouched, so this is a switch and not a demolition.
-pub const GROWS_ITS_OWN_WORLD: bool = true;
+// FALSE. The world is the DRAWN map again - "I wanted that map we already had with
+// one more continent added" - and the continent was added to the map itself rather
+// than by replacing the world with a generated one. The generator below still works
+// and is still tested; it is simply not what the game builds.
+pub const GROWS_ITS_OWN_WORLD: bool = false;
 
 /// One landmass: where it is, how far it reaches, and which way it leans.
 ///
@@ -764,7 +824,7 @@ pub const PLAINS_RELIEF: f32 = 0.12;
 /// designed length rather than a function of area. Ten is a ladder; twenty-four
 /// is a grind.
 pub const CITIES: usize = 10;
-pub const TOWNS: usize = 32;
+pub const TOWNS: usize = 28;
 
 /// How far the level ground reaches at each, in meters.
 pub const CITY_RADIUS: f32 = 190.0;
@@ -787,7 +847,11 @@ pub const SITE_SKIRT: f32 = 140.0;
 // `levelling_never_puts_a_step_in_the_ground` caught and no brush could take out.
 pub const SITE_MIN_INLAND: f32 = 150.0;
 pub const SITE_MAX_HEIGHT: f32 = 130.0;
-pub const SITE_MAX_SLOPE: f32 = 0.13;
+// 0.10 from 2026-08-28, down from 0.13. With the world grown there are 29 towns
+// where there were 14, and more sites means more chances to land on ground that
+// cannot be levelled without cutting a lip into its edge - one did, 1.37 m over a
+// quarter-metre at 246, -826. Refusing the steeper ground is the fix at the cause.
+pub const SITE_MAX_SLOPE: f32 = 0.10;
 
 /// Half-width of the graded road between sites, and its shoulders.
 pub const ROAD_WIDTH: f32 = 9.0;

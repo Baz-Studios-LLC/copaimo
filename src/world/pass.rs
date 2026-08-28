@@ -38,7 +38,10 @@ use bevy::prelude::*;
 /// (180, -880) — the map printed by `dump_the_world` is what that was read off. So
 /// the journey east is desert, then the canyon country, then the green world, then
 /// the snow, and neither flank has the wrong country on it.
-pub const AT: Vec2 = Vec2::new(456.0, -997.0);
+pub const AT: Vec2 = Vec2::new(
+    456.0 * crate::config::WORLD_GREW,
+    -997.0 * crate::config::WORLD_GREW,
+);
 
 /// Which way the massif's thickness runs, in radians about Y — the direction the
 /// canyon carries a traveller. Nought is due east.
