@@ -21,7 +21,7 @@ echo
 # # The walk is not planted yet: its balls measure 0.64 cm a frame against the jog's 14.08, and
 # the plant breaks its loop by 12.24 cm - it does not close the way the jog does. Add it back here
 # once that is understood.
-for clip in jog; do
+# for clip in jog; do
 #   "$blender" --background --python-exit-code 1 --python "$here/author_gait.py" -- \
 #     --name "$clip" 2>&1 | grep -viE "$quiet"
 # done

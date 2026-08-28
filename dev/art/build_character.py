@@ -90,7 +90,78 @@ STANDS_A_UNIT_TALL = 1.0
 #
 # Two seconds of it, keyed at both ends so the clip has a duration to blend across and no motion
 # to notice. When a real idle arrives this whole thing is one line to delete.
-STANDS_STILL_FROM = "walk"
+# The BIND, not a walk frame. "His idle stance should just be standing but his hands are back and
+# one leg is up" - which is what holding a mid-walk frame looks like, because every frame of a walk
+# is mid-something. The bind is this artist's own neutral stand - rendered to check: legs together,
+# upright, arms relaxed - and holding it costs nothing and invents nothing.
+# # Letting the arms hang in the idle
+#
+# The bind fixes the legs and the spine - he stands square and upright - but a bind holds the arms
+# out in an A-pose, which is a rigging convenience, not a stand. "His idle stance should just be
+# standing", so the idle drops them.
+#
+# Aimed, not nudged: the shoulder-to-hand line is MEASURED in the bind, the wanted line is built
+# from the same measurement (down, a little out so the arms clear the hips, a little forward so he
+# does not read as at-attention), and the rotation between the two is applied to the upper arm. No
+# axis is guessed and no angle is dialled in by eye - the one number here is where the arm should
+# point, and the elbow keeps whatever the bind gave it. Idle only; the walk and run never see it.
+THE_ARMS_HANG = True
+THE_ARMS_HANG_OUT = 9.0
+THE_ARMS_HANG_FORWARD = 6.0
+THE_ELBOWS_KEEP = 8.0
+STANDS_STILL_FROM = "bind"
+
+# # Zipping the pinholes
+#
+# "There are some empty spaces or color mismatches on his hair and neck." Beacon-rendered, the
+# mismatches sit exactly on OPEN EDGES: the mesh ships as split shells - 30,119 boundary edges, all
+# but 27 of them sealed by a coincident twin on the neighbouring shell - and those 27 are real
+# pinholes, clustered at z 1.33-1.64 m: the hair and the nape. Through them the orange hood lining
+# shows, which reads as orange flecks in black hair and a colour break at the neck.
+#
+# The zip welds each truly-open boundary vertex to its nearest boundary neighbour within a few
+# millimetres - the twin the exporter meant it to have. Positions of kept vertices do not move, no
+# face's UVs change (UVs live on face corners, which survive a weld), and the skin weights of the
+# kept vertex stand. Mesh only; no clip is touched.
+# # Padding the texture islands
+#
+# "Lets smooth out the colors on him too there are some empty spaces or color mismatches on his
+# hair and neck." Diagnosed rather than guessed at, and it is not the mesh and not the material:
+# the material is a single OPAQUE one and the mesh's 27 open edges are elsewhere. It is the
+# TEXTURE. This asset's UV atlas is shattered into per-triangle islands - measured, only 53.5% of
+# the 2048x2048 sheet is covered by UVs at all - and the 46.5% between the islands is left black
+# with no padding. Bilinear filtering samples across an island's border, picks up that black, and
+# the result is dark speckles and colour breaks exactly where islands are smallest and most
+# crowded: the hair, and the seam at the neck.
+#
+# The fix is the standard one every bake pipeline ends with - DILATION, also called edge padding:
+# push each island's own colour outward into the empty texels so no sample can reach the
+# background. Rasterise the exact UV coverage from the mesh's own triangles, then grow the covered
+# colour outward a ring at a time. Only empty texels are ever written - a covered texel keeps the
+# artist's pixel exactly - and geometry, rig, weights and clips are all untouched.
+# # Mending the stray hair islands
+#
+# The dilation above fixes the black speckle, and does nothing for the ORANGE flecks in his hair,
+# because those are not gaps - they are painted. Measured on the shipped file: of the 5,558
+# triangles in the hair mass (weighted mainly to Head, in the top 16 cm of the figure), 32 sample
+# a strong orange - their UV islands sit on the hood-lining part of the atlas. 0.6% of the hair,
+# scattered through it, which is exactly the "colour mismatches" read.
+#
+# So those 32 islands are repainted to the hair's own median colour, and nothing else is: the test
+# is deliberately narrow - hair only, strong orange only - because the jacket's orange trim beside
+# its green is the same colour relationship and is meant to be there. A wider "fix outliers"
+# rule would eat it.
+MENDS_THE_HAIR = True
+THE_HAIR_IS_THE_TOP = 0.16
+PADS_THE_TEXTURE = True
+A_MARGIN_OF = 24
+
+# OFF. Tried and measured: welding each open boundary vertex onto its nearest twin took the count
+# from 27 open edges to 32 - a pointmerge collapses an edge and can open two more, so it treated a
+# symptom and spread it. Whatever the flecks are, they are diagnosed before anything is welded.
+ZIPS_THE_PINHOLES = False
+A_PINHOLE_SPANS = 0.008
+
 STANDS_STILL_FOR = 48
 
 # The 2026-08-26 warden delivered a WALK and a RUN and no idle, so there is no idle here. The
@@ -1717,28 +1788,250 @@ def carry_the_clips_into_the_new_scale(clips, factor):
     return moved
 
 
+def mend_the_stray_hair(rig, mesh, sheet, wide, high):
+    """Repaints hair islands that sample orange. See MENDS_THE_HAIR. Returns how many."""
+    import numpy as np
+
+    groups = {g.name: g.index for g in mesh.vertex_groups}
+    head = groups.get("Head")
+    if head is None:
+        return 0
+    scalp = set()
+    for vertex in mesh.data.vertices:
+        for group in vertex.groups:
+            if group.group == head and group.weight > 0.5:
+                scalp.add(vertex.index)
+                break
+    tallest = max((mesh.matrix_world @ v.co).z for v in mesh.data.vertices)
+
+    mesh.data.calc_loop_triangles()
+    uvs = mesh.data.uv_layers.active.data
+    hair, stray = [], []
+    for face in mesh.data.loop_triangles:
+        if not all(v in scalp for v in face.vertices):
+            continue
+        if (mesh.matrix_world @ mathutils.Vector(face.center)).z < tallest - THE_HAIR_IS_THE_TOP:
+            continue
+        corner = np.array([np.array(uvs[loop].uv) for loop in face.loops])
+        at = np.mean(corner, axis=0)
+        colour = sheet[int(np.clip(at[1] * high, 0, high - 1)),
+                       int(np.clip(at[0] * wide, 0, wide - 1))]
+        hair.append(colour)
+        # Orange in LINEAR terms: red-dominant and blue-poor, well above the hair's own darkness.
+        red, green, blue = colour
+        if red > 0.10 and red > blue * 2.5 and green < red * 0.75:
+            stray.append(corner)
+
+    if not stray:
+        return 0
+    was = np.median(np.array(hair), axis=0)
+    for corner in stray:
+        xs = corner[:, 0] * wide
+        ys = corner[:, 1] * high
+        x0 = max(int(np.floor(xs.min())) - 2, 0)
+        x1 = min(int(np.ceil(xs.max())) + 2, wide)
+        y0 = max(int(np.floor(ys.min())) - 2, 0)
+        y1 = min(int(np.ceil(ys.max())) + 2, high)
+        sheet[y0:y1, x0:x1] = was
+    return len(stray)
+
+
+def pad_the_texture_islands(mesh, margin=None):
+    """Dilates the base colour texture into its empty texels. See PADS_THE_TEXTURE."""
+    import numpy as np
+
+    margin = A_MARGIN_OF if margin is None else margin
+    image = None
+    for slot in mesh.data.materials:
+        if slot is None or not slot.use_nodes:
+            continue
+        for node in slot.node_tree.nodes:
+            if node.type == "TEX_IMAGE" and node.image is not None and node.image.size[0] > 1:
+                image = node.image
+                break
+    if image is None:
+        return None
+
+    wide, high = image.size
+    flat = np.empty(wide * high * 4, dtype=np.float32)
+    image.pixels.foreach_get(flat)
+    sheet = flat.reshape(high, wide, 4)
+
+    mesh.data.calc_loop_triangles()
+    uvs = mesh.data.uv_layers.active.data
+    faces = mesh.data.loop_triangles
+    corners = np.empty((len(faces), 3, 2), dtype=np.float32)
+    for at, face in enumerate(faces):
+        for which, loop in enumerate(face.loops):
+            corners[at, which] = uvs[loop].uv
+
+    # Exact coverage: every texel whose centre falls inside a UV triangle.
+    xs = corners[:, :, 0] * wide
+    ys = corners[:, :, 1] * high
+    x0 = np.clip(np.floor(xs.min(1)).astype(int) - 1, 0, wide - 1)
+    x1 = np.clip(np.ceil(xs.max(1)).astype(int) + 1, 0, wide)
+    y0 = np.clip(np.floor(ys.min(1)).astype(int) - 1, 0, high - 1)
+    y1 = np.clip(np.ceil(ys.max(1)).astype(int) + 1, 0, high)
+    covered = np.zeros((high, wide), dtype=bool)
+    for at in range(len(corners)):
+        a, b = xs[at], ys[at]
+        area = (b[1] - b[2]) * (a[0] - a[2]) + (a[2] - a[1]) * (b[0] - b[2])
+        if abs(area) < 1e-12:
+            covered[y0[at]:y1[at], x0[at]:x1[at]] = True
+            continue
+        gx, gy = np.meshgrid(np.arange(x0[at], x1[at]) + 0.5, np.arange(y0[at], y1[at]) + 0.5)
+        one = ((b[1] - b[2]) * (gx - a[2]) + (a[2] - a[1]) * (gy - b[2])) / area
+        two = ((b[2] - b[0]) * (gx - a[2]) + (a[0] - a[2]) * (gy - b[2])) / area
+        covered[y0[at]:y1[at], x0[at]:x1[at]] |= (
+            (one >= -0.001) & (two >= -0.001) & ((1.0 - one - two) >= -0.001))
+
+    was = float(covered.mean())
+    colour = sheet[:, :, :3]
+    mended = mend_the_stray_hair(None, mesh, colour, wide, high) if MENDS_THE_HAIR else 0
+    colour = colour.copy()
+    filled = covered.copy()
+    rings = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1))
+    for _ in range(margin):
+        empty = ~filled
+        if not empty.any():
+            break
+        total = np.zeros_like(colour)
+        count = np.zeros((high, wide), dtype=np.float32)
+        for down, right in rings:
+            near = np.roll(np.roll(colour, down, axis=0), right, axis=1)
+            has = np.roll(np.roll(filled.astype(np.float32), down, axis=0), right, axis=1)
+            total += near * has[:, :, None]
+            count += has
+        grows = empty & (count > 0)
+        colour[grows] = total[grows] / count[grows][:, None]
+        filled |= grows
+
+    sheet[:, :, :3] = colour
+    image.pixels.foreach_set(sheet.ravel())
+    image.update()
+    return was, float(filled.mean()), margin, mended
+
+
+def let_the_arms_hang(rig):
+    """Aims each upper arm down from the bind, so the idle stands. See THE_ARMS_HANG."""
+    down = rig.matrix_world.to_3x3().inverted() @ mathutils.Vector((0.0, 0.0, -1.0))
+    down.normalize()
+    across = rig.matrix_world.to_3x3().inverted() @ mathutils.Vector((0.0, 1.0, 0.0))
+    across.normalize()
+    ahead = rig.matrix_world.to_3x3().inverted() @ mathutils.Vector((1.0, 0.0, 0.0))
+    ahead.normalize()
+
+    aimed = {}
+    for side, out in (("Left", 1.0), ("Right", -1.0)):
+        arm = rig.pose.bones.get(f"{side}Arm") or rig.pose.bones.get(f"{side[0]}_Upperarm")
+        hand = rig.pose.bones.get(f"{side}Hand") or rig.pose.bones.get(f"{side[0]}_Hand")
+        if arm is None or hand is None:
+            continue
+        now = (hand.head - arm.head)
+        if now.length < 1e-6:
+            continue
+        now.normalize()
+        # Which way is "out" for this side, measured off the rig rather than assumed.
+        sideways = across * out
+        if sideways.dot(now) < 0.0:
+            sideways = -sideways
+        want = (down
+                + sideways * math.tan(math.radians(THE_ARMS_HANG_OUT))
+                + ahead * math.tan(math.radians(THE_ARMS_HANG_FORWARD)))
+        want.normalize()
+        turn = now.rotation_difference(want)
+        arm.matrix = (mathutils.Matrix.Translation(arm.head)
+                      @ turn.to_matrix().to_4x4()
+                      @ mathutils.Matrix.Translation(-arm.head)
+                      @ arm.matrix)
+        bpy.context.view_layer.update()
+        aimed[side] = math.degrees(now.angle(want))
+    return aimed
+
+
+def zip_the_pinholes(mesh):
+    """Welds each truly open boundary vertex onto its nearest neighbour. See ZIPS_THE_PINHOLES."""
+    import bmesh
+    bm = bmesh.new()
+    bm.from_mesh(mesh.data)
+    bm.verts.ensure_lookup_table()
+
+    def truly_open():
+        seen = {}
+        for edge in bm.edges:
+            if len(edge.link_faces) != 1:
+                continue
+            a = tuple(round(c, 5) for c in edge.verts[0].co)
+            b = tuple(round(c, 5) for c in edge.verts[1].co)
+            seen.setdefault((min(a, b), max(a, b)), []).append(edge)
+        return [edges[0] for edges in seen.values() if len(edges) == 1]
+
+    before = truly_open()
+    loose = {v for e in before for v in e.verts}
+    boundary = [v for e in bm.edges if len(e.link_faces) == 1 for v in e.verts]
+    tree = mathutils.kdtree.KDTree(len(boundary))
+    for at, v in enumerate(boundary):
+        tree.insert(v.co, at)
+    tree.balance()
+
+    welded = 0
+    for v in list(loose):
+        if not v.is_valid:
+            continue
+        best = None
+        for _, at, span in tree.find_n(v.co, 8):
+            other = boundary[at]
+            if other is v or not other.is_valid or other in loose:
+                continue
+            if span < A_PINHOLE_SPANS:
+                best = other
+                break
+        if best is None:
+            continue
+        import bmesh.ops
+        bmesh.ops.pointmerge(bm, verts=[v, best], merge_co=best.co)
+        welded += 1
+
+    left = truly_open()
+    bm.to_mesh(mesh.data)
+    bm.free()
+    mesh.data.update()
+    return len(before), welded, len(left)
+
+
 def stand_him_still(rig, walk, scene, called="idle"):
     """Freezes the walk's most standing-like frame into a still clip. See STANDS_STILL_FROM.
 
     Chosen by measurement, not by picking a frame number: feet closest together, and lowest, wins.
     """
-    first, last = (int(round(v)) for v in walk.frame_range)
-    play(rig, walk)
-    best, at = None, first
-    for frame in range(first, last + 1):
-        scene.frame_set(frame)
+    if STANDS_STILL_FROM == "bind":
+        # The artist's own neutral stand, with the arms let down out of the A-pose.
+        at = 0
+        for bone in rig.pose.bones:
+            bone.matrix_basis = mathutils.Matrix.Identity(4)
         bpy.context.view_layer.update()
-        left = rig.matrix_world @ the_bone(rig, "L_Foot").head
-        right = rig.matrix_world @ the_bone(rig, "R_Foot").head
-        apart = (left - right).length
-        high = max(left.z, right.z)
-        score = apart + high
-        if best is None or score < best:
-            best, at = score, frame
-
-    scene.frame_set(at)
-    bpy.context.view_layer.update()
-    held = {bone.name: bone.matrix_basis.copy() for bone in rig.pose.bones}
+        if THE_ARMS_HANG:
+            dropped = let_the_arms_hang(rig)
+            for side, by in sorted(dropped.items()):
+                print(f"    {side} arm dropped {by:.1f} deg out of the A-pose to hang")
+        held = {bone.name: bone.matrix_basis.copy() for bone in rig.pose.bones}
+    else:
+        first, last = (int(round(v)) for v in walk.frame_range)
+        play(rig, walk)
+        best, at = None, first
+        for frame in range(first, last + 1):
+            scene.frame_set(frame)
+            bpy.context.view_layer.update()
+            left = rig.matrix_world @ the_bone(rig, "L_Foot").head
+            right = rig.matrix_world @ the_bone(rig, "R_Foot").head
+            apart = (left - right).length
+            high = max(left.z, right.z)
+            score = apart + high
+            if best is None or score < best:
+                best, at = score, frame
+        scene.frame_set(at)
+        bpy.context.view_layer.update()
+        held = {bone.name: bone.matrix_basis.copy() for bone in rig.pose.bones}
 
     still = bpy.data.actions.new(called)
     still.use_fake_user = True
@@ -4758,6 +5051,22 @@ def main():
                 deepen_the_armpit(rig, base_mesh)
             if CLOSES_THE_HOLES:
                 close_the_holes(rig, base_mesh)
+            if PADS_THE_TEXTURE:
+                padded = pad_the_texture_islands(base_mesh)
+                if padded is None:
+                    print("    no base colour texture to pad")
+                else:
+                    was, now, rings, mended = padded
+                    print(f"    padded the texture islands: UVs cover {was * 100:.1f}% of the "
+                          f"sheet, {rings} rings of dilation take it to {now * 100:.1f}% - the "
+                          "gaps that were sampling as black speckle")
+                    if mended:
+                        print(f"    mended {mended} hair island(s) that were painted orange - "
+                              "repainted to the hair's own median colour")
+            if ZIPS_THE_PINHOLES:
+                found, welded, left = zip_the_pinholes(base_mesh)
+                print(f"    zipped the pinholes: {found} truly open edges, {welded} vertices "
+                      f"welded onto their twins, {left} still open")
             # Before every other rig edit, because everything downstream measures against it.
             if MIRRORS_THE_BIND:
                 pairs, was = the_bind_is_mirrored(rig)
@@ -5049,12 +5358,11 @@ def main():
                 refuse(f"{called} rests its sole {now_low * 170.0:.2f} cm off the floor after "
                        f"being lifted, so the lift did not take")
 
-    if "idle" not in wanted and STANDS_STILL_FROM in wanted:
-        still, took = stand_him_still(base_rig, wanted[STANDS_STILL_FROM], scene)
+    if "idle" not in wanted:
+        still, took = stand_him_still(base_rig, wanted.get("walk"), scene)
         wanted["idle"] = still
-        print(f"  no idle was delivered, so he stands: held frame {took} of the "
-              f"{STANDS_STILL_FROM} - the frame his feet are closest and lowest - for "
-              f"{STANDS_STILL_FOR} frames")
+        print(f"  no idle was delivered, so he stands: the BIND pose - the artist's own neutral "
+              f"stand - held for {STANDS_STILL_FOR} frames")
 
     # The clip the file is left showing. The idle when there is one, since that is what a warden
     # does most of the time - and whatever else there is when there is not. The 2026-08-26 delivery
