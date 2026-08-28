@@ -62,6 +62,7 @@ mod models;
 mod player;
 mod save;
 mod season;
+mod fall;
 mod weather;
 mod typeface;
 mod shade;
@@ -240,6 +241,7 @@ fn main() {
             sky::SkyPlugin,
             season::SeasonPlugin,
             weather::WeatherPlugin,
+            fall::FallPlugin,
             // After the world: buildings stand on ground it decides the height
             // of, at sites it decides the places of.
             build::BuildingPlugin,
