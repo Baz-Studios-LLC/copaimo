@@ -1,87 +1,112 @@
 ## Copaimo: The Wardens Guild
 
-Still a world to walk and nothing yet to do in it — no monsters, no battles, no
-guild exams. This release is about **what the world is made of**: the trees, the
-rocks, the grass and the flowers are now authored shapes rather than shapes the
-code guessed at, and three things that were quietly wrong with the ground are not
-any more.
+Still a world to walk and nothing yet to do in it — no Copaimo, no ranch, no guild
+exams. This release is about **the person you walk it as**. The warden was a box
+under a round hat; he is now a modelled character with a face, a jacket, hands, and
+a walk and a run authored for him. Everything below is either getting him into the
+game intact or fixing something that was visibly wrong once he was.
 
-### The world is modelled now
+### There is a warden now
 
-Everything the game drew used to be built from primitives in code. There is a way
-in for real models now — a Blender pipeline with the conventions set once in a
-script, and a gate on both sides of it that refuses a model which breaks them.
+A delivered character model — mesh, skeleton, and a walk and a run — replaces the
+placeholder. The build that brings him in does **three things and nothing else**:
+renames the clips, reads his height, and settles the game around him. His bones keep
+the names his artist gave them, his scale is his own, and his facing is his own.
 
-* **Five kinds of tree.** Oak, birch, spruce, pine and acacia, each built for its
-  silhouette, because a silhouette is all you see of a tree at the distance the
-  game draws it. Broad and round, slim and pale, tall and layered, and the acacia
-  flat-topped and wider than it is tall — which is what says dry country from a
-  long way off. Palm and willow still grow their own shapes.
-* **Eight kinds of litter.** Boulders, scree, bushes, stumps, fallen logs, standing
-  dead snags, cacti and dead brush.
-* **Grass and flowers.** The blade and the flower head are authored; the *tuft* is
-  still composed by the world — how many blades it carries, how far round they fan,
-  which way the clump leans, how deep a green it is. That composition is the whole
-  reason a meadow does not read as wallpaper, so it stayed exactly where it was.
+That restraint was learned the hard way. An earlier version of this pipeline
+translated the whole rig into the conventions our tools already spoke — renamed the
+bones, rescaled the figure, rebuilt the bone tails — and one of those steps quietly
+reinterpreted every keyframe in the run. The character came out of it dancing. A
+bone's rest orientation is the frame its animation is measured in, so re-aiming a
+bone redefines what every stored rotation means, without changing a single key.
 
-Trees and rocks are opposites, and it decided the whole design. A tree is planted
-as an object and tinted by the material its variety wears, so twenty trees can be
-twenty greens. Litter is welded into ONE mesh per chunk — fifty separate little
-objects would be fifty draw calls, paid for again in every shadow cascade — and one
-mesh wears one material, so every colour a rock has lives in its vertices.
+Now the delivered clips are final and the tools adapt to the asset instead. It is
+checked rather than claimed: the run that ships differs from the delivered file by
+**at most 0.003 cm on any bone on any frame**.
 
-Detail follows size rather than being one number. An oak's crown fills the screen
-when you walk under it and its outline wants to be round; the three little balls
-that make a desert bush never read as anything but a bush, and paying four times
-the triangles for them buys nothing.
+### He walks and runs at the speed he was animated to
 
-### The ground: three things that were wrong
+He moved like he was wading. The game was driving him at 2.90 m/s under a run
+animated at 4.77, which plays the clip at **0.61× speed** — and slow motion reads as
+broken long before it reads as slow. The walk had the same fault, at 0.75×.
 
-**A raised shelf that would not smooth away.** Towns stand on level ground and
-roads are graded between them, and where two of those claims crossed, the ground
-*stepped* — 8.6 m between vertices two metres apart. No brush could have taken it
-out: the sculpting layer works in four-metre cells and cannot express the inverse
-of a step that sharp, and the generator was re-applying it underneath anyway. Now
-the strongest claim decides how much the ground moves and all of them decide where
-it moves to, so a road running into a town still arrives at the town's level with
-no lip where they meet.
+Both speeds now come from the clips themselves, measured off their own planted feet
+rather than picked by feel. Each plays at exactly 1.00×, so the stride matches the
+ground he covers and the handover between walking and running follows from the two
+numbers instead of being tuned against them.
 
-**Debris standing out of cliffs.** Steep ground reads as rock, which carries more
-litter than anywhere else and the right kinds for a mountainside — and a canyon
-wall is seventy degrees of exactly that, so the walls came out studded with boulders
-and dead sticks poking sideways. Litter now stops where a *walker* stops.
+### He faces the way he is going
 
-**A comb along the canyon rims.** The tops and bottoms of the walls were a row of
-teeth. It is arithmetic rather than a bug: moving a rim sideways by a metre moves
-the ground by the wall's own gradient, about 4.6 m per metre on a seventy-degree
-wall — so a rim wandering half a metre between two vertices steps the ground by
-two, and vertices are two metres apart. The rims wander gently now, and the
-canyon's shape comes from the way through winding two hundred metres side to side,
-which was always doing that work.
+He ran backwards. The facing had been *derived* — reasoned out from how Blender's
+axes convert on export — and the reasoning had a sign error in it, which is a fine
+way to be confidently wrong in a direction nobody notices until a face is attached.
 
-### And the trees are the right colour
+The rig carries the answer itself. The model ships with a marker sitting 11 cm in
+front of the face, put there to record which way the face points, and read straight
+out of the published file it points the opposite way from the game's forward. Half a
+turn, decided by measurement.
 
-A wood of chalk-pale trunks was two faults wearing each other's clothes. Authored
-shapes were being matched to the tree pool by position rather than by species, so a
-variety wore one species' crown over another's bark — and a birch's trunk is chalk
-pale by design. The palette needed work too: the ramp from bark-brown to birch-white
-ended so near white that even a fifth of the way along read washed out, and pine was
-painting the colour of concrete. Spruce, oak, pine and acacia read brown now, and
-only a birch goes pale.
+### He stands still properly
 
-### Anything with a front now faces the way it walks
+With no idle delivered, he needs one, and the obvious source is wrong twice over.
+Holding a frame of the walk gives a stance caught mid-stride — one leg raised, hands
+trailing behind. Holding the bind pose is no better: a bind is a rigging
+convenience, not a pose, and this one is **asymmetric**, with the feet 7.65 cm apart
+in height, the hands 26 cm apart front to back, and both forearms passing through
+the waist.
 
-A model's forward was aimed a half-turn from where it should be. Nothing caught it
-because the only thing being turned was the blocky placeholder warden, which is
-symmetric front to back — a box under a round hat looks the same either way, so a
-warden walking backwards looked exactly like one walking forwards. The first model
-with a face on it would have walked backwards across the whole world.
+So the stand is authored. Every limb is aimed at a direction built from his own
+axes — his hip line, his face marker — while the feet and hands keep the orientation
+they were bound at, so the soles stay flat and the hands keep their shape. The arms
+then open a couple of degrees at a time until the mesh genuinely clears the body,
+and he settles onto the floor by his lowest **skin** point rather than by a bone,
+because a sole is what stands on a floor.
 
-### None of it ships
+He now stands level to 0.61 cm, with his arms clear of his waist by measurement —
+zero intersecting triangles, where there were 575 — and both feet on the ground.
 
-The terrain brush, the workbench and the model kiln are not hidden behind a menu in
-a player's build — they are not compiled in. A player's build should not carry a way
-to break a save, and it certainly should not carry code that can spend somebody's
-credits. The release workflow greps the binary and refuses to publish one with the
-tools in it, because a dropped build flag is otherwise silent: a release that ships
-a brush looks exactly like one that does not.
+### His colours are not speckled any more
+
+Dark flecks in his hair, and a mismatch at his neck. Two different causes, and
+neither was the mesh.
+
+* **The speckle was missing texture padding.** His UV atlas is shattered into
+  per-triangle islands, and only **53.5%** of the texture sheet is covered by them
+  at all — the rest is black. Texture filtering samples across every island edge and
+  picks that black up, worst where islands are smallest and most crowded, which is
+  exactly the hair and the seam at the neck. Fixed by dilation, the step every bake
+  pipeline ends with: each island's own colour is pushed outward into the empty
+  space around it, taking coverage to 99.6%. No painted pixel is altered.
+* **The orange flecks were painted.** Thirty-two of the hair's triangles have UVs
+  landing on the hood-lining part of the sheet. Those, and only those, are repainted
+  to the hair's own colour — deliberately narrow, because the orange trim beside the
+  jacket's green is the same relationship and belongs there.
+
+### Fixing a foot is a whole discipline
+
+Most of this release is the feet, and most of that is measurement rather than
+animation. Planted soles now lie flat on the floor and stay where they are put; the
+toes bend at toe-off and not in mid-air; the legs no longer pass through each other;
+and the feet no longer twist outward through the stride.
+
+Nearly every wrong turn along the way had the same shape — **a measurement that
+agreed with itself.** Travel measured against a crooked bind. Soles called flat by a
+surface normal that was quietly carrying roll as well as pitch. Legs called clear by
+sampling points, on frames where 246 triangles were interpenetrating. A toe bend
+corrected on one axis while the axis actually at fault was the one nobody had
+looked at.
+
+The guards that catch these are stricter than they were, and four of them were put
+back to their original tolerances after being widened — widening a guard to get past
+your own mistake is the one thing a guard exists to prevent.
+
+### For anyone opening the model themselves
+
+A short walkthrough now lives in `docs/blender-by-hand.md`: how to open the
+character, what the bones are called, how to pose one, and — the part that actually
+matters — where a fix has to live to survive the next build.
+
+One thing it explains is worth repeating here. Open the model and some bones appear
+to shoot several metres out of his head. Those are markers, they drive no skin, and
+the spikes are Blender inventing bone lengths that glTF does not store. They are
+drawing only, and the viewer now hides them.
