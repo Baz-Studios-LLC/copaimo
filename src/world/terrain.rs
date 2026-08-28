@@ -56,6 +56,10 @@ fn beach_ramp(along: f32) -> f32 {
 }
 use crate::world::edit::Sculpt;
 pub use terrain_core::biome::{Biome, Climate, Ground as BiomeGround};
+use crate::config::{
+    COAST_FRET, COAST_FRET_FREQ, COAST_WARP, COAST_WARP_FREQ, GROWS_ITS_OWN_WORLD, LANDMASSES,
+    LAND_ROLL, LAND_ROLL_FREQ, Landmass,
+};
 use crate::world::heightmap::HeightMap;
 use crate::world::settle::{Settlements, Site};
 
@@ -114,7 +118,13 @@ pub struct Terrain {
 
 impl Terrain {
     pub fn new() -> Self {
-        let map = HeightMap::load();
+        // The world is grown, not drawn - see `config::GROWS_ITS_OWN_WORLD`. The
+        // loader is left whole so a maker can hand the shape back to an image.
+        let map = if GROWS_ITS_OWN_WORLD {
+            None
+        } else {
+            HeightMap::load()
+        };
 
         // The map image decides the world's proportions; WORLD_WIDTH decides
         // its scale. A 2:1 map at 8192 m across is 4096 m tall.
@@ -672,9 +682,18 @@ impl Terrain {
     /// never appear.
     pub fn shore_meters(&self, x: f32, z: f32) -> f32 {
         let Some(map) = &self.map else {
-            // No map: open sea everywhere, and the fallback noise supplies the
-            // land instead — see `fallback_elevation`.
-            return self.fallback_shore(x, z);
+            // No map. The shore has to come from the SAME source the land does or
+            // the two disagree, and they disagree silently: the ground says
+            // continent and the coastline says open sea, so every site is
+            // rejected for being offshore and the beach shelf drags the middle of
+            // a continent under water. That is exactly what happened - the ranch
+            // came out 14.9 m below the waterline on ground the table puts at the
+            // heart of Ardwen.
+            return if LANDMASSES.is_empty() {
+                self.fallback_shore(x, z)
+            } else {
+                self.grown_shore(x, z)
+            };
         };
         let (u, v) = self.to_map_uv(x, z);
         let meters_per_pixel = self.half.x * 2.0 / map.width() as f32;
@@ -683,6 +702,25 @@ impl Terrain {
         // The world ends in water whatever the image shows at its own margins —
         // a screenshot's UI chrome lives exactly there. Carried out to sea
         // rather than merely lowered, so the border is ocean and not a shelf.
+        let fade = self.border_fade(x, z);
+        shore * fade - (1.0 - fade) * SHELF_WIDTH
+    }
+
+    /// Distance to the coast in the grown world, in metres.
+    ///
+    /// Taken from the landmass table directly rather than inferred back out of an
+    /// elevation, because the table already knows the answer: `how_far_inland`
+    /// gives 1 at the middle of a mass and 0 on its rim, and multiplying by that
+    /// mass's own smaller half-extent turns it into metres. Monotonic, crosses
+    /// zero exactly at the coastline, and saturates well inside `INLAND_FULL`.
+    fn grown_shore(&self, x: f32, z: f32) -> f32 {
+        let (inside, scale) = self.nearest_land(x, z);
+        let shore = (inside * scale).clamp(-SHELF_WIDTH, INLAND_FULL);
+        // Carried OUT TO SEA at the border rather than merely lowered to the
+        // waterline - the same expression the map path uses, and for the same
+        // reason. Fading the distance itself to zero leaves the world's corners
+        // sitting exactly at 0 m, which is a shelf at eye level rather than an
+        // ocean, and the corner test says so in as many words.
         let fade = self.border_fade(x, z);
         shore * fade - (1.0 - fade) * SHELF_WIDTH
     }
@@ -1107,6 +1145,10 @@ impl Terrain {
                 let (u, v) = self.to_map_uv(x, z);
                 map.elevation(u, v)
             }
+            // No image: the world grows its own shape from the landmass table,
+            // which is what the game ships. `fallback_elevation` is only for a
+            // build with neither.
+            None if !LANDMASSES.is_empty() => self.grown_elevation(x, z),
             None => self.fallback_elevation(x, z),
         }
     }
@@ -1114,6 +1156,9 @@ impl Terrain {
     /// Procedural stand-in used only when no map image is present: one blobby
     /// continent that fades into ocean before it reaches the world border, so
     /// the fallback world is finite in the same way the real one is.
+    ///
+    /// Kept for a world with neither a map nor a landmass table — which is not a
+    /// world the game ships, but is a world the code should still answer for.
     fn fallback_elevation(&self, x: f32, z: f32) -> f32 {
         let c = self
             .continent
@@ -1127,6 +1172,117 @@ impl Terrain {
 
         base * fade
     }
+
+    /// The world's own shape, grown from `LANDMASSES`.
+    ///
+    /// # How it works, and why in this order
+    ///
+    /// 1. **Displace the point.** Before asking which landmass this place is
+    ///    inside, the point is pushed about by two octaves of noise — a broad one
+    ///    that makes bays and peninsulas, and a fine one that frets the edge. This
+    ///    is the whole difference between a coastline and an ellipse, and it costs
+    ///    nothing because it happens on the way IN.
+    /// 2. **Ask every landmass how far inside it we are**, and keep the largest
+    ///    answer. `1` is the middle of a continent, `0` is exactly its coast, and
+    ///    negative is at sea. Taking the max is what makes two masses that touch
+    ///    read as one bigger island with an isthmus rather than as two shapes with
+    ///    a seam down the join.
+    /// 3. **Map that to elevation about the waterline.** Inside, it climbs from
+    ///    `MAP_SEA_THRESHOLD` to 1; outside, it falls away to open ocean. Because
+    ///    the crossing sits exactly at zero, a landmass's `reach` is its real
+    ///    coastline in metres — which is what lets the table be reasoned about
+    ///    rather than discovered by looking at it.
+    /// 4. **Roll the interior**, so a continent is not a dome, and fade the whole
+    ///    thing at the world border so the map ends in water on every side.
+    ///
+    /// Everything downstream is unchanged: `fallback_shore` reads this to get its
+    /// distance-to-coast, and the relief, ranges and rivers layer over the top.
+    fn grown_elevation(&self, x: f32, z: f32) -> f32 {
+        let inside = self.how_far_inland(x, z);
+
+        let e = if inside >= 0.0 {
+            // Land. Climbs off the waterline, rolling so it is not a dome.
+            let roll = self
+                .continent
+                .get([x as f64 * LAND_ROLL_FREQ, z as f64 * LAND_ROLL_FREQ])
+                as f32
+                * 0.5
+                + 0.5;
+            let lift = inside * (1.0 - LAND_ROLL + LAND_ROLL * roll);
+            MAP_SEA_THRESHOLD + lift * (1.0 - MAP_SEA_THRESHOLD)
+        } else {
+            // Sea. Deepens away from the coast rather than dropping off a step.
+            MAP_SEA_THRESHOLD * (1.0 + inside).clamp(0.0, 1.0)
+        };
+
+        (e * self.border_fade(x, z)).clamp(0.0, 1.0)
+    }
+
+    /// How far inside a landmass a point is: 1 at its middle, 0 at its coast,
+    /// negative out at sea. The largest answer any landmass gives.
+    ///
+    /// Public to the crate because it is the honest way to ask "is this land, and
+    /// whose?" - the tests measure continents with it, and nothing has to
+    /// re-derive a coastline from an elevation and a threshold.
+    pub fn how_far_inland(&self, x: f32, z: f32) -> f32 {
+        self.nearest_land(x, z).0
+    }
+
+    /// The landmass this point is most inside, as (how far in, its scale in
+    /// metres). One function so the elevation, the shore and the tests are all
+    /// looking at the same winner rather than three separate opinions.
+    fn nearest_land(&self, x: f32, z: f32) -> (f32, f32) {
+        let (px, pz) = self.coast_warped(x, z);
+        let mut most = f32::NEG_INFINITY;
+        let mut scale = 1.0;
+        for mass in LANDMASSES {
+            let into = reach_into(mass, px, pz);
+            if into > most {
+                most = into;
+                scale = mass.reach.0.min(mass.reach.1);
+            }
+        }
+        (most, scale)
+    }
+
+    /// Which landmass a point belongs to, if any. `None` is open water.
+    pub fn landmass_at(&self, x: f32, z: f32) -> Option<&'static str> {
+        let (px, pz) = self.coast_warped(x, z);
+        let mut best: Option<(&'static str, f32)> = None;
+        for mass in LANDMASSES {
+            let into = reach_into(mass, px, pz);
+            if into >= 0.0 && best.is_none_or(|(_, had)| into > had) {
+                best = Some((mass.name, into));
+            }
+        }
+        best.map(|(name, _)| name)
+    }
+
+    /// The sample point, pushed about so coasts are ragged.
+    fn coast_warped(&self, x: f32, z: f32) -> (f32, f32) {
+        let broad = [x as f64 * COAST_WARP_FREQ, z as f64 * COAST_WARP_FREQ];
+        let fine = [x as f64 * COAST_FRET_FREQ, z as f64 * COAST_FRET_FREQ];
+        let dx = self.warp_x.get(broad) as f32 * COAST_WARP
+            + self.warp_z.get(fine) as f32 * COAST_FRET;
+        let dz = self.warp_z.get(broad) as f32 * COAST_WARP
+            + self.warp_x.get(fine) as f32 * COAST_FRET;
+        (x + dx, z + dz)
+    }
+}
+
+/// How far inside one landmass a point is: 1 at its centre, 0 on its rim,
+/// negative outside. Measured on the ellipse's own leaned axes.
+///
+/// Falls away outside at the same scale it rises inside, so "how far out to sea"
+/// means something rather than saturating the moment you leave the beach.
+fn reach_into(mass: &Landmass, x: f32, z: f32) -> f32 {
+    let lean = mass.lean.to_radians();
+    let (sin, cos) = lean.sin_cos();
+    let dx = x - mass.at.0;
+    let dz = z - mass.at.1;
+    let along = (dx * cos + dz * sin) / mass.reach.0;
+    let across = (-dx * sin + dz * cos) / mass.reach.1;
+    1.0 - (along * along + across * across).sqrt()
 }
 
 #[cfg(test)]
@@ -2508,15 +2664,448 @@ mod tests {
 }
 
 #[cfg(test)]
+mod survey {
+    use super::*;
+    use crate::config::{LANDMASSES, RANCH_AT};
+
+    /// What the landmass table actually produced. Not a gate - a ruler.
+    ///
+    ///     cargo test --no-default-features survey -- --ignored --nocapture
+    ///
+    /// Every question worth asking while laying continents out: how big each one
+    /// came out, which country got laid over it, and whether the ranch is
+    /// somewhere a person would put a ranch. Written because the alternative is
+    /// moving numbers in a table and re-reading an ASCII map, which is how the
+    /// desert ended up on the home continent four separate times.
+    #[test]
+    #[ignore]
+    fn survey_the_world() {
+        let terrain = Terrain::new();
+        let half = terrain.half;
+        let step = 24.0_f32;
+
+        let mut named: Vec<&'static str> = Vec::new();
+        for mass in LANDMASSES {
+            if !named.contains(&mass.name) {
+                named.push(mass.name);
+            }
+        }
+        let mut land = vec![0usize; named.len()];
+        let mut desert = vec![0usize; named.len()];
+        let mut snow = vec![0usize; named.len()];
+        let mut sea = 0usize;
+
+        let mut z = -half.y;
+        while z < half.y {
+            let mut x = -half.x;
+            while x < half.x {
+                match terrain.landmass_at(x, z) {
+                    Some(name) if terrain.height(x, z) > SEA_LEVEL => {
+                        let at = named.iter().position(|n| *n == name).unwrap();
+                        land[at] += 1;
+                        match terrain.region(x, z).0 {
+                            terrain_core::region::Country::Desert => desert[at] += 1,
+                            terrain_core::region::Country::Snow => snow[at] += 1,
+                            terrain_core::region::Country::Ordinary => {}
+                        }
+                    }
+                    _ => sea += 1,
+                }
+                x += step;
+            }
+            z += step;
+        }
+
+        let cell = (step * step) / 1_000_000.0;
+        let total: usize = land.iter().sum::<usize>() + sea;
+        println!("\nworld {:.0} x {:.0} m, {:.1} km2, {:.0}% land",
+                 half.x * 2.0, half.y * 2.0,
+                 total as f32 * cell, 100.0 * land.iter().sum::<usize>() as f32 / total as f32);
+        println!("{:<10} {:>9} {:>9} {:>9}", "landmass", "km2", "desert", "snow");
+        for (at, name) in named.iter().enumerate() {
+            println!("{:<10} {:>9.2} {:>8.0}% {:>8.0}%",
+                     name, land[at] as f32 * cell,
+                     100.0 * desert[at] as f32 / land[at].max(1) as f32,
+                     100.0 * snow[at] as f32 / land[at].max(1) as f32);
+        }
+
+        let (rx, rz) = RANCH_AT;
+        println!("\nranch at ({rx:.0}, {rz:.0}) is on {:?}, {:.0} m from the coast, \
+                  ground {:.1} m, country {:?}",
+                 terrain.landmass_at(rx, rz), terrain.shore_meters(rx, rz),
+                 terrain.height(rx, rz), terrain.region(rx, rz).0);
+
+        // Where a ranch WOULD go: well inland on the home continent, low, level,
+        // and in ordinary country. Printed so the pin can be chosen by measuring
+        // rather than by eye on a picture.
+        let mut best: Option<(f32, f32, f32)> = None;
+        let mut z = -half.y;
+        while z < half.y {
+            let mut x = -half.x;
+            while x < half.x {
+                if terrain.landmass_at(x, z) == Some("Ardwen")
+                    && terrain.region(x, z).0 == terrain_core::region::Country::Ordinary
+                {
+                    let inland = terrain.shore_meters(x, z);
+                    let h = terrain.height(x, z);
+                    if h > 4.0 && h < 60.0 && inland > 300.0 {
+                        let d = (terrain.height(x + 40.0, z) - h).abs()
+                            + (terrain.height(x, z + 40.0) - h).abs();
+                        let score = inland - d * 240.0;
+                        if best.is_none_or(|(had, _, _)| score > had) {
+                            best = Some((score, x, z));
+                        }
+                    }
+                }
+                x += step;
+            }
+            z += step;
+        }
+        // Any desert standing on Ardwen, and exactly where. Three cells hid under
+        // the survey's rounding for a whole pass; a count is not a location.
+        let mut z = -half.y;
+        while z < half.y {
+            let mut x = -half.x;
+            while x < half.x {
+                if terrain.landmass_at(x, z) == Some("Ardwen")
+                    && terrain.height(x, z) > SEA_LEVEL
+                    && terrain.region(x, z).0 == terrain_core::region::Country::Desert
+                {
+                    println!("  DESERT ON ARDWEN at ({x:.0}, {z:.0})");
+                }
+                x += step;
+            }
+            z += step;
+        }
+
+        // What dressing the ground costs across the whole world, not at one
+        // chunk. A ceiling measured at a single place says nothing about whether
+        // the world can be walked; a distribution does.
+        {
+            use crate::world::cover::dress;
+            let mut costs: Vec<usize> = Vec::new();
+            let mut n = 0u32;
+            let mut z = -half.y + 200.0;
+            while z < half.y - 200.0 {
+                let mut x = -half.x + 200.0;
+                while x < half.x - 200.0 {
+                    if terrain.height(x, z) > SEA_LEVEL + 2.0 {
+                        let at = Vec2::new(
+                            (x / CHUNK_SIZE).floor() * CHUNK_SIZE,
+                            (z / CHUNK_SIZE).floor() * CHUNK_SIZE,
+                        );
+                        costs.push(dress(&terrain, at, None).places.len());
+                        n += 1;
+                    }
+                    x += 1_100.0;
+                }
+                z += 1_100.0;
+            }
+            costs.sort_unstable();
+            if !costs.is_empty() {
+                println!(
+                    "
+cover over {n} land chunks: median {}, 90th {}, worst {}",
+                    costs[costs.len() / 2],
+                    costs[costs.len() * 9 / 10],
+                    costs[costs.len() - 1]
+                );
+            }
+        }
+
+        if let Some((_, x, z)) = best {
+            println!("the flattest well-inland spot on Ardwen is ({x:.0}, {z:.0}) at {:.1} m, \
+                      {:.0} m inland", terrain.height(x, z), terrain.shore_meters(x, z));
+        }
+    }
+}
+
+#[cfg(test)]
+mod landmasses {
+    use super::*;
+    use crate::config::LANDMASSES;
+
+    /// Every landmass is one island, and no two of them are joined.
+    ///
+    /// Both halves matter and they fail in opposite directions:
+    ///
+    /// * A continent that comes out in **two pieces** is a continent in name
+    ///   only. Ardwen is written as two overlapping lobes so it can hug the west
+    ///   and the south while staying clear of the desert, and for one pass those
+    ///   lobes did not actually meet - the map drew two islands sharing a label,
+    ///   and nothing said so.
+    /// * Two continents that **join** undo the reason they are separate. The
+    ///   coast warp displaces a sample by up to 700 m, so any strait narrower
+    ///   than that is not a strait; that is how three desert cells ended up
+    ///   walkable from the ranch.
+    ///
+    /// Walked rather than reasoned about: flood-fill the land from a point on
+    /// each mass and see what the fill reaches.
+    #[test]
+    fn each_landmass_is_one_island_and_touches_no_other() {
+        use std::collections::{HashSet, VecDeque};
+
+        let terrain = Terrain::new();
+        let half = terrain.half;
+        let step = 32.0_f32;
+        let cell = |x: f32, z: f32| -> (i32, i32) {
+            ((x / step).round() as i32, (z / step).round() as i32)
+        };
+        let dry = |c: (i32, i32)| -> bool {
+            let (x, z) = (c.0 as f32 * step, c.1 as f32 * step);
+            x.abs() < half.x && z.abs() < half.y && terrain.height(x, z) > SEA_LEVEL
+        };
+
+        // A seed on each named mass: the first dry cell its own table entry owns.
+        let mut seeds: Vec<(&'static str, (i32, i32))> = Vec::new();
+        for mass in LANDMASSES {
+            if seeds.iter().any(|(name, _)| *name == mass.name) {
+                continue;
+            }
+            let mut found = None;
+            let mut ring = 0.0_f32;
+            while found.is_none() && ring < mass.reach.0.max(mass.reach.1) {
+                for turn in 0..24 {
+                    let angle = turn as f32 * std::f32::consts::TAU / 24.0;
+                    let x = mass.at.0 + angle.cos() * ring;
+                    let z = mass.at.1 + angle.sin() * ring;
+                    if dry(cell(x, z)) && terrain.landmass_at(x, z) == Some(mass.name) {
+                        found = Some(cell(x, z));
+                        break;
+                    }
+                }
+                ring += step;
+            }
+            if let Some(at) = found {
+                seeds.push((mass.name, at));
+            }
+        }
+        assert_eq!(
+            seeds.len(),
+            LANDMASSES
+                .iter()
+                .map(|m| m.name)
+                .collect::<HashSet<_>>()
+                .len(),
+            "every landmass in the table should have dry land on it"
+        );
+
+        for (name, seed) in &seeds {
+            let mut seen: HashSet<(i32, i32)> = HashSet::new();
+            let mut queue = VecDeque::from([*seed]);
+            seen.insert(*seed);
+            while let Some(at) = queue.pop_front() {
+                for step_to in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let next = (at.0 + step_to.0, at.1 + step_to.1);
+                    if !seen.contains(&next) && dry(next) {
+                        seen.insert(next);
+                        queue.push_back(next);
+                    }
+                }
+            }
+
+            // Nothing this fill reached may belong to a different landmass.
+            for other in &seeds {
+                if other.0 == *name {
+                    continue;
+                }
+                assert!(
+                    !seen.contains(&other.1),
+                    "{name} and {} are joined - you can walk from one to the other",
+                    other.0
+                );
+            }
+
+            // And every part of THIS mass has to be in the fill, or it is in
+            // pieces. Sampled rather than exhaustive: the fill is the dear part.
+            let mut apart = 0;
+            let mut z = -half.y;
+            while z < half.y {
+                let mut x = -half.x;
+                while x < half.x {
+                    if terrain.landmass_at(x, z) == Some(*name)
+                        && terrain.height(x, z) > SEA_LEVEL
+                        && !seen.contains(&cell(x, z))
+                    {
+                        apart += 1;
+                    }
+                    x += step * 3.0;
+                }
+                z += step * 3.0;
+            }
+            assert_eq!(apart, 0, "{name} is in more than one piece: {apart} cells are cut off");
+        }
+    }
+}
+
+#[cfg(test)]
+mod atlas {
+    use super::*;
+    use crate::config::{LANDMASSES, RANCH_AT};
+
+    /// Draws the world to `dev/art/map/world.png`, with a companion `world.json`
+    /// naming everything on it.
+    ///
+    ///     cargo test --no-default-features draw_the_map -- --ignored --nocapture
+    ///
+    /// Colours are the biome's own, so the picture is the world rather than an
+    /// illustration of it: whatever the game would draw at that point is what the
+    /// pixel is. The labels and the legend are composed afterwards from the JSON,
+    /// because a font renderer is not something this crate should grow to make a
+    /// map with.
+    #[test]
+    #[ignore]
+    fn draw_the_map() {
+        const METRES: f32 = 8.0;
+
+        let terrain = Terrain::new();
+        let climate = terrain.climate();
+        let half = terrain.half;
+        let wide = (half.x * 2.0 / METRES) as u32;
+        let high = (half.y * 2.0 / METRES) as u32;
+
+        let mut pixels = image::RgbImage::new(wide, high);
+        for py in 0..high {
+            for px in 0..wide {
+                let x = -half.x + (px as f32 + 0.5) * METRES;
+                let z = -half.y + (py as f32 + 0.5) * METRES;
+                let h = terrain.height(x, z);
+                let rgb = if h <= SEA_LEVEL {
+                    // Deeper water reads darker, so the shelf and the open ocean
+                    // are told apart and the continents have a rim.
+                    let deep = (-h / 60.0).clamp(0.0, 1.0);
+                    [
+                        (38.0 - 20.0 * deep) as u8,
+                        (74.0 - 38.0 * deep) as u8,
+                        (108.0 - 46.0 * deep) as u8,
+                    ]
+                } else {
+                    let ground = terrain.ground_at(x, z);
+                    let base = match Biome::of(ground, &climate) {
+                        Biome::Grass => [96, 132, 72],
+                        Biome::Forest => [58, 96, 56],
+                        Biome::Desert => [201, 176, 118],
+                        Biome::Snow => [232, 236, 240],
+                        Biome::Rock => [130, 126, 118],
+                        Biome::Shore => [206, 194, 156],
+                        Biome::Settled => [150, 140, 116],
+                        Biome::Water => [38, 74, 108],
+                    };
+                    // Shade by height so relief reads.
+                    let lift = 1.0 + (h / 210.0).clamp(0.0, 1.0) * 0.34;
+                    [
+                        (base[0] as f32 * lift).min(255.0) as u8,
+                        (base[1] as f32 * lift).min(255.0) as u8,
+                        (base[2] as f32 * lift).min(255.0) as u8,
+                    ]
+                };
+                pixels.put_pixel(px, py, image::Rgb(rgb));
+            }
+        }
+
+        let dir = std::path::Path::new("dev/art/map");
+        std::fs::create_dir_all(dir).expect("somewhere to put the map");
+        pixels.save(dir.join("world.png")).expect("the map should save");
+
+        // Everything worth labelling, in pixels, so the compositor needs no
+        // knowledge of the world's coordinates.
+        let to_px = |x: f32, z: f32| {
+            (
+                ((x + half.x) / METRES).round() as i32,
+                ((z + half.y) / METRES).round() as i32,
+            )
+        };
+        let mut json = String::from("{\n");
+        json.push_str(&format!("  \"metres_per_pixel\": {METRES},\n"));
+        json.push_str(&format!(
+            "  \"world\": [{:.0}, {:.0}],\n",
+            half.x * 2.0,
+            half.y * 2.0
+        ));
+
+        // A landmass's label goes at the middle of the land actually drawn for it,
+        // not at the table's centre - a two-lobed continent's centre can be at sea.
+        let mut named: Vec<&'static str> = Vec::new();
+        for mass in LANDMASSES {
+            if !named.contains(&mass.name) {
+                named.push(mass.name);
+            }
+        }
+        json.push_str("  \"landmasses\": [\n");
+        for (at, name) in named.iter().enumerate() {
+            let (mut sx, mut sz, mut n) = (0.0f64, 0.0f64, 0u32);
+            let mut z = -half.y;
+            while z < half.y {
+                let mut x = -half.x;
+                while x < half.x {
+                    if terrain.landmass_at(x, z) == Some(*name) && terrain.height(x, z) > SEA_LEVEL
+                    {
+                        sx += x as f64;
+                        sz += z as f64;
+                        n += 1;
+                    }
+                    x += 32.0;
+                }
+                z += 32.0;
+            }
+            if n == 0 {
+                continue;
+            }
+            let (px, pz) = to_px((sx / n as f64) as f32, (sz / n as f64) as f32);
+            let km2 = n as f32 * 32.0 * 32.0 / 1_000_000.0;
+            json.push_str(&format!(
+                "    {{\"name\": \"{name}\", \"at\": [{px}, {pz}], \"km2\": {km2:.2}}}{}\n",
+                if at + 1 == named.len() { "" } else { "," }
+            ));
+        }
+        json.push_str("  ],\n");
+
+        json.push_str("  \"places\": [\n");
+        let sites = terrain.sites();
+        for (at, site) in sites.iter().enumerate() {
+            let (px, pz) = to_px(site.at.x, site.at.y);
+            let kind = if site.at.distance(Vec2::new(RANCH_AT.0, RANCH_AT.1)) < 1.0 {
+                "ranch"
+            } else if site.city {
+                "city"
+            } else {
+                "town"
+            };
+            json.push_str(&format!(
+                "    {{\"kind\": \"{kind}\", \"at\": [{px}, {pz}]}}{}\n",
+                if at + 1 == sites.len() { "" } else { "," }
+            ));
+        }
+        json.push_str("  ]\n}\n");
+        std::fs::write(dir.join("world.json"), json).expect("the key should save");
+
+        println!("drew {wide}x{high} to dev/art/map/world.png ({METRES} m a pixel)");
+    }
+}
+
+#[cfg(test)]
 mod ranch_tests {
     use super::*;
 
     #[test]
     fn the_ranch_stands_on_land_at_the_height_the_bench_reported() {
-        // The spot was chosen by eye at Opificium's terrain bench, which read
-        // 22.9 m. If the game disagrees, the two programs are not building the
-        // same ground — which is the one failure the whole world.json contract
-        // exists to prevent, and it would show up as a farm sunk into a hill.
+        // 44.0 m from 2026-08-28, when the world stopped being a drawn map and
+        // started being grown from `config::LANDMASSES`. The ground under the pin
+        // is new ground, so the old reading is simply a reading of a world that no
+        // longer exists.
+        //
+        // WHAT THIS TEST CAN AND CANNOT SAY NOW. It was a contract between two
+        // programs: the bench read 22.9 m here and the game had to agree, because
+        // a farm sunk into a hill is what disagreement looks like. That contract
+        // is real and it is currently NOT being checked, because the generator
+        // lives in this repository and Opificium's bench does not have it - the
+        // bench still builds the old image world. Until the landmass table moves
+        // into `terrain-core` where both programs read it, this asserts only that
+        // the game is stable against itself.
+        //
+        // That is worth saying out loud rather than leaving as a number that
+        // quietly passes: a test whose whole purpose was cross-program agreement
+        // has become a regression pin, and nothing about it looks different.
         let terrain = Terrain::new();
         let (x, z) = RANCH_AT;
         let height = terrain.height(x, z);
@@ -2526,9 +3115,10 @@ mod ranch_tests {
             "the ranch is under water at {height:.1} m"
         );
         assert!(
-            (height - 22.9).abs() < 1.5,
-            "the bench read 22.9 m here and the game reads {height:.1} m - \
-             the two are not building the same ground"
+            (height - 39.3).abs() < 1.5,
+            "the ranch ground was 39.3 m when the world was last laid out and is \
+             now {height:.1} m - something moved the land under the one pin the \
+             game starts on"
         );
     }
 }
@@ -2703,58 +3293,4 @@ mod relief {
     }
 }
 
-#[cfg(test)]
-mod atlas {
-    use super::*;
 
-    /// Draws the whole world, for deciding where things go.
-    ///
-    /// `cargo test dump_the_world -- --ignored --nocapture | python dev/ground.py
-    /// world.png 2`. The same colouring the game uses, so what comes out is the
-    /// world as it looks rather than a diagram of it — which is what siting a
-    /// mountain range or a region needs.
-    #[test]
-    #[ignore = "a picture, not a check"]
-    fn dump_the_world() {
-        let terrain = Terrain::new();
-        let half = terrain.half();
-        const WIDE: i32 = 400;
-        let high = (WIDE as f32 * half.y / half.x).round() as i32;
-
-        println!("GROUND {WIDE} {high}");
-        for pz in 0..high {
-            let mut row = String::with_capacity(WIDE as usize * 6);
-            for px in 0..WIDE {
-                let at = Vec2::new(
-                    (px as f32 / (WIDE - 1) as f32 * 2.0 - 1.0) * half.x,
-                    (pz as f32 / (high - 1) as f32 * 2.0 - 1.0) * half.y,
-                );
-                let (country, belonging) = terrain.region(at.x, at.y);
-                let colour = crate::world::biome::surface_color(
-                    at,
-                    terrain.height(at.x, at.y),
-                    1.0 - terrain.normal(at.x, at.y, 8.0).y,
-                    terrain.shore_character(at.x, at.y),
-                    terrain.worn(at.x, at.y),
-                    country,
-                    belonging,
-                );
-                let byte = |v: f32| {
-                    let s = if v <= 0.003_130_8 {
-                        v * 12.92
-                    } else {
-                        1.055 * v.powf(1.0 / 2.4) - 0.055
-                    };
-                    (s.clamp(0.0, 1.0) * 255.0).round() as u8
-                };
-                row.push_str(&format!(
-                    "{:02x}{:02x}{:02x}",
-                    byte(colour[0]),
-                    byte(colour[1]),
-                    byte(colour[2])
-                ));
-            }
-            println!("{row}");
-        }
-    }
-}

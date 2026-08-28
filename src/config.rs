@@ -10,6 +10,13 @@
 //!
 //! So re-rolling the map in the generator swaps the continent without touching
 //! code, and resizing the game world is a single number.
+//!
+//! # The world is GROWN now, not drawn
+//!
+//! From 2026-08-28 the shape comes from `LANDMASSES` rather than from an image.
+//! The loader is still here and still works — a maker can drop a map in and set
+//! `GROWS_ITS_OWN_WORLD` false — but the game's own world is generated, which is
+//! what lets it be resized and re-laid without anybody repainting a PNG.
 
 // ---------------------------------------------------------------- world scale
 
@@ -24,7 +31,17 @@
 /// that's about 20 minutes", and the jog has been 3.70 and is now 5.90 — it was
 /// never 7. A traversal time restated in prose drifts every time the pace is
 /// tuned; the distance does not.
-pub const WORLD_WIDTH: f32 = 8192.0;
+///
+/// **12,288 m from 2026-08-28**, half again as wide as it was and so a bit over
+/// twice the area. The reason is a number from the design: the base game holds
+/// **250 Copaimo**, and they have to live somewhere. A species needs a habitat
+/// big enough to read as a place while you walk it — a few hundred metres across
+/// at least — and species share habitats rather than each owning one, so 250 of
+/// them want on the order of forty distinct places, plus the cities and towns
+/// between them and the mountains and water that separate them. The old world
+/// could not hold that without every stretch of country being somebody's
+/// doorstep.
+pub const WORLD_WIDTH: f32 = 12_288.0;
 
 /// Aspect ratio (width / depth) assumed if no map image is present and we fall
 /// back to pure procedural generation.
@@ -582,6 +599,129 @@ pub const WARP_FREQ: f64 = 0.004;
 /// How far, in meters, that warp can displace a lookup.
 pub const WARP_STRENGTH: f32 = 26.0;
 
+// ------------------------------------------------------------ the landmasses
+
+/// Whether the world grows its own shape instead of reading a map image.
+///
+/// True is the game's world. False hands the shape back to `HEIGHTMAP_PATH`, for
+/// a maker who would rather draw one — the loader and everything that reads it
+/// are untouched, so this is a switch and not a demolition.
+pub const GROWS_ITS_OWN_WORLD: bool = true;
+
+/// One landmass: where it is, how far it reaches, and which way it leans.
+///
+/// # Why a table and not just noise
+///
+/// Noise makes coastlines; it does not make *places*. Left to itself it produces
+/// whatever it produces, and then "the desert should not be on the home
+/// continent" becomes a conversation about frequencies. A table says where the
+/// land is, so a continent can be pointed at, measured, tested and talked about —
+/// and the noise is spent where it earns its keep, on the shape of the coast.
+///
+/// Each mass is an ellipse, leaned, whose rim is the coastline. `SEA_THRESHOLD`
+/// is crossed exactly at the rim, so `reach` is a real distance in metres rather
+/// than a number that has to be discovered by looking.
+pub struct Landmass {
+    /// What it is called. Used by the tests and by anyone reading a failure.
+    pub name: &'static str,
+    /// Centre, in world metres.
+    pub at: (f32, f32),
+    /// Half-extent along and across its lean, in metres. The rim is the coast.
+    pub reach: (f32, f32),
+    /// How far it leans, anticlockwise, in degrees.
+    pub lean: f32,
+}
+
+/// Every landmass in the world.
+///
+/// Five, and they are not interchangeable:
+///
+/// * **Ardwen** is home. The largest, the temperate one, and the one the ranch
+///   stands on — the whole first act of the game happens here, so it has to hold
+///   a ranch, several cities and enough varied country to be a career.
+/// * **Karrow** is the dry north, and it is where the desert lives. It is a
+///   separate landmass on purpose: a desert species turning up outside the
+///   starting area's neighbours is a design fault, and sea is the strongest
+///   boundary there is.
+/// * **Fell** is the cold end of the world, north-east and small.
+/// * **Sorrel** is the NEW one, 2026-08-28, south-east across open water. Added
+///   because the base game needs room for 250 Copaimo and the towns and cities
+///   between them, and because the pitch has veteran Wardens eventually crossing
+///   water to somewhere with its own ecosystems.
+/// * **The Cinders** are a scatter of small islands between Ardwen and Sorrel,
+///   so the crossing has something in it and the sea is not merely a gap.
+/// # The table answers to the regions, not the other way round
+///
+/// `terrain_core::region` decides which country a place is - and it is shared
+/// with Opificium's bench, so it is not ours to move to suit a coastline. Read
+/// off it: the bands run WEST TO EAST along a tilted axis, ordinary until 0.72
+/// and snow past it, with the desert a place of its own centred at u 0.42, v 0.31
+/// and reaching 0.15 by 0.21.
+///
+/// Everything below is placed against those numbers rather than against a
+/// picture. In world metres, at this size, that means:
+///
+///   * the desert occupies about x -2,830..860 and z -2,460..120
+///   * snow begins about x 2,700 and runs to the eastern edge
+///
+/// So the home continent goes west and SOUTH of the desert, the dry continent is
+/// laid over it, the cold one takes the east end, and the new continent takes the
+/// south - which is the one quarter of the map no band claims.
+pub const LANDMASSES: &[Landmass] = &[
+    // Ardwen is two lobes that meet, not one ellipse: an L down the west side and
+    // along the south. The shape is not decoration - it is what keeps the whole
+    // continent clear of the desert while still reaching from the north-west
+    // coast to the southern one, and while still holding the ranch where it has
+    // always stood.
+    Landmass { name: "Ardwen", at: (-3_300.0, 1_500.0), reach: (2_800.0, 1_300.0), lean: -8.0 },
+    // Held west of x -3,600. The desert's axis is TILTED, so it reaches further
+    // west the further north you go - its bounding box says -2,830 and at
+    // z -1,700 it is actually at -3,400. Twelve cells of Ardwen stood in it,
+    // three of them walkable from the ranch, and they hid under the survey's
+    // rounding for a whole pass. A count is not a location; the survey prints
+    // both now.
+    Landmass { name: "Ardwen", at: (-4_650.0, -800.0), reach: (1_150.0, 1_600.0), lean: 4.0 },
+    // Karrow carries the desert, and is placed on it rather than near it.
+    // Held 950 m clear of Ardwen's northern lobe. It was 600, and the coast warp
+    // reaches 515 - so the two grew a land bridge, three desert cells of it
+    // walkable from the ranch. A gap between continents has to be wider than the
+    // noise that ruffles their coasts, or it is not a gap.
+    Landmass { name: "Karrow", at: (-100.0, -1_250.0), reach: (1_850.0, 1_300.0), lean: 14.0 },
+    // Fell is past the snow line by construction, so it is the cold end of the
+    // world without anybody having to tune it to be.
+    Landmass { name: "Fell", at: (4_100.0, -1_300.0), reach: (1_950.0, 1_500.0), lean: -6.0 },
+    // Sorrel, the new one. South, where no band reaches, so it is ordinary
+    // country - except its eastern end, which crosses the snow line and gives it
+    // a cold coast. That is deliberate: a continent that spans two countries has
+    // twice the habitats to put Copaimo in, which is the whole reason it is here.
+    Landmass { name: "Sorrel", at: (2_800.0, 1_800.0), reach: (2_300.0, 1_250.0), lean: 10.0 },
+    // One island, in the only water wide enough to hold one: the 1,100 m channel
+    // between Karrow's south coast and Sorrel's north-west shoulder. There were
+    // three, strung across the Ardwen-Sorrel strait, and that strait is 700 m
+    // wide - an island with a 515 m coast warp on it does not sit in 700 m of
+    // water, it joins the two sides of it. Better one island that is an island.
+    Landmass { name: "Cinders", at: (1_200.0, 220.0), reach: (230.0, 190.0), lean: -15.0 },
+];
+
+/// How far the coastline is pushed about, in metres, and at what scale.
+///
+/// This is the whole reason the world does not look like a set of ellipses. The
+/// sample point is displaced by noise before it is asked which landmass it is
+/// inside, so a straight rim becomes bays and headlands. Big enough to make
+/// peninsulas; not so big it tears an island in half.
+pub const COAST_WARP: f32 = 560.0;
+pub const COAST_WARP_FREQ: f64 = 0.000_38;
+
+/// A second, finer displacement, for the detail a coast has close up.
+pub const COAST_FRET: f32 = 145.0;
+pub const COAST_FRET_FREQ: f64 = 0.001_6;
+
+/// How much the interior of a landmass rolls, as a fraction of its height above
+/// the waterline. Keeps a continent from reading as one smooth dome before the
+/// relief layers get to it.
+pub const LAND_ROLL: f32 = 0.34;
+pub const LAND_ROLL_FREQ: f64 = 0.000_5;
+
 // ---------------------------------------------- procedural fallback (no image)
 
 /// Frequency of the broad landmass mask used only when there's no map image.
@@ -616,8 +756,15 @@ pub const PLAINS_RELIEF: f32 = 0.12;
 
 /// How many of each kind of place gets ground leveled for it. Cities hold the
 /// Wardens Guild exams; towns are the smaller places between them.
-pub const CITIES: usize = 6;
-pub const TOWNS: usize = 14;
+///
+/// Grown with the world on 2026-08-28, and not by the same factor, because they
+/// answer to different things. TOWNS scale with ground: twice the country wants
+/// about twice the places in it, or the new continent reads as empty. CITIES
+/// scale with the CAREER — each one holds a Warden Exam, and an exam ladder is a
+/// designed length rather than a function of area. Ten is a ladder; twenty-four
+/// is a grind.
+pub const CITIES: usize = 10;
+pub const TOWNS: usize = 32;
 
 /// How far the level ground reaches at each, in meters.
 pub const CITY_RADIUS: f32 = 190.0;
@@ -634,7 +781,11 @@ pub const SITE_SKIRT: f32 = 140.0;
 /// A site must be at least this far inland, below this height, and on ground no
 /// steeper than this — people build where the living is, and leveling a
 /// hillside would leave a scar visible from orbit.
-pub const SITE_MIN_INLAND: f32 = 70.0;
+// 150 m from 2026-08-28, up from 70. The grown world's coasts are displaced by
+// up to 700 m of noise, so 70 m inland is still on the shoulder of a beach - and
+// levelling a site there cut a 1.55 m lip into the ground at -4972, 930, which
+// `levelling_never_puts_a_step_in_the_ground` caught and no brush could take out.
+pub const SITE_MIN_INLAND: f32 = 150.0;
 pub const SITE_MAX_HEIGHT: f32 = 130.0;
 pub const SITE_MAX_SLOPE: f32 = 0.13;
 

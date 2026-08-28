@@ -1015,6 +1015,81 @@ NEIGHBOURHOOD, not of the piece: scaled to the piece, a spill of scree came out
 near white while a boulder of the same rock read mid grey, because every little
 chunk reached the top of its own ramp.
 
+## The world is grown, and there are five landmasses
+
+**2026-08-28** — The world stopped being a drawn map and became a generated one,
+and it grew by half to make room for what the base game has to hold.
+
+**Why bigger.** 250 Copaimo, and they have to live somewhere. A species needs a
+habitat big enough to read as a place while you walk it, species share habitats
+rather than each owning one, and towns, cities, mountains and water have to fit
+between them. `WORLD_WIDTH` is 12,288 m — half again as wide, a bit over twice the
+area, 75.5 km² of which 56% is land.
+
+**Why grown.** The shape now comes from `config::LANDMASSES`, a table of leaned
+ellipses whose rims are coastlines, unioned and then displaced by two octaves of
+noise so the coasts are ragged rather than elliptical. Noise makes coastlines; it
+does not make places. A table means a continent can be pointed at, measured,
+tested and argued about — and the noise is spent where it earns its keep.
+
+The heightmap and every hand-edited layer moved to `assets/world/drawn/`, with a
+README saying how to put them back. They are keyed to coordinates that no longer
+mean the same thing: a hand-painted yard came out in the middle of Karrow.
+
+**The five, and they are not interchangeable.**
+
+| | km² | what it is |
+|---|---|---|
+| **Ardwen** | 16.8 | Home. Temperate, no desert and no snow, and the ranch stands on it. Two lobes that meet — an L down the west and along the south — which is what keeps it clear of the desert while still reaching both coasts. |
+| **Karrow** | 8.0 | The dry north-centre. 67% desert, and the canyon country still gates the route from its desert to its green east. |
+| **Fell** | 8.7 | The cold end of the world, 98% snow, past the snow line by construction. |
+| **Sorrel** | 8.7 | **New.** South-east, across open water. Temperate over most of it with a cold eastern third — a continent spanning two countries has twice the habitats to put Copaimo in, which is the whole reason it is there. |
+| **The Cinders** | 0.1 | One island in the channel between Karrow and Sorrel. There were three strung across the Ardwen–Sorrel strait, and that strait is 700 m wide against a 700 m coast warp — an island does not sit in that, it joins the two sides of it. |
+
+**The table answers to the regions, not the other way round.**
+`terrain_core::region` is shared with Opificium's bench, so it is not ours to move
+to suit a coastline. Read off it: bands run west to east, ordinary until 0.72 and
+snow past it, with the desert a place of its own at u 0.42, v 0.31. Every landmass
+is placed against those numbers.
+
+**Two guards were added, and both caught something real.**
+`each_landmass_is_one_island_and_touches_no_other` walks the land: Ardwen's lobes
+were not meeting and the map drew two islands sharing a label, and Karrow grew a
+land bridge to Ardwen carrying three walkable desert cells. `survey_the_world`
+prints what the table produced rather than asserting anything — areas, region
+shares, cover cost, and the position of any desert standing on Ardwen, because a
+count is not a location and three cells hid under the survey's rounding for a
+whole pass.
+
+**Open, and worth knowing.** Dressing a land chunk costs a median 252k vertices
+and up to 532k. That is not new — the drawn world measured 165k median and 602k
+worst — but the `dressing_a_chunk_stays_affordable` ceiling was set at 145k from
+one light chunk near the ranch and never described either world. The ceiling now
+describes the world; whether the world is affordable is a framerate question for
+profiling, not for one chunk in one test.
+
+Also open: the ranch height test was a contract between this game and Opificium's
+bench, and the bench does not have the generator — it still builds the drawn
+world. Until `LANDMASSES` moves into `terrain-core` where both read it, that test
+only says the game is stable against itself.
+
+## Planned: seasons and weather
+
+**Asked for 2026-08-28, to be built after the new continent has been walked.**
+
+**Seasons.** A new season every 28 days, on the real-world clock the game already
+runs on, so a season is about a real month and a year is about four. Biomes stay
+biomes — a forest does not become a desert — but the world's *look* changes with
+the season: trees change colour, some lose foliage. Eventually Copaimo species
+will be seasonal, so certain ones only appear in certain seasons.
+
+**Weather.** Rain, snow and wind, and it has to be **logical for the ground it
+falls on**: no rain or snow in the desert, while wind can blow anywhere. The
+country a place belongs to already decides this — `terrain_core::region::Country`
+says Desert, Snow or Ordinary — so weather should be chosen from it rather than
+rolled globally and filtered afterwards.
+
+
 ## Authored shapes take over the ones the world grows
 
 The world grows its own trees — `terrain_core::tree` builds a pool of varieties
