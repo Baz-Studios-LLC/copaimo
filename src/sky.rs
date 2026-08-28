@@ -90,6 +90,8 @@ struct Cloud {
     speed: f32,
     /// How big it is drawn when it is not fading — see `drift_clouds`.
     size: f32,
+    /// The ceiling it was hung at, before the weather lowers it.
+    height: f32,
 }
 
 /// The one material every cloud wears, retinted as the light changes.
@@ -215,9 +217,33 @@ fn local_hours() -> f32 {
     now.hour() as f32 + now.minute() as f32 / 60.0 + now.second() as f32 / 3600.0
 }
 
+/// The grey a sky turns as it closes over, and the grey snow comes out of.
+///
+/// Rain cloud is darker and bluer than snow cloud, which is pale and flat — a
+/// snowy sky is bright and featureless where a rainy one is heavy and leaden. Both
+/// are much darker than the white a fair-weather cloud wears, because the underside
+/// of a cloud you can see rain falling from is the part the sun does not reach.
+const RAIN_CLOUD: Color = Color::srgb(0.30, 0.32, 0.36);
+const SNOW_CLOUD: Color = Color::srgb(0.62, 0.63, 0.68);
+
+/// What the sky itself washes toward when it is overcast.
+const OVERCAST_SKY: Color = Color::srgb(0.52, 0.55, 0.60);
+
+/// How much of the cloud's white is taken away at full overcast.
+const CLOUD_DARKENS_BY: f32 = 0.88;
+
+/// How much bigger and lower the ceiling gets when the sky closes over.
+///
+/// A rain sky is not a fair sky in grey: the clouds are LOWER and they join up.
+/// Growing them is what closes the gaps between them, and dropping them is what
+/// makes the ceiling feel like a lid.
+pub const CLOUD_SWELLS_BY: f32 = 0.55;
+const CLOUD_SINKS_BY: f32 = 0.20;
+
 /// Puts the sun where the hour says, and colours everything from it.
 fn drive_the_sky(
     when: Res<TimeOfDay>,
+    weather: Res<crate::weather::TheWeather>,
     skin: Option<Res<CloudSkin>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut clear: ResMut<ClearColor>,
@@ -295,19 +321,35 @@ fn drive_the_sky(
         light.shadow_normal_bias = 2.6_f32.max(GRAZING_COVER / low);
     }
 
-    clear.0 = sky_colour(height);
+    // Washed toward flat grey as the sky closes, and the ambient light with it —
+    // a bright blue sky behind a black cloud is the thing that makes weather in a
+    // game read as a decal hung in front of the weather it actually has.
+    clear.0 = mix_colour(
+        sky_colour(height),
+        OVERCAST_SKY,
+        weather.overcast * if when.is_day() { 0.75 } else { 0.35 },
+    );
     // The sky is the ambient light: bright blue-white by day, and at night a
     // little more than nothing, so a world is dark rather than invisible.
     ambient.color = mix_colour(NIGHT_AMBIENT, DAY_AMBIENT, smoothstep_up(height, -0.15, 0.25));
-    ambient.brightness = NIGHT_LUX + (DAY_AMBIENT_LUX - NIGHT_LUX) * smoothstep_up(height, -0.2, 0.3);
+    ambient.brightness = (NIGHT_LUX + (DAY_AMBIENT_LUX - NIGHT_LUX) * smoothstep_up(height, -0.2, 0.3))
+        * (1.0 - weather.overcast * 0.35);
 
     // Clouds take the sun's own colour, which is what turns a sky pink at dusk.
     if let Some(skin) = skin {
-        let lit = if when.is_day() {
+        let fair = if when.is_day() {
             mix_colour(DUSK_CLOUD, DAY_CLOUD, smoothstep_up(height, 0.0, 0.3))
         } else {
             NIGHT_CLOUD
         };
+        // And then the weather has them. A rain cloud IS a rain cloud: the same
+        // cloud carrying water is darker, and which grey it turns says which of
+        // rain or snow is coming out of it before the first of it arrives.
+        let laden = match weather.falling {
+            crate::weather::Falling::Snow => SNOW_CLOUD,
+            _ => RAIN_CLOUD,
+        };
+        let lit = mix_colour(fair, laden, weather.overcast * CLOUD_DARKENS_BY);
         // Only when it differs — see the star skin in `carry_the_night` for why
         // an unconditional `get_mut` is a re-upload per frame for nothing.
         if materials.get(&skin.0).is_some_and(|was| was.base_color != lit) {
@@ -371,7 +413,12 @@ fn spawn_clouds(
         });
 
         commands.spawn((
-            Cloud { origin, speed, size },
+            Cloud {
+                origin,
+                speed,
+                size,
+                height,
+            },
             Mesh3d(shape.clone()),
             MeshMaterial3d(skin.clone()),
             Transform::from_xyz(origin.x, height, origin.y)
@@ -549,6 +596,7 @@ fn carry_the_night(
 /// Drifts the clouds, and keeps them over the viewer's head.
 fn drift_clouds(
     time: Res<Time>,
+    weather: Res<crate::weather::TheWeather>,
     anchors: Query<&GlobalTransform, (With<StreamAnchor>, Without<Cloud>)>,
     mut clouds: Query<(&Cloud, &mut Transform)>,
 ) {
@@ -576,6 +624,14 @@ fn drift_clouds(
         let wrapped = drifted - CLOUD_SPREAD * ((drifted - here) / CLOUD_SPREAD).round();
         place.translation.x = wrapped.x;
         place.translation.z = wrapped.y;
+
+        // Bigger and lower as the sky closes over, so the gaps between clouds shut
+        // and the ceiling comes down. Scale rather than count: spawning more clouds
+        // would mean more shadow discs than the shader's fixed array can hold, and
+        // a cloud that grows closes a gap just as well as a new one would fill it.
+        let swell = 1.0 + weather.overcast * CLOUD_SWELLS_BY;
+        place.scale = Vec3::splat(cloud.size * swell);
+        place.translation.y = cloud.height * (1.0 - weather.overcast * CLOUD_SINKS_BY);
 
         // # A cloud that teleports where you can see it is a cloud that pops
         //
@@ -805,5 +861,66 @@ mod tests {
             follows_clock: false,
         };
         assert!(held.spoken().contains("held"), "a scrubbed clock should say so");
+    }
+}
+
+#[cfg(test)]
+mod weather_look {
+    use super::*;
+
+    /// A helper matching what `drive_the_sky` does, so the test measures the same
+    /// arithmetic rather than a copy of it that can drift away from it.
+    fn cloud_at(overcast: f32, falling: crate::weather::Falling) -> Srgba {
+        let laden = match falling {
+            crate::weather::Falling::Snow => SNOW_CLOUD,
+            _ => RAIN_CLOUD,
+        };
+        Srgba::from(mix_colour(DAY_CLOUD, laden, overcast * CLOUD_DARKENS_BY))
+    }
+
+    fn brightness(c: Srgba) -> f32 {
+        0.2126 * c.red + 0.7152 * c.green + 0.0722 * c.blue
+    }
+
+    #[test]
+    fn a_rain_cloud_is_a_rain_cloud() {
+        use crate::weather::Falling;
+
+        let fair = cloud_at(0.0, Falling::Nothing);
+        let gathering = cloud_at(0.5, Falling::Rain);
+        let heavy = cloud_at(1.0, Falling::Rain);
+        let snowy = cloud_at(1.0, Falling::Snow);
+
+        // It darkens as the sky closes, and it does it all the way down.
+        assert!(
+            brightness(fair) > brightness(gathering),
+            "a gathering sky is no darker than a fair one"
+        );
+        assert!(
+            brightness(gathering) > brightness(heavy),
+            "a closed sky is no darker than a half-closed one"
+        );
+        assert!(
+            brightness(heavy) < brightness(fair) * 0.55,
+            "a full rain cloud is {:.2} against fair weather's {:.2} — that is a \
+             slightly grubby white, not a rain cloud",
+            brightness(heavy),
+            brightness(fair)
+        );
+
+        // And snow comes out of a different sky: pale and flat, not leaden.
+        assert!(
+            brightness(snowy) > brightness(heavy) * 1.4,
+            "a snow sky ({:.2}) is as dark as a rain sky ({:.2})",
+            brightness(snowy),
+            brightness(heavy)
+        );
+
+        // The rain cloud is the bluer, colder grey of the two.
+        let rain = Srgba::from(RAIN_CLOUD);
+        assert!(
+            rain.blue > rain.red,
+            "the rain cloud is a warm grey: {rain:?}"
+        );
     }
 }

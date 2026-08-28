@@ -169,15 +169,24 @@ impl Plugin for ShadePlugin {
 /// material turns up that has never been told.
 fn carry_the_shade(
     when: Res<TimeOfDay>,
+    weather: Res<crate::weather::TheWeather>,
     shadows: Res<CloudShadows>,
     mut materials: ResMut<Assets<Shaded>>,
-    mut told: Local<Option<(f32, usize)>>,
+    mut told: Local<Option<(f32, usize, f32)>>,
 ) {
     let height = when.sun_height();
-    let now = (height, materials.len());
+    // The overcast is part of the key, or the shade would keep the value it had
+    // when the sun last moved far enough to notice and the sky would darken
+    // overhead while the ground stayed bright.
+    let closed = (weather.overcast * 40.0).round() / 40.0;
+    let now = (height, materials.len(), closed);
 
-    if let Some((was, count)) = *told {
-        if (was - height).abs() < SUN_STEP && count == now.1 && !shadows.is_changed() {
+    if let Some((was, count, was_closed)) = *told {
+        if (was - height).abs() < SUN_STEP
+            && count == now.1
+            && (was_closed - closed).abs() < f32::EPSILON
+            && !shadows.is_changed()
+        {
             return;
         }
     }
@@ -188,7 +197,12 @@ fn carry_the_shade(
     // its shadow a kilometre and a half sideways — arithmetically true, and it
     // would put the whole sky's shade on the wrong county. It is also the hour
     // when the light is too flat to read a shadow on the ground by.
-    let strength = CLOUD_SHADE * crate::util::smoothstep(CLOUD_SHADE_FROM, CLOUD_SHADE_TO, height);
+    let mut strength =
+        CLOUD_SHADE * crate::util::smoothstep(CLOUD_SHADE_FROM, CLOUD_SHADE_TO, height);
+    // Deeper under a closed sky, because that is what a closed sky does. Capped
+    // short of black: under full overcast the shadows should read as one heavy
+    // grey over everything rather than as thirty separate dark discs.
+    strength *= 1.0 + weather.overcast * 0.8;
 
     let mut discs = [Vec4::ZERO; MOST_CLOUDS];
     let mut count = 0;
@@ -199,10 +213,14 @@ fn carry_the_shade(
         let turn = (when.hours - 6.0) / 12.0 * std::f32::consts::PI;
         let sun = Vec3::new(turn.cos(), turn.sin(), crate::sky::SOUTHING).normalize();
         let slant = Vec2::new(sun.x, sun.z) / sun.y.max(0.05);
+        let swell = 1.0 + weather.overcast * crate::sky::CLOUD_SWELLS_BY;
 
         for caster in shadows.0.iter().take(MOST_CLOUDS) {
             let at = caster.origin - slant * caster.height;
-            discs[count] = Vec4::new(at.x, at.y, caster.radius, caster.speed);
+            // The disc grows with the cloud that throws it — see `sky`, which
+            // swells the clouds by the same fraction. Two things that have to agree
+            // about how big a cloud is should not be two separate numbers.
+            discs[count] = Vec4::new(at.x, at.y, caster.radius * swell, caster.speed);
             count += 1;
         }
     }

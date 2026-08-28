@@ -101,6 +101,7 @@ fn update_hud(
     bounds: Res<WorldBounds>,
     when: Res<crate::sky::TimeOfDay>,
     year: Res<crate::season::TheYear>,
+    weather: Res<crate::weather::TheWeather>,
     chunks: Res<ChunkMap>,
     pending: Query<&PendingChunk>,
     players: Query<&Transform, With<Player>>,
@@ -192,7 +193,7 @@ fn update_hud(
          position: {:.0}, {:.0}\n\
          altitude: {height:.1} m   slope: {slope:.2}\n\
          here: {} ({sure:.2} sure)   time: {}\n\
-         season: {}\n\
+         season: {}   weather: {}\n\
          map: {u:.3}, {v:.3}   country: {} ({belonging:.2} of it)\n\
          chunks: {} loaded, {} building   sculpted: {sculpted}\n\
          nearest: {nearest}\n\
@@ -201,6 +202,7 @@ fn update_hud(
          F free-fly (Q/E down-up, -/= speed) · F3 hide\n\
          F6/F7 hour back-forward · F8 back to real time\n\
          F9/F10 season back-forward · F11 back to the real date\n\
+         F1/F2 weather back-forward · F4 back to the real sky\n\
          Esc back to menu",
         WORLD_WIDTH,
         bounds.half.y * 2.0,
@@ -209,6 +211,7 @@ fn update_hud(
         biome.name(),
         when.spoken(),
         year.spoken(),
+        weather.spoken(),
         country.name(),
         chunks.loaded.len(),
         pending.iter().count(),
