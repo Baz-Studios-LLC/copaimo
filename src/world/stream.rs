@@ -367,6 +367,13 @@ pub struct Variety {
     pub leaves: Handle<Mesh>,
     pub leaf: Handle<Shaded>,
     pub bark: Handle<Shaded>,
+    /// Where this variety sits in the leaf range, 0 dark to 1 light.
+    ///
+    /// Kept because the SEASON re-derives the colour from it: the range moves with
+    /// the year and each variety keeps its place in it, which is what makes an
+    /// autumn wood as mottled as the summer one was. Without this the colour would
+    /// be a number computed once at startup and thrown away.
+    pub tint: f32,
     /// What kind of tree this variety IS.
     ///
     /// Recorded because the pool's own layout — grouped by species, four variants
@@ -446,6 +453,7 @@ pub fn grow_the_grove(
             let wood_colour = bark_colour(tree.bark);
             Variety {
                 species: tree.species,
+                tint: tree.tint,
                 wood: meshes.add(as_mesh(&tree.wood)),
                 leaves: meshes.add(as_mesh(&tree.leaves)),
                 // A material apiece. Twenty of them is nothing — the meshes were

@@ -61,6 +61,7 @@ mod motion;
 mod models;
 mod player;
 mod save;
+mod season;
 mod typeface;
 mod shade;
 mod sky;
@@ -236,6 +237,7 @@ fn main() {
             // needs to ask how high the ground is.
             world::WorldPlugin,
             sky::SkyPlugin,
+            season::SeasonPlugin,
             // After the world: buildings stand on ground it decides the height
             // of, at sites it decides the places of.
             build::BuildingPlugin,

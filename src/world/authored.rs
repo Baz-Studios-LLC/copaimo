@@ -342,6 +342,7 @@ mod tests {
                     species,
                     wood: meshes.add(flat(3)),
                     leaves: meshes.add(flat(3)),
+                    tint: 0.5,
                     leaf: Handle::default(),
                     bark: Handle::default(),
                 });
