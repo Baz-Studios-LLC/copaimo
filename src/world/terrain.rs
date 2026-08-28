@@ -2956,7 +2956,9 @@ mod atlas {
     #[test]
     #[ignore]
     fn draw_the_map() {
-        const METRES: f32 = 8.0;
+        // 4 m a pixel. Eight was enough to look at on screen; a printed map is
+        // read at arm's length and a 2 km scale bar has to mean something on it.
+        const METRES: f32 = 4.0;
 
         let terrain = Terrain::new();
         let climate = terrain.climate();
