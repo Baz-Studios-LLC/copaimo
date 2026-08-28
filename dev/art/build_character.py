@@ -106,9 +106,14 @@ STANDS_A_UNIT_TALL = 1.0
 # axis is guessed and no angle is dialled in by eye - the one number here is where the arm should
 # point, and the elbow keeps whatever the bind gave it. Idle only; the walk and run never see it.
 THE_ARMS_HANG = True
-THE_ARMS_HANG_OUT = 9.0
-THE_ARMS_HANG_FORWARD = 6.0
-THE_ELBOWS_KEEP = 8.0
+THE_ARMS_HANG_OUT = 7.0        # opened further until the mesh actually clears
+THE_ARMS_HANG_FORWARD = 4.0
+THE_ELBOWS_COME_FORWARD = 7.0
+THE_LEGS_STAND_APART_BY = 2.5
+OPENS_THE_ARMS_BY = 2.0
+OPENS_THE_ARMS_TO = 40.0
+THE_FEET_LEVEL_WITHIN = 1.5    # cm
+THE_IDLE_STANDS_ON_THE_FLOOR = 0.5
 STANDS_STILL_FROM = "bind"
 
 # # Zipping the pinholes
@@ -1912,8 +1917,154 @@ def pad_the_texture_islands(mesh, margin=None):
     return was, float(filled.mean()), margin, mended
 
 
+def his_axes(rig):
+    """Down, ahead and across - MEASURED off the rig, never assumed off a world axis.
+
+    Assuming cost a whole pass: aiming the arms "forward" along world -X aimed them sideways,
+    because this warden is not authored down a world axis. The hip line gives across and his own
+    `headfront` marker gives ahead - the same marker that finally settled `look::Build::turn`.
+    """
+    into = rig.matrix_world.to_3x3().inverted()
+    down = (into @ mathutils.Vector((0.0, 0.0, -1.0))).normalized()
+    left = the_bone(rig, "L_Thigh").bone.head_local
+    right = the_bone(rig, "R_Thigh").bone.head_local
+    across = (left - right)
+    across -= down * across.dot(down)
+    across.normalize()
+    face = None
+    if "headfront" in rig.pose.bones and "Head" in rig.pose.bones:
+        face = (rig.pose.bones["headfront"].bone.head_local
+                - rig.pose.bones["Head"].bone.head_local)
+        face -= down * face.dot(down)
+    if face is not None and face.length > 1e-6:
+        ahead = face.normalized()
+    else:
+        ahead = across.cross(down).normalized()
+    return down, ahead, across
+
+
+def aim_the_segment(rig, bone, child, want):
+    """Turns `bone` until the line to `child` points along `want`. Returns how far it turned."""
+    a = rig.pose.bones[bone]
+    b = rig.pose.bones[child]
+    now = (b.head - a.head)
+    if now.length < 1e-7:
+        return 0.0
+    now.normalize()
+    want = want.normalized()
+    turn = now.rotation_difference(want)
+    a.matrix = (mathutils.Matrix.Translation(a.head)
+                @ turn.to_matrix().to_4x4()
+                @ mathutils.Matrix.Translation(-a.head)
+                @ a.matrix)
+    bpy.context.view_layer.update()
+    return math.degrees(now.angle(want))
+
+
+def hold_the_orientation(rig, bone, was):
+    """Puts a bone back to a world orientation captured earlier, leaving where it sits alone."""
+    a = rig.pose.bones[bone]
+    a.matrix = mathutils.Matrix.Translation(a.matrix.to_translation()) @ was.to_3x3().to_4x4()
+    bpy.context.view_layer.update()
+
+
+def how_clear_the_arms_are(mesh):
+    """Intersecting triangle pairs between forearm+hand and the waist. Zero is the only pass.
+
+    Deliberately NOT the whole arm against the whole torso: the upper arm meets the torso at the
+    shoulder by design, and a vertex weighted above the threshold to both would read as a hit on
+    every frame forever - so a shared vertex is dropped from both sides. Same lesson as the legs:
+    `BVHTree.overlap`, because vertex distance cannot see one surface pass through another.
+    """
+    from mathutils.bvhtree import BVHTree
+
+    posed = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    skin = posed.to_mesh()
+
+    def group(names, floor=0.4):
+        want = {mesh.vertex_groups[n].index for n in names if n in mesh.vertex_groups}
+        keep = set()
+        for vertex in skin.vertices:
+            for weighted in vertex.groups:
+                if weighted.group in want and weighted.weight > floor:
+                    keep.add(vertex.index)
+                    break
+        return keep
+
+    def tree(keep):
+        verts, faces = [], []
+        for face in skin.polygons:
+            if len(face.vertices) == 3 and all(v in keep for v in face.vertices):
+                at = len(verts)
+                verts.extend(mesh.matrix_world @ skin.vertices[i].co for i in face.vertices)
+                faces.append((at, at + 1, at + 2))
+        return BVHTree.FromPolygons(verts, faces) if faces else None
+
+    waist = group(["Hips", "Spine01"]) or group(["Hip", "Spine01"])
+    hits = 0
+    for side in ("Left", "Right"):
+        arm = group([side + "ForeArm", side + "Hand"])
+        if not arm:
+            arm = group([side[0] + "_Forearm", side[0] + "_Hand"])
+        shared = arm & waist
+        one, two = tree(arm - shared), tree(waist - shared)
+        if one and two:
+            hits += len(one.overlap(two))
+    posed.to_mesh_clear()
+    return hits
+
+
+def how_low_the_skin_goes(mesh):
+    """The lowest point of the POSED skin. The sole stands on the floor, not a bone."""
+    posed = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    skin = posed.to_mesh()
+    low = min((mesh.matrix_world @ v.co).z for v in skin.vertices)
+    posed.to_mesh_clear()
+    return low
+
+
+def stand_him_up(rig, mesh, out_by):
+    """Aims every limb from the bind into a stand. Returns what each segment turned."""
+    for bone in rig.pose.bones:
+        bone.matrix_basis = mathutils.Matrix.Identity(4)
+    bpy.context.view_layer.update()
+    down, ahead, across = his_axes(rig)
+
+    # The extremities keep the orientation the artist bound them at, so the sole stays flat and
+    # the hand keeps its shape - only the limbs above them are aimed.
+    ends = [n for n in ("LeftFoot", "RightFoot", "LeftHand", "RightHand") if n in rig.pose.bones]
+    keep = {n: rig.pose.bones[n].matrix.copy() for n in ends}
+
+    turned = {}
+    for side, sign in (("Left", 1.0), ("Right", -1.0)):
+        out = across * sign
+        leg = (down + out * math.tan(math.radians(THE_LEGS_STAND_APART_BY))).normalized()
+        turned[side + " thigh"] = aim_the_segment(rig, side + "UpLeg", side + "Leg", leg)
+        turned[side + " calf"] = aim_the_segment(rig, side + "Leg", side + "Foot", down)
+        upper = (down
+                 + out * math.tan(math.radians(out_by))
+                 + ahead * math.tan(math.radians(THE_ARMS_HANG_FORWARD))).normalized()
+        turned[side + " upper arm"] = aim_the_segment(rig, side + "Arm", side + "ForeArm", upper)
+        fore = (down
+                + out * math.tan(math.radians(out_by * 0.35))
+                + ahead * math.tan(math.radians(THE_ELBOWS_COME_FORWARD))).normalized()
+        turned[side + " forearm"] = aim_the_segment(rig, side + "ForeArm", side + "Hand", fore)
+
+    for name, was in keep.items():
+        hold_the_orientation(rig, name, was)
+
+    # Settle on the floor by the SKIN, not by a bone - the sole is what stands on it.
+    low = how_low_the_skin_goes(mesh)
+    root = rig.pose.bones["Hips"] if "Hips" in rig.pose.bones else the_bone(rig, "Hip")
+    root.matrix = (mathutils.Matrix.Translation(
+        rig.matrix_world.to_3x3().inverted() @ mathutils.Vector((0.0, 0.0, -low)))
+        @ root.matrix)
+    bpy.context.view_layer.update()
+    return turned
+
+
 def let_the_arms_hang(rig):
-    """Aims each upper arm down from the bind, so the idle stands. See THE_ARMS_HANG."""
+    """Superseded by stand_him_up. Kept because the idle used to be built this way."""
     down = rig.matrix_world.to_3x3().inverted() @ mathutils.Vector((0.0, 0.0, -1.0))
     down.normalize()
     across = rig.matrix_world.to_3x3().inverted() @ mathutils.Vector((0.0, 1.0, 0.0))
@@ -1999,7 +2150,7 @@ def zip_the_pinholes(mesh):
     return len(before), welded, len(left)
 
 
-def stand_him_still(rig, walk, scene, called="idle"):
+def stand_him_still(rig, walk, scene, mesh=None, called="idle"):
     """Freezes the walk's most standing-like frame into a still clip. See STANDS_STILL_FROM.
 
     Chosen by measurement, not by picking a frame number: feet closest together, and lowest, wins.
@@ -2007,13 +2158,35 @@ def stand_him_still(rig, walk, scene, called="idle"):
     if STANDS_STILL_FROM == "bind":
         # The artist's own neutral stand, with the arms let down out of the A-pose.
         at = 0
-        for bone in rig.pose.bones:
-            bone.matrix_basis = mathutils.Matrix.Identity(4)
-        bpy.context.view_layer.update()
-        if THE_ARMS_HANG:
-            dropped = let_the_arms_hang(rig)
-            for side, by in sorted(dropped.items()):
-                print(f"    {side} arm dropped {by:.1f} deg out of the A-pose to hang")
+        # The bind is NOT a stand on this rig. Measured on it: the feet sit 7.65 cm apart in
+        # height and the hands 26 cm apart fore and aft - which is exactly the raised leg and the
+        # arm behind the back that were reported. So the stand is AUTHORED: every limb aimed at a
+        # direction built from his own axes, the arms opened until the mesh genuinely clears the
+        # waist, and the whole figure settled on the floor by its lowest skin point. Three guards
+        # below, and they compare against the stand we asked for, not against what came out.
+        at = 0
+        out_by, hits = THE_ARMS_HANG_OUT, 0
+        while True:
+            turned = stand_him_up(rig, mesh, out_by)
+            hits = how_clear_the_arms_are(mesh)
+            if hits == 0 or out_by >= OPENS_THE_ARMS_TO:
+                break
+            out_by += OPENS_THE_ARMS_BY
+        if hits:
+            refuse(f"the idle's arms still pass through his waist at {out_by:.1f} deg out - "
+                   f"{hits} intersecting triangle pairs")
+        left = rig.matrix_world @ the_bone(rig, "L_Foot").head
+        right = rig.matrix_world @ the_bone(rig, "R_Foot").head
+        level = abs(left.z - right.z) * 100.0
+        if level > THE_FEET_LEVEL_WITHIN:
+            refuse(f"the idle stands with one foot {level:.2f} cm higher than the other")
+        stands = abs(how_low_the_skin_goes(mesh)) * 100.0
+        if stands > THE_IDLE_STANDS_ON_THE_FLOOR:
+            refuse(f"the idle's lowest skin sits {stands:.2f} cm off the floor")
+        print(f"    stood him up: arms {out_by:.1f} deg out and clear of the waist, feet level "
+              f"to {level:.2f} cm, standing on the floor to {stands:.2f} cm")
+        for what, by in sorted(turned.items()):
+            print(f"      aimed his {what:<16} {by:5.1f} deg")
         held = {bone.name: bone.matrix_basis.copy() for bone in rig.pose.bones}
     else:
         first, last = (int(round(v)) for v in walk.frame_range)
@@ -5359,10 +5532,10 @@ def main():
                        f"being lifted, so the lift did not take")
 
     if "idle" not in wanted:
-        still, took = stand_him_still(base_rig, wanted.get("walk"), scene)
+        still, took = stand_him_still(base_rig, wanted.get("walk"), scene, base_mesh)
         wanted["idle"] = still
-        print(f"  no idle was delivered, so he stands: the BIND pose - the artist's own neutral "
-              f"stand - held for {STANDS_STILL_FOR} frames")
+        print(f"  no idle was delivered, so he stands: an authored stand, held for "
+              f"{STANDS_STILL_FOR} frames")
 
     # The clip the file is left showing. The idle when there is one, since that is what a warden
     # does most of the time - and whatever else there is when there is not. The 2026-08-26 delivery
