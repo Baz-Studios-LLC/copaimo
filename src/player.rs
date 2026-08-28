@@ -77,7 +77,11 @@ use crate::world::WorldBounds;
 /// MISMEASUREMENT - a thigh-plus-calf bone chain against the hip-to-floor landmark humans are
 /// quoted on. Measured on the same landmark for both, this leg is 50.1% and entirely ordinary.
 /// Walking is the deliberate slow mode here anyway; the default pace is the jog.
-pub const WALK_SPEED: f32 = 1.07;
+// 1.42 for the 2026-08-26 warden: the speed his own walk is ANIMATED at, so the clip plays
+// at 1.00x. Driving 1.07 under it played the clip at 0.75x, and the jog's version of the same
+// mismatch was reported as "that same running through water thing" - the legs churn slower
+// than a body plainly meant to move faster.
+pub const WALK_SPEED: f32 = 1.42;
 
 /// The default pace, in metres a second. A jog, and the speed the game is actually played at.
 ///
@@ -148,7 +152,11 @@ pub const WALK_SPEED: f32 = 1.07;
 //
 // Still a KNOB - see the note below about the cadence bands not gating speed - but a knob with
 // a stride behind it now.
-pub const JOG_SPEED: f32 = 2.90;
+// 4.77 for the 2026-08-26 warden, and it is not a knob any more: it is the speed the
+// delivered run is ANIMATED at - JOG_COVERS 2.982 m over its 0.625 s cycle - so the clip plays
+// at exactly 1.00x and distance matching agrees with the animator instead of stretching him.
+// 2.90 under this clip meant 0.61x playback: "running through water", reported twice.
+pub const JOG_SPEED: f32 = 4.77;
 
 /// A sprint, in metres a second. Held on Shift.
 ///
