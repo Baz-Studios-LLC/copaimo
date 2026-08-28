@@ -95,6 +95,7 @@ pub fn read_the_sprig_kit(mut commands: Commands) {
 pub fn dress_chunks(
     mut commands: Commands,
     kit: Res<SprigKit>,
+    year: Res<crate::season::TheYear>,
     terrain: Res<TerrainSource>,
     chunks: Res<ChunkMap>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
@@ -133,10 +134,52 @@ pub fn dress_chunks(
             let ground = terrain.0.clone();
             let pieces = kit.0.clone();
             let low = chunk_origin(coord);
-            let task = pool.spawn(async move { dress(&ground, low, pieces.as_deref()) });
+            let (season, through) = (year.season, year.through);
+            let task =
+                pool.spawn(async move { dress(&ground, low, pieces.as_deref(), season, through) });
             commands.entity(entity).insert(PendingCover(task));
             room -= 1;
         }
+    }
+}
+
+/// Forgets what every chunk is dressed with when the season turns.
+///
+/// # Why the whole lot goes rather than being edited
+///
+/// Cover is baked into one mesh per chunk on a worker thread, so there is nothing
+/// to "recolour" afterwards - the leaves either were scattered when it was built or
+/// they were not. Dropping `HasCover` puts every nearby chunk back in the queue and
+/// they re-dress over the next second or two.
+///
+/// That is affordable because of what it is keyed on: a SEASON, which turns four
+/// times a year. Keyed on anything faster it would be a stutter; at this rate it is
+/// the same work the viewer causes by walking two chunks in any direction.
+pub fn strip_the_cover_when_the_season_turns(
+    mut commands: Commands,
+    year: Res<crate::season::TheYear>,
+    mut wearing: Local<Option<(crate::season::Season, i32)>>,
+    dressed: Query<Entity, With<HasCover>>,
+) {
+    // The turn matters as well as the season, because the litter comes in over
+    // autumn's last week rather than arriving with it - but quantised, or this
+    // would re-dress the world every frame of that week.
+    // Twelve steps a season, so the wood re-dresses about every two days as the
+    // litter builds - often enough that it deepens visibly over autumn, rarely
+    // enough that it is nothing like a per-frame cost.
+    let now = (year.season, (year.through * 12.0) as i32);
+    if *wearing == Some(now) {
+        return;
+    }
+    let first = wearing.is_none();
+    *wearing = Some(now);
+    if first {
+        // Nothing has been dressed yet on the first run; there is nothing to strip
+        // and doing it anyway would throw away the cover built this same frame.
+        return;
+    }
+    for chunk in &dressed {
+        commands.entity(chunk).remove::<HasCover>();
     }
 }
 
@@ -244,7 +287,13 @@ pub fn undress_chunks(
 ///
 /// Pure and thread-safe: it asks the terrain questions and appends geometry, and
 /// touches nothing else. That is what lets it run on the task pool.
-pub(crate) fn dress(terrain: &Terrain, low: Vec2, kit: Option<&crate::world::tufts::Kit>) -> Geometry {
+pub(crate) fn dress(
+    terrain: &Terrain,
+    low: Vec2,
+    kit: Option<&crate::world::tufts::Kit>,
+    season: crate::season::Season,
+    through: f32,
+) -> Geometry {
     let high = low + CHUNK_SIZE;
     let step = sprigs::SPACING.max(0.5);
 
@@ -288,6 +337,19 @@ pub(crate) fn dress(terrain: &Terrain, low: Vec2, kit: Option<&crate::world::tuf
             {
                 continue;
             }
+
+            // Autumn's leaves, into the same mesh and off the same slot. Free of
+            // terrain work: `biome` above is the expensive question and it has
+            // already been asked.
+            crate::world::litter::scatter(
+                &mut mesh,
+                slot_x,
+                slot_z,
+                Vec3::new(at.x - low.x, terrain.drawn_height(at.x, at.y), at.y - low.y),
+                biome,
+                season,
+                through,
+            );
 
             let kind = sprigs::kind(biome, sprigs::chance(slot_x, slot_z, sprigs::SALT_KIND));
             // Scrub sits lower and wider; grass on good ground stands up.
@@ -374,14 +436,34 @@ mod tests {
         // BOTH paths, because both can ship: a world with authored pieces stamps
         // them, and one without grows its own. The ceiling is about what the frame
         // can afford, so it applies to whichever is actually drawn.
-        let grown = dress(&terrain, chunk_origin(coord), None).places.len();
+        let grown = dress(&terrain, chunk_origin(coord), None, crate::season::Season::Summer, 0.0).places.len();
         let kit = crate::world::tufts::read_kit();
         let mesh = match &kit {
-            Some(kit) => dress(&terrain, chunk_origin(coord), Some(kit)),
-            None => dress(&terrain, chunk_origin(coord), None),
+            Some(kit) => dress(&terrain, chunk_origin(coord), Some(kit), crate::season::Season::Summer, 0.0),
+            None => dress(&terrain, chunk_origin(coord), None, crate::season::Season::Summer, 0.0),
         };
 
+        // AND THE SAME CHUNK IN AUTUMN, which is the worst case now that leaf
+        // litter exists: it is pure addition on top of everything measured below,
+        // laid on exactly the woodland and grass that already carry the most cover.
+        // Measuring only summer would leave the ceiling describing three quarters
+        // of the year.
+        let autumn = dress(
+            &terrain,
+            chunk_origin(coord),
+            kit.as_ref(),
+            crate::season::Season::Autumn,
+            1.0,
+        )
+        .places
+        .len();
+
         let vertices = mesh.places.len();
+        // The ceiling is checked against the WORST of the year, which is autumn;
+        // `vertices` stays what the summer mesh actually holds, because the check
+        // just below is that every vertex in THAT mesh carries a colour.
+        let worst = vertices.max(autumn);
+        println!("cover in summer: {vertices} vertices; under autumn litter: {autumn}");
         match kit.is_some() {
             true => println!(
                 "cover on open country: {vertices} vertices stamped from authored                  pieces, against {grown} grown"
@@ -449,8 +531,8 @@ mod tests {
         // still quadruples this. What has changed is only that the number now
         // describes the world it is guarding.
         assert!(
-            vertices < 620_000,
-            "a dressed chunk costs {vertices} vertices, which is too many"
+            worst < 620_000,
+            "a dressed chunk costs {worst} vertices at its heaviest, which is too many"
         );
         // And it has to actually be growing something, or the test proves nothing.
         assert!(

@@ -2876,7 +2876,7 @@ mod survey {
                             (x / CHUNK_SIZE).floor() * CHUNK_SIZE,
                             (z / CHUNK_SIZE).floor() * CHUNK_SIZE,
                         );
-                        costs.push(dress(&terrain, at, None).places.len());
+                        costs.push(dress(&terrain, at, None, crate::season::Season::Summer, 0.0).places.len());
                         n += 1;
                     }
                     x += 1_100.0;

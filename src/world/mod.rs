@@ -8,6 +8,7 @@ pub mod country;
 pub mod cover;
 pub mod edit;
 pub mod heightmap;
+pub mod litter;
 pub mod pass;
 pub mod placed;
 pub mod prop;
@@ -214,6 +215,7 @@ impl Plugin for WorldPlugin {
                     stream::shade_far_wood,
                     // After the ground, because cover can only be laid on a
                     // chunk that is already loaded.
+                    cover::strip_the_cover_when_the_season_turns,
                     cover::dress_chunks,
                     cover::collect_cover,
                     cover::undress_chunks,
