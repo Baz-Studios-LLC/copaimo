@@ -46,7 +46,7 @@ import bpy
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import masonry
-from masonry import box, lean, tube, wedge
+from masonry import box, gable_wall, lean, tube, wedge
 
 # ---------------------------------------------------------------- the module
 #
@@ -84,12 +84,18 @@ WINDOW_SILL = 1.05
 
 PAINT = {
     # Outside
-    "plaster": (0.80, 0.75, 0.64),
+    "plaster": (0.88, 0.83, 0.71),
+    "plaster2": (0.82, 0.78, 0.70),
     "timber": (0.36, 0.25, 0.17),
     "stone": (0.48, 0.47, 0.44),
-    "roof": (0.38, 0.22, 0.18),
+    "roof": (0.56, 0.26, 0.19),
+    "roof2": (0.46, 0.30, 0.22),
     "slate": (0.32, 0.33, 0.37),
-    "thatch": (0.60, 0.50, 0.30),
+    "thatch": (0.66, 0.55, 0.33),
+    "shutter": (0.30, 0.44, 0.42),
+    "trim": (0.94, 0.92, 0.86),
+    "flower": (0.72, 0.30, 0.32),
+    "leafy": (0.32, 0.46, 0.26),
     "door": (0.30, 0.21, 0.14),
     "glass": (0.36, 0.47, 0.52),
     "sign": (0.62, 0.42, 0.22),
@@ -174,10 +180,18 @@ def _one_bay(parts, along, at, wide, height, colour, kind, floor):
     if sill > 0.02:
         slab(hole_wide, sill, 0.0, 0.0)
 
-    # What fills the hole.
+    # What fills the hole, and what dresses it.
+    #
+    # A pane on its own is a blue rectangle painted on a wall. What makes a window
+    # read as a window is the SMALL SHAPES around it - a frame proud of the wall, a
+    # sill that throws a shadow, a mullion across the glass and shutters either
+    # side. That is the third tier of the silhouette hierarchy, and the first cut
+    # had none of it.
     if kind == "window":
+        mid = floor + sill + hole_tall * 0.5
         size = (hole_wide, 0.06, hole_tall) if along == "x" else (0.06, hole_wide, hole_tall)
-        parts.append(box(size, (at[0], at[1], floor + sill + hole_tall * 0.5), "glass"))
+        parts.append(box(size, (at[0], at[1], mid), "glass"))
+        _dress_window(parts, along, at, hole_wide, hole_tall, mid, floor + sill)
     else:
         # The leaf, hung open flat against the wall BESIDE the opening rather than
         # standing in it - so the doorway's clear width is the doorway's width. See
@@ -194,6 +208,128 @@ def _one_bay(parts, along, at, wide, height, colour, kind, floor):
         # And a threshold, so the gap reads as a doorway rather than as damage.
         sill_size = (hole_wide + 0.3, WALL + 0.2, 0.06) if along == "x" else (WALL + 0.2, hole_wide + 0.3, 0.06)
         parts.append(box(sill_size, (at[0], at[1], floor + 0.03), "stone"))
+        _dress_door(parts, along, at, hole_wide, hole_tall, floor)
+
+
+def _out(along, at, push):
+    """A point pushed out of the wall toward the street it faces."""
+    return (at[0], at[1] - push, at[2]) if along == "x" else (at[0] - push, at[1], at[2])
+
+
+def _across(along, at, over):
+    """A point moved along the wall rather than out of it."""
+    return (at[0] + over, at[1], at[2]) if along == "x" else (at[0], at[1] + over, at[2])
+
+
+def _slab(along, wide, thick, tall):
+    """Extents for something lying in a wall that runs `along`."""
+    return (wide, thick, tall) if along == "x" else (thick, wide, tall)
+
+
+def _dress_window(parts, along, at, wide, tall, mid, sill_z):
+    """Frame, sill, mullion and shutters. See the note where it is called."""
+    edge = 0.07
+    out = WALL * 0.5 + 0.03
+    # Frame: two jambs, a head and a sill, each standing proud of the plaster.
+    for side in (-1.0, 1.0):
+        place = _across(along, (at[0], at[1], mid), side * (wide * 0.5 + edge * 0.5))
+        parts.append(box(_slab(along, edge, out * 2.0, tall + edge * 2.0), _out(along, place, out * 0.5), "trim"))
+    for up in (-1.0, 1.0):
+        place = (at[0], at[1], mid + up * (tall * 0.5 + edge * 0.5))
+        parts.append(box(_slab(along, wide + edge * 2.0, out * 2.0, edge), _out(along, place, out * 0.5), "trim"))
+    # A sill with a real overhang, because the shadow under it is what says stone.
+    parts.append(
+        box(_slab(along, wide + 0.34, out * 2.6, 0.07), _out(along, (at[0], at[1], sill_z - 0.02), out * 0.9), "stone")
+    )
+    # One mullion, which turns a pane into panes.
+    parts.append(box(_slab(along, 0.05, 0.1, tall), (at[0], at[1], mid), "trim"))
+    # Shutters, hung flat against the wall either side.
+    for side in (-1.0, 1.0):
+        place = _across(along, (at[0], at[1], mid), side * (wide * 0.5 + edge + wide * 0.25))
+        parts.append(box(_slab(along, wide * 0.48, 0.05, tall * 0.96), _out(along, place, out + 0.02), "shutter"))
+
+
+def _dress_door(parts, along, at, wide, tall, floor):
+    """A surround and a lintel, so a doorway is an entrance and not a gap."""
+    edge = 0.09
+    out = WALL * 0.5 + 0.04
+    for side in (-1.0, 1.0):
+        place = _across(along, (at[0], at[1], floor + tall * 0.5), side * (wide * 0.5 + edge * 0.5))
+        parts.append(box(_slab(along, edge, out * 2.0, tall + edge), _out(along, place, out * 0.5), "stone"))
+    parts.append(
+        box(_slab(along, wide + edge * 2.4, out * 2.2, 0.14), _out(along, (at[0], at[1], floor + tall + 0.07), out * 0.6), "stone")
+    )
+
+
+def eaves(parts, wide, deep, at_z, over, colour, ridge="y"):
+    """The fascia boards that run along the foot of a roof.
+
+    A roof with no edge reads as a sheet laid on top of a box. The board along the
+    eaves is a small shape that gives the big one a lip, and it is most of what
+    separates a building from a diagram of one.
+    """
+    if ridge == "y":
+        for side in (-1.0, 1.0):
+            parts.append(box((wide + over * 2.0, 0.1, 0.16), (0.0, side * (deep * 0.5 + over), at_z), colour))
+    else:
+        for side in (-1.0, 1.0):
+            parts.append(box((0.1, deep + over * 2.0, 0.16), (side * (wide * 0.5 + over), 0.0, at_z), colour))
+
+
+def chimney(parts, at, base_z, top_z, colour="stone"):
+    """A stack, and a cap that is wider than it.
+
+    The cap matters: a plain column reads as a pipe, and the overhang is what makes
+    it masonry. This is a MEDIUM shape - the tier the first attempt had none of.
+    """
+    parts.append(box((0.75, 0.75, top_z - base_z), (at[0], at[1], (base_z + top_z) * 0.5), colour))
+    parts.append(box((0.95, 0.95, 0.16), (at[0], at[1], top_z + 0.08), colour))
+    parts.append(box((0.34, 0.34, 0.22), (at[0], at[1], top_z + 0.24), "roof2"))
+
+
+def framing(parts, wide, deep, floor, height, colour="timber"):
+    """Timber framing: corner posts, rails, studs and a brace to each panel.
+
+    Half-timbering is the cheapest strong pattern a stylised building can wear -
+    it is all straight boxes, it reads instantly at any distance, and it breaks a
+    blank plaster wall into panels so the eye has something to measure the building
+    by. The brace is what stops it looking like a grid.
+    """
+    t = 0.11
+    out = WALL * 0.5 + 0.02
+    for face, span in (("x", wide), ("y", deep)):
+        for side in (-1.0, 1.0):
+            base = (0.0, side * (deep * 0.5 - out * 0.5), 0.0) if face == "x" else (side * (wide * 0.5 - out * 0.5), 0.0, 0.0)
+            # Top and bottom rails.
+            for up in (0.06, height - 0.1):
+                parts.append(box(_slab(face, span, out * 2.0, t), (base[0], base[1], floor + up), colour))
+            # Studs, one about every module.
+            count = max(2, int(round(span / MODULE)))
+            for index in range(count + 1):
+                over = -span * 0.5 + span * index / count
+                place = _across(face, (base[0], base[1], floor + height * 0.5), over)
+                parts.append(box(_slab(face, t, out * 2.0, height - 0.2), place, colour))
+
+
+def porch(parts, deep, floor, colour="timber", roof_colour="roof2"):
+    """A little roof on two posts over the door. A medium shape, and a welcome."""
+    reach = 1.05
+    top = DOOR_TALL + 0.55
+    for side in (-1.0, 1.0):
+        parts.append(box((0.12, 0.12, top - 0.1), (side * 0.95, -deep * 0.5 - reach + 0.1, floor + (top - 0.1) * 0.5), colour))
+    parts.append(wedge(2.6, reach + 0.35, 0.5, (0.0, -deep * 0.5 - reach * 0.5 + 0.1, floor + top), roof_colour, ridge="x"))
+    parts.append(box((2.7, 0.1, 0.14), (0.0, -deep * 0.5 - reach + 0.05, floor + top), colour))
+
+
+def flowerbox(parts, along, at, wide, sill_z):
+    """A box of flowers under a window. Pure charm, and it costs eight boxes."""
+    out = WALL * 0.5 + 0.16
+    parts.append(box(_slab(along, wide * 0.9, 0.24, 0.2), _out(along, (at[0], at[1], sill_z - 0.16), out), "timber"))
+    for index in range(3):
+        over = (index - 1) * wide * 0.26
+        place = _across(along, (at[0], at[1], sill_z - 0.03), over)
+        parts.append(box(_slab(along, 0.16, 0.16, 0.14), _out(along, place, out), "leafy"))
+        parts.append(box(_slab(along, 0.1, 0.1, 0.08), _out(along, (place[0], place[1], place[2] + 0.1), out), "flower"))
 
 
 def shell(parts, wide, deep, storeys, colour, doors, windows):
@@ -348,99 +484,200 @@ def guild_hall_inside(parts, wide, deep):
 
 
 # -------------------------------------------------------------------- figures
+#
+# # Three tiers of shape, which is what the first attempt was missing
+#
+# The rule stylised architecture is built on is LARGE shape, MEDIUM shape, SMALL
+# detail. The first cut had the large one (a box) and the small one (a window
+# rectangle) and nothing in between, which is exactly why four different buildings
+# all read as the same beige box with a lid on it.
+#
+# The medium tier is what is added here and it is where the character lives:
+# chimneys, porches, dormers, a jettied upper storey, buttresses, lean-tos. They are
+# the shapes that break a silhouette, and a silhouette is what a building is read by
+# at the distance a player usually sees one.
+#
+# The roofs also got STEEP. A shallow pyramid is the shape of a warehouse; a pitch
+# near forty-five degrees with a real overhang is the shape of somewhere somebody
+# lives, and the overhang throws the shadow that makes a wall look like a wall.
+
+# How far a roof reaches past the wall it sits on.
+OVERHANG = 0.42
+
+# How high a roof rises per metre of its span. A hair over a 45 degree pitch.
+PITCH = 0.55
+
+
+def roofed(parts, wide, deep, base, colour, ridge="y", over=OVERHANG, pitch=PITCH):
+    """A pitched roof with its overhang, its fascia and its gable walls filled in.
+
+    Returns how tall the whole thing now stands, because everything above a roof -
+    a chimney, a dormer, a weathervane - is placed against its ridge.
+    """
+    span = wide if ridge == "y" else deep
+    rise = span * pitch
+    parts.append(
+        wedge(wide + over * 2.0, deep + over * 2.0, rise, (0.0, 0.0, base), colour, ridge=ridge)
+    )
+    eaves(parts, wide, deep, base + 0.02, over, "timber", ridge=ridge)
+    # The triangle of wall under each slope, or the roof is a lid on an open box.
+    if ridge == "y":
+        for side in (-1.0, 1.0):
+            parts.append(
+                gable_wall(wide, rise, (0.0, side * (deep * 0.5 - WALL * 0.5), base), WALL, "plaster2", facing="y")
+            )
+    else:
+        for side in (-1.0, 1.0):
+            parts.append(
+                gable_wall(deep, rise, (side * (wide * 0.5 - WALL * 0.5), 0.0, base), WALL, "plaster2", facing="x")
+            )
+    return base + rise
 
 
 def cottage():
-    """One room, one storey, a hearth and a bed. The commonest thing in a village."""
+    """One room under a steep thatch. The commonest thing in a village."""
     wide, deep = MODULE * 4, MODULE * 3
     parts = []
-    parts.append(box((wide + 0.3, deep + 0.3, 0.35), (0.0, 0.0, 0.175), "stone"))
+    parts.append(box((wide + 0.34, deep + 0.34, 0.42), (0.0, 0.0, 0.21), "stone"))
     shell(parts, wide, deep, 1, "plaster", doors=True, windows=True)
     room(parts, wide, deep, 1)
     hearth(parts, wide, deep)
     bed(parts, wide, deep)
-    tall = STOREY + 1.6
-    parts.append(wedge(wide + 0.5, deep + 0.5, 1.6, (0.0, 0.0, STOREY), "thatch"))
-    parts.append(box((0.7, 0.7, 1.2), (-wide * 0.25, deep * 0.5 - 0.4, STOREY + 1.0), "stone"))
-    return parts, tall
+    framing(parts, wide, deep, 0.0, STOREY)
+    porch(parts, deep, 0.0, roof_colour="thatch")
+    # Ridge across the front, so the cottage shows its long eaves to the street and
+    # its gable to its neighbour - the opposite of the shop, which is what stops a
+    # row of them reading as a terrace.
+    top = roofed(parts, wide, deep, STOREY, "thatch", ridge="x", pitch=0.62)
+    chimney(parts, (-wide * 0.5 + 0.55, deep * 0.2), STOREY - 0.4, top + 0.5)
+    # Flower boxes under the front windows.
+    for side in (-1.0, 1.0):
+        flowerbox(parts, "x", (side * wide * 0.31, -deep * 0.5 + WALL * 0.5, 0.0), WINDOW_WIDE, WINDOW_SILL)
+    return parts, top + 0.8
 
 
 def townhouse():
-    """Two storeys, stairs, a table below and a bed above. What a town is made of."""
+    """Two storeys, the upper one jettied out over the lower. What a town is made of."""
     wide, deep = MODULE * 4, MODULE * 4
+    jetty = 0.28
     parts = []
-    parts.append(box((wide + 0.3, deep + 0.3, 0.4), (0.0, 0.0, 0.2), "stone"))
+    parts.append(box((wide + 0.34, deep + 0.34, 0.46), (0.0, 0.0, 0.23), "stone"))
     shell(parts, wide, deep, 2, "plaster", doors=True, windows=True)
     room(parts, wide, deep, 2)
     stairs(parts, wide, deep, 2)
     hearth(parts, wide, deep)
     table(parts, (-0.3, -0.9), 1.4, 1.0)
-    tall = STOREY * 2 + 1.7
-    parts.append(wedge(wide + 0.5, deep + 0.5, 1.7, (0.0, 0.0, STOREY * 2), "roof"))
-    # The timber framing that tells a townhouse from a shed.
-    for storey in range(2):
-        parts.append(
-            box((wide + 0.32, deep + 0.32, 0.16), (0.0, 0.0, storey * STOREY + STOREY - 0.08), "timber")
-        )
-    return parts, tall
+    framing(parts, wide, deep, 0.0, STOREY)
+    framing(parts, wide, deep, STOREY, STOREY)
+
+    # THE JETTY: the upper storey oversails the lower on brackets. One medium shape,
+    # and the single thing that most says "town house" rather than "two-storey box".
+    parts.append(box((wide + jetty * 2.0, deep + jetty * 2.0, 0.22), (0.0, 0.0, STOREY - 0.11), "timber"))
+    for side in (-1.0, 1.0):
+        for over in (-1.0, 0.0, 1.0):
+            parts.append(
+                box((0.16, 0.5, 0.4), (over * wide * 0.33, side * (deep * 0.5 + 0.1), STOREY - 0.42), "timber")
+            )
+    top = roofed(parts, wide + jetty, deep + jetty, STOREY * 2, "roof", ridge="x")
+    chimney(parts, (wide * 0.5 - 0.6, -deep * 0.15), STOREY * 2 - 0.4, top + 0.6)
+
+    # A dormer: a small gable poking out of the roof slope. Breaks the ridge line,
+    # which is the other half of what a jetty does for the wall line.
+    parts.append(box((1.3, 1.0, 1.0), (-wide * 0.18, -deep * 0.5 - jetty * 0.5 + 0.5, STOREY * 2 + 0.5), "plaster2"))
+    parts.append(wedge(1.6, 1.3, 0.6, (-wide * 0.18, -deep * 0.5 - jetty * 0.5 + 0.5, STOREY * 2 + 1.0), "roof", ridge="x"))
+    parts.append(box((0.75, 0.06, 0.6), (-wide * 0.18, -deep * 0.5 - jetty * 0.5 - 0.02, STOREY * 2 + 0.55), "glass"))
+    return parts, top + 0.9
 
 
 def shop():
-    """A wide front, a counter, shelves, and an awning over the door."""
+    """Gable to the street, a big display window, and a sign hung out in the light."""
     wide, deep = MODULE * 5, MODULE * 4
     parts = []
-    parts.append(box((wide + 0.3, deep + 0.3, 0.4), (0.0, 0.0, 0.2), "stone"))
+    parts.append(box((wide + 0.34, deep + 0.34, 0.46), (0.0, 0.0, 0.23), "stone"))
     shell(parts, wide, deep, 1, "plaster", doors=True, windows=True)
     room(parts, wide, deep, 1)
     counter(parts, wide, deep)
     stock(parts, wide, deep)
-    tall = STOREY + 1.5
-    parts.append(wedge(wide + 0.5, deep + 0.5, 1.5, (0.0, 0.0, STOREY), "roof"))
-    # NO AWNING, and it took three attempts to accept that.
-    #
-    # It was a `lean` first, which came out a detached slab floating off the roof.
-    # Then a wedge with its ridge on the wall and props under it, which hung
-    # correctly and did something worse: an awning is a sheet held over a wall, so
-    # it SHADES the wall - and the whole shopfront, the door and the display window
-    # with it, went into a dark recess that read as a hole in the building. Raising
-    # it, shrinking it and lightening the canvas each moved the shadow without
-    # removing it, because the shadow is what an awning IS.
-    #
-    # What says shop from across a street is a big window with something behind it
-    # and a sign hung out where the light is. Both of those are here, and neither
-    # of them darkens the front of the building.
+    framing(parts, wide, deep, 0.0, STOREY)
+
+    # Ridge along Y, so the GABLE faces the street. A shopfront wants the tall
+    # triangle of wall above it - that is where a trade sign goes and it is what
+    # makes a shop taller than the houses either side without being bigger.
+    top = roofed(parts, wide, deep, STOREY, "roof", ridge="y", pitch=0.5)
+
+    # A lean-to store room down one side: a second, lower mass. Two masses of
+    # different heights is the cheapest way to stop a building reading as one box.
+    lean_wide = 1.5
+    parts.append(box((lean_wide, deep * 0.7, STOREY * 0.72), (wide * 0.5 + lean_wide * 0.5, -deep * 0.08, STOREY * 0.36), "plaster2"))
+    parts.append(
+        lean(lean_wide + 0.5, deep * 0.7 + 0.4, 0.55, (wide * 0.5 + lean_wide * 0.5, -deep * 0.08, STOREY * 0.72), "roof2", drops_to=0.0)
+    )
+
+    # The sign, on a bracket out where the light is - not under an awning. See the
+    # note in the git history for why there is no awning.
     parts.append(box((0.14, 0.14, 3.1), (wide * 0.5 + 0.25, -deep * 0.5 - 0.1, 1.55), "timber"))
     parts.append(box((0.14, 1.0, 0.14), (wide * 0.5 + 0.25, -deep * 0.5 - 0.55, 3.0), "timber"))
     parts.append(box((0.08, 0.8, 0.6), (wide * 0.5 + 0.25, -deep * 0.5 - 0.75, 2.55), "sign"))
-    parts.append(tube(0.22, 0.09, (wide * 0.5 + 0.31, -deep * 0.5 - 0.75, 2.55), "brass",
-                      sides=14, tilt=(0.0, math.pi * 0.5, 0.0)))
-    return parts, tall
+    parts.append(
+        tube(0.22, 0.09, (wide * 0.5 + 0.31, -deep * 0.5 - 0.75, 2.55), "brass", sides=14,
+             tilt=(0.0, math.pi * 0.5, 0.0))
+    )
+    # Crates outside, because a shop with nothing in front of it is a house.
+    for index in range(3):
+        parts.append(
+            box((0.5, 0.5, 0.5), (-wide * 0.5 + 0.45 + index * 0.15, -deep * 0.5 - 0.45, 0.25 + index * 0.5), "counter")
+        )
+    return parts, top + 0.6
 
 
 def guild_hall():
-    """The building a city is a city because it has. Bigger, stone, and a tower."""
+    """The building a city is a city because it has. Stone, buttressed, and towered."""
     wide, deep = MODULE * 7, MODULE * 5
     parts = []
-    parts.append(box((wide + 0.5, deep + 0.5, 0.6), (0.0, 0.0, 0.3), "stone"))
+    # Steps up to the door: a hall you climb to is a hall that matters.
+    for step in range(3):
+        parts.append(
+            box((3.4 - step * 0.3, 1.5 - step * 0.35, 0.18), (0.0, -deep * 0.5 - 1.0 + step * 0.35, 0.09 + step * 0.18), "stone")
+        )
+    parts.append(box((wide + 0.6, deep + 0.6, 0.7), (0.0, 0.0, 0.35), "stone"))
     shell(parts, wide, deep, 2, "stone", doors=True, windows=True)
     room(parts, wide, deep, 2)
-    # The far corner from the tower, which stands in the north-east.
     stairs(parts, wide, deep, 2, side=-1.0)
     guild_hall_inside(parts, wide, deep)
-    tall = STOREY * 2 + 2.0 + 3.2
-    parts.append(wedge(wide + 0.6, deep + 0.6, 2.0, (0.0, 0.0, STOREY * 2), "slate"))
 
-    # A tower, so the hall reads as the guild's from anywhere in the city.
+    # BUTTRESSES. Sloped piers against the long walls - the medium shape that says
+    # stone hall rather than stone box, and they read from a long way off.
+    for side in (-1.0, 1.0):
+        for over in (-1.0, 0.0, 1.0):
+            at_y = over * deep * 0.3
+            parts.append(box((0.5, 0.7, STOREY * 1.5), (side * (wide * 0.5 + 0.2), at_y, STOREY * 0.75), "stone"))
+            parts.append(
+                lean(0.5, 0.7, 0.0, (side * (wide * 0.5 + 0.2), at_y, STOREY * 1.5), "slate", drops_to=0.45)
+            )
+
+    top = roofed(parts, wide, deep, STOREY * 2, "slate", ridge="x", pitch=0.5)
+
+    # The tower, off to one corner and taller than the ridge, with a spire.
     tower = MODULE * 2
-    parts.append(box((tower, tower, STOREY * 2 + 2.6), (wide * 0.5 - tower * 0.5, deep * 0.5 - tower * 0.5, (STOREY * 2 + 2.6) * 0.5), "stone"))
+    tx, ty = wide * 0.5 - tower * 0.5, deep * 0.5 - tower * 0.5
+    tower_top = STOREY * 2 + 3.4
+    parts.append(box((tower, tower, tower_top), (tx, ty, tower_top * 0.5), "stone"))
+    parts.append(box((tower + 0.3, tower + 0.3, 0.22), (tx, ty, tower_top - 0.11), "stone"))
+    for side in (-1.0, 1.0):
+        parts.append(box((0.5, 0.08, 0.9), (tx + side * 0.55, ty - tower * 0.5 - 0.02, tower_top - 1.3), "glass"))
+    # A spire, not a hip: four faces to a point is the shape a guild puts on a map.
+    parts.append(wedge(tower + 0.5, tower + 0.5, 2.4, (tx, ty, tower_top), "roof2", ridge="y"))
+    parts.append(wedge(tower + 0.5, tower + 0.5, 2.4, (tx, ty, tower_top), "roof2", ridge="x"))
+    parts.append(tube(0.06, 1.0, (tx, ty, tower_top + 2.8), "brass", sides=8))
+
+    # The guild's colours over the door, and a banner either side of it.
+    parts.append(box((2.4, 0.12, 1.1), (0.0, -deep * 0.5 - 0.12, 3.9), "guild"))
     parts.append(
-        wedge(tower + 0.4, tower + 0.4, 1.6, (wide * 0.5 - tower * 0.5, deep * 0.5 - tower * 0.5, STOREY * 2 + 2.6), "slate")
+        tube(0.4, 0.14, (0.0, -deep * 0.5 - 0.22, 3.9), "brass", sides=18, tilt=(math.pi * 0.5, 0.0, 0.0))
     )
-    # And the guild's colours over the door.
-    parts.append(box((2.2, 0.12, 1.0), (0.0, -deep * 0.5 - 0.12, 3.6), "guild"))
-    parts.append(tube(0.35, 0.14, (0.0, -deep * 0.5 - 0.22, 3.6), "brass", sides=16,
-                      tilt=(math.pi * 0.5, 0.0, 0.0)))
-    return parts, tall
+    for side in (-1.0, 1.0):
+        parts.append(box((0.9, 0.07, 2.6), (side * 2.6, -deep * 0.5 - 0.1, 4.3), "guild"))
+    return parts, max(top, tower_top + 3.3)
 
 
 FIGURES = {

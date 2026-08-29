@@ -85,15 +85,52 @@ def box(size, at, colour, tilt=None):
     return (obj, colour)
 
 
-def wedge(span, deep, high, at, colour):
-    """A pitched roof: a prism lying along Y, ridge down the middle."""
+def wedge(span, deep, high, at, colour, ridge="y"):
+    """A pitched roof: a prism with its ridge down the middle.
+
+    `ridge` says which way the ridge runs, and it is the single most important
+    thing about a roof's silhouette: a ridge along Y shows its GABLE to anyone
+    standing to the south, and a ridge along X shows its EAVES. A street of
+    buildings that all face the same way is a terrace; one that alternates is a
+    village.
+    """
     half, back = span * 0.5, deep * 0.5
-    places = [
-        (-half, -back, 0.0), (half, -back, 0.0), (half, back, 0.0), (-half, back, 0.0),
-        (0.0, -back, high), (0.0, back, high),
-    ]
+    if ridge == "y":
+        places = [
+            (-half, -back, 0.0), (half, -back, 0.0), (half, back, 0.0), (-half, back, 0.0),
+            (0.0, -back, high), (0.0, back, high),
+        ]
+    else:
+        places = [
+            (-half, -back, 0.0), (half, -back, 0.0), (half, back, 0.0), (-half, back, 0.0),
+            (-half, 0.0, high), (half, 0.0, high),
+        ]
     faces = [(0, 1, 2, 3), (0, 4, 5, 3), (1, 2, 5, 4), (0, 1, 4), (3, 2, 5)]
+    if ridge != "y":
+        faces = [(0, 1, 2, 3), (0, 1, 5, 4), (3, 2, 5, 4), (0, 3, 4), (1, 2, 5)]
     return _from_points("roof", places, faces, at, colour)
+
+
+def gable_wall(span, high, at, thick, colour, facing="y"):
+    """The triangle of wall that fills the end of a pitched roof.
+
+    Without it a gable roof is a lid resting on a box with daylight under both
+    slopes, which is the commonest way a first attempt at a roof goes wrong.
+    """
+    half = span * 0.5
+    t = thick * 0.5
+    if facing == "y":
+        places = [
+            (-half, -t, 0.0), (half, -t, 0.0), (0.0, -t, high),
+            (-half, t, 0.0), (half, t, 0.0), (0.0, t, high),
+        ]
+    else:
+        places = [
+            (-t, -half, 0.0), (-t, half, 0.0), (-t, 0.0, high),
+            (t, -half, 0.0), (t, half, 0.0), (t, 0.0, high),
+        ]
+    faces = [(0, 1, 2), (3, 4, 5), (0, 1, 4, 3), (1, 2, 5, 4), (0, 2, 5, 3)]
+    return _from_points("gable", places, faces, at, colour)
 
 
 def lean(span, deep, high, at, colour, drops_to=0.0):
