@@ -877,6 +877,39 @@ pub const PLAINS_RELIEF: f32 = 0.12;
 /// scale with the CAREER — each one holds a Warden Exam, and an exam ladder is a
 /// designed length rather than a function of area. Ten is a ladder; twenty-four
 /// is a grind.
+/// Every settlement in the world, as `(x, z, is a city)`.
+///
+/// # Chosen by hand, not scattered
+///
+/// The world used to scatter ten cities and twenty-eight towns by rejection
+/// sampling - inland of a beach, off a hillside, clear of a river, far enough from
+/// its neighbours. Thirty-eight settlements is more than an adventure wants, and
+/// none of them was anywhere for a reason.
+///
+/// These thirteen are placed by eye against the map. Nothing here is filtered: a
+/// spot that is steep, near a shore or astride a channel is still built, because a
+/// guard that silently drops a hand-placed settlement is a guard that loses part of
+/// the world without saying so. The levelling that follows is what makes the ground
+/// buildable, and it is the same levelling that always ran.
+///
+/// The RANCH is not in this list. It is pinned first and separately, because the
+/// game starts there and nothing may take its ground.
+pub const SETTLEMENTS: [(f32, f32, bool); 13] = [
+    (-4641.0, 270.0, false),
+    (-2985.0, 559.0, false),
+    (-2553.0, 1771.0, true),
+    (-321.0, 1593.0, true),
+    (223.0, 385.0, true),
+    (233.0, -735.0, false),
+    (1595.0, -1447.0, false),
+    (1341.0, -63.0, true),
+    (3401.0, -1370.0, true),
+    (5340.0, -310.0, false),
+    (-46.0, 3763.0, false),
+    (408.0, 4388.0, true),
+    (-708.0, 6211.0, true),
+];
+
 pub const CITIES: usize = 10;
 pub const TOWNS: usize = 28;
 

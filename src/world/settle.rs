@@ -125,6 +125,8 @@ pub struct Road {
 pub struct Settlements {
     sites: Vec<Site>,
     roads: Vec<Road>,
+    /// Every water crossing the network needs, as structures to be built.
+    bridges: Vec<Bridge>,
     lanes: Vec<Lane>,
     /// One list of feature indices per cell. Sites are stored as `Some(i)`,
     /// roads as the index offset past the end of `sites`.
@@ -144,6 +146,7 @@ impl Settlements {
         Settlements {
             sites: Vec::new(),
             roads: Vec::new(),
+            bridges: Vec::new(),
             lanes: Vec::new(),
             cells: Vec::new(),
             cells_across: 0,
@@ -157,6 +160,11 @@ impl Settlements {
     /// No longer test-only: `world::town` draws them. They were graded into the
     /// terrain and never rendered, so the only sign a road existed was a
     /// suspiciously level line of grass.
+    /// Every bridge the network needs.
+    pub fn spans(&self) -> &[Bridge] {
+        &self.bridges
+    }
+
     pub fn ways(&self) -> &[Road] {
         &self.roads
     }
@@ -234,83 +242,32 @@ impl Settlements {
             ranch: true,
         });
 
-        // Cities next, with the room they need; towns afterwards, filling in
-        // whatever is left. Placing them the other way round would let a town
-        // sit where a city needed to be.
-        // The ranch does not count against either quota. These are cumulative
-        // targets measured against `sites.len()`, so without this the ranch
-        // silently costs the map a city — six become five, and nothing says so.
-        let pinned = sites.len();
-        for (wanted, city) in [(pinned + CITIES, true), (pinned + CITIES + TOWNS, false)] {
-            let radius = if city { CITY_RADIUS } else { TOWN_RADIUS };
-            let apart = if city { CITY_SPACING } else { TOWN_SPACING };
-
-            let mut tries = 0u32;
-            while sites.len() < wanted && tries < 20_000 {
-                let n = tries;
-                tries += 1;
-                let at = Vec2::new(
-                    (unit(WORLD_SEED, n * 2) * 2.0 - 1.0) * half.x * 0.94,
-                    (unit(WORLD_SEED, n * 2 + 1) * 2.0 - 1.0) * half.y * 0.94,
-                );
-
-                // Inland of the beach, so leveling a site never eats a shore.
-                if shore(at) < SITE_MIN_INLAND {
-                    continue;
-                }
-                let height = ground(at);
-                // Not up a mountain. People build where the living is.
-                if height > SITE_MAX_HEIGHT {
-                    continue;
-                }
-                // Not on ground that is already a hillside: leveling that would
-                // leave a scar you could see from orbit.
-                if steepness(ground, at) > SITE_MAX_SLOPE {
-                    continue;
-                }
-                if sites
-                    .iter()
-                    .any(|other| other.at.distance(at) < apart.max(other.radius + radius))
-                {
-                    continue;
-                }
-                // Not astride a river.
-                //
-                // The water is cut before any of this is planned, so a channel
-                // here is one that would run through the middle of the place —
-                // and levelling the site would simply fill it in, which leaves a
-                // river arriving at the town boundary and starting again on the
-                // far side. Seventeen of the twenty-one sites had one.
-                //
-                // Tested last because it is the dearest of the lot: it walks the
-                // whole site, and only a candidate that has passed everything
-                // else has earned that.
-                if crosses_water(wet, at, radius) {
-                    continue;
-                }
-
-                sites.push(Site {
-                    at,
-                    height,
-                    radius,
-                    city,
-                    ranch: false,
-                });
-            }
+        // Then the thirteen that are actually on the map, exactly where they were
+        // put. No rejection sampling and no quotas: `SETTLEMENTS` is the list.
+        for (x, z, city) in SETTLEMENTS {
+            let at = Vec2::new(x, z);
+            sites.push(Site {
+                at,
+                height: ground(at),
+                radius: if city { CITY_RADIUS } else { TOWN_RADIUS },
+                city,
+                ranch: false,
+            });
         }
 
         // Only if the world is still laying its own. Kept as a switch rather than
         // torn out: the grading is tested and a maker may want a linked network
         // again, but a hand-laid road beats a generated one every time because
         // somebody is looking at the country while they lay it.
-        let roads = if LINK_TOWNS_WITH_ROADS {
-            link(&sites, ground)
+        let (roads, bridges) = if LINK_TOWNS_WITH_ROADS {
+            link(&sites, ground, half)
         } else {
-            Vec::new()
+            (Vec::new(), Vec::new())
         };
         let mut settlements = Settlements {
             sites,
             roads,
+            bridges,
             lanes: Vec::new(),
             cells: Vec::new(),
             cells_across: 0,
@@ -559,124 +516,213 @@ impl Road {
 /// a road network is for — and it produces no crossings and no orphans.
 /// Connects every site into one network, and grades the run between each pair
 /// against the land it actually crosses.
-fn link(sites: &[Site], ground: &dyn Fn(Vec2) -> f32) -> Vec<Road> {
-    let mut roads = Vec::new();
-    if sites.len() < 2 {
-        return roads;
-    }
-    let mut joined = vec![false; sites.len()];
-    joined[0] = true;
+/// A bridge: a structure carried over water, with a shore at each end.
+///
+/// It is NOT a raising of the seabed. Filling water in until a road can drive over
+/// it is a causeway, and a causeway would quietly redraw the coastline, move the
+/// biome that follows the coastline, and put a road where the map says sea.
+#[derive(Clone, Copy, Debug)]
+pub struct Bridge {
+    /// The shore it leaves.
+    pub from: Vec2,
+    /// The shore it lands on.
+    pub to: Vec2,
+    /// The height its deck holds, which is one height for the whole span.
+    pub deck: f32,
+}
 
-    for _ in 1..sites.len() {
+/// Turns a walk over the ground into road segments.
+///
+/// The walk comes out of the survey as cell middles, so it steps in 64 m squares
+/// and has the staircase you would expect. Two passes of averaging pull it into
+/// curves - and every moved point is checked back against the ground, because a
+/// smoothing that cuts a corner across a headland puts the road in the sea, which
+/// is the whole thing this module exists to prevent.
+fn lay(roads: &mut Vec<Road>, ground: &dyn Fn(Vec2) -> f32, walk: &[Vec2]) {
+    if walk.len() < 2 {
+        return;
+    }
+    let mut points = walk.to_vec();
+    for _ in 0..2 {
+        let was = points.clone();
+        for at in 1..was.len() - 1 {
+            let eased = (was[at - 1] + was[at] * 2.0 + was[at + 1]) * 0.25;
+            // Only if it is still on land. A corner cut across a bay is not a curve.
+            if ground(eased) > SEA_LEVEL + 1.0 {
+                points[at] = eased;
+            }
+        }
+    }
+
+    for pair in points.windows(2) {
+        let (foot, head) = (pair[0], pair[1]);
+        if foot.distance(head) < 0.5 {
+            continue;
+        }
+        // NO EARTHWORKS. The profile IS the ground - a road between towns is a
+        // surface laid on the country, so it cannot leave a step to fall off or
+        // disturb a biome.
+        let steps = ((foot.distance(head) / ROAD_STEP).ceil() as usize).clamp(1, 512);
+        let profile: Vec<f32> = (0..=steps)
+            .map(|i| ground(foot.lerp(head, i as f32 / steps as f32)))
+            .collect();
+        let cuts = vec![0.0; profile.len()];
+        roads.push(Road { profile, cuts, from: foot, to: head });
+    }
+}
+
+/// Grows the road network outward over land, joining whatever it can reach.
+///
+/// Prim's, with the walk's own cost for its edges. A pair with no dry walk between
+/// them has no edge at all, so the tree grows exactly as far as the land goes.
+fn reach_out(
+    sites: &[Site],
+    land: &crate::world::route::Land,
+    reach: &[Option<crate::world::route::Reach>],
+    joined: &mut [bool],
+    roads: &mut Vec<Road>,
+    ground: &dyn Fn(Vec2) -> f32,
+) {
+    loop {
         let mut best: Option<(f32, usize, usize)> = None;
-        for (i, site) in sites.iter().enumerate() {
+        for (i, from) in reach.iter().enumerate() {
             if !joined[i] {
                 continue;
             }
-            for (j, other) in sites.iter().enumerate() {
+            let Some(from) = from else { continue };
+            for (j, site) in sites.iter().enumerate() {
                 if joined[j] {
                     continue;
                 }
-                let away = site.at.distance(other.at);
-                if best.is_none_or(|(shortest, _, _)| away < shortest) {
-                    best = Some((away, i, j));
+                let Some(cost) = from.cost_to(land, site.at) else {
+                    continue;
+                };
+                if best.is_none_or(|(was, _, _)| cost < was) {
+                    best = Some((cost, i, j));
                 }
             }
         }
         let Some((_, from, to)) = best else { break };
         joined[to] = true;
-
-        // # A ROAD WANDERS
-        //
-        // Laid as one straight run, a graded road holds its grade across whatever is
-        // in the way and cuts through it - which is the objection that switched this
-        // machinery off in the first place. Walked in short legs instead, each one
-        // nudged off the straight line, it goes round a shoulder rather than through
-        // it, and every leg is graded on its own between its own two heights.
-        //
-        // The nudge is a hash of the leg, not a roll: the same world lays the same
-        // road every time, and the bench and the game agree about where it goes.
-        let (start, finish) = (sites[from].at, sites[to].at);
-        let span = finish - start;
-        let legs = ((span.length() / ROAD_LEG).round() as usize).max(1);
-        let aside = span.perp().normalize_or_zero();
-
-        let mut waypoints: Vec<Vec2> = Vec::with_capacity(legs + 1);
-        for leg in 0..=legs {
-            let along = leg as f32 / legs as f32;
-            // Nothing at either end: a road arrives at a town, it does not swerve
-            // past it.
-            let free = (along * std::f32::consts::PI).sin();
-            let wobble = unit(
-                WORLD_SEED
-                    .wrapping_add(from as u32 * 7717)
-                    .wrapping_add(to as u32 * 131),
-                leg as u32,
-            ) - 0.5;
-            waypoints.push(start + span * along + aside * (wobble * 2.0 * free * span.length() * ROAD_WANDERS));
-        }
-
-        // SMOOTHED, so the road turns rather than kinks.
-        //
-        // Each waypoint is nudged independently, so consecutive legs can meet at a
-        // hard angle - "roads shouldn't have sharp turns". Two passes of averaging
-        // each point with its neighbours pulls the line into curves without moving
-        // where it goes: the ends are pinned, so it still arrives at both towns.
-        for _ in 0..2 {
-            let was = waypoints.clone();
-            for at in 1..was.len() - 1 {
-                waypoints[at] = (was[at - 1] + was[at] * 2.0 + was[at + 1]) * 0.25;
-            }
-        }
-
-        // AND OUT OF THE WATER.
-        //
-        // A road between two towns on the same landmass can still clip the head of a
-        // bay, and a graded road under the sea is a road you cannot walk. Each
-        // waypoint that has ended up wet is pulled back toward the straight line
-        // until it is dry, which is where the land was in the first place.
-        for at in 1..waypoints.len() - 1 {
-            let along = at as f32 / (waypoints.len() - 1) as f32;
-            let straight = start + span * along;
-            for pull in 0..6 {
-                if ground(waypoints[at]) > SEA_LEVEL + 1.0 {
-                    break;
-                }
-                let part = (pull + 1) as f32 / 6.0;
-                waypoints[at] = waypoints[at].lerp(straight, part);
-            }
-        }
-
-        for pair in waypoints.windows(2) {
-            let (foot, head) = (pair[0], pair[1]);
-            let along_start = (foot - start).length() / span.length().max(1.0);
-            let along_end = (head - start).length() / span.length().max(1.0);
-            let lift = |part: f32| {
-                sites[from].height + (sites[to].height - sites[from].height) * part
-            };
-            // NO EARTHWORKS. The profile IS the ground.
-            //
-            // Grading is what cut gorges through hills and what put a 1.84 m lip
-            // beside every country road - and every attempt to soften it traded one
-            // fault for another: a gentler blend broke the walkable-grade guard, and
-            // a wider skirt flattened enough land to move a desert's boundary.
-            //
-            // "Just make it flat, don't worry about realism." A road between towns
-            // is a SURFACE laid on the country, not a cutting through it: it follows
-            // whatever it crosses, moves no earth, and therefore cannot leave a step
-            // to fall off or disturb a biome. The grading machinery stays for the
-            // ground a TOWN stands on, which does need to be flat.
-            let steps = ((foot.distance(head) / ROAD_STEP).ceil() as usize).clamp(1, 512);
-            let profile: Vec<f32> = (0..=steps)
-                .map(|i| ground(foot.lerp(head, i as f32 / steps as f32)))
-                .collect();
-            let _ = (lift(along_start), lift(along_end));
-            // Nothing is cut, so every cut is zero.
-            let cuts = vec![0.0; profile.len()];
-            roads.push(Road { profile, cuts, from: foot, to: head });
+        if let Some(walk) = reach[from]
+            .as_ref()
+            .and_then(|r| r.route_to(land, sites[to].at))
+        {
+            lay(roads, ground, &walk);
         }
     }
-    roads
+}
+
+/// Joins the settlements up: roads over land, bridges over water.
+///
+/// # Not the shortest path
+///
+/// Both halves of this used to be decided by straight-line distance - which pair of
+/// settlements to join, and where the road between them went. Neither question can
+/// be answered by a straight line on a world with water in it, and the result was
+/// roads that ran into a lake and out the far side.
+///
+/// Now the ground answers both. `route::Land` surveys what is walkable once, and
+/// every cost here is the cost of an actual walk over dry ground: a settlement on
+/// the far side of a bay is FAR, whatever the map ruler says, and the road that
+/// goes there goes round. Long is by design.
+///
+/// Settlements no walk can reach are on another landmass. Those get a bridge at the
+/// narrowest crossing between the two shores, and a road out to it at each end.
+fn link(
+    sites: &[Site],
+    ground: &dyn Fn(Vec2) -> f32,
+    half: Vec2,
+) -> (Vec<Road>, Vec<Bridge>) {
+    let mut roads = Vec::new();
+    let mut bridges = Vec::new();
+    if sites.len() < 2 {
+        return (roads, bridges);
+    }
+
+    let land = crate::world::route::Land::survey(half, ground);
+    let reach: Vec<Option<crate::world::route::Reach>> =
+        sites.iter().map(|site| land.walk_from(site.at)).collect();
+    let islands: Vec<Option<u16>> = sites.iter().map(|site| land.island_at(site.at)).collect();
+
+    let mut joined = vec![false; sites.len()];
+    joined[0] = true;
+    reach_out(sites, &land, &reach, &mut joined, &mut roads, ground);
+
+    // Whatever the tree could not reach is across water. Each such landmass is
+    // brought in by ONE bridge at the narrowest place between it and a shore that is
+    // already on the network, with a road at each end to the nearest settlement on
+    // that side. Then the walk above carries on over the new ground.
+    loop {
+        let Some(orphan) = (0..sites.len()).find(|i| !joined[*i]) else {
+            break;
+        };
+        let Some(want) = islands[orphan] else {
+            joined[orphan] = true;
+            continue;
+        };
+
+        let mut best: Option<crate::world::route::Crossing> = None;
+        let mut asked: Vec<u16> = Vec::new();
+        for (i, island) in islands.iter().enumerate() {
+            if !joined[i] {
+                continue;
+            }
+            let Some(have) = island else { continue };
+            if *have == want || asked.contains(have) {
+                continue;
+            }
+            asked.push(*have);
+            if let Some(crossing) = land.crossing(*have, want) {
+                if best.is_none_or(|had| crossing.span < had.span) {
+                    best = Some(crossing);
+                }
+            }
+        }
+
+        let Some(crossing) = best else {
+            // Nothing near enough to bridge. Marked done so the loop ends: a
+            // landmass this far out is simply not on the road network, and
+            // pretending otherwise would mean a road across open sea.
+            for (i, island) in islands.iter().enumerate() {
+                if *island == Some(want) {
+                    joined[i] = true;
+                }
+            }
+            continue;
+        };
+
+        // One height for the whole deck, taken from the higher shore so neither end
+        // steps down onto the water.
+        bridges.push(Bridge {
+            from: crossing.from,
+            to: crossing.to,
+            deck: ground(crossing.from).max(ground(crossing.to)),
+        });
+
+        for head in [crossing.from, crossing.to] {
+            let mut nearest: Option<(f32, usize)> = None;
+            for (i, from) in reach.iter().enumerate() {
+                let Some(from) = from else { continue };
+                let Some(cost) = from.cost_to(&land, head) else {
+                    continue;
+                };
+                if nearest.is_none_or(|(was, _)| cost < was) {
+                    nearest = Some((cost, i));
+                }
+            }
+            if let Some((_, i)) = nearest {
+                if let Some(walk) = reach[i].as_ref().and_then(|r| r.route_to(&land, head)) {
+                    lay(&mut roads, ground, &walk);
+                }
+            }
+        }
+
+        joined[orphan] = true;
+        reach_out(sites, &land, &reach, &mut joined, &mut roads, ground);
+    }
+
+    (roads, bridges)
 }
 
 /// Works out the height a road holds along its length.

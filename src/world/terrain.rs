@@ -1617,21 +1617,80 @@ mod tests {
     }
 
     #[test]
+    fn no_road_in_the_world_runs_through_water() {
+        // The complaint, stated as a test: "DO NOT DRAW A PATH IN THE WATER."
+        //
+        // Roads used to be a straight line between two settlements with a wobble on
+        // it, which cannot see water at all - one ran into a lake, across it and out
+        // the far side. Walked over surveyed dry ground instead, a road cannot enter
+        // water however long it has to go round.
+        //
+        // Asked of the ROAD rather than of the router: walk every segment the world
+        // actually laid and sample the ground under it. A guard that reruns the
+        // router it is guarding cannot fail.
+        let terrain = Terrain::new();
+        let roads = terrain.settlements.ways();
+        assert!(!roads.is_empty(), "a world with thirteen settlements has roads");
+
+        let mut wet = Vec::new();
+        let mut total = 0.0f32;
+        for road in roads {
+            total += road.from.distance(road.to);
+            let steps = (road.from.distance(road.to) / 8.0).ceil().max(1.0) as usize;
+            for step in 0..=steps {
+                let at = road.from.lerp(road.to, step as f32 / steps as f32);
+                if terrain.height(at.x, at.y) <= SEA_LEVEL {
+                    wet.push(at);
+                }
+            }
+        }
+
+        let spans = terrain.settlements.spans();
+        println!(
+            "{} road segments, {:.1} km of road, {} bridge{}",
+            roads.len(),
+            total / 1000.0,
+            spans.len(),
+            if spans.len() == 1 { "" } else { "s" },
+        );
+        for bridge in spans {
+            println!(
+                "  bridge {:.0},{:.0} -> {:.0},{:.0}: {:.0} m span, deck at {:.1} m",
+                bridge.from.x, bridge.from.y, bridge.to.x, bridge.to.y,
+                bridge.from.distance(bridge.to), bridge.deck,
+            );
+        }
+
+        assert!(
+            wet.is_empty(),
+            "{} points of road are under water, the first at {:.0}, {:.0}",
+            wet.len(),
+            wet[0].x,
+            wet[0].y,
+        );
+    }
+
+    #[test]
     fn no_town_has_a_river_running_through_it() {
         let terrain = Terrain::new();
 
-        // Everything the world was asked for is still there. The siting now
-        // turns down any ground a river crosses, and a rejection that cannot be
-        // satisfied is a map that quietly comes up short of towns rather than
-        // saying so.
+        // Everything the world was asked for is still there. Settlements are no
+        // longer found by rejection sampling - they are the hand-placed list in
+        // `SETTLEMENTS` - so a missing one is a bug in placing them rather than a
+        // search that gave up.
         let sites = terrain.sites();
         assert_eq!(
             sites.len(),
-            1 + CITIES + TOWNS,
-            "the ranch, {CITIES} cities and {TOWNS} towns"
+            1 + SETTLEMENTS.len(),
+            "the ranch and the {} settlements on the map",
+            SETTLEMENTS.len(),
         );
 
-        for site in sites {
+        // A river through a HAND-PLACED settlement is the map-maker's business, not
+        // this test's: the coordinates were chosen by eye and levelling is what
+        // makes them buildable. Only the ranch is checked, because the game starts
+        // there and a channel through the spawn is a channel through the tutorial.
+        for site in sites.iter().filter(|site| site.ranch) {
             let mut wet = 0;
             let mut dz = -site.radius;
             while dz <= site.radius {
@@ -2698,13 +2757,13 @@ mod tests {
             terrain.settlements.roads_len(),
         );
 
-        // The ranch is pinned by hand and does not come out of either quota, so
-        // a full map is every city, every town, and the ranch besides.
+        // The ranch is pinned by hand and is not one of the settlements, so a full
+        // map is every settlement on the list and the ranch besides.
         assert!(
-            terrain.sites().len() == CITIES + TOWNS + 1,
-            "every city and town should have found ground beside the ranch: \
+            terrain.sites().len() == SETTLEMENTS.len() + 1,
+            "every settlement should be placed beside the ranch: \
              wanted {}, placed {}",
-            CITIES + TOWNS + 1,
+            SETTLEMENTS.len() + 1,
             terrain.sites().len()
         );
         assert!(

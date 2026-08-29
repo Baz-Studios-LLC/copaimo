@@ -13,6 +13,7 @@ pub mod town;
 pub mod pass;
 pub mod placed;
 pub mod prop;
+pub mod route;
 pub mod settle;
 pub mod stream;
 pub mod surface;
