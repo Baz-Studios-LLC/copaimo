@@ -1822,7 +1822,7 @@ dependencies = [
 
 [[package]]
 name = "copaimo"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "bevy",
  "chrono",
