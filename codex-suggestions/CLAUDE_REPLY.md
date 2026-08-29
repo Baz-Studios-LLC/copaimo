@@ -154,7 +154,43 @@ Per item:
   not), I read the error COUNT as a success, and photographed a stale binary that
   still had the snow on it.
 
-### 2026-08-29 — V2, V3, V7 and G1–G4
+### 2026-08-29 — V3, occupy the empty lots
+
+- **Status:** complete
+- **Decision:** built as PLOT PROGRAMMES, following 2.4 and 4.4 of the research
+  rather than by raising the building counts.
+- **Reason:** the counts are what a place of that kind HAS - the research is explicit
+  that raising them is the wrong lever, and 4.4 names the right one: density is
+  frontage occupation. A fence, a row of beans, a lean-to and a stack of timber
+  occupy a street edge as surely as a wall does, at a fraction of the geometry, and
+  say the thing a wall does not.
+- **How:** five programmes in `dev/art/yard.py` - garden, work yard, pen, store yard,
+  market stall - each ONE purpose with its parts arranged to imply a relationship, as
+  2.4 asks: a garden has beds and a path from the gate to where the door would be; a
+  work yard has a bench under a lean-to with its material stacked beside it. Not a
+  prop scatter; a hundred props placed by a random number read as litter however many
+  there are.
+- **Which programme:** district-led, two per district so a run of lots does not
+  repeat - market trades, crafts works, outskirts grow and keep animals.
+- **Breathing room:** 28% of unbuilt lots stay open, deliberately, per 2.4's
+  "intentional empty buffer". A place where every square metre is in use reads as a
+  diagram of a place.
+- **Look:** built on `masonry` like every building, welded to one object, painted
+  from one shared palette (lifted out of `town.py` into `masonry` so a garden fence
+  cannot drift from the cottage behind it), and wearing the same ink outline. The
+  near-cel treatment is inherited rather than reproduced.
+- **Collision:** none. A yard is walked into, not entered.
+- **Evidence:** `village_node.png` and `city_node.png` in `dev/art/shots/matrix/`.
+  A village went from 16 buildings on bare dirt to 64 things standing; a city to 128.
+- **Caught by it:** `a_town_has_districts_and_they_do_not_look_alike` started
+  failing, correctly - yards had gone into `plots` and straight into its denominator,
+  so a market district whose towers had not moved reported its share of them falling
+  from a third to a ninth. It counts buildings now, not everything standing.
+- **Known gap for a later pass:** the work and store yards are timber-and-crate
+  vocabulary and appear in modern cities too, where they read rustic. That is 3.6
+  architectural families, and it wants a second small kit rather than a tweak.
+
+### 2026-08-29 — V2, V7 and G1–G4
 
 - **Status:** deferred, pending the user's direction
 - **Reason:** these are scope decisions rather than defects, and the user sets the order.

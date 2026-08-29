@@ -34,6 +34,59 @@ FOOT_SHADE = 0.74
 SHARP_ABOVE = 0.5236  # 30 degrees
 
 
+# The one pot every scripted figure in this folder is painted from.
+#
+# Shared rather than per-file: a town's buildings and the yards between them are the
+# same place, and two palettes drift the moment one of them is edited.
+PALETTE = {
+    # Outside
+    "plaster": (0.88, 0.83, 0.71),
+    "plaster2": (0.82, 0.78, 0.70),
+    "timber": (0.36, 0.25, 0.17),
+    "stone": (0.48, 0.47, 0.44),
+    "roof": (0.56, 0.26, 0.19),
+    "roof2": (0.46, 0.30, 0.22),
+    "slate": (0.32, 0.33, 0.37),
+    "thatch": (0.66, 0.55, 0.33),
+    "shutter": (0.30, 0.44, 0.42),
+    "trim": (0.94, 0.92, 0.86),
+    "flower": (0.72, 0.30, 0.32),
+    "leafy": (0.32, 0.46, 0.26),
+    "door": (0.30, 0.21, 0.14),
+    "glass": (0.36, 0.47, 0.52),
+    "sign": (0.62, 0.42, 0.22),
+    "guild": (0.25, 0.35, 0.42),
+    "brass": (0.66, 0.52, 0.24),
+    # Inside, mixed lighter on purpose - see the note at the top
+    "inwall": (0.86, 0.82, 0.73),
+    "infloor": (0.56, 0.42, 0.28),
+    "inbeam": (0.44, 0.32, 0.22),
+    "hearth": (0.42, 0.41, 0.39),
+    "cloth": (0.55, 0.30, 0.28),
+    "counter": (0.48, 0.35, 0.22),
+    "shelf": (0.50, 0.38, 0.24),
+    "board": (0.34, 0.26, 0.18),
+    # The city, which is a different age of the world - see `tower`.
+    "concrete": (0.72, 0.71, 0.68),
+    "concrete2": (0.62, 0.62, 0.60),
+    "curtain": (0.30, 0.42, 0.50),
+    "curtain2": (0.24, 0.34, 0.42),
+    "mullion": (0.46, 0.48, 0.50),
+    "steel": (0.56, 0.58, 0.60),
+    "parapet": (0.50, 0.50, 0.49),
+    "canopy": (0.22, 0.30, 0.36),
+    "neon": (0.34, 0.72, 0.78),
+    # Surfaces - see `courses` and `shingles`.
+    "stone2": (0.42, 0.41, 0.38),
+    "shingle": (0.38, 0.26, 0.22),
+    "shingle2": (0.32, 0.22, 0.19),
+    "straw": (0.60, 0.49, 0.29),
+    "straw2": (0.54, 0.44, 0.26),
+    "brick": (0.52, 0.31, 0.25),
+    "brick2": (0.46, 0.28, 0.22),
+}
+
+
 def to_linear(part: float) -> float:
     """One sRGB channel into linear, which is what a colour attribute holds."""
     if part <= 0.04045:

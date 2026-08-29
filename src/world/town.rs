@@ -274,6 +274,18 @@ pub enum Building {
     /// Fifteen floors and a mast. THE tall thing, and the reason a city has a
     /// middle you can see from outside it. See `Building::is_landmark`.
     CitySpire,
+
+    // ---------------------------------------------------------------- the yards
+    //
+    // What stands on a lot that gets no building. Each is one PROGRAMME - a purpose,
+    // with its parts arranged to imply a relationship - rather than a scatter of
+    // props: a garden has beds and a path from the gate to the door, a work yard has
+    // a bench under a lean-to with its material stacked beside it. See `dev/art/yard.py`.
+    Garden,
+    WorkYard,
+    Pen,
+    StoreYard,
+    Stall,
     /// A stepped stone cross on a village square.
     MarketCross,
     /// A roofed well, for a village junction.
@@ -291,6 +303,11 @@ impl Building {
             Building::CityBlock => "models/town_city_block.glb",
             Building::CityTower => "models/town_city_tower.glb",
             Building::CitySpire => "models/town_city_spire.glb",
+            Building::Garden => "models/yard_garden.glb",
+            Building::WorkYard => "models/yard_work.glb",
+            Building::Pen => "models/yard_pen.glb",
+            Building::StoreYard => "models/yard_store.glb",
+            Building::Stall => "models/yard_stall.glb",
             Building::MarketCross => "models/town_market_cross.glb",
             Building::Well => "models/town_well.glb",
             Building::Monument => "models/town_monument.glb",
@@ -319,6 +336,16 @@ impl Building {
             Building::CityBlock => Vec2::new(11.3, 10.8),
             Building::CityTower => Vec2::new(10.8, 11.3),
             Building::CitySpire => Vec2::new(11.8, 12.8),
+            // A lot's worth of ground, which is a cottage's - a yard stands on
+            // exactly the lots a house would have taken. Measured off the exported
+            // models like the rest.
+            Building::Garden
+            | Building::WorkYard
+            | Building::Pen
+            | Building::StoreYard => Vec2::new(9.0, 7.5),
+            // A stall belongs to the street rather than to a plot, so it is smaller
+            // and has no fence to put a wall across a square.
+            Building::Stall => Vec2::new(7.2, 4.2),
             // A landmark stands in the open, so its footprint is what it occupies
             // rather than what it needs around it.
             Building::MarketCross => Vec2::new(3.4, 3.4),
@@ -337,6 +364,23 @@ impl Building {
     ///
     /// A landmark takes no lot and keeps no frontage: it stands in the open where
     /// people gather, which is what makes a node a node.
+    /// Whether this is a yard rather than a building.
+    ///
+    /// A yard is ground with things standing on it - beds, a bench, a stack of
+    /// timber, a fence a metre high. You walk into a garden; there is nothing to
+    /// walk into the side of. So a yard has no walls, which also means it costs the
+    /// collision path nothing at all.
+    pub fn is_yard(self) -> bool {
+        matches!(
+            self,
+            Building::Garden
+                | Building::WorkYard
+                | Building::Pen
+                | Building::StoreYard
+                | Building::Stall
+        )
+    }
+
     pub fn is_landmark(self) -> bool {
         matches!(
             self,
@@ -354,6 +398,43 @@ impl Building {
     }
 
     /// The landmark that stands on the square, and the one at a lesser junction.
+    /// What a lot with no building on it is FOR, by where it stands.
+    ///
+    /// District-led, because that is what districts are: a market street trades, a
+    /// crafts quarter works, and the outskirts grow things and keep animals. Two
+    /// programmes per district rather than one, so a run of lots does not repeat -
+    /// and only two, because the point is that a garden next to a garden still reads
+    /// as a neighbourhood while five unrelated props read as litter.
+    pub fn yard_for(district: District, city: bool, nth: usize) -> Building {
+        match district {
+            // A city's middle trades under awnings; a village's trades off a stall
+            // on the square just the same.
+            District::Market => {
+                if nth % 2 == 0 {
+                    Building::Stall
+                } else {
+                    Building::StoreYard
+                }
+            }
+            District::Crafts => {
+                if nth % 2 == 0 {
+                    Building::WorkYard
+                } else {
+                    Building::StoreYard
+                }
+            }
+            // Nobody keeps a beast in a city's outskirts, but everybody grows
+            // something.
+            District::Outskirts => {
+                if nth % 2 == 0 || city {
+                    Building::Garden
+                } else {
+                    Building::Pen
+                }
+            }
+        }
+    }
+
     pub fn landmarks(city: bool) -> (Building, Building) {
         if city {
             (Building::Monument, Building::Monument)
@@ -1237,6 +1318,8 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
         let others: Vec<usize> = (0..plots.len())
             .filter(|i| !keep_always.contains(i))
             .collect();
+        // Which lots a building took, so the rest can be given a use below.
+        let mut taken: Vec<usize> = Vec::new();
         let room = wanted.saturating_sub(kept.len()).max(1);
         for district in [District::Market, District::Crafts, District::Outskirts] {
             let here: Vec<usize> = others
@@ -1254,8 +1337,40 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
                 let at = (step as f32 * stride).round() as usize;
                 if let Some(index) = here.get(at) {
                     kept.push(plots[*index]);
+                    taken.push(*index);
                 }
             }
+        }
+
+        // AND THE LOTS THAT DID NOT GET A BUILDING BECOME YARDS.
+        //
+        // # A town is dense when its frontage is occupied
+        //
+        // These used to be dropped. That was right while a town stood on meadow and
+        // wrong the moment its ground became packed earth: photographed from the
+        // middle of a village, half the frontage was bare dirt, and a city could hold
+        // thirty-four buildings and still read as empty because each stood alone in a
+        // tan field.
+        //
+        // The answer is not more houses - the counts are what a place of this kind
+        // HAS. A fence, a row of beans, a lean-to and a stack of timber occupy a
+        // street edge as surely as a wall does, at a fraction of the geometry, and
+        // they say the thing a wall does not: somebody lives here and does something
+        // all day.
+        //
+        // Not all of them. Some ground stays open, because a place where every
+        // square metre is used reads as a diagram of a place. `LOTS_LEFT_OPEN` is the
+        // share kept as breathing room, and it is deliberate rather than left over.
+        for (nth, index) in (0..plots.len())
+            .filter(|i| !taken.contains(i) && !keep_always.contains(i))
+            .enumerate()
+        {
+            if unit(seed.wrapping_add(index as u32 * 613), 41) < LOTS_LEFT_OPEN {
+                continue;
+            }
+            let mut yard = plots[index];
+            yard.what = Building::yard_for(yard.district, site.city, nth);
+            kept.push(yard);
         }
         plots = kept;
     }
@@ -1572,6 +1687,13 @@ fn mix_the_road_surface(mut commands: Commands, mut materials: ResMut<Assets<cra
     }));
     commands.insert_resource(RoadSurface(surface));
 }
+
+/// The share of unbuilt lots left as open ground.
+///
+/// Deliberate breathing room rather than what was left over. A place where every
+/// square metre is in use reads as a diagram of a place, and the gaps are what make
+/// the used ground read as used.
+const LOTS_LEFT_OPEN: f32 = 0.28;
 
 /// How much room the guild hall is given, in metres.
 ///
@@ -1979,6 +2101,10 @@ impl Plot {
     /// The front wall comes in two pieces with the doorway between them, which is
     /// what makes the building enterable. Everything else is one slab a side.
     pub fn walls(&self) -> Vec<(Vec2, Vec2, f32)> {
+        // A yard is walked into, not entered. Nothing here to refuse a step.
+        if self.what.is_yard() {
+            return Vec::new();
+        }
         let half = self.what.footprint() * 0.5;
         let (sin, cos) = self.facing.sin_cos();
         let out = |local: Vec2| {
@@ -2297,6 +2423,11 @@ mod tests {
                     Building::MarketCross | Building::Well | Building::Monument => {
                         [240, 122, 96]
                     }
+                    // The yards, in a muted green so a plan reads at a glance as
+                    // built ground against used ground.
+                    Building::Garden | Building::Pen => [122, 158, 104],
+                    Building::WorkYard | Building::StoreYard => [138, 132, 106],
+                    Building::Stall => [190, 168, 112],
                 };
                 let half = plot.what.footprint() * 0.5;
                 let (sin, cos) = plot.facing.sin_cos();
@@ -2577,10 +2708,16 @@ mod tests {
                 .or_insert(0usize) += 1;
         }
 
+        // Of the BUILDINGS in a district, not of everything standing in it.
+        //
+        // Yards went into `plots` when the empty lots were given a use, and they
+        // went straight into this denominator with them - so a market district whose
+        // towers were unchanged reported its share of them falling from a third to a
+        // ninth. Nothing about the districts had moved; the question had.
         let share = |district: District, what: Building| {
             let here: usize = counts
                 .iter()
-                .filter(|((d, _), _)| *d == district)
+                .filter(|((d, w), _)| *d == district && !w.is_yard())
                 .map(|(_, n)| *n)
                 .sum();
             let this = counts.get(&(district, what)).copied().unwrap_or(0);
