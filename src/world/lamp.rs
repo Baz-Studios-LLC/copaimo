@@ -21,6 +21,8 @@
 //! looked at.
 
 use bevy::prelude::*;
+use std::collections::HashMap;
+use std::sync::LazyLock;
 use bevy::scene::SceneRoot;
 
 use crate::world::StreamAnchor;
@@ -162,10 +164,12 @@ const AWAKE_WITHIN: f32 = 900.0;
 /// What share of a city's storeys have somebody in at night.
 const AWAKE_SHARE: f32 = 0.34;
 
-/// A storey, floor to floor, in each age of the world - `FLOOR_TALL` and `STOREY`
-/// in `dev/art/town.py`.
+/// A city storey, floor to floor - `FLOOR_TALL` in `dev/art/town.py`.
+///
+/// The old world's storey used to be here beside it and is gone: nothing in this
+/// file works out where an old-world window is any more, so nothing needs to know
+/// how tall its floors are. See `WINDOWS`.
 const FLOOR_TALL: f32 = 3.4;
-const STOREY: f32 = 3.6;
 
 /// How far up a tower's glazing starts - it spends its ground floor on a lobby.
 const LOBBY: f32 = FLOOR_TALL * 1.5;
@@ -175,8 +179,76 @@ const LOBBY: f32 = FLOOR_TALL * 1.5;
 const PROUD: f32 = 0.02;
 
 /// How wide and tall a cottage's window is, in metres, and how far up its storey.
-const PANE: Vec2 = Vec2::new(0.9, 1.15);
-const PANE_UP: f32 = 1.7;
+/// What `dev/art/town.py` measured off the buildings it built.
+///
+/// Compiled in rather than loaded: it is a few kilobytes, every consumer wants it
+/// before the first frame, and `include_str!` makes cargo rebuild when it changes -
+/// so the table and the models cannot get out of step in a build that succeeded.
+const TOWN_CONTRACT: &str = include_str!("../../assets/models/town.txt");
+
+/// One window in a building, where the model actually has one.
+pub(crate) struct Pane {
+    /// Which floor it lights, so a lit room lights all of its own windows.
+    pub storey: usize,
+    /// Where it sits, in the building's own frame, already stood proud of the wall.
+    pub at: Vec3,
+    /// How big the glass is.
+    pub size: Vec3,
+}
+
+/// Every figure's windows, keyed by the name it is built under.
+///
+/// # The game was working these out for itself
+///
+/// It placed lit panes from the building's LOT FOOTPRINT - two across the front at
+/// 24 % of the width, one halfway down each flank, on a 0.9 x 1.15 pane at 1.7 m -
+/// and not one of those numbers was true of any building in the world. The lot is
+/// not the building: it is what the building keeps clear on the ground, and it is
+/// bigger. `storeys` claimed a cottage had two, and a cottage has one, so half its
+/// windows were lit at 5.3 m on a wall that stops at 3.6.
+///
+/// From a distance that reads as a village with its lights on. Close up it is
+/// rectangles glowing on blank plaster and two more hanging in the air beside a
+/// chimney, which is what a photograph of a village after dark showed the moment
+/// anybody took one.
+///
+/// So the windows are measured off the glass in Blender and read here. The game no
+/// longer has an opinion about where a window is; it only decides which are lit.
+///
+/// Found by Codex, reviewing for facts this codebase states twice.
+static WINDOWS: LazyLock<HashMap<&'static str, Vec<Pane>>> = LazyLock::new(|| {
+    let mut found: HashMap<&'static str, Vec<Pane>> = HashMap::new();
+    for line in TOWN_CONTRACT.lines() {
+        let Some(rest) = line.strip_prefix("WINDOW ") else {
+            continue;
+        };
+        let mut word = rest.split_whitespace();
+        let Some(figure) = word.next() else {
+            continue;
+        };
+        let said: Vec<f32> = word.filter_map(|number| number.parse().ok()).collect();
+        let [storey, x, y, z, wide, tall, deep] = said[..] else {
+            continue;
+        };
+        found.entry(figure).or_default().push(Pane {
+            storey: storey as usize,
+            at: Vec3::new(x, y, z),
+            size: Vec3::new(wide, tall, deep),
+        });
+    }
+    found
+});
+
+/// The windows of a figure, and how many floors they are spread over.
+///
+/// Written down in one place because both are the same question asked twice, and
+/// the answer used to be a constant that disagreed with the models.
+pub(crate) fn windows_of(what: crate::world::town::Building) -> Option<(&'static [Pane], usize)> {
+    let panes = WINDOWS.get(what.figure())?;
+    // Sorted by storey where they were measured, so the last one has the highest.
+    let storeys = panes.last().map_or(0, |pane| pane.storey + 1);
+    (storeys > 0).then_some((panes.as_slice(), storeys))
+}
 
 /// What the two ages burn.
 ///
@@ -513,7 +585,13 @@ pub fn light_the_windows(
         .clone();
 
     for (entity, at, standing) in &towers {
-        let Some(storeys) = standing.what.storeys() else {
+        // What this building's windows are. A curtain wall's are a band a storey and
+        // the game lays them out; everything else has real windows in real walls, and
+        // where those are is the model's business rather than this file's.
+        let measured = windows_of(standing.what);
+        let Some(storeys) = standing.what.facade().map(|(_, _, floors)| floors).or(
+            measured.map(|(_, storeys)| storeys),
+        ) else {
             continue;
         };
         if at.translation().distance(here) > AWAKE_WITHIN {
@@ -522,7 +600,6 @@ pub fn light_the_windows(
         commands.entity(entity).insert(LitTonight);
 
         let foot = at.translation();
-        let footprint = standing.what.footprint();
         // Which storeys are in, from where the building STANDS - so a tower keeps
         // its own pattern however often it is streamed in and out.
         let seed = foot.x.to_bits() ^ foot.z.to_bits() ^ (night as u32).wrapping_mul(2_654_435_761);
@@ -586,23 +663,15 @@ pub fn light_the_windows(
                     }
                     panes
                 } else {
-                    // The old world hangs its windows on the walls the footprint
-                    // describes, which for a cottage IS the building.
-                    let z = storey as f32 * STOREY + PANE_UP;
-                    // Two panes across the front and one down each flank - a lit
-                    // room shows at whichever window somebody is standing near.
-                    let mut panes = Vec::new();
-                    for side in [-1.0_f32, 1.0] {
-                        panes.push((
-                            Vec3::new(PANE.x, PANE.y, 0.06),
-                            Vec3::new(side * footprint.x * 0.24, z, -footprint.y * 0.5 - 0.04),
-                        ));
-                        panes.push((
-                            Vec3::new(0.06, PANE.y, PANE.x),
-                            Vec3::new(side * (footprint.x * 0.5 + 0.04), z, 0.0),
-                        ));
-                    }
+                    // THE WINDOWS THE MODEL ACTUALLY HAS, on the storey that is in.
+                    let Some((panes, _)) = measured else {
+                        continue;
+                    };
                     panes
+                        .iter()
+                        .filter(|pane| pane.storey == storey)
+                        .map(|pane| (pane.size, pane.at))
+                        .collect()
                 };
                 for (size, at) in panes {
                     on.spawn((

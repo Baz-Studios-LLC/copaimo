@@ -1731,6 +1731,68 @@ def doorways_in(solids):
     return [(middle, clear) for middle, clear in ways if clear > 0.6]
 
 
+# How far proud of the wall's own face a lit pane sits, in metres.
+#
+# The glass is built in the MIDDLE of the wall, so a pane at the glass's own place
+# would be buried in plaster. Half the wall clears its face and the rest is the
+# margin that stops the two z-fighting.
+PANE_PROUD = 0.03
+
+
+def windows_in(parts):
+    """Every window in a figure, measured off the glass it actually built.
+
+    # Why the game cannot work these out for itself
+
+    It was doing exactly that. `light_the_windows` placed its lit panes from the
+    building's LOT FOOTPRINT - two on the front at 24 % of the width, one halfway
+    down each flank - and the lot is not the building: it is what the building keeps
+    clear on the ground, and it is bigger. So the panes stood beside the windows
+    rather than in them, and the flank ones floated out in the air where the wall
+    is not.
+
+    That is the same fault as the flower boxes that hung at 31 % of the width while
+    the windows were at 41 %, and the same fault as the chimney that stood two and a
+    half metres from its fire: one fact, worked out twice, in two places that never
+    met. It was invisible until somebody looked at a village after dark.
+
+    So the windows are MEASURED here, off the glass, and the game is told. A window
+    is a `glass` box; its thin axis is the wall it sits in and the way it faces.
+
+    Returned in the GAME's frame, not Blender's, because that is what the game will
+    place children in and one conversion in one place is the whole point. Blender
+    (x, y, z) arrives as (x, z, -y) - the same turn `DOOR_ON_BLENDER_Y` describes.
+    """
+    found = []
+    for obj, colour in parts:
+        if colour != "glass":
+            continue
+        points = [obj.matrix_world @ v.co for v in obj.data.vertices]
+        low = (min(p.x for p in points), min(p.y for p in points), min(p.z for p in points))
+        high = (max(p.x for p in points), max(p.y for p in points), max(p.z for p in points))
+        size = [high[axis] - low[axis] for axis in range(3)]
+        at = [(low[axis] + high[axis]) * 0.5 for axis in range(3)]
+
+        # The thin axis is the one through the wall, so it says which wall this is.
+        across = 0 if size[0] < size[1] else 1
+        # And out of it, away from the middle of the building.
+        way = 1.0 if at[across] > 0.0 else -1.0
+        at[across] += way * (WALL * 0.5 + PANE_PROUD)
+
+        # Which storey it lights, from the height of its sill.
+        storey = int(max(0.0, low[2]) // STOREY)
+
+        found.append(
+            (
+                storey,
+                (at[0], at[2], -at[1]),
+                (size[0], size[2], size[1]),
+            )
+        )
+    found.sort()
+    return found
+
+
 def every_doorway():
     """Measures the front door of every figure that has one.
 
@@ -1760,7 +1822,7 @@ def every_doorway():
 game leaves its collision gap centred - see DOOR_CLEAR in src/world/town.rs"
         assert clear > DOOR_WIDE - 0.4, \
             f"{name}'s doorway is only {clear:.3f} m clear"
-        found.append((name, middle, clear))
+        found.append((name, middle, clear, windows_in(parts)))
     return found
 
 
@@ -1841,9 +1903,17 @@ def measure_the_cottage(hearth_left=True):
 def write_the_plan(note, plan, door, clear):
     """The cottage's plan, in the units the game measures its lots in."""
     note.write(f"DOORWAY cottage {door:.4f} {clear:.4f}\n")
-    for name, middle, wide in DOORWAYS:
+    for name, middle, wide, _ in DOORWAYS:
         if name != "cottage":
             note.write(f"DOORWAY {name} {middle:.4f} {wide:.4f}\n")
+    # AND EVERY WINDOW, so the game can light the glass rather than the plaster.
+    for name, _, _, windows in DOORWAYS:
+        for storey, at, size in windows:
+            note.write(
+                f"WINDOW town_{name} {storey} "
+                f"{at[0]:.4f} {at[1]:.4f} {at[2]:.4f} "
+                f"{size[0]:.4f} {size[1]:.4f} {size[2]:.4f}\n"
+            )
     for name in ("inner", "route", "alcove", "apron", "bed_rect", "table_rect"):
         x0, y0, x1, y1 = plan[name]
         note.write(f"COTTAGE {name.upper()} {x0:.4f} {y0:.4f} {x1:.4f} {y1:.4f}\n")
@@ -1863,8 +1933,11 @@ def write_the_plan(note, plan, door, clear):
 COTTAGE_PLAN, COTTAGE_DOOR, COTTAGE_CLEAR = measure_the_cottage(True)
 measure_the_cottage(False)
 DOORWAYS = every_doorway()
-for _name, _middle, _clear in DOORWAYS:
-    print(f"MEASURED {_name:11} doorway {_clear:.3f} m clear at {_middle:+.3f}")
+for _name, _middle, _clear, _windows in DOORWAYS:
+    print(
+        f"MEASURED {_name:11} doorway {_clear:.3f} m clear at {_middle:+.3f}, "
+        f"{len(_windows)} windows on {len({w[0] for w in _windows})} storeys"
+    )
 
 
 # Which way the doorway faces, written where the game can read it.

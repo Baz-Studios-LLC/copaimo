@@ -593,18 +593,31 @@ impl Building {
     /// Measured off the exported models, like the footprints, and kept in step with
     /// `FLOOR_TALL` in `dev/art/town.py`. Only the city knows: the old world's
     /// buildings have windows placed one at a time rather than a band a storey.
+    /// How many GLAZED storeys a curtain-walled figure has.
+    ///
+    /// # It used to answer for the old world too, and it was wrong
+    ///
+    /// It said a cottage had two. A cottage has one - `shell` is called with one
+    /// storey - so the lamps lit a second floor's worth of windows at 5.3 m on a wall
+    /// that stops at 3.6, out in the air above the eaves. The shop and the guild hall
+    /// were wrong as well, in both directions.
+    ///
+    /// Nothing asks now: an old-world building's windows are measured off the model
+    /// and read from `town.txt` - see `world::lamp::WINDOWS` - and the number of
+    /// floors comes from the windows themselves. This delegates to `facade` rather
+    /// than repeating its third field, so the one number left cannot drift either.
     pub fn storeys(self) -> Option<usize> {
-        match self {
-            // 19.7 m, 37.6 m and 57.1 m over a 3.4 m floor, less their crowns.
-            Building::CityBlock => Some(4),
-            Building::CityTower => Some(8),
-            Building::CitySpire => Some(13),
-            // The old world, on its own 3.6 m storey. Two floors each, which is what
-            // these are built with - see `shell` in `dev/art/town.py`.
-            Building::Cottage | Building::Townhouse | Building::Shop => Some(2),
-            Building::GuildHall => Some(2),
-            _ => None,
-        }
+        self.facade().map(|(_, _, floors)| floors)
+    }
+
+    /// The name `dev/art/town.py` builds this under, which is how the measured
+    /// contract in `assets/models/town.txt` is keyed.
+    ///
+    /// Taken off `model` rather than written out again.
+    pub fn figure(self) -> &'static str {
+        self.model()
+            .trim_start_matches("models/")
+            .trim_end_matches(".glb")
     }
 
     /// Whether its windows come as a band of glass a storey or as separate panes.
@@ -4159,11 +4172,8 @@ mod doorstep {
                 "{name} has {} glazed storeys and the game lights {storeys}",
                 said[2],
             );
-            assert_eq!(
-                what.storeys(),
-                Some(storeys),
-                "{name} disagrees with itself about how many storeys it has",
-            );
+            // `storeys` used to be a second list of these numbers and is now the
+            // same one, so there is nothing left here to disagree.
         }
     }
 
@@ -4442,6 +4452,101 @@ mod doorstep {
             "the way in is {:.2} m across and the door is {clear:.2} m wide",
             route[2] - route[0],
         );
+    }
+
+
+    /// The windows the game lights are the windows the model has.
+    ///
+    /// # Two measurements of one thing, taken apart
+    ///
+    /// `dev/art/town.py` works out where the cottage's windows go from its bay grid,
+    /// writes that into the plan, and separately MEASURES the glass it ended up
+    /// building and writes that too. Those are independent: the first is what the
+    /// plan intended and the second is what came out of the mesh.
+    ///
+    /// Comparing them is the only check here that is not a number against itself.
+    /// The game cannot verify a window position on its own - it has no idea where
+    /// the glass is, which is precisely why it used to invent one and light the
+    /// plaster instead.
+    #[test]
+    fn the_lit_panes_are_where_the_glass_is() {
+        let plan = Plan::read();
+        let (panes, _) = crate::world::lamp::windows_of(Building::Cottage)
+            .expect("the cottage's windows to be measured - run dev/art/build.sh");
+
+        // Blender builds Z-up and the export turns it Y-up: a window at Blender
+        // (x, y) arrives at game (x, _, -y). It is also stood a little proud of the
+        // wall on the way out, which is the only difference allowed.
+        for (name, wall) in [("FRONT_WINDOW", -1.0_f32), ("ALCOVE_WINDOW", 1.0)] {
+            for want in plan.every(name) {
+                let landed = panes
+                    .iter()
+                    .find(|pane| (pane.at.x - want.x).abs() < 1.0e-3
+                        && (pane.at.z + want.y).abs() < 0.2)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "the plan puts a {name} at {want:?} and no glass was built there - \
+                             the panes are at {:?}",
+                            panes.iter().map(|pane| pane.at).collect::<Vec<_>>(),
+                        )
+                    });
+                let proud = (landed.at.z.abs() - want.y.abs()) * wall.signum();
+                assert!(
+                    (0.0..0.1).contains(&proud.abs()),
+                    "the {name} pane stands {proud:.3} m off its own wall",
+                );
+            }
+        }
+    }
+
+    /// And none of them hangs off the end of the building.
+    ///
+    /// # What this is allowed to claim
+    ///
+    /// It is not a strong check and it must not pretend to be: a pane can be on the
+    /// right wall and still in the wrong place along it, which is exactly what the old
+    /// code did. The conversion between Blender's frame and the game's is guarded by
+    /// `the_lit_panes_are_where_the_glass_is` above, which has two measurements to
+    /// compare. This has one, and the only thing it can say for certain is that a
+    /// window is not somewhere the building is not.
+    ///
+    /// It cannot even say a window is ON a wall. It tried, and the guild hall failed
+    /// it: its tower is set back well inside the hall's footprint and carries its own
+    /// windows fifteen metres up. That is a building with inner walls, which
+    /// `footprint` knows nothing about.
+    /// How far past its ground footprint a wall is allowed to carry a window.
+    ///
+    /// Generous, and it has to be: the townhouse's upper storey is JETTIED - it
+    /// oversails the floor below by 28 cm, which is most of what makes it read as a
+    /// town house rather than a two-storey box - so its first-floor windows sit
+    /// genuinely outside the ground the building stands on. This caught that on its
+    /// first run, which is the right answer to the wrong question.
+    ///
+    const OVERSAILS: f32 = 0.45;
+
+    #[test]
+    fn every_lit_pane_stands_on_a_wall_of_its_own_building() {
+        for what in Building::ALL {
+            let Some((panes, storeys)) = crate::world::lamp::windows_of(what) else {
+                continue;
+            };
+            let half = what.footprint() * 0.5;
+            for pane in panes {
+                assert!(
+                    pane.storey < storeys,
+                    "{what:?} has a window on storey {} of {storeys}",
+                    pane.storey,
+                );
+                // The glass sits in a wall, so one of the two horizontal distances
+                // has to be the wall's own face, and neither may be past it.
+                let out = Vec2::new(pane.at.x.abs() - half.x, pane.at.z.abs() - half.y);
+                assert!(
+                    out.x < OVERSAILS && out.y < OVERSAILS,
+                    "{what:?} has a window at {:?}, off the end of a {half:?} footprint",
+                    pane.at,
+                );
+            }
+        }
     }
 
     /// A rear opening, if the cottage ever gets one, has to reach the yard.
