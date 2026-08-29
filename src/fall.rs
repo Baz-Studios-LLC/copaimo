@@ -243,6 +243,7 @@ fn let_it_fall(
         &mut Visibility,
         &mut MeshMaterial3d<StandardMaterial>,
     )>,
+    mut resting: Local<bool>,
 ) {
     let Some(skin) = skin else {
         return;
@@ -253,12 +254,35 @@ fn let_it_fall(
 
     // Clear weather costs one early return and eight hundred entities sitting
     // hidden, which is what the pool is for.
+    //
+    // # It cost rather more than that
+    //
+    // It hid all eight hundred EVERY FRAME. Assigning through a `Mut` marks the
+    // component changed whether or not the value moved, so a clear day wrote 800
+    // change ticks a frame - 48,000 a second - to say nothing had happened, and
+    // every system that watches visibility had to look at them.
+    //
+    // So the pool is put down once and then left alone. `resting` is the whole of
+    // it: hidden already, nothing to do. What makes that safe is that the drops are
+    // spawned hidden in `stock_the_sky`, so the state this remembers is true from
+    // the first frame rather than only after the first clear one - and the compare
+    // before the assignment below means an entity that was already hidden is not
+    // touched even on the transition.
+    //
+    // Found by Codex's audit.
     if weather.falling == Falling::Nothing || weather.fall <= 0.0 {
-        for (_, _, mut seen, _) in &mut drops {
-            *seen = Visibility::Hidden;
+        if *resting {
+            return;
         }
+        for (_, _, mut seen, _) in &mut drops {
+            if *seen != Visibility::Hidden {
+                *seen = Visibility::Hidden;
+            }
+        }
+        *resting = true;
         return;
     }
+    *resting = false;
 
     let at = eye.translation();
     let seconds = time.elapsed_secs();
@@ -278,11 +302,17 @@ fn let_it_fall(
     let along = Vec3::new(lean.x, -1.0, lean.y).normalize();
 
     for (index, (drop, mut place, mut seen, mut wears)) in drops.iter_mut().enumerate() {
+        // Above the count, and below it: written only when the answer changes. The
+        // boundary moves as the rain hardens, so most frames touch neither end.
         if index >= showing {
-            *seen = Visibility::Hidden;
+            if *seen != Visibility::Hidden {
+                *seen = Visibility::Hidden;
+            }
             continue;
         }
-        *seen = Visibility::Visible;
+        if *seen != Visibility::Visible {
+            *seen = Visibility::Visible;
+        }
         if wears.0 != want {
             wears.0 = want.clone();
         }
@@ -329,7 +359,110 @@ mod tests {
         }
     }
 
-#[test]
+
+    /// A clear sky stops touching the drops, and starts again when it rains.
+    ///
+    /// # Why this runs the real system
+    ///
+    /// The change it guards is an early return, and an early return is exactly the
+    /// kind of thing that is correct in the steady state and wrong on the edges: a
+    /// pool left visible when the rain stops, or left hidden when it starts. So this
+    /// drives `let_it_fall` itself through both transitions and counts what it
+    /// actually writes, rather than testing a copy of its condition.
+    ///
+    /// Bevy's own change detection is the instrument. `Ref::is_changed` is true for
+    /// a component written since the counting system last ran, which is precisely
+    /// "did the drop get touched this frame".
+    #[test]
+    fn a_settled_sky_is_left_alone() {
+        #[derive(Resource, Default)]
+        struct Touched(usize);
+
+        fn count_touched(mut touched: ResMut<Touched>, drops: Query<Ref<Visibility>, With<Drop>>) {
+            touched.0 = drops.iter().filter(|seen| seen.is_changed()).count();
+        }
+
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<Touched>()
+            .init_resource::<TheWeather>()
+            .insert_resource(FallSkin {
+                rain: Handle::default(),
+                snow: Handle::default(),
+            })
+            .add_systems(Update, (let_it_fall, count_touched).chain());
+        app.world_mut().spawn((Camera3d::default(), GlobalTransform::default()));
+        // Spawned SHOWING, so a pass that does nothing is visibly different from a
+        // pass that hides them.
+        for step in 0..8 {
+            app.world_mut().spawn((
+                a_drop(step as f32, step as f32 * 0.1),
+                Transform::default(),
+                Visibility::Visible,
+                MeshMaterial3d::<StandardMaterial>(Handle::default()),
+            ));
+        }
+
+        let touched = |app: &App| app.world().resource::<Touched>().0;
+
+        // The first pass hides them; spawning marks everything changed anyway, so
+        // nothing is claimed about it.
+        app.update();
+        app.update();
+        assert_eq!(touched(&app), 0, "a clear sky went on writing to the drops");
+
+        {
+            let mut sky = app.world_mut().resource_mut::<TheWeather>();
+            sky.falling = Falling::Rain;
+            sky.fall = 1.0;
+        }
+        app.update();
+        assert_eq!(touched(&app), 8, "the rain did not bring the drops back");
+        // And having brought them back it leaves their visibility alone. This is the
+        // path that runs every frame it rains, so the comparison before the
+        // assignment matters more here than on either transition.
+        app.update();
+        assert_eq!(touched(&app), 0, "falling rain rewrites every drop's visibility");
+
+        {
+            let mut sky = app.world_mut().resource_mut::<TheWeather>();
+            sky.falling = Falling::Nothing;
+            sky.fall = 0.0;
+        }
+        app.update();
+        assert_eq!(touched(&app), 8, "the drops were left hanging when the rain stopped");
+        app.update();
+        assert_eq!(touched(&app), 0, "the cleared sky went back to writing every frame");
+
+        // AND IT IS NOT LOOKING EITHER.
+        //
+        // Counting writes cannot tell a system that skipped its loop from one that
+        // ran it and found nothing to change - taking the gate out entirely left
+        // this test green, which is a hole in the test and not a virtue of the
+        // change. So: show one drop from outside while the sky is clear. A system
+        // that is still iterating would put it straight back down; a settled one
+        // does not look at all.
+        //
+        // That also writes down the contract the gate depends on. The pool belongs
+        // to `let_it_fall`. Nothing else may set a drop visible, and if anything ever
+        // needs to, it has to clear the resting state with it.
+        let shown = app
+            .world_mut()
+            .query_filtered::<Entity, With<Drop>>()
+            .iter(app.world())
+            .next()
+            .expect("a drop to show");
+        *app.world_mut().get_mut::<Visibility>(shown).expect("its visibility") =
+            Visibility::Visible;
+        app.update();
+        assert_eq!(
+            *app.world().get::<Visibility>(shown).expect("its visibility"),
+            Visibility::Visible,
+            "a settled sky is still walking its whole pool every frame",
+        );
+    }
+
+    #[test]
     fn a_drop_is_never_seen_edge_on() {
         // The fault this catches is a shower that half disappears depending on
         // which way you look, which is what a pitched-but-unyawed quad does.
