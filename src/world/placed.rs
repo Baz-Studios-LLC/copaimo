@@ -255,9 +255,28 @@ pub fn read(json: &str) -> Result<Standing, String> {
 
 #[cfg(feature = "tools")]
 pub fn write(standing: &Standing) -> String {
+    // BACK OUT OF THE WORLD, because `read` scaled into it.
+    //
+    // `read` multiplies every position by `WORLD_GREW`, so that a sheet authored on
+    // the 8,192 m world lands correctly on the 12,288 m one. Writing what is in
+    // memory straight back out did not undo that: read then write moved everything
+    // half as far out again, and again on the next save, so a maker who opened the
+    // ranch in the tool and saved it walked it off the map in three sittings.
+    //
+    // The file stays the authored artefact - positions in the world it was drawn on
+    // - and the scaling stays where it was always meant to be, at the boundary, in
+    // both directions. `a_sheet_survives_the_round_trip` is the guard, and it was
+    // red for as long as this was wrong.
     let sheet = Sheet {
         format: FORMAT,
-        placed: standing.things.clone(),
+        placed: standing
+            .things
+            .iter()
+            .map(|thing| Placed {
+                at: thing.at / crate::config::WORLD_GREW,
+                ..thing.clone()
+            })
+            .collect(),
     };
     // Pretty, because the whole point of this being JSON is that somebody can
     // open it.

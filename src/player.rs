@@ -486,7 +486,10 @@ impl Plugin for PlayerPlugin {
             .add_systems(
                 Update,
                 (
-                    move_player,
+                    // Not while the map is up. The map covers the screen, so a
+                    // player walking behind it is walking blind - and walking into
+                    // water they cannot see.
+                    move_player.run_if(not(crate::map::is_open)),
                     // The clips: asked for on the way in, found when the file
                     // arrives, handed to each player the scene brings in.
                     crate::motion::find_the_clips.run_if(crate::motion::still_waiting),

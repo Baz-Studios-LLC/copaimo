@@ -172,8 +172,12 @@ impl Plugin for CameraPlugin {
             .add_systems(
                 Update,
                 (
-                    set_fly_speed,
-                    orbit_input,
+                    // Camera INPUT stops while the map is up - it is a screen you
+                    // read, not a window you steer behind. `drive_camera` keeps
+                    // running, so the view is where it was when the map closes
+                    // rather than snapping.
+                    set_fly_speed.run_if(not(crate::map::is_open)),
+                    orbit_input.run_if(not(crate::map::is_open)),
                     // Runs after the warden has moved this frame, so the camera
                     // never trails a frame behind them.
                     drive_camera.after(move_player),

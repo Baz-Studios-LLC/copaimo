@@ -27,10 +27,6 @@ use crate::world::chart::{dimensions, paint, WIDTH};
 /// Without this it would queue a rebuild on every frame of a drag.
 const QUIET_PERIOD: f32 = 1.2;
 
-/// How far across the heading needle's wrapper is, in pixels. The bar itself is
-/// half of it, standing up from the middle.
-const HEADING_SPAN: f32 = 26.0;
-
 #[derive(Resource, Default)]
 struct Minimap {
     /// How many cells any layer had painted at the last redraw, added together.
@@ -155,41 +151,15 @@ fn spawn_panel(mut commands: Commands, font: Res<UiFont>, terrain: Res<TerrainSo
                             ..default()
                         },
                     ));
-                    frame.spawn((
+                    // The needle is the shared one - see `chart::needle`. The
+                    // part that is easy to get wrong is the bearing, which has
+                    // three reversals in it and looks right in either direction
+                    // until you turn round and check, so it is written once.
+                    crate::world::chart::needle(
+                        frame,
                         MinimapHeading,
-                        Node {
-                            position_type: PositionType::Absolute,
-                            // Square and centred on the marker, so rotating it
-                            // rotates about where the camera actually is.
-                            width: Val::Px(HEADING_SPAN),
-                            height: Val::Px(HEADING_SPAN),
-                            margin: UiRect {
-                                left: Val::Px(-HEADING_SPAN * 0.5),
-                                top: Val::Px(-HEADING_SPAN * 0.5),
-                                ..default()
-                            },
-                            ..default()
-                        },
-                    ))
-                    .with_children(|wrap| {
-                        // The bar itself, standing up from the middle. Pointing
-                        // north at rest, which is up on a map drawn north-up.
-                        wrap.spawn((
-                            Node {
-                                position_type: PositionType::Absolute,
-                                left: Val::Percent(50.0),
-                                top: Val::Px(0.0),
-                                width: Val::Px(2.0),
-                                height: Val::Px(HEADING_SPAN * 0.5),
-                                margin: UiRect {
-                                    left: Val::Px(-1.0),
-                                    ..default()
-                                },
-                                ..default()
-                            },
-                            BackgroundColor(Color::srgba(1.0, 0.30, 0.35, 0.85)),
-                        ));
-                    });
+                        Color::srgba(1.0, 0.30, 0.35, 0.85),
+                    );
                     frame.spawn((
                         MinimapMarker,
                         Node {
@@ -385,8 +355,7 @@ fn place_marker(
     // Rotating about Z in UI space turns +X toward +Y, and UI's +Y is DOWN the
     // screen — so a positive angle reads clockwise, which is the same sense as the
     // bearing and needs no minus sign.
-    let facing = camera.forward();
-    let bearing = facing.x.atan2(-facing.z);
+    let bearing = crate::world::chart::bearing_of(camera.forward().into());
     for (mut node, mut turn) in &mut headings {
         node.left = Val::Percent(u * 100.0);
         node.top = Val::Percent(v * 100.0);

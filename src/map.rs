@@ -13,7 +13,8 @@
 //! The painting lives in `world::chart` and both maps ask for it, because two maps
 //! drawn by two pieces of code are two maps that disagree the first time one of them
 //! is changed. What this adds on top is a player's business rather than a maker's:
-//! where the warden is standing, which way he is facing, and the NAMES of the places
+//! where the warden is standing, which way the view is pointed, and the NAMES of the
+//! places
 //! - a mark on a map you cannot name is a mark you cannot ask anybody about.
 //!
 //! # Painted once, on a background thread
@@ -39,6 +40,8 @@ const FILLS: f32 = 0.86;
 const BEHIND: Color = Color::srgba(0.02, 0.03, 0.05, 0.72);
 const INK: Color = Color::srgb(0.93, 0.92, 0.88);
 const FAINT: Color = Color::srgb(0.66, 0.65, 0.62);
+/// The panel shown while the world is still being painted.
+const WAITING: Color = Color::srgba(0.08, 0.10, 0.14, 0.92);
 /// What a place name is written on, so it reads over snow as well as over grass.
 const LABEL_BEHIND: Color = Color::srgba(0.05, 0.06, 0.09, 0.66);
 /// The warden's own mark. Nothing else on the map is this colour.
@@ -49,7 +52,44 @@ const YOU: Color = Color::srgb(0.98, 0.36, 0.30);
 struct Chart {
     image: Option<Handle<Image>>,
     size: UVec2,
-    asked: bool,
+    /// Whether a painting is in flight, so two are never started.
+    painting: bool,
+    /// The state of the world the image in hand was painted from.
+    ///
+    /// Not a bool. It was one - painted once and kept forever - and in a maker's
+    /// build that is wrong: open the map, go into the terrain tool, move a
+    /// coastline, come back, and the map still shows the world as it was. One
+    /// painting has to mean one state of the world.
+    painted_at: Option<usize>,
+    /// The state it is being painted from right now.
+    painting_at: usize,
+}
+
+/// How much of the world has been shaped, as a number that changes when it does.
+///
+/// The same two counters the terrain tool's overview watches to know when to redraw
+/// itself, and for the same reason.
+#[cfg(feature = "tools")]
+fn how_the_world_stands(terrain: &TerrainSource) -> usize {
+    let ground = terrain.edits().read().map(|edits| edits.sculpted_cells());
+    let marked = terrain.countries().read().map(|them| them.painted_cells());
+    match (ground, marked) {
+        (Ok(ground), Ok(marked)) => ground + marked,
+        // A locked layer is not a new world. Saying so would repaint on a frame
+        // that happened to catch the lock.
+        _ => usize::MAX,
+    }
+}
+
+/// In a shipped game the world cannot be reshaped, so it always stands the same way
+/// and the first painting is good for the whole session.
+///
+/// The sculpt and paint counters this reads in a maker's build are themselves behind
+/// `tools` - they are the terrain editor's layers - so this is not a shortcut but the
+/// only answer available.
+#[cfg(not(feature = "tools"))]
+fn how_the_world_stands(_terrain: &TerrainSource) -> usize {
+    0
 }
 
 /// Whether the map is up.
@@ -60,14 +100,40 @@ struct Chart {
 #[derive(Resource, Default)]
 pub struct Open(pub bool);
 
+/// Whether the map is up, as a run condition.
+///
+/// `Option`, so a build or a test that never adds `MapPlugin` still answers "no"
+/// rather than panicking on a resource that was never inserted.
+pub fn is_open(open: Option<Res<Open>>) -> bool {
+    open.is_some_and(|open| open.0)
+}
+
+/// The map on screen, and whether the painting had arrived when it was raised.
+///
+/// Kept on the marker so the shell can go up before the painting is ready and be
+/// rebuilt the moment it lands.
 #[derive(Component)]
-struct MapRoot;
+struct MapRoot {
+    painted: bool,
+}
 
 #[derive(Component)]
 struct MapImage;
 
 #[derive(Component)]
 struct YouAreHere;
+
+/// The needle that says which way the view is pointed.
+///
+/// # Whose facing, explicitly
+///
+/// The CAMERA'S, not the warden's. The two differ while you orbit, and this is the
+/// one worth drawing: walking is camera-relative, so the direction the view is
+/// pointed is the direction "forward" will take you. A needle showing the warden's
+/// own facing would swing about while the player stood still turning the camera to
+/// get their bearings, which is exactly when a map is being read.
+#[derive(Component)]
+struct Heading;
 
 #[derive(Component)]
 struct Painting(Task<(UVec2, Vec<u8>)>);
@@ -92,10 +158,15 @@ fn start_painting(
     terrain: Res<TerrainSource>,
     mut chart: ResMut<Chart>,
 ) {
-    if !open.0 || chart.asked {
+    if !open.0 || chart.painting {
         return;
     }
-    chart.asked = true;
+    let now = how_the_world_stands(&terrain);
+    if now == usize::MAX || chart.painted_at == Some(now) {
+        return;
+    }
+    chart.painting = true;
+    chart.painting_at = now;
     let size = dimensions(terrain.half());
     let generator = terrain.0.clone();
     commands.spawn(Painting(
@@ -114,6 +185,8 @@ fn collect_painting(
             continue;
         };
         commands.entity(entity).despawn();
+        chart.painting = false;
+        chart.painted_at = Some(chart.painting_at);
         chart.size = size;
         chart.image = Some(images.add(Image::new(
             Extent3d {
@@ -130,6 +203,12 @@ fn collect_painting(
 }
 
 /// Puts the map on screen, and takes it off again.
+/// Puts the map on screen, and takes it off again.
+///
+/// The shell goes up the moment M is pressed, whether or not the world has been
+/// painted yet - the first press starts a background painting, and on a slow machine
+/// a map that shows nothing until it finishes looks like a key that did not work. It
+/// is rebuilt once when the painting lands, which is what `MapRoot::painted` tracks.
 fn show_or_hide(
     mut commands: Commands,
     open: Res<Open>,
@@ -137,27 +216,35 @@ fn show_or_hide(
     font: Res<UiFont>,
     terrain: Res<TerrainSource>,
     windows: Query<&Window>,
-    standing: Query<Entity, With<MapRoot>>,
+    standing: Query<(Entity, &MapRoot)>,
 ) {
-    let up = !standing.is_empty();
-    let Some(image) = chart.image.clone() else {
-        return;
-    };
-    if open.0 == up {
-        return;
-    }
+    let up = standing.iter().next();
+    let painted = chart.image.is_some();
+
     if !open.0 {
-        for entity in &standing {
+        if let Some((entity, _)) = up {
             commands.entity(entity).despawn();
         }
         return;
+    }
+    match up {
+        // Already showing the right thing.
+        Some((_, root)) if root.painted == painted => return,
+        // Showing the "drawing" shell, and the painting has arrived.
+        Some((entity, _)) => commands.entity(entity).despawn(),
+        None => {}
     }
 
     // Sized to the window's shorter side, keeping the world's own proportions - a
     // map stretched to the screen is a map that lies about which way is far.
     let window = windows.iter().next();
     let (vw, vh) = window.map_or((1280.0, 720.0), |w| (w.width(), w.height()));
-    let aspect = chart.size.x as f32 / chart.size.y.max(1) as f32;
+    let size = if painted {
+        chart.size
+    } else {
+        dimensions(terrain.half())
+    };
+    let aspect = size.x as f32 / size.y.max(1) as f32;
     let mut high = vh * FILLS;
     let mut wide = high * aspect;
     if wide > vw * FILLS {
@@ -166,9 +253,11 @@ fn show_or_hide(
     }
 
     let half = terrain.half();
+    let sites: Vec<_> = terrain.sites().to_vec();
+    let image = chart.image.clone();
     commands
         .spawn((
-            MapRoot,
+            MapRoot { painted },
             Node {
                 position_type: PositionType::Absolute,
                 width: Val::Percent(100.0),
@@ -190,10 +279,22 @@ fn show_or_hide(
                     Node {
                         width: Val::Px(wide),
                         height: Val::Px(high),
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Center,
                         ..default()
                     },
+                    // Something to look at while the painting is on its way.
+                    BackgroundColor(if painted { Color::NONE } else { WAITING }),
                 ))
                 .with_children(|frame| {
+                    let Some(image) = image else {
+                        frame.spawn((
+                            Text::new("Drawing map..."),
+                            font.at(12.0),
+                            TextColor(FAINT),
+                        ));
+                        return;
+                    };
                     frame.spawn((
                         ImageNode::new(image),
                         Node {
@@ -206,7 +307,7 @@ fn show_or_hide(
 
                     // The places, named. Only the ones that HAVE names: a label on
                     // every hamlet is a map you cannot read.
-                    for (index, site) in terrain.sites().iter().enumerate() {
+                    for (index, site) in sites.iter().enumerate() {
                         if site.ranch {
                             continue;
                         }
@@ -217,9 +318,9 @@ fn show_or_hide(
                         let u = (site.at.x + half.x) / (half.x * 2.0);
                         let v = (site.at.y + half.y) / (half.y * 2.0);
                         // A name sits to the RIGHT of its mark, except near the
-                        // right-hand edge, where it would run off the map - there it
-                        // sits to the left. Photographed, "Marrowmede" came out as
-                        // "Marrowmed" with the rest over the edge.
+                        // right-hand edge, where it would run off the map -
+                        // photographed, "Marrowmede" came out as "Marrowmed" with
+                        // the rest over the edge.
                         //
                         // And clear of the mark by more than the mark's own radius:
                         // at seven pixels the disc sat on the first letter, so every
@@ -256,14 +357,15 @@ fn show_or_hide(
                             // Pale text is legible over green, sea and sand and
                             // INVISIBLE over snow - photographed, "Marrowmede" read
                             // as "Marrowme" and "Colderry" as "Colde", the rest of
-                            // each name lost in the icefield behind it. A name has
-                            // to read over whatever country it happens to sit on.
+                            // each name lost in the icefield behind it.
                             BackgroundColor(LABEL_BEHIND),
                             BorderRadius::all(Val::Px(2.0)),
                         ));
                     }
 
-                    // And the warden, last, so he is over everything.
+                    // And the warden, last, so he is over everything. The needle
+                    // first, so the mark sits on top of it.
+                    crate::world::chart::needle(frame, Heading, YOU);
                     frame.spawn((
                         YouAreHere,
                         Node {
@@ -284,7 +386,7 @@ fn show_or_hide(
                     ));
                 });
             screen.spawn((
-                Text::new("M or ESC to close"),
+                Text::new("M or ESC to close     N is up"),
                 font.at(10.0),
                 TextColor(FAINT),
             ));
@@ -295,23 +397,53 @@ fn show_or_hide(
 fn move_the_mark(
     terrain: Res<TerrainSource>,
     anchors: Query<&GlobalTransform, With<crate::world::StreamAnchor>>,
-    mut marks: Query<&mut Node, With<YouAreHere>>,
+    cameras: Query<&GlobalTransform, With<crate::camera::MainCamera>>,
+    mut marks: Query<&mut Node, (With<YouAreHere>, Without<Heading>)>,
+    mut headings: Query<(&mut Node, &mut Transform), With<Heading>>,
 ) {
     let (Some(anchor), Some(mut mark)) = (anchors.iter().next(), marks.iter_mut().next()) else {
         return;
     };
     let half = terrain.half();
     let at = anchor.translation();
-    mark.left = Val::Percent(((at.x + half.x) / (half.x * 2.0)).clamp(0.0, 1.0) * 100.0);
-    mark.top = Val::Percent(((at.z + half.y) / (half.y * 2.0)).clamp(0.0, 1.0) * 100.0);
+    let u = ((at.x + half.x) / (half.x * 2.0)).clamp(0.0, 1.0);
+    let v = ((at.z + half.y) / (half.y * 2.0)).clamp(0.0, 1.0);
+    mark.left = Val::Percent(u * 100.0);
+    mark.top = Val::Percent(v * 100.0);
+
+    // And which way the view is pointed - see `Heading` for why it is the camera's
+    // facing and not the warden's.
+    let Some(camera) = cameras.iter().next() else {
+        return;
+    };
+    let bearing = crate::world::chart::bearing_of(camera.forward().into());
+    for (mut node, mut turn) in &mut headings {
+        node.left = Val::Percent(u * 100.0);
+        node.top = Val::Percent(v * 100.0);
+        turn.rotation = Quat::from_rotation_z(bearing);
+    }
 }
 
 /// Takes the map down on the way out of play, so it is not still up in the menu.
-fn put_it_away(mut commands: Commands, mut open: ResMut<Open>, standing: Query<Entity, With<MapRoot>>) {
+///
+/// And drops any painting still in flight. A task started in play can land after the
+/// world has been reshaped in the terrain tool, and what it hands back is a picture
+/// of a world that no longer exists.
+fn put_it_away(
+    mut commands: Commands,
+    mut open: ResMut<Open>,
+    mut chart: ResMut<Chart>,
+    standing: Query<Entity, With<MapRoot>>,
+    painting: Query<Entity, With<Painting>>,
+) {
     open.0 = false;
     for entity in &standing {
         commands.entity(entity).despawn();
     }
+    for entity in &painting {
+        commands.entity(entity).despawn();
+    }
+    chart.painting = false;
 }
 
 pub struct MapPlugin;

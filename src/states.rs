@@ -75,7 +75,15 @@ impl Plugin for StatesPlugin {
         // with an afternoon's shaping unwritten should say so first.
         app.add_systems(
             Update,
-            escape_to_menu.run_if(in_state(AppState::Playing)),
+            escape_to_menu
+                .run_if(in_state(AppState::Playing))
+                // NOT while the map is up, where Escape means "close the map".
+                //
+                // Both handlers read the same keypress in the same state, so one
+                // press closed the map AND dropped the player into the menu - the
+                // map's own doc says Escape only closes, and it was only ever
+                // half true.
+                .run_if(not(crate::map::is_open)),
         );
     }
 }
