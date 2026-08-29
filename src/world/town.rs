@@ -128,7 +128,19 @@ const A_FRONTAGE_IS_AT_LEAST: f32 = 13.0;
 /// back into countryside, which is a slope. They are placed on the ground's own
 /// height wherever they land, so a house on the fade sits into the hill rather than
 /// floating over it.
-const FILLS: f32 = 1.15;
+// 0.94, down from 1.15.
+//
+// # A town has to fit on the ground that was levelled for it
+//
+// This built out to 1.15 times the site's radius on the reasoning that a town may
+// spill past its levelled rim onto the fade. It may - a cottage on a gentle slope is
+// fine - but a STREET may not, because `settle` flattens every lane to the site's
+// own height: a lane laid past the levelled ground cuts a five-metre lip into the
+// hillside it crosses, which is a wall you cannot walk up.
+//
+// The levelled radii went up to match, so a town is the same size it was; it is the
+// GROUND that grew, not the plan. See CITY_RADIUS and TOWN_RADIUS.
+const FILLS: f32 = 0.94;
 
 /// A part of a town that is internally consistent and unlike its neighbours.
 ///

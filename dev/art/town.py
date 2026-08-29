@@ -986,20 +986,44 @@ def curtain_wall(parts, wide, deep, floors, base=0.0, banded=True):
     a REPEAT you can count. Bands do that at any distance, and they cost two boxes a
     storey a side rather than a window apiece.
     """
+    # THE WALL BEHIND THE GLASS.
+    #
+    # A curtain wall was a stack of glass bands and spandrels standing in mid air with
+    # nothing behind them - and they did not even meet: 0.62 of a storey of glass over
+    # 0.34 of spandrel leaves four per cent of every floor as a gap you can see
+    # straight through, into the building and out the far side. A tower has to be a
+    # SOLID before it is a facade.
+    solid = base + floors * FLOOR_TALL
+    for face, span, off in (("x", wide, deep), ("y", deep, wide)):
+        for side in (-1.0, 1.0):
+            # BEHIND the glass, not level with it. Level, a 0.22 m backing wall
+            # stands proud of a 0.14 m pane and hides the whole facade: the towers
+            # came out as blank concrete slabs with no windows at all.
+            back = 0.11 + 0.08
+            at = (
+                (0.0, side * (off * 0.5 - back), 0.0)
+                if face == "x"
+                else (side * (off * 0.5 - back), 0.0, 0.0)
+            )
+            parts.append(box(
+                _slab(face, span, 0.22, solid - base),
+                (at[0], at[1], base + (solid - base) * 0.5), "concrete2"))
+            at = (0.0, side * off * 0.5, 0.0) if face == "x" else (side * off * 0.5, 0.0, 0.0)
+
     for floor in range(floors):
         z = base + floor * FLOOR_TALL
         glass = "curtain" if (floor % 2 == 0 or not banded) else "curtain2"
         for face, span, off in (("x", wide, deep), ("y", deep, wide)):
             for side in (-1.0, 1.0):
                 at = (0.0, side * off * 0.5, 0.0) if face == "x" else (side * off * 0.5, 0.0, 0.0)
-                # The glass band, inset a little so the spandrel reads as a lip.
+                # Glass and spandrel together fill the storey exactly - 0.66 and 0.34 -
+                # so a floor has no seam in it.
                 parts.append(box(
-                    _slab(face, span * 0.94, 0.10, FLOOR_TALL * 0.62),
-                    (at[0], at[1], z + FLOOR_TALL * 0.5), glass))
-                # The spandrel under it.
+                    _slab(face, span * 0.94, 0.14, FLOOR_TALL * 0.66),
+                    (at[0], at[1], z + FLOOR_TALL * 0.67), glass))
                 parts.append(box(
-                    _slab(face, span, 0.16, FLOOR_TALL * 0.34),
-                    (at[0], at[1], z + FLOOR_TALL * 0.13), "concrete"))
+                    _slab(face, span, 0.20, FLOOR_TALL * 0.34),
+                    (at[0], at[1], z + FLOOR_TALL * 0.17), "concrete"))
                 # Mullions, one every couple of metres, which is what stops a band
                 # reading as a stripe of paint.
                 count = max(2, int(span / 2.2))

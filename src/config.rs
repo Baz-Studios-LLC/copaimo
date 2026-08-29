@@ -881,8 +881,18 @@ pub const CITIES: usize = 10;
 pub const TOWNS: usize = 28;
 
 /// How far the level ground reaches at each, in meters.
-pub const CITY_RADIUS: f32 = 190.0;
-pub const TOWN_RADIUS: f32 = 95.0;
+// Raised so the LEVELLED ground contains the whole town rather than most of it.
+//
+// A town builds out to `town::FILLS` times these, and that used to be 1.15 - so a
+// city's outermost streets were laid 28 m past the ground that had been flattened
+// for them, and `settle` flattens a lane to the site's height wherever it is. The
+// result was a lip where the lane met the hillside, which the levelling guard has
+// been catching for two days.
+//
+// FILLS is 0.94 now and these grew by the same ratio, so a town covers the same
+// ground it did - about 218 m for a city and 109 for a town - with all of it level.
+pub const CITY_RADIUS: f32 = 232.0;
+pub const TOWN_RADIUS: f32 = 116.0;
 
 /// How far apart they must stand.
 pub const CITY_SPACING: f32 = 1_100.0;
