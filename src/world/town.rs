@@ -2029,6 +2029,34 @@ pub struct FromSite(pub u32);
 // surface laid four centimetres over it flickers along every triangle edge.
 const ROAD_LIES: f32 = 0.09;
 
+/// How much a walked path's width wanders, and over what distance.
+///
+/// A third either way is a lot on paper and reads as very little on the ground -
+/// what the eye picks up is that the two edges are not parallel, which is the whole
+/// difference between a track and a band. Over twenty-two metres, so it is a slow
+/// change along the path rather than a ripple.
+const ROAD_WANDERS_BY: f32 = 0.34;
+const ROAD_WANDERS_OVER: f32 = 22.0;
+
+/// How far the road's own edge still stands off the ground, in metres.
+///
+/// Not nought. Two surfaces at exactly the same height flicker against each other
+/// wherever they meet, so the edge keeps just enough to win the depth test and not
+/// enough for anybody to see a step.
+const ROAD_HEM: f32 = 0.015;
+
+/// How much a road's colour varies with wear, and over what distance.
+///
+/// Enough to break a flat slab into something that looks used, not so much that a
+/// road stops being one colour. The distance is in metres, and it is large: what
+/// wears a track is where the carts go, which changes over tens of metres rather
+/// than every step.
+// Raised from 0.17. At that the variation was there in the mesh and invisible on
+// screen, so a path was still two flat tones sitting next to each other - the shape
+// read as walked and the surface still read as painted on.
+const ROAD_WEARS: f32 = 0.34;
+const ROAD_WEARS_OVER: f32 = 26.0;
+
 /// How long a piece of road is before it takes another height sample.
 ///
 /// The lanes flatten what they run over, so a street is nearly level along its
@@ -2100,7 +2128,9 @@ const ROAD_KERB: [f32; 4] = [0.44, 0.42, 0.39, 1.0];
 /// Not a kerb and not a verge anybody walks on - it is the distance over which the
 /// surface stops being road and starts being whatever is around it. Wide enough to
 /// read as a blend at walking distance, narrow enough that the road keeps its width.
-const SHOULDER_WIDE: f32 = 1.7;
+// Widened from 1.7. The margin is where a path stops being a path, and a long one
+// reads as ground that has been walked less rather than as an edge.
+const SHOULDER_WIDE: f32 = 2.5;
 
 /// The material a street's paving wears.
 ///
@@ -2241,7 +2271,25 @@ fn pave(ways: &[Way], terrain: &crate::world::terrain::Terrain, low: Vec2, city:
             //
             // Kerbs at the very edge and the surface held flat across the middle.
             let surface = if city { ROAD_STONE } else { ROAD_EARTH };
-            let half = way.wide * 0.5;
+
+            // A WALKED PATH WANDERS IN WIDTH.
+            //
+            // A band of exactly constant width with two ruler-straight edges is a
+            // thing somebody laid down. What makes a track read as walked is that it
+            // is wider where the ground is easy and narrower where it is not, in
+            // long slow changes rather than a wobble - so the width is modulated by
+            // a field over tens of metres, in the world's own coordinates, and two
+            // roads crossing agree about it.
+            //
+            // A city's paving does NOT do this: a kerb is a made edge and a straight
+            // one, and wandering it would read as a mistake rather than as wear.
+            let wander = if city {
+                1.0
+            } else {
+                1.0 + (terrain_core::forest::field(on / ROAD_WANDERS_OVER, 733) - 0.5)
+                    * ROAD_WANDERS_BY
+            };
+            let half = way.wide * 0.5 * wander;
             // A kerb only where there is paving to kerb. A cart track's edge is
             // where the dirt stops and the grass starts, and putting a stone kerb
             // down each side of one is most of why they all read as paved.
@@ -2262,7 +2310,7 @@ fn pave(ways: &[Way], terrain: &crate::world::terrain::Terrain, low: Vec2, city:
             // terrain at that exact spot, so the ribbon fades into whatever is
             // actually there - grass, a town's packed earth, sand - and keeps fading
             // into the right thing when the road crosses from one into another.
-            let shoulder = half + SHOULDER_WIDE;
+            let shoulder = half + SHOULDER_WIDE * wander;
             let hem = |out: f32| terrain.ground_colour((on + side * out).x, (on + side * out).y);
             for (across, colour) in [
                 (-shoulder, hem(-shoulder)),
@@ -2274,7 +2322,51 @@ fn pave(ways: &[Way], terrain: &crate::world::terrain::Terrain, low: Vec2, city:
                 (shoulder, hem(shoulder)),
             ] {
                 let at = on + side * across;
-                let height = terrain.drawn_height(at.x, at.y) + ROAD_LIES;
+
+                // CROWNED, and tucked in at the edges.
+                //
+                // # A road that reads as a plank laid on a field
+                //
+                // The whole ribbon sat `ROAD_LIES` above the ground - nine
+                // centimetres, everywhere - so its outer edge hung in the air over
+                // the ground it was supposed to be part of, with a step and a
+                // shadow all the way along it. Reported as the road and the ground
+                // reading as "two separate objects", which is exactly what a
+                // surface floating over another surface is.
+                //
+                // The lift now falls off across the width: full down the middle,
+                // almost nothing at the shoulder, so the ribbon meets the ground at
+                // its edge and there is no step to see. What is left is a CROWN -
+                // higher down the centre than at the sides - which is how a road is
+                // actually built, and which reads as worn in rather than put down.
+                let out = (across.abs() / shoulder.max(0.01)).clamp(0.0, 1.0);
+                let lift = ROAD_LIES * (1.0 - out * out) + ROAD_HEM;
+
+                // AND BRUSHED, not painted.
+                //
+                // One flat colour over the whole surface is the other half of why it
+                // read as an object rather than as ground. Packed earth is worn in
+                // patches - a wheel rut here, a dry spot there - so the colour is
+                // multiplied by a slow field and a faster one, drawn in the world's
+                // own coordinates so the variation crosses a junction rather than
+                // stopping at the edge of whichever piece drew it.
+                let broad = terrain_core::forest::field(at / ROAD_WEARS_OVER, 517);
+                let fine = terrain_core::forest::field(at / (ROAD_WEARS_OVER * 0.21), 518);
+                // Three scales, because wear has three: where the carts go, where
+                // the puddles sit, and the scuff of the ground itself.
+                let close = terrain_core::forest::field(at / (ROAD_WEARS_OVER * 0.06), 519);
+                let worn = 1.0
+                    + (broad - 0.5) * ROAD_WEARS
+                    + (fine - 0.5) * ROAD_WEARS * 0.5
+                    + (close - 0.5) * ROAD_WEARS * 0.22;
+                let colour = [
+                    colour[0] * worn,
+                    colour[1] * worn,
+                    colour[2] * worn,
+                    colour[3],
+                ];
+
+                let height = terrain.drawn_height(at.x, at.y) + lift;
                 places.push([at.x - low.x, height, at.y - low.y]);
                 normals.push([0.0, 1.0, 0.0]);
                 colours.push(colour);
@@ -3145,15 +3237,39 @@ mod tests {
         else {
             panic!("the paving has no positions");
         };
-        let mut worst: f32 = 0.0;
+        // IN A BAND, not at one height.
+        //
+        // This used to demand every vertex sit exactly `ROAD_LIES` over the ground,
+        // which is what a flat ribbon does - and a flat ribbon is what made a road
+        // read as a plank laid on a field, because its outer edge hung nine
+        // centimetres in the air with a step and a shadow the length of it. The road
+        // is crowned now: full lift down the middle, almost none at the shoulder.
+        //
+        // What still has to be true is that it never sinks into the ground and never
+        // floats over it, and that is what this asks.
+        let mut highest: f32 = 0.0;
+        let mut lowest = f32::MAX;
         for place in places {
             let at = Vec2::new(place[0] + site.at.x, place[2] + site.at.y);
-            let ground = terrain.drawn_height(at.x, at.y);
-            worst = worst.max((place[1] - ground - ROAD_LIES).abs());
+            let over = place[1] - terrain.drawn_height(at.x, at.y);
+            highest = highest.max(over);
+            lowest = lowest.min(over);
         }
         assert!(
-            worst < 0.01,
-            "the paving stands {worst:.2} m off the ground it is laid on"
+            lowest > 0.0,
+            "the paving sinks {:.3} m INTO the ground, which is a road you cannot see",
+            -lowest,
+        );
+        assert!(
+            highest < ROAD_LIES + ROAD_HEM + 0.01,
+            "the paving stands {highest:.2} m off the ground it is laid on",
+        );
+
+        // And it really is crowned - the middle stands higher than the edge, which is
+        // the whole of what stops the edge reading as a step.
+        assert!(
+            highest - lowest > ROAD_LIES * 0.5,
+            "the paving is flat across its width: {lowest:.3} m at its lowest and {highest:.3} at its highest",
         );
     }
 
