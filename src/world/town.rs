@@ -616,10 +616,45 @@ pub struct Standing {
     pub what: Building,
 }
 
-/// Which settlements have been built, so each is built once.
+/// The settlements that are standing, and the layout each was built from.
+///
+/// # Worked out once, not once a frame
+///
+/// `lay_out` walks a site's parcels and subdivides every one of them, and the town
+/// at the ranch comes to three hundred buildings. The first cut called it from the
+/// COLLISION path - which runs every frame, for every step the warden tries - so
+/// the whole town was being planned sixty times a second to answer "is there a wall
+/// in front of me".
+///
+/// It is planned when the town is built and kept until the town comes down.
 #[derive(Resource, Default)]
 pub struct Built {
-    done: std::collections::HashSet<u32>,
+    standing: std::collections::HashMap<u32, Layout>,
+}
+
+impl Built {
+    /// How many buildings are standing, for the HUD.
+    pub fn buildings(&self) -> usize {
+        self.standing.values().map(|layout| layout.plots.len()).sum()
+    }
+
+    pub fn towns(&self) -> usize {
+        self.standing.len()
+    }
+
+    /// Everything standing near a point that cannot be walked through.
+    pub fn walls_near(&self, at: Vec2, reach: f32) -> Vec<(Vec2, Vec2, f32)> {
+        let mut walls = Vec::new();
+        for layout in self.standing.values() {
+            for plot in &layout.plots {
+                if plot.at.distance(at) > reach + plot.what.footprint().length() {
+                    continue;
+                }
+                walls.extend(plot.walls());
+            }
+        }
+        walls
+    }
 }
 
 /// One town's worth of buildings, kept so the whole lot can be taken down together.
@@ -651,7 +686,7 @@ pub fn raise_the_towns(
     for (index, site) in plan.sites().iter().enumerate() {
         let key = index as u32;
         let near = site.at.distance(here) < RAISES_WITHIN;
-        if near == built.done.contains(&key) {
+        if near == built.standing.contains_key(&key) {
             continue;
         }
         if !near {
@@ -661,11 +696,18 @@ pub fn raise_the_towns(
                     commands.entity(entity).despawn();
                 }
             }
-            built.done.remove(&key);
+            built.standing.remove(&key);
             continue;
         }
 
         let layout = lay_out(site, plan.approach(site.at), WORLD_SEED.wrapping_add(key * 7717));
+        info!(
+            "raising {} at ({:.0}, {:.0}): {} buildings",
+            if site.city { "a city" } else { "a town" },
+            site.at.x,
+            site.at.y,
+            layout.plots.len()
+        );
         for plot in &layout.plots {
             // On the GROUND's own height wherever it lands, not on the site's
             // levelled height: a town is allowed to spill past the rim of the
@@ -681,45 +723,8 @@ pub fn raise_the_towns(
                 Visibility::default(),
             ));
         }
-        built.done.insert(key);
+        built.standing.insert(key, layout);
     }
-}
-
-/// Everything in a town that a warden cannot walk through, near one point.
-///
-/// # A wall with a doorway in it
-///
-/// A building is not a solid block: the whole point of the interiors is that you
-/// walk in. So its collision is its four WALLS, each a slab, and the wall with the
-/// door in it is given as two slabs with the doorway between them. Walking at the
-/// front of a house you are stopped; walking at its door you are not.
-///
-/// Returned in the same shape trees and props use, so `player::may_step` does not
-/// need to know that towns exist.
-pub fn walls_near(
-    terrain: &crate::world::terrain::Terrain,
-    at: Vec2,
-    reach: f32,
-) -> Vec<(Vec2, Vec2, f32)> {
-    let plan = terrain.plan();
-    let mut walls = Vec::new();
-    for (index, site) in plan.sites().iter().enumerate() {
-        if site.at.distance(at) > site.radius * FILLS + reach + 40.0 {
-            continue;
-        }
-        let layout = lay_out(
-            site,
-            plan.approach(site.at),
-            WORLD_SEED.wrapping_add(index as u32 * 7717),
-        );
-        for plot in &layout.plots {
-            if plot.at.distance(at) > reach + plot.what.footprint().length() {
-                continue;
-            }
-            walls.extend(plot.walls());
-        }
-    }
-    walls
 }
 
 impl Plot {
@@ -973,6 +978,103 @@ mod tests {
         std::fs::create_dir_all(dir).ok();
         sheet.save(dir.join("town_plan.png")).expect("the plan should save");
         println!("drew dev/art/map/town_plan.png");
+    }
+
+/// What the REAL world's settlements lay out to.
+    #[test]
+    #[ignore = "a measurement of the real world"]
+    fn what_the_towns_measure() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        let ranch = Vec2::new(crate::config::RANCH_AT.0, crate::config::RANCH_AT.1);
+        println!("{} sites", plan.sites().len());
+        let mut total = 0;
+        for (index, site) in plan.sites().iter().enumerate() {
+            let layout = lay_out(
+                site,
+                plan.approach(site.at),
+                crate::config::WORLD_SEED.wrapping_add(index as u32 * 7717),
+            );
+            total += layout.plots.len();
+            if index < 12 {
+                println!(
+                    "  {:<7} r={:5.1} at ({:7.0},{:7.0})  {:5.0} m from the ranch  -> {:3} buildings, {:2} streets",
+                    if site.city { "city" } else { "town" },
+                    site.radius,
+                    site.at.x,
+                    site.at.y,
+                    site.at.distance(ranch),
+                    layout.plots.len(),
+                    layout.streets.len()
+                );
+            }
+        }
+        println!("{total} buildings in the world");
+        let nearest = plan
+            .sites()
+            .iter()
+            .map(|s| s.at.distance(ranch))
+            .fold(f32::MAX, f32::min);
+        println!("nearest settlement to the ranch: {nearest:.0} m (raised within {RAISES_WITHIN})");
+    }
+
+/// The system actually raises a town when a warden stands in one.
+    ///
+    /// # Why this is an app test and not a unit test
+    ///
+    /// Everything else here tests `lay_out`, which is a pure function and was
+    /// correct while nothing appeared in the game at all. What is between the two is
+    /// a Bevy system with a run condition, a resource it needs, an anchor it looks
+    /// for and a schedule it sits in - four things that can each be wrong on their
+    /// own, and none of which a test of the layout can see.
+    #[test]
+    fn standing_in_a_settlement_raises_it() {
+        use bevy::asset::AssetPlugin;
+        use bevy::state::app::StatesPlugin;
+
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin::default(),
+            StatesPlugin,
+        ));
+        app.init_state::<crate::states::AppState>();
+        app.insert_state(crate::states::AppState::Playing);
+        app.init_asset::<Scene>();
+        app.init_asset::<bevy::gltf::Gltf>();
+        app.add_plugins(TownPlugin);
+
+        let terrain = crate::world::terrain::Terrain::new();
+        // Stand the anchor in the settlement nearest the ranch, which is the one at
+        // the ranch itself.
+        let site = terrain.plan().sites()[0];
+        app.insert_resource(crate::world::terrain::TerrainSource(std::sync::Arc::new(
+            terrain,
+        )));
+        app.world_mut().spawn((
+            StreamAnchor,
+            Transform::from_xyz(site.at.x, 0.0, site.at.y),
+            GlobalTransform::from_xyz(site.at.x, 0.0, site.at.y),
+        ));
+
+        app.update();
+
+        let standing = app
+            .world_mut()
+            .query::<&Standing>()
+            .iter(app.world())
+            .count();
+        assert!(
+            standing > 20,
+            "standing in a settlement raised {standing} buildings"
+        );
+        let built = app.world().resource::<Built>();
+        assert_eq!(built.towns(), 1, "{} towns were built", built.towns());
+        assert_eq!(built.buildings(), standing);
+
+        // And its walls are there to be walked into.
+        let walls = built.walls_near(site.at, 60.0);
+        assert!(!walls.is_empty(), "the town it raised has no walls in it");
     }
 
     #[test]

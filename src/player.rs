@@ -659,6 +659,7 @@ pub fn move_player(
     terrain: Res<TerrainSource>,
     grove: Option<Res<crate::world::stream::Grove>>,
     props: Option<Res<crate::world::prop::PropPool>>,
+    towns: Res<crate::world::town::Built>,
     bounds: Res<WorldBounds>,
     cameras: Query<&Transform, (With<MainCamera>, Without<Player>)>,
     mut players: Query<(&mut Transform, &mut Striding), With<Player>>,
@@ -723,11 +724,7 @@ pub fn move_player(
         // house's front is six metres of wall with a doorway in it, and a disc round
         // its middle would either seal the door or leave the corners walkable. They
         // come as oriented slabs and are tested as such.
-        let walls = crate::world::town::walls_near(
-            &terrain.0,
-            Vec2::new(from.x, from.z),
-            LOOKS_AHEAD,
-        );
+        let walls = towns.walls_near(Vec2::new(from.x, from.z), LOOKS_AHEAD);
         let step = [
             next,
             Vec3::new(next.x, from.y, from.z),

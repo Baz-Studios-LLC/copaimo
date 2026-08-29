@@ -102,6 +102,7 @@ fn update_hud(
     when: Res<crate::sky::TimeOfDay>,
     year: Res<crate::season::TheYear>,
     weather: Res<crate::weather::TheWeather>,
+    towns: Res<crate::world::town::Built>,
     chunks: Res<ChunkMap>,
     pending: Query<&PendingChunk>,
     players: Query<&Transform, With<Player>>,
@@ -194,6 +195,7 @@ fn update_hud(
          altitude: {height:.1} m   slope: {slope:.2}\n\
          here: {} ({sure:.2} sure)   time: {}\n\
          season: {}   weather: {}\n\
+         towns: {} standing, {} buildings\n\
          map: {u:.3}, {v:.3}   country: {} ({belonging:.2} of it)\n\
          chunks: {} loaded, {} building   sculpted: {sculpted}\n\
          nearest: {nearest}\n\
@@ -212,6 +214,8 @@ fn update_hud(
         when.spoken(),
         year.spoken(),
         weather.spoken(),
+        towns.towns(),
+        towns.buildings(),
         country.name(),
         chunks.loaded.len(),
         pending.iter().count(),
