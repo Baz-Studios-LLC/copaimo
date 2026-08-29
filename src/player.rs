@@ -248,6 +248,7 @@ const LOOKS_AHEAD: f32 = 4.0;
 fn may_step(
     terrain: &crate::world::terrain::Terrain,
     standing: &[Trunk],
+    walls: &[(Vec2, Vec2, f32)],
     from: Vec3,
     to: Vec3,
 ) -> bool {
@@ -259,7 +260,7 @@ fn may_step(
         return false;
     }
 
-    if into_a_trunk(standing, from, to) {
+    if into_a_trunk(standing, from, to) || into_a_wall(walls, from, to) {
         return false;
     }
 
@@ -348,6 +349,69 @@ fn standing_near(
     }
 
     standing
+}
+
+/// Whether a step walks into one of a town's walls.
+///
+/// Rectangles rather than the circles trees and props use, and the difference is
+/// the doorway: a building's front wall is given as two piers with a gap between
+/// them, and a gap only exists if the thing either side of it has square ends.
+///
+/// Only the step IN is refused, the same as everywhere else here, so a warden who
+/// finds himself inside a wall can always walk back out of it.
+fn into_a_wall(walls: &[(Vec2, Vec2, f32)], from: Vec3, to: Vec3) -> bool {
+    let was = Vec2::new(from.x, from.z);
+    let goes = Vec2::new(to.x, to.z);
+    walls.iter().any(|(at, half, turn)| {
+        // Into the wall's own frame, where it is an axis-aligned box grown by how
+        // wide the warden is.
+        let spin = Vec2::from_angle(-turn);
+        let one = spin.rotate(was - *at);
+        let two = spin.rotate(goes - *at);
+        let grown = *half + Vec2::splat(WARDEN_IS_WIDE);
+
+        let inside = |p: Vec2| p.x.abs() < grown.x && p.y.abs() < grown.y;
+        if inside(one) {
+            // Already in it: every step is allowed, so nobody is ever sealed in.
+            return false;
+        }
+        if inside(two) {
+            return true;
+        }
+
+        // THE WHOLE STEP, not just its ends.
+        //
+        // Testing the endpoints alone lets a step TUNNEL: a wall is 60 cm thick and
+        // a step that starts outside and finishes past it never has an end inside
+        // it, so it passes straight through. A walking pace never does that - a
+        // frame of it is eight centimetres - but anything faster would, and a
+        // collision that only holds at walking pace is one that breaks the first
+        // time something is thrown, knocked back or ridden.
+        //
+        // Slab method: clip the segment against each pair of faces and see whether
+        // any of it is left.
+        let run = two - one;
+        let (mut near, mut far) = (0.0_f32, 1.0_f32);
+        for axis in 0..2 {
+            let (start, delta, edge) = (one[axis], run[axis], grown[axis]);
+            if delta.abs() < 1.0e-6 {
+                if start.abs() >= edge {
+                    return false;
+                }
+                continue;
+            }
+            let (mut lo, mut hi) = ((-edge - start) / delta, (edge - start) / delta);
+            if lo > hi {
+                std::mem::swap(&mut lo, &mut hi);
+            }
+            near = near.max(lo);
+            far = far.min(hi);
+            if near > far {
+                return false;
+            }
+        }
+        true
+    })
 }
 
 /// Below this radius, in metres, a thing is not worth being stopped by.
@@ -655,13 +719,22 @@ pub fn move_player(
         let from = transform.translation;
         // What is standing here, asked once for all three candidate steps below.
         let standing = standing_near(&terrain.0, grove.as_deref(), props.as_deref(), from);
+        // The town's walls. A building is not a post, so it cannot be a circle: a
+        // house's front is six metres of wall with a doorway in it, and a disc round
+        // its middle would either seal the door or leave the corners walkable. They
+        // come as oriented slabs and are tested as such.
+        let walls = crate::world::town::walls_near(
+            &terrain.0,
+            Vec2::new(from.x, from.z),
+            LOOKS_AHEAD,
+        );
         let step = [
             next,
             Vec3::new(next.x, from.y, from.z),
             Vec3::new(from.x, from.y, next.z),
         ]
         .into_iter()
-        .find(|to| *to != from && may_step(&terrain.0, &standing, from, *to));
+        .find(|to| *to != from && may_step(&terrain.0, &standing, &walls, from, *to));
         let before = transform.translation;
         if let Some(to) = step {
             transform.translation = to;
@@ -841,6 +914,80 @@ mod tests {
         );
     }
 
+/// You can walk in the front door, and not through the wall beside it.
+    ///
+    /// The single thing the whole town is for. A building whose collision is one
+    /// block is scenery; what makes it a PLACE is that the front wall has a gap in
+    /// it you can get through and cannot get through anywhere else.
+    #[test]
+    fn a_warden_walks_in_the_door_and_not_through_the_wall() {
+        use crate::world::town::{Building, Plot};
+
+        for turn in [0.0_f32, 0.7, 2.4, -1.9] {
+            let plot = Plot {
+                at: Vec2::new(40.0, -15.0),
+                facing: turn,
+                what: Building::Cottage,
+            };
+            let walls = plot.walls();
+            let half = plot.what.footprint() * 0.5;
+            // Out of the front of the building, in its own frame, and back in.
+            let out = |local: Vec2| {
+                let (sin, cos) = turn.sin_cos();
+                plot.at + Vec2::new(local.x * cos - local.y * sin, local.x * sin + local.y * cos)
+            };
+            let flat = |at: Vec2| Vec3::new(at.x, 0.0, at.y);
+
+            // Straight at the doorway, from outside to inside.
+            let outside = out(Vec2::new(0.0, -half.y - 2.0));
+            let inside = out(Vec2::new(0.0, -half.y + 1.2));
+            assert!(
+                !into_a_wall(&walls, flat(outside), flat(inside)),
+                "turn {turn}: the doorway is blocked"
+            );
+
+            // And at the wall beside it, which must not let him through.
+            let at_wall = out(Vec2::new(half.x - 0.4, -half.y - 2.0));
+            let through = out(Vec2::new(half.x - 0.4, -half.y + 1.2));
+            assert!(
+                into_a_wall(&walls, flat(at_wall), flat(through)),
+                "turn {turn}: he walked through the front wall"
+            );
+
+            // Nor through the back of it.
+            let behind = out(Vec2::new(0.0, half.y + 2.0));
+            let in_back = out(Vec2::new(0.0, half.y - 1.2));
+            assert!(
+                into_a_wall(&walls, flat(behind), flat(in_back)),
+                "turn {turn}: he walked in through the back wall"
+            );
+        }
+    }
+
+    /// And having got in, he can always get out again.
+    #[test]
+    fn nobody_is_ever_sealed_inside_a_building() {
+        use crate::world::town::{Building, Plot};
+        let plot = Plot {
+            at: Vec2::ZERO,
+            facing: 0.4,
+            what: Building::Shop,
+        };
+        let walls = plot.walls();
+        // Standing in the middle of the room, every step outward is allowed - the
+        // same rule the trees and the cliffs keep, and for the same reason: a rule
+        // that refuses every position inside a wall traps whoever ends up in one.
+        let middle = Vec3::new(plot.at.x, 0.0, plot.at.y);
+        for step in 0..24 {
+            let turn = step as f32 / 24.0 * std::f32::consts::TAU;
+            let out = middle + Vec3::new(turn.cos(), 0.0, turn.sin()) * 0.4;
+            assert!(
+                !into_a_wall(&walls, middle, out),
+                "the step at {turn:.2} rad out of the middle of a shop was refused"
+            );
+        }
+    }
+
     #[test]
     fn a_boulder_stops_a_warden_and_a_bed_of_scree_does_not() {
         use terrain_core::prop::Kind;
@@ -873,7 +1020,7 @@ mod tests {
         let mut worst = 0.0_f32;
         for step in -319..=320 {
             let next = crate::world::pass::way_through(step as f32);
-            if may_step(&terrain, &[], stand(at), stand(next)) {
+            if may_step(&terrain, &[], &[], stand(at), stand(next)) {
                 at = next;
             } else {
                 refused += 1;
@@ -927,15 +1074,15 @@ mod tests {
             "the scan never found the canyon floor"
         );
         assert!(
-            may_step(&terrain, &[], stand(middle), stand(ahead)),
+            may_step(&terrain, &[], &[], stand(middle), stand(ahead)),
             "walking along the canyon floor is refused"
         );
         assert!(
-            !may_step(&terrain, &[], stand(foot), stand(into_wall)),
+            !may_step(&terrain, &[], &[], stand(foot), stand(into_wall)),
             "the wall let the warden walk up it — the canyon gates nothing"
         );
         assert!(
-            may_step(&terrain, &[], stand(into_wall), stand(foot)),
+            may_step(&terrain, &[], &[], stand(into_wall), stand(foot)),
             "the way back DOWN the wall is refused — a slope became a trap"
         );
     }

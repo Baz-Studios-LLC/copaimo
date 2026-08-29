@@ -164,7 +164,7 @@ fn read_into(folder: &Path, catalogue: &mut Catalogue) {
 }
 
 /// Whether there is a world on screen to raise anything into.
-fn a_world_is_up(state: Res<State<AppState>>) -> bool {
+pub(crate) fn a_world_is_up(state: Res<State<AppState>>) -> bool {
     #[cfg(feature = "tools")]
     {
         matches!(state.get(), AppState::Playing | AppState::Editing)

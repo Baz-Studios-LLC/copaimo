@@ -241,6 +241,7 @@ fn main() {
             sky::SkyPlugin,
             season::SeasonPlugin,
             weather::WeatherPlugin,
+            world::town::TownPlugin,
             fall::FallPlugin,
             // After the world: buildings stand on ground it decides the height
             // of, at sites it decides the places of.

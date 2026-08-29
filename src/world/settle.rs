@@ -110,6 +110,42 @@ impl Settlements {
         &self.sites
     }
 
+    /// Which way the road network arrives at this site, as a flat unit vector.
+    ///
+    /// A town's high street runs along the road that got there - that is why the
+    /// town is there at all - so the layout in `world::town` is built on this axis
+    /// rather than on an angle from a hash. The difference is a town ON a road
+    /// versus a town BESIDE one.
+    ///
+    /// Averaged over every road that meets the site, taken as an UNSIGNED axis
+    /// rather than a direction: two roads leaving opposite sides of a town are one
+    /// through route, and averaging them as directions would cancel them to nothing
+    /// and hand back a hash's guess for the busiest street in the world.
+    pub fn approach(&self, at: Vec2) -> Vec2 {
+        let mut axis = Vec2::ZERO;
+        for road in &self.roads {
+            for (end, other) in [(road.from, road.to), (road.to, road.from)] {
+                if end.distance(at) > CELL {
+                    continue;
+                }
+                let run = other - end;
+                if run.length_squared() < 1.0 {
+                    continue;
+                }
+                let run = run.normalize();
+                // Folded onto a half-turn, so a road leaving north and one leaving
+                // south agree instead of cancelling.
+                let folded = if run.x < 0.0 { -run } else { run };
+                axis += folded;
+            }
+        }
+        if axis.length_squared() > 1.0e-6 {
+            axis.normalize()
+        } else {
+            Vec2::X
+        }
+    }
+
     pub fn roads_len(&self) -> usize {
         self.roads.len()
     }

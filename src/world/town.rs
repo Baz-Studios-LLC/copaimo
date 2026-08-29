@@ -33,6 +33,7 @@
 
 use bevy::prelude::*;
 
+use crate::config::WORLD_SEED;
 use crate::world::settle::Site;
 
 /// How wide a street is, kerb to kerb.
@@ -592,6 +593,191 @@ fn unit(seed: u32, salt: u32) -> f32 {
     x = x.wrapping_mul(0x2545_F491);
     x ^= x >> 13;
     (x % 100_000) as f32 / 100_000.0
+}
+
+// ============================================================ raising them
+
+use bevy::scene::SceneRoot;
+
+use crate::world::StreamAnchor;
+use crate::world::terrain::TerrainSource;
+
+/// How far from the player a settlement is built.
+///
+/// A town is a hundred or so scenes and it wants to be standing before it comes
+/// into view rather than popping up as you reach it, so this is comfortably past
+/// where one is legible. It is measured to the site's MIDDLE, so a big city starts
+/// building while you are still well outside it.
+const RAISES_WITHIN: f32 = 900.0;
+
+/// A building standing in the world.
+#[derive(Component)]
+pub struct Standing {
+    pub what: Building,
+}
+
+/// Which settlements have been built, so each is built once.
+#[derive(Resource, Default)]
+pub struct Built {
+    done: std::collections::HashSet<u32>,
+}
+
+/// One town's worth of buildings, kept so the whole lot can be taken down together.
+#[derive(Component)]
+struct FromSite(u32);
+
+/// Builds the settlements near the player, and takes down the ones left behind.
+///
+/// # Why it is keyed on the site and not on chunks
+///
+/// A building is not chunk-sized - a guild hall is twelve metres across and a town
+/// is two hundred - so streaming them per chunk would spawn and despawn the same
+/// hall repeatedly as the player walked its boundary. A settlement is built once,
+/// whole, and stands until the player is a long way from it.
+pub fn raise_the_towns(
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    terrain: Res<TerrainSource>,
+    mut built: ResMut<Built>,
+    anchors: Query<&GlobalTransform, With<StreamAnchor>>,
+    standing: Query<(Entity, &FromSite)>,
+) {
+    let Some(anchor) = anchors.iter().next() else {
+        return;
+    };
+    let here = Vec2::new(anchor.translation().x, anchor.translation().z);
+
+    let plan = terrain.plan();
+    for (index, site) in plan.sites().iter().enumerate() {
+        let key = index as u32;
+        let near = site.at.distance(here) < RAISES_WITHIN;
+        if near == built.done.contains(&key) {
+            continue;
+        }
+        if !near {
+            // Left behind: take the whole town down at once.
+            for (entity, from) in &standing {
+                if from.0 == key {
+                    commands.entity(entity).despawn();
+                }
+            }
+            built.done.remove(&key);
+            continue;
+        }
+
+        let layout = lay_out(site, plan.approach(site.at), WORLD_SEED.wrapping_add(key * 7717));
+        for plot in &layout.plots {
+            // On the GROUND's own height wherever it lands, not on the site's
+            // levelled height: a town is allowed to spill past the rim of the
+            // ground that was flattened for it, and a house out on the fade has to
+            // sit into the slope rather than float over it.
+            let stands = terrain.drawn_height(plot.at.x, plot.at.y);
+            commands.spawn((
+                Standing { what: plot.what },
+                FromSite(key),
+                SceneRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(plot.what.model()))),
+                Transform::from_xyz(plot.at.x, stands, plot.at.y)
+                    .with_rotation(Quat::from_rotation_y(-plot.facing)),
+                Visibility::default(),
+            ));
+        }
+        built.done.insert(key);
+    }
+}
+
+/// Everything in a town that a warden cannot walk through, near one point.
+///
+/// # A wall with a doorway in it
+///
+/// A building is not a solid block: the whole point of the interiors is that you
+/// walk in. So its collision is its four WALLS, each a slab, and the wall with the
+/// door in it is given as two slabs with the doorway between them. Walking at the
+/// front of a house you are stopped; walking at its door you are not.
+///
+/// Returned in the same shape trees and props use, so `player::may_step` does not
+/// need to know that towns exist.
+pub fn walls_near(
+    terrain: &crate::world::terrain::Terrain,
+    at: Vec2,
+    reach: f32,
+) -> Vec<(Vec2, Vec2, f32)> {
+    let plan = terrain.plan();
+    let mut walls = Vec::new();
+    for (index, site) in plan.sites().iter().enumerate() {
+        if site.at.distance(at) > site.radius * FILLS + reach + 40.0 {
+            continue;
+        }
+        let layout = lay_out(
+            site,
+            plan.approach(site.at),
+            WORLD_SEED.wrapping_add(index as u32 * 7717),
+        );
+        for plot in &layout.plots {
+            if plot.at.distance(at) > reach + plot.what.footprint().length() {
+                continue;
+            }
+            walls.extend(plot.walls());
+        }
+    }
+    walls
+}
+
+impl Plot {
+    /// This building's walls, as (middle, half-extents, turn) in world space.
+    ///
+    /// The front wall comes in two pieces with the doorway between them, which is
+    /// what makes the building enterable. Everything else is one slab a side.
+    pub fn walls(&self) -> Vec<(Vec2, Vec2, f32)> {
+        let half = self.what.footprint() * 0.5;
+        let (sin, cos) = self.facing.sin_cos();
+        let out = |local: Vec2| {
+            self.at + Vec2::new(local.x * cos - local.y * sin, local.x * sin + local.y * cos)
+        };
+        let thick = 0.3;
+        let mut walls = Vec::new();
+
+        // Back and both flanks: one slab each.
+        walls.push((out(Vec2::new(0.0, half.y)), Vec2::new(half.x, thick), self.facing));
+        for side in [-1.0_f32, 1.0] {
+            walls.push((
+                out(Vec2::new(side * half.x, 0.0)),
+                Vec2::new(thick, half.y),
+                self.facing,
+            ));
+        }
+
+        // The front, in two pieces with the doorway between them.
+        let door = DOOR_CLEAR * 0.5;
+        let pier = (half.x - door).max(0.0);
+        if pier > 0.05 {
+            for side in [-1.0_f32, 1.0] {
+                walls.push((
+                    out(Vec2::new(side * (half.x - pier * 0.5), -half.y)),
+                    Vec2::new(pier * 0.5, thick),
+                    self.facing,
+                ));
+            }
+        }
+        walls
+    }
+}
+
+/// How wide the gap in the front wall is, in metres.
+///
+/// The doorway `dev/art/town.py` builds is 1.4 m, and this is wider on purpose: a
+/// collision gap exactly as wide as the opening leaves a warden 0.66 m across
+/// aiming at a 1.4 m target with no tolerance, which reads as a door that
+/// sometimes refuses you. The extra is invisible - the geometry either side of it
+/// is wall - and it is the difference between walking in and fighting the frame.
+const DOOR_CLEAR: f32 = 2.2;
+
+pub struct TownPlugin;
+
+impl Plugin for TownPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<Built>()
+            .add_systems(Update, raise_the_towns.run_if(crate::build::a_world_is_up));
+    }
 }
 
 #[cfg(test)]

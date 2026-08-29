@@ -397,9 +397,12 @@ impl Terrain {
     }
 
     /// Where the towns are: level ground waiting for a settlement.
-    /// The settlement plan itself. Test-only, alongside `Settlements::ways`: the
-    /// running game asks `height`, and only a probe asks who claimed a place.
-    #[cfg(test)]
+    /// The settlement plan itself.
+    ///
+    /// Was test-only, on the reasoning that the running game asks `height` and only
+    /// a probe asks who claimed a place. That stopped being true when towns got
+    /// laid out: `world::town` reads the sites AND the roads that reach them, since
+    /// a town's high street runs along the road that got there.
     pub fn plan(&self) -> &Settlements {
         &self.settlements
     }
