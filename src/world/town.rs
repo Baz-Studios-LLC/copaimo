@@ -352,13 +352,23 @@ impl Building {
 
     /// How much room it needs on a lot, including the ground it is set into.
     fn wants(self) -> Vec2 {
-        // Four metres of air around every building, not 1.6.
+        // AIR SUITED TO THE AGE.
         //
-        // At 1.6 the eaves of one house nearly touched the next and a street read as
-        // a terrace with the gaps left in by accident - "see how all the buildings
-        // are cramped together". A fantasy town is not a row of semi-detached
-        // houses: it wants yards, gardens, and room to walk between things.
-        self.footprint() + Vec2::splat(4.0)
+        // A cottage wants a garden and a city block wants a pavement, and giving
+        // everything the cottage's four metres had a consequence nobody would guess:
+        // a city's market lots came out too small for the towers its own district
+        // rule asks for, `what_stands_here` fell back to blocks, and the market read
+        // 29% towers where the rule says 55. The districts were being decided by fit
+        // rather than by design.
+        //
+        // The four metres itself was right and stays: at 1.6 the eaves of one house
+        // nearly touched the next and a street read as a terrace with the gaps left
+        // in by accident.
+        let air = match self {
+            Building::CityBlock | Building::CityTower | Building::CitySpire => 2.2,
+            _ => 4.0,
+        };
+        self.footprint() + Vec2::splat(air)
     }
 }
 
