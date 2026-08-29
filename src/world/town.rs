@@ -108,8 +108,11 @@ pub const SETBACK: f32 = 1.6;
 /// many of them, spread evenly so the town fills its streets instead of crowding
 /// one end. The rest of the ground stays as yards and gardens - which is also what
 /// makes the ones that ARE there read as somewhere people live.
-const HOUSES_IN_A_VILLAGE: usize = 11;
-const HOUSES_IN_A_CITY: usize = 28;
+// 16, up from 11. Photographed, eleven across a village's rings left long empty
+// stretches of street - "they feel kinda sparse". Still a village and still nowhere
+// near the three hundred it started at.
+const HOUSES_IN_A_VILLAGE: usize = 16;
+const HOUSES_IN_A_CITY: usize = 34;
 
 const A_FRONTAGE_IS_AT_LEAST: f32 = 13.0;
 
@@ -1493,6 +1496,65 @@ fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2,
                 let d = a + 6;
                 indices.extend_from_slice(&[a, c, b, b, c, d]);
             }
+        }
+    }
+
+    // # THE JOINTS, and the notches they left
+    //
+    // Every street is laid as its own strip of quads, square across its own bearing.
+    // Where two meet at an angle - which is every joint of a curved ring and every
+    // junction in the town - the two strips are square to DIFFERENT bearings, so
+    // their corners do not line up and a wedge of bare ground shows between them.
+    // Around a ring built from six-metre arc pieces that is a notch at every joint,
+    // and from above it reads as a cog rather than a circle.
+    //
+    // The fix is the one a road builder uses: pave the junction itself. Every place
+    // a street ends gets a disc of road, wide enough to swallow the notch from any
+    // pair of bearings, laid at the same height as the rest. It costs a fan of eight
+    // triangles per joint and it is what makes a junction look like a junction
+    // rather than like two roads that happen to touch.
+    let mut ends: Vec<(Vec2, f32)> = Vec::new();
+    for street in streets {
+        if (street.to - street.from).length() < 1.0 {
+            continue;
+        }
+        for end in [street.from, street.to] {
+            // One disc per place, at the width of the widest road meeting there.
+            match ends
+                .iter_mut()
+                .find(|(at, _)| at.distance(end) < 0.6)
+            {
+                Some((_, wide)) => *wide = wide.max(street.wide),
+                None => ends.push((end, street.wide)),
+            }
+        }
+    }
+
+    const AROUND_A_JOINT: usize = 10;
+    for (at, wide) in ends {
+        let middle = places.len() as u32;
+        let height = terrain.drawn_height(at.x, at.y) + ROAD_LIES;
+        places.push([at.x - low.x, height, at.y - low.y]);
+        normals.push([0.0, 1.0, 0.0]);
+        colours.push(if city { ROAD_STONE } else { ROAD_EARTH });
+        uvs.push([0.0, 0.0]);
+
+        for step in 0..=AROUND_A_JOINT {
+            let turn = step as f32 / AROUND_A_JOINT as f32 * std::f32::consts::TAU;
+            let rim = at + Vec2::from_angle(turn) * (wide * 0.5);
+            let height = terrain.drawn_height(rim.x, rim.y) + ROAD_LIES;
+            places.push([rim.x - low.x, height, rim.y - low.y]);
+            normals.push([0.0, 1.0, 0.0]);
+            // The SURFACE colour, not the kerb. A kerb around every joint beads the
+            // whole ring with visible cobbled discs - which is what a ring built
+            // from six-metre arc pieces looks like when each joint wears a rim. The
+            // disc is there to fill a notch, and a patch that fills a hole should
+            // not announce itself.
+            colours.push(if city { ROAD_STONE } else { ROAD_EARTH });
+            uvs.push([turn, 1.0]);
+        }
+        for step in 0..AROUND_A_JOINT as u32 {
+            indices.extend_from_slice(&[middle, middle + 1 + step, middle + 2 + step]);
         }
     }
 
