@@ -918,6 +918,30 @@ def tower(floors, wide=9.0, deep=9.0, crown="flat"):
     parts.append(box((hole + 0.6, 0.30, 0.34), (0.0, -deep * 0.5, DOOR_TALL + 0.55), "concrete2"))
     parts.append(box((hole + 2.2, 1.5, 0.18), (0.0, -deep * 0.5 - 0.75, DOOR_TALL + 0.95), "canopy"))
 
+    # THE LOBBY YOU CAN WALK INTO.
+    #
+    # Every other building in this game is enterable and a tower has to be too - a
+    # city of sealed boxes is a city you look at rather than one you are in. Only
+    # the ground floor: the doorway leads into a lobby with a desk and a lift bank,
+    # which is what a tower's ground floor IS, and the floors above are shell.
+    inner = (wide - 0.5, deep - 0.5)
+    parts.append(box((inner[0], inner[1], 0.10), (0.0, 0.0, 0.05), "infloor"))
+    parts.append(box((inner[0], inner[1], 0.14), (0.0, 0.0, lobby - 0.07), "inwall"))
+    for face, span, off in (("x", inner[0], inner[1]), ("y", inner[1], inner[0])):
+        for side in (-1.0, 1.0):
+            # The front wall is the glass and the doorway, so it is left open.
+            if face == "x" and side < 0.0:
+                continue
+            at = (0.0, side * off * 0.5, 0.0) if face == "x" else (side * off * 0.5, 0.0, 0.0)
+            parts.append(box(_slab(face, span, 0.12, lobby - 0.2),
+                             (at[0], at[1], (lobby - 0.2) * 0.5), "inwall"))
+    # A desk facing the door, and a bank of lifts on the back wall.
+    parts.append(box((3.0, 0.8, 1.05), (-wide * 0.14, deep * 0.16, 0.58), "counter"))
+    parts.append(box((3.2, 0.24, 0.12), (-wide * 0.14, deep * 0.16 - 0.4, 1.14), "board"))
+    for lift in (-1.0, 1.0):
+        parts.append(box((1.5, 0.16, 2.3), (lift * 2.1, inner[1] * 0.5 - 0.14, 1.15), "steel"))
+        parts.append(box((0.3, 0.2, 0.3), (lift * 2.1, inner[1] * 0.5 - 0.24, 2.7), "neon"))
+
     # The shaft.
     curtain_wall(parts, wide, deep, floors - 1, base=lobby)
 
