@@ -168,6 +168,37 @@ pub enum District {
 /// says what it is.
 const BELONGS_WITHIN: f32 = 26.0;
 
+/// The height a thing of this size has to stand at so no part of it sinks.
+///
+/// # A footprint is not a point
+///
+/// Everything was placed at the height of its own MIDDLE. On level ground that is
+/// right and on anything else it is not: a nine-metre yard on a one-in-twenty slope
+/// has its far corner nearly a quarter of a metre under the ground, and what you see
+/// is a fence with its bottom rail buried and a bench sunk to the seat.
+///
+/// The highest corner decides. A thing then rests ON the ground at its high side and
+/// stands slightly proud at its low side, which is what a thing standing on a slope
+/// does - and is the error worth having, because the other one hides geometry.
+pub fn stands_at(
+    terrain: &crate::world::terrain::Terrain,
+    at: Vec2,
+    footprint: Vec2,
+    facing: f32,
+) -> f32 {
+    let half = footprint * 0.5;
+    let (sin, cos) = facing.sin_cos();
+    let mut highest = terrain.drawn_height(at.x, at.y);
+    for sx in [-1.0_f32, 1.0] {
+        for sy in [-1.0_f32, 1.0] {
+            let local = Vec2::new(sx * half.x, sy * half.y);
+            let corner = at + Vec2::new(local.x * cos - local.y * sin, local.x * sin + local.y * cos);
+            highest = highest.max(terrain.drawn_height(corner.x, corner.y));
+        }
+    }
+    highest
+}
+
 /// Which way to turn a model so its door lands where the doorway is.
 ///
 /// # The door was on the back of every building in the world
@@ -2382,7 +2413,23 @@ fn pave(ways: &[Way], terrain: &crate::world::terrain::Terrain, low: Vec2, city:
                 let b = a + 1;
                 let c = a + LANES as u32;
                 let d = c + 1;
-                indices.extend_from_slice(&[a, c, b, b, c, d]);
+                // WOUND FACE UP.
+                //
+                // # Why the lamps did not light the road
+                //
+                // Every one of these was wound the other way, so the paving faced
+                // DOWN while the normals it carried said up. That was known about -
+                // it is why the material has `cull_mode: None`, which was the fix
+                // for the road being invisible - but disabling culling only makes a
+                // back face DRAW. It does not make it face the right way.
+                //
+                // The consequence was invisible by day and obvious by night. Ambient
+                // sky light does not care which way a surface points, so a road lit
+                // only by ambient looked flat but fine; a point light cares about
+                // nothing else, so every lamp in every town lit the ground beside
+                // the road and left the road itself black. Measured: 400 of 400
+                // triangles faced down.
+                indices.extend_from_slice(&[a, b, c, b, d, c]);
             }
         }
         }
@@ -2443,7 +2490,11 @@ fn pave(ways: &[Way], terrain: &crate::world::terrain::Terrain, low: Vec2, city:
             uvs.push([turn, 1.0]);
         }
         for step in 0..AROUND_A_JOINT as u32 {
-            indices.extend_from_slice(&[middle, middle + 1 + step, middle + 2 + step]);
+            // Face up, like the ribbon - see the note on the ribbon's winding. The
+            // discs were the 670 triangles still facing down after that was fixed,
+            // and they showed as a ring of dark patches at every joint the moment
+            // the lamps started lighting the road properly.
+            indices.extend_from_slice(&[middle, middle + 2 + step, middle + 1 + step]);
         }
     }
 
@@ -2621,7 +2672,7 @@ pub fn raise_the_towns(
             // levelled height: a town is allowed to spill past the rim of the
             // ground that was flattened for it, and a house out on the fade has to
             // sit into the slope rather than float over it.
-            let stands = terrain.drawn_height(plot.at.x, plot.at.y);
+            let stands = stands_at(&terrain.0, plot.at, plot.what.footprint(), plot.facing);
             commands.spawn((
                 Standing { what: plot.what },
                 FromSite(key),
@@ -3859,6 +3910,64 @@ mod doorstep {
             assert!(
                 shows.distance(gap) < 1.0e-4,
                 "facing {facing:.2}: the model's door points {shows:?} and the doorway is at {gap:?} - the door is on the wrong wall",
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod facing {
+    use super::tests::a_site;
+    use super::*;
+
+    /// Every triangle of paving faces the sky.
+    ///
+    /// # A surface facing the wrong way is lit by nothing
+    ///
+    /// The whole ribbon was wound face DOWN while carrying normals that said up.
+    /// That was known about - it is why the material disables culling, which was the
+    /// fix for the road being invisible - but drawing a back face does not make it
+    /// face the right way.
+    ///
+    /// It hid for months because ambient sky light does not care which way a surface
+    /// points: a road lit only by ambient looks flat but fine. A point light cares
+    /// about nothing else, so the night the lamps went in, every one of them lit the
+    /// ground beside the road and left the road itself black.
+    ///
+    /// Measured, not argued: this takes the cross product of each triangle's own
+    /// edges. It has caught two separate windings - the ribbon and the junction
+    /// discs, which were 670 triangles still facing down after the ribbon was fixed.
+    #[test]
+    fn the_paving_faces_the_sky() {
+        use bevy::render::mesh::{Indices, VertexAttributeValues};
+        let terrain = crate::world::terrain::Terrain::new();
+        for city in [false, true] {
+            let site = a_site(city, if city { 120.0 } else { 70.0 });
+            let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), 3);
+            let mesh = pave(&layout.ways, &terrain, site.at, city);
+            let Some(VertexAttributeValues::Float32x3(places)) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("the paving has no positions");
+            };
+            let Some(Indices::U32(index)) = mesh.indices() else {
+                panic!("the paving has no indices");
+            };
+            let down = index
+                .chunks(3)
+                .filter(|tri| {
+                    let p = |i: u32| Vec3::from(places[i as usize]);
+                    let (a, b, c) = (p(tri[0]), p(tri[1]), p(tri[2]));
+                    (b - a).cross(c - a).y <= 0.0
+                })
+                .count();
+            assert_eq!(
+                down,
+                0,
+                "{} of {} paving triangles in a {} face DOWN - nothing but ambient will ever light them",
+                down,
+                index.len() / 3,
+                if city { "city" } else { "village" },
             );
         }
     }

@@ -43,8 +43,12 @@ const LIT_WITHIN: f32 = 85.0;
 /// street lamp is a made thing on a pole meant to light a carriageway; a village
 /// lantern is somebody's lamp outside their door and is meant to be the smaller of
 /// the two, so they no longer share a number.
-const STREET_BURNS: f32 = 900_000.0;
-const POST_BURNS: f32 = 380_000.0;
+// Halved once the road was wound the right way up. These were tuned while the
+// paving faced DOWN and took no light at all, so they were set bright enough to
+// make the GROUND read - and the moment the road started taking light too, a city
+// square came out blown white.
+const STREET_BURNS: f32 = 420_000.0;
+const POST_BURNS: f32 = 190_000.0;
 const STREET_CARRIES: f32 = 34.0;
 const POST_CARRIES: f32 = 20.0;
 const LAMPLIGHT: Color = Color::srgb(1.0, 0.82, 0.55);
@@ -79,6 +83,26 @@ pub struct Lamp {
 #[derive(Component)]
 struct Lit;
 
+/// The lamp's own glass, which GLOWS rather than being lit.
+///
+/// # A bulb cannot be lit by itself
+///
+/// The fitting's glass came out black at night while the housing around it was lit
+/// warm, and the reason is obvious once said: the point light sits inside the glass,
+/// and nothing lights a surface from its own middle. A lamp does not reflect light,
+/// it makes it - so the glass is emissive, and it is the one thing in the world that
+/// is.
+///
+/// A separate piece rather than part of the model, because a figure is welded into
+/// one object with one material and its colour lives in its vertices. This sits
+/// exactly over the model's own glass and is slightly bigger, so what you see is the
+/// glow.
+#[derive(Component)]
+struct Glass;
+
+/// How much brighter than its colour the glass burns.
+const GLASS_GLOWS: f32 = 6.0;
+
 /// Stands every lamp near the warden, and takes down the ones left behind.
 pub fn stand_the_lamps(
     mut commands: Commands,
@@ -95,7 +119,14 @@ pub fn stand_the_lamps(
             continue;
         }
         for lamp in &layout.lamps {
-            let ground = terrain.0.drawn_height(lamp.at.x, lamp.at.y);
+            // A lamp's base is small but it still has one, and a post half-buried
+            // at the kerb reads worse than a post standing a centimetre proud.
+            let ground = crate::world::town::stands_at(
+                &terrain.0,
+                lamp.at,
+                Vec2::splat(0.6),
+                lamp.turn,
+            );
             let street = lamp.head > crate::world::town::POST_HEAD + 0.5;
             commands.spawn((
                 Lamp {
@@ -119,10 +150,15 @@ pub fn stand_the_lamps(
 /// Lights the nearest lamps, and puts out the rest.
 pub fn light_them_at_night(
     mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut paints: ResMut<Assets<StandardMaterial>>,
+    mut glow: Local<Option<Handle<StandardMaterial>>>,
+    mut bulb: Local<Option<Handle<Mesh>>>,
     clock: Res<crate::sky::TimeOfDay>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
     lamps: Query<(Entity, &GlobalTransform, &Lamp)>,
     mut lit: Query<(Entity, &ChildOf, &mut PointLight), With<Lit>>,
+    glass: Query<(Entity, &ChildOf), With<Glass>>,
 ) {
     let Some(anchor) = anchors.iter().next() else {
         return;
@@ -152,10 +188,32 @@ pub fn light_them_at_night(
             commands.entity(entity).despawn();
         }
     }
+    // The glass belongs to the light: when one goes, so does the other.
+    for (entity, of) in &glass {
+        if !near.iter().any(|(_, lamp, ..)| *lamp == of.parent()) {
+            commands.entity(entity).despawn();
+        }
+    }
 
     if up <= 0.0 {
         return;
     }
+    let glow = glow
+        .get_or_insert_with(|| {
+            paints.add(StandardMaterial {
+                base_color: LAMPLIGHT,
+                // Unlit AND emissive: unlit so the sun cannot shade it, emissive so
+                // it reads as a source rather than as a pale box.
+                emissive: LinearRgba::from(LAMPLIGHT) * GLASS_GLOWS,
+                unlit: true,
+                ..default()
+            })
+        })
+        .clone();
+    let bulb = bulb
+        .get_or_insert_with(|| meshes.add(Cuboid::new(1.0, 1.0, 1.0)))
+        .clone();
+
     for (_, lamp, head, arm) in near {
         if lit.iter().any(|(_, of, _)| of.parent() == lamp) {
             continue;
@@ -175,6 +233,20 @@ pub fn light_them_at_night(
                 },
                 // OUT ON THE ARM, which is where the head is.
                 Transform::from_xyz(arm, head, 0.0),
+            ));
+            // And the glass it comes out of, sat over the model's own.
+            let (size, drop) = if street {
+                (Vec3::new(0.78, 0.24, 0.38), -0.10)
+            } else {
+                (Vec3::new(0.40, 0.50, 0.40), 0.0)
+            };
+            on.spawn((
+                Glass,
+                Mesh3d(bulb.clone()),
+                MeshMaterial3d(glow.clone()),
+                Transform::from_xyz(arm, head + drop, 0.0).with_scale(size),
+                Visibility::default(),
+                bevy::pbr::NotShadowCaster,
             ));
         });
     }
