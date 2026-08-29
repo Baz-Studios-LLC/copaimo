@@ -2074,6 +2074,37 @@ mod tests {
         }
     }
 
+/// Every model a building names is actually on disk.
+    ///
+    /// The cheapest possible version of the lesson this module keeps relearning:
+    /// ask the ARTEFACT. A `Building` that names a file nobody exported is a
+    /// building that silently does not appear, and everything upstream of it -
+    /// the layout, the plots, the collision - measures perfectly correct while the
+    /// town comes out empty.
+    #[test]
+    fn every_building_has_a_model_on_disk() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
+        for what in [
+            Building::Cottage,
+            Building::Townhouse,
+            Building::Shop,
+            Building::GuildHall,
+            Building::CityBlock,
+            Building::CityTower,
+            Building::CitySpire,
+            Building::MarketCross,
+            Building::Well,
+            Building::Monument,
+        ] {
+            let path = root.join(what.model());
+            assert!(
+                path.exists(),
+                "{what:?} names {} and nothing is there - it would not appear in the                  world, and every measurement upstream of it would still be right",
+                what.model()
+            );
+        }
+    }
+
     #[test]
     fn every_building_faces_a_street() {
         // A door that opens onto the back of the next house is the thing that makes
