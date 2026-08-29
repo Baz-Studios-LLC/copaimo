@@ -80,6 +80,37 @@ pub const SETBACK: f32 = 1.6;
 /// terrace wrapped four times round a square. The frontage rule is the density
 /// knob: widen the strips and the same streets carry fewer, larger plots with air
 /// between them.
+// The smallest building plus its air, and nothing arbitrary on top. A cottage is
+// 9 m and wants 4 m of room around it, so 13 m of frontage is exactly "something
+// fits here" - which is the rule this constant was always trying to express.
+// Raising it past that just deletes lots that a house would have stood on happily,
+// and at 21 it deleted every lot in a village.
+/// How many buildings a place has. Not how many FIT - how many it HAS.
+///
+/// # A fantasy town is small, and that is a design decision rather than a shortage
+///
+/// Every attempt to thin these towns went at the geometry - wider frontages, fewer
+/// rings, more air - and every one of them was answering the question "how many
+/// buildings can stand here" when the question is "how many should". The answer is
+/// not a number the ground produces. It is a number the GENRE has:
+///
+///   * a Pokemon town is five to ten buildings
+///   * a Zelda village is about fifteen
+///   * Novigrad is presented as a capital of thirty thousand and is built at the
+///     size of a real small town
+///
+/// This is not realism and is not trying to be. A player crossing a town should
+/// meet a handful of doors they might open, not a hundred they never will, and
+/// three hundred houses on a hillside reads as a housing estate however carefully
+/// its streets are laid.
+///
+/// So the layout still works out every lot the ground offers, and then keeps this
+/// many of them, spread evenly so the town fills its streets instead of crowding
+/// one end. The rest of the ground stays as yards and gardens - which is also what
+/// makes the ones that ARE there read as somewhere people live.
+const HOUSES_IN_A_VILLAGE: usize = 11;
+const HOUSES_IN_A_CITY: usize = 28;
+
 const A_FRONTAGE_IS_AT_LEAST: f32 = 13.0;
 
 /// How far a town reaches, as a share of the ground levelled for it.
@@ -121,14 +152,35 @@ impl District {
     /// applied: a boundary you can see is worth more than a gradient that is more
     /// truthful. A player should be able to stand somewhere and know which part of
     /// the town they are in.
-    fn of(out: f32, square: f32, band: f32) -> District {
-        if out < square + band * 0.75 {
+    /// The district a place belongs to, given the two distances that divide them.
+    ///
+    /// The dividing distances are the TOWN's, not a formula's. They used to be fixed
+    /// multiples of the block depth, which quietly stopped meaning anything the
+    /// moment the town got smaller: cut from three rings to two, every lot fell in
+    /// the inner two bands and a city had two buildings in its outskirts. A district
+    /// is a share of a town, so it is measured against the town that exists.
+    fn of(out: f32, inner: f32, outer: f32) -> District {
+        if out < inner {
             District::Market
-        } else if out < square + band * 1.9 {
+        } else if out < outer {
             District::Crafts
         } else {
             District::Outskirts
         }
+    }
+
+    /// Where the three districts divide, from the lots a town actually has.
+    ///
+    /// The nearer third of them is the market, the middle the crafts quarter, the
+    /// outer third the edge - so all three exist and are worth walking between
+    /// however big or small the place turned out.
+    pub fn divisions(out: &mut Vec<f32>) -> (f32, f32) {
+        if out.is_empty() {
+            return (f32::MAX, f32::MAX);
+        }
+        out.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let at = |share: f32| out[((out.len() as f32 - 1.0) * share).round() as usize];
+        (at(0.34), at(0.68))
     }
 
     /// What is built here, given a roll.
@@ -205,7 +257,13 @@ impl Building {
 
     /// How much room it needs on a lot, including the ground it is set into.
     fn wants(self) -> Vec2 {
-        self.footprint() + Vec2::splat(1.6)
+        // Four metres of air around every building, not 1.6.
+        //
+        // At 1.6 the eaves of one house nearly touched the next and a street read as
+        // a terrace with the gaps left in by accident - "see how all the buildings
+        // are cramped together". A fantasy town is not a row of semi-detached
+        // houses: it wants yards, gardens, and room to walk between things.
+        self.footprint() + Vec2::splat(4.0)
     }
 }
 
@@ -364,13 +422,21 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
     //
     // Every one of those is a thing this plan now has and the last two did not.
     let square = (reach * 0.19).clamp(11.0, 17.0);
-    let depth = (reach * 0.16).clamp(9.0, 15.0);
+    // A block has to be deep enough for the DEEPEST building plus its air, or a lot
+    // passes the frontage rule and then nothing will stand on it. That is what
+    // happened when the air around a building went from 1.6 m to 4: a cottage needs
+    // 7.5 + 4 = 11.5 m of depth, the floor here was 9, and every village in the
+    // world came out with zero buildings in it while the frontage rule took the
+    // blame. The floor is the requirement, not a round number.
+    let depth = (reach * 0.16).clamp(14.0, 22.0);
     // One ring per band of blocks, out as far as the town reaches.
     let band = depth * 2.0 + LANE_WIDE + SETBACK * 2.0;
     // A city may have three bands of blocks; a village has one or two. A place with
     // forty houses does not need three ring roads, and giving it them is what turned
     // the ranch's town into a small city.
-    let most = if site.city { 3 } else { 2 };
+    // Two bands for a city and ONE for a village. Three rings of blocks is a
+    // county town; the ranch's neighbour had a hundred buildings in it.
+    let most = if site.city { 2 } else { 2 };
     let rings = (((reach - square) / band).floor() as usize).clamp(1, most);
 
     // The radials. One PAIR of them is the road that got here, carried straight
@@ -529,15 +595,21 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    let mut plots = Vec::new();
+    let mut plots: Vec<Plot> = Vec::new();
     if let Some(hall) = civic {
         plots.push(hall);
     }
+    // Where the districts divide, from the lots this town actually has.
+    let (inner, outer) = {
+        let mut out: Vec<f32> = lots.iter().map(|l| l.at.distance(site.at)).collect();
+        District::divisions(&mut out)
+    };
+
     for (index, lot) in lots.iter().enumerate() {
         if !lot.has_frontage() {
             continue;
         }
-        let what = what_stands_here(index, lot, site.at, square, band, seed);
+        let what = what_stands_here(index, lot, site.at, inner, outer, seed);
         let Some(what) = what else { continue };
 
         // Placed against the street rather than in the middle of its lot.
@@ -566,6 +638,59 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
             facing: lot.facing,
             what,
         });
+    }
+
+    // Thinned to what a town of this kind HAS. See HOUSES_IN_A_VILLAGE.
+    //
+    // Evenly, by stride, rather than by cutting the list short - taking the first N
+    // fills one quarter of the town and leaves the rest of the streets empty, which
+    // reads as a place half-built rather than a small one.
+    let wanted = if site.city {
+        HOUSES_IN_A_CITY
+    } else {
+        HOUSES_IN_A_VILLAGE
+    };
+    if plots.len() > wanted {
+        let mut kept: Vec<Plot> = Vec::with_capacity(wanted);
+        // The hall is never thinned out: a city without its guild hall is not a
+        // city, and it is the one building the game needs to be able to find.
+        let hall = plots.iter().position(|p| p.what == Building::GuildHall);
+        if let Some(at) = hall {
+            kept.push(plots[at]);
+        }
+        // Thinned WITHIN each district, in proportion to what that district had.
+        //
+        // One stride across the whole list is not the same thing: the list runs ring
+        // by ring, so a single stride over it kept 1 building in the outskirts of a
+        // 28-building city and left the districts - the thing that makes a town
+        // legible at all - as a name on two of them. Each district gives up the same
+        // share of itself, so all three survive at any size.
+        let (inner, outer) = {
+            let mut out: Vec<f32> = plots.iter().map(|p| p.at.distance(site.at)).collect();
+            District::divisions(&mut out)
+        };
+        let others: Vec<usize> = (0..plots.len()).filter(|i| Some(*i) != hall).collect();
+        let room = wanted.saturating_sub(kept.len()).max(1);
+        for district in [District::Market, District::Crafts, District::Outskirts] {
+            let here: Vec<usize> = others
+                .iter()
+                .copied()
+                .filter(|i| District::of(plots[*i].at.distance(site.at), inner, outer) == district)
+                .collect();
+            if here.is_empty() {
+                continue;
+            }
+            let share = ((here.len() as f32 / others.len() as f32) * room as f32).round();
+            let take = (share as usize).max(1).min(here.len());
+            let stride = (here.len() as f32 / take as f32).max(1.0);
+            for step in 0..take {
+                let at = (step as f32 * stride).round() as usize;
+                if let Some(index) = here.get(at) {
+                    kept.push(plots[*index]);
+                }
+            }
+        }
+        plots = kept;
     }
 
     Layout { streets, plots }
@@ -628,8 +753,8 @@ fn what_stands_here(
     index: usize,
     lot: &Parcel,
     middle: Vec2,
-    square: f32,
-    band: f32,
+    inner: f32,
+    outer: f32,
     seed: u32,
 ) -> Option<Building> {
     let roll = unit(seed.wrapping_add(index as u32 * 131), 11);
@@ -642,7 +767,7 @@ fn what_stands_here(
     // rule, the obvious one, and Lynch's districts all at once: the ground with the
     // most feet on it carries the trade, and what a place is FOR is what tells one
     // part of a town from another.
-    let wanted = District::of(lot.at.distance(middle), square, band).builds(roll);
+    let wanted = District::of(lot.at.distance(middle), inner, outer).builds(roll);
     if fits(wanted) {
         Some(wanted)
     } else if fits(Building::Cottage) {
@@ -795,10 +920,18 @@ const ROAD_STEPS_EVERY: f32 = 2.5;
 /// that asked whether anything beside a street looked different said no.
 ///
 /// A road has to be a different SURFACE from the ground it crosses, so it is one.
-// Dark, and deliberately much darker than the pale earth a settlement's ground
-// is. A road the colour of the ground it crosses is not a road, it is a stain, and
-// "still no roads" is what that looks like from inside the game.
-const ROAD_EARTH: [f32; 4] = [0.26, 0.21, 0.17, 1.0];
+// STONE. Asked for by name, and right for the place: a guild town's high street is
+// laid, not worn. Cool grey against the warm pale earth a settlement stands on, so
+// the street reads as a different material rather than as a darker patch of the
+// same one.
+const ROAD_STONE: [f32; 4] = [0.34, 0.34, 0.36, 1.0];
+
+/// How much one paving stone differs from its neighbour.
+///
+/// A road of one flat colour is a painted stripe. Varying each quad a little is what
+/// turns it into stones - it costs nothing, because the paving is already built as
+/// quads and every quad already carries a colour.
+const STONE_VARIES: f32 = 0.16;
 const ROAD_KERB: [f32; 4] = [0.52, 0.50, 0.46, 1.0];
 
 /// The material a street's paving wears.
@@ -855,7 +988,7 @@ fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2)
             // and the road has an edge at all.
             for (across, colour) in [
                 (-street.wide * 0.5, ROAD_KERB),
-                (0.0, ROAD_EARTH),
+                (0.0, ROAD_STONE),
                 (street.wide * 0.5, ROAD_KERB),
             ] {
                 let at = on + side * across;
@@ -1040,6 +1173,7 @@ mod tests {
             height: 30.0,
             radius,
             city,
+            ranch: false,
         }
     }
 
@@ -1311,8 +1445,11 @@ mod tests {
             .query::<&Standing>()
             .iter(app.world())
             .count();
+        // More than a handful, not more than twenty. A village HAS eleven buildings
+        // now - see HOUSES_IN_A_VILLAGE - so a threshold of twenty was asking
+        // whether the town was big rather than whether it was there.
         assert!(
-            standing > 20,
+            standing > 5,
             "standing in a settlement raised {standing} buildings"
         );
         let built = app.world().resource::<Built>();
@@ -1413,13 +1550,14 @@ mod tests {
         let site = a_site(true, 190.0);
         let layout = lay_out(&site, Vec2::X, 9);
 
-        let square = (190.0 * FILLS * 0.19f32).clamp(11.0, 17.0);
-        let depth = (190.0 * FILLS * 0.16f32).clamp(9.0, 15.0);
-        let band = depth * 2.0 + LANE_WIDE + SETBACK * 2.0;
+        let (inner, outer) = {
+            let mut out: Vec<f32> = layout.plots.iter().map(|p| p.at.distance(site.at)).collect();
+            District::divisions(&mut out)
+        };
 
         let mut counts = std::collections::HashMap::new();
         for plot in &layout.plots {
-            let district = District::of(plot.at.distance(site.at), square, band);
+            let district = District::of(plot.at.distance(site.at), inner, outer);
             *counts
                 .entry((district, plot.what))
                 .or_insert(0usize) += 1;

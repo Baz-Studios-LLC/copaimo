@@ -35,6 +35,14 @@ pub struct Site {
     pub radius: f32,
     /// Whether this is one of the larger places.
     pub city: bool,
+    /// The player's ranch, which is a site so that nothing else takes its ground -
+    /// and is NOT a settlement. `world::town` skips it.
+    ///
+    /// It was not marked, and the town layout builds on every site it is given, so
+    /// a hundred houses went up on top of the ranch and the ranch was reported as
+    /// having "moved to a different location". It had not moved an inch; it was
+    /// underneath a town.
+    pub ranch: bool,
 }
 
 /// A street inside a town, as a claim on the ground it runs over.
@@ -221,6 +229,7 @@ impl Settlements {
             height: ground(ranch),
             radius: RANCH_RADIUS,
             city: false,
+            ranch: true,
         });
 
         // Cities next, with the room they need; towns afterwards, filling in
@@ -283,6 +292,7 @@ impl Settlements {
                     height,
                     radius,
                     city,
+                    ranch: false,
                 });
             }
         }
