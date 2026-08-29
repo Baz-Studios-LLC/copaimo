@@ -2146,7 +2146,10 @@ const ROAD_STEPS_EVERY: f32 = 2.5;
 // lands a whole band darker than intended once it is in the world. Photographed at
 // 0.34 a paved street came out charcoal; a road is a light surface with dark things
 // standing on it, and it has to stay lighter than the grass beside it.
-const ROAD_STONE: [f32; 4] = [0.56, 0.56, 0.58, 1.0];
+// Darkened from 0.56 with the paving, and for the same reason: it was chosen while
+// every road faced the wrong way and took ambient light only, so it had to be pale
+// to read at all. Taking the sun, a city street came out white.
+const ROAD_STONE: [f32; 4] = [0.34, 0.34, 0.36, 1.0];
 
 /// What a VILLAGE's lanes are made of: packed earth and cobble, warm and rough.
 ///
@@ -2183,7 +2186,7 @@ const ROAD_COBBLE: [f32; 4] = [0.60, 0.55, 0.48, 1.0];
 const STONE_VARIES: f32 = 0.16;
 // The kerb of a PAVED street. A dirt track has no kerb - see `pave`, which uses the
 // surface colour at its edges when there is no city to put a kerb on.
-const ROAD_KERB: [f32; 4] = [0.44, 0.42, 0.39, 1.0];
+const ROAD_KERB: [f32; 4] = [0.28, 0.27, 0.26, 1.0];
 
 /// How wide the margin is where a road gives out into the ground, in metres.
 ///

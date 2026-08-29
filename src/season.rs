@@ -192,6 +192,23 @@ fn read_the_calendar(keys: Res<ButtonInput<KeyCode>>, mut year: ResMut<TheYear>)
     year.through = through;
 }
 
+/// Which night it is, counted in days.
+///
+/// # Every night is a different night
+///
+/// Anything that should vary from one night to the next - which windows in a city
+/// have somebody in, and whatever else wants it later - hashes against this. Without
+/// it the lit windows were a property of the BUILDING and nothing else, so a tower
+/// wore the same pattern for the life of the world, which is the sort of thing
+/// nobody notices once and everybody notices eventually.
+///
+/// The real calendar, like the seasons: the world does not keep its own clock and it
+/// does not need to. Nudged by the same amount the year is, so scrubbing the
+/// calendar to look at an autumn scrubs the lights along with it.
+pub fn what_night_it_is(year: &TheYear) -> i64 {
+    chrono::Local::now().date_naive().num_days_from_ce() as i64 + year.nudge
+}
+
 /// The greens and golds a broadleaf wears, dark end and light end.
 ///
 /// A PAIR, not a colour, because the grove's twenty varieties each sit somewhere in

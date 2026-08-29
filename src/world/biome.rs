@@ -50,7 +50,11 @@ static PALETTE: LazyLock<Palette> = LazyLock::new(|| Palette {
     // Warm and mid — a cart road in daylight, not mud and not sand. Reads as
     // earth against both the dry and the lush grass it has to sit between.
     dirt: linear(0.40, 0.31, 0.20),
-    paving: linear(0.52, 0.52, 0.53),
+    // Darkened from 0.52 once the paving stopped facing the wrong way. It was
+    // chosen while every road and every square took ambient light only, so it had
+    // to be pale to read at all - and the day the surfaces started taking the sun,
+    // a city square came out the colour of snow.
+    paving: linear(0.34, 0.34, 0.35),
     shallow: linear(0.22, 0.38, 0.46),
     sand: linear(0.74, 0.68, 0.50),
     lush_grass: linear(0.26, 0.47, 0.22),

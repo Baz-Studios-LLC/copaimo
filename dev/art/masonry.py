@@ -72,6 +72,10 @@ PALETTE = {
     "curtain": (0.30, 0.42, 0.50),
     "curtain2": (0.24, 0.34, 0.42),
     "mullion": (0.46, 0.48, 0.50),
+    # The same ink the outline shell is painted in. For AUTHORED interior lines -
+    # the frames round a tower's windows - which an inverted hull cannot draw,
+    # because a hull draws silhouettes and a window frame is not one.
+    "ink": (0.05, 0.055, 0.07),
     "steel": (0.56, 0.58, 0.60),
     "parapet": (0.50, 0.50, 0.49),
     "canopy": (0.22, 0.30, 0.36),

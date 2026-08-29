@@ -1078,19 +1078,46 @@ def curtain_wall(parts, wide, deep, floors, base=0.0, banded=True):
                 at = (0.0, side * off * 0.5, 0.0) if face == "x" else (side * off * 0.5, 0.0, 0.0)
                 # Glass and spandrel together fill the storey exactly - 0.66 and 0.34 -
                 # so a floor has no seam in it.
-                parts.append(box(
-                    _slab(face, span * 0.94, 0.14, FLOOR_TALL * 0.66),
-                    (at[0], at[1], z + FLOOR_TALL * 0.67), glass))
+                #
+                # RECESSED, and that is not decoration. The research's rule for where
+                # ink belongs puts a window frame in the secondary weight only "when
+                # its geometry creates a true depth or normal break" - a coloured
+                # rectangle flush with the wall is a coplanar palette change and gets
+                # none. So the glass sits back behind the frame that surrounds it.
+                band = FLOOR_TALL * 0.66
+                sunk = _out(face, (at[0], at[1], z + FLOOR_TALL * 0.67), 0.12, -side)
+                parts.append(box(_slab(face, span * 0.94, 0.14, band), sunk, glass))
                 parts.append(box(
                     _slab(face, span, 0.20, FLOOR_TALL * 0.34),
                     (at[0], at[1], z + FLOOR_TALL * 0.17), "concrete"))
-                # Mullions, one every couple of metres, which is what stops a band
-                # reading as a stripe of paint.
-                count = max(2, int(span / 2.2))
-                for index in range(count + 1):
-                    over = -span * 0.47 + span * 0.94 * index / count
-                    place = _across(face, (at[0], at[1], z + FLOOR_TALL * 0.5), over)
-                    parts.append(box(_slab(face, 0.10, 0.14, FLOOR_TALL * 0.62), place, "mullion"))
+
+                # THE FRAME, IN INK, AND THE MULLIONS THAT MAKE IT SQUARES.
+                #
+                # An inverted hull draws silhouettes, so it can never draw a line
+                # round a window - which is why a tower's glazing had no edge on it
+                # while every other thing in the world did. The research's answer is
+                # an authored interior line: geometry, in the ink colour, put where
+                # the line belongs.
+                #
+                # Spaced by the band's own HEIGHT rather than "every couple of
+                # metres", so what a division makes is a SQUARE. A row of long thin
+                # rectangles reads as a stripe with bars over it; squares read as
+                # windows, which is what they are.
+                rail = 0.13
+                proud = 0.03
+                for up in (-1.0, 1.0):
+                    parts.append(box(
+                        _slab(face, span * 0.96, 0.16, rail),
+                        _out(face, (at[0], at[1], z + FLOOR_TALL * 0.67 + up * band * 0.5), proud, side),
+                        "ink"))
+                lights = max(2, round(span * 0.94 / band))
+                for index in range(lights + 1):
+                    over = -span * 0.47 + span * 0.94 * index / lights
+                    place = _across(face, (at[0], at[1], z + FLOOR_TALL * 0.67), over)
+                    parts.append(box(
+                        _slab(face, rail, 0.16, band + rail),
+                        _out(face, place, proud, side),
+                        "ink"))
 
 
 def tower(floors, wide=9.0, deep=9.0, crown="flat", lobby_open=True):

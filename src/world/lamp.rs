@@ -298,6 +298,8 @@ pub fn light_the_windows(
     mut paints: ResMut<Assets<StandardMaterial>>,
     mut pane: Local<Option<(Handle<Mesh>, Handle<StandardMaterial>)>>,
     clock: Res<crate::sky::TimeOfDay>,
+    year: Res<crate::season::TheYear>,
+    mut tonight: Local<i64>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
     towers: Query<(Entity, &GlobalTransform, &crate::world::town::Standing)>,
     awake: Query<(Entity, &ChildOf), With<Awake>>,
@@ -307,6 +309,20 @@ pub fn light_the_windows(
     };
     let here = anchor.translation();
     let up = crate::util::smoothstep(LIT_BELOW, FULLY_LIT_AT, clock.sun_height());
+
+    // A DIFFERENT NIGHT IS A DIFFERENT PATTERN.
+    //
+    // The panes come down when the date turns, so the next night lights a different
+    // set. Without this the pattern was a property of the building alone and a tower
+    // wore the same windows for the life of the world.
+    let night = crate::season::what_night_it_is(&year);
+    if *tonight != night {
+        *tonight = night;
+        for (entity, _) in &awake {
+            commands.entity(entity).despawn();
+        }
+        return;
+    }
 
     // By day every window is off, and the panes come down rather than being left
     // black - a dark quad over the glass is worse than no quad at all.
@@ -346,7 +362,7 @@ pub fn light_the_windows(
         let footprint = standing.what.footprint();
         // Which storeys are in, from where the building STANDS - so a tower keeps
         // its own pattern however often it is streamed in and out.
-        let seed = foot.x.to_bits() ^ foot.z.to_bits();
+        let seed = foot.x.to_bits() ^ foot.z.to_bits() ^ (night as u32).wrapping_mul(2_654_435_761);
         commands.entity(entity).with_children(|on| {
             for storey in 0..storeys {
                 let roll = crate::world::town::unit(seed, storey as u32 * 31 + 7);
@@ -361,18 +377,43 @@ pub fn light_the_windows(
                 // panes the size of the windows that are actually there.
                 let panes: Vec<(Vec3, Vec3)> = if standing.what.glazed_in_bands() {
                     let z = storey as f32 * FLOOR_TALL + FLOOR_TALL * 0.67;
-                    // On the two long faces only. A pane a face is four times the
-                    // cost for a building you can see two sides of.
-                    vec![
-                        (
-                            Vec3::new(footprint.x * 0.88, FLOOR_TALL * 0.5, 0.06),
-                            Vec3::new(0.0, z, footprint.y * 0.5 + 0.04),
-                        ),
-                        (
-                            Vec3::new(0.06, FLOOR_TALL * 0.5, footprint.y * 0.88),
-                            Vec3::new(footprint.x * 0.5 + 0.04, z, 0.0),
-                        ),
-                    ]
+                    let band = FLOOR_TALL * 0.66;
+                    // ONE LIGHT AT A TIME, not the whole floor.
+                    //
+                    // Lighting the band lit a rectangle the width of the building,
+                    // which reads as a floor with its lights on rather than as a
+                    // room with somebody in it. The facade is divided into squares
+                    // by its own mullions - see `curtain_wall` - so the lit pane is
+                    // one of those squares.
+                    let mut panes = Vec::new();
+                    for (span, face) in [(footprint.x, true), (footprint.y, false)] {
+                        let lights = ((span * 0.94 / band).round() as usize).max(2);
+                        for light in 0..lights {
+                            // Which of them is in, hashed per pane.
+                            let roll = crate::world::town::unit(
+                                seed,
+                                (storey * 97 + light * 13 + usize::from(face) * 7) as u32,
+                            );
+                            if roll > 0.45 {
+                                continue;
+                            }
+                            let over = -span * 0.47
+                                + span * 0.94 * (light as f32 + 0.5) / lights as f32;
+                            let wide = span * 0.94 / lights as f32 - 0.16;
+                            if face {
+                                panes.push((
+                                    Vec3::new(wide, band - 0.16, 0.06),
+                                    Vec3::new(over, z, footprint.y * 0.5 + 0.02),
+                                ));
+                            } else {
+                                panes.push((
+                                    Vec3::new(0.06, band - 0.16, wide),
+                                    Vec3::new(footprint.x * 0.5 + 0.02, z, over),
+                                ));
+                            }
+                        }
+                    }
+                    panes
                 } else {
                     let z = storey as f32 * STOREY + PANE_UP;
                     // Two panes across the front and one down each flank - a lit
@@ -452,6 +493,35 @@ mod tests {
                 read(key),
             );
         }
+    }
+
+    /// A different night lights a different set of windows.
+    ///
+    /// The pattern used to be a property of the BUILDING alone, so a tower wore the
+    /// same windows for the life of the world - the sort of thing nobody notices
+    /// once and everybody notices eventually.
+    #[test]
+    fn tonight_is_not_last_night() {
+        let at = Vec2::new(1_234.0, -567.0);
+        let seed = |night: i64| {
+            at.x.to_bits() ^ at.y.to_bits() ^ (night as u32).wrapping_mul(2_654_435_761)
+        };
+        // The same building over a fortnight: how many of its storeys are in.
+        let awake = |night: i64| {
+            (0..15)
+                .filter(|storey| {
+                    crate::world::town::unit(seed(night), *storey as u32 * 31 + 7) <= AWAKE_SHARE
+                })
+                .collect::<Vec<_>>()
+        };
+        let first = awake(0);
+        let same = (1..14).filter(|night| awake(*night) == first).count();
+        assert!(
+            same < 3,
+            "{same} of the next thirteen nights light exactly the same storeys as the first",
+        );
+        // And it is the same building each night, not a different one.
+        assert_eq!(awake(7), awake(7), "a night is not even consistent with itself");
     }
 
     /// They are dark by day and lit by night, and they cross over at dusk.
