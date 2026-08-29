@@ -160,6 +160,30 @@ pub enum District {
     Outskirts,
 }
 
+/// Which way to turn a model so its door lands where the doorway is.
+///
+/// # The door was on the back of every building in the world
+///
+/// A figure is built in Blender with its doorway on -Y, and the glTF export turns
+/// Blender's Z-up into Y-up: `(x, y, z)` becomes `(x, z, -y)`. So the door that was
+/// built facing -Y arrives in the game facing +Z.
+///
+/// The spawn turned the model by `-facing`, which sends its local +Z to
+/// `(-sin, cos)`. `Plot::walls` puts the doorway gap at `(sin, -cos)` - the way the
+/// lot's own frontage looks. Those are exactly opposite, so the wall with the door
+/// in it faced away from the street while the gap you could actually walk through
+/// was in the blank wall on the street side.
+///
+/// Every measurement said this was fine, because every measurement asked the LOT:
+/// doors sat 3.5 m from a kerb, and `every_building_faces_a_street` passed on all
+/// thirty seeds. Nothing compared the model against the collision. Photographed from
+/// above, the cottage's doorstep is on the far side of it from the road.
+///
+/// `PI - facing` sends local +Z to `(sin, -cos)`, which is the doorway.
+fn model_turn(facing: f32) -> f32 {
+    std::f32::consts::PI - facing
+}
+
 impl District {
     /// How much of its frontage this district occupies, as yards per building.
     ///
@@ -2182,7 +2206,7 @@ pub fn raise_the_towns(
                 FromSite(key),
                 SceneRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(plot.what.model()))),
                 Transform::from_xyz(plot.at.x, stands, plot.at.y)
-                    .with_rotation(Quat::from_rotation_y(-plot.facing)),
+                    .with_rotation(Quat::from_rotation_y(model_turn(plot.facing))),
                 Visibility::default(),
             ));
         }
@@ -2406,7 +2430,7 @@ impl Plugin for TownPlugin {
 mod tests {
     use super::*;
 
-    fn a_site(city: bool, radius: f32) -> Site {
+    pub(super) fn a_site(city: bool, radius: f32) -> Site {
         Site {
             at: Vec2::new(120.0, -80.0),
             height: 30.0,
@@ -3312,6 +3336,54 @@ mod tests {
         for (a, b) in once.plots.iter().zip(&twice.plots) {
             assert_eq!(a.what, b.what);
             assert!((a.at - b.at).length() < 1.0e-5);
+        }
+    }
+}
+
+#[cfg(test)]
+mod doorstep {
+    use super::*;
+
+    /// A model's door lands where the doorway is.
+    ///
+    /// # The one thing nothing compared
+    ///
+    /// Doors were 3.5 m from a kerb and `every_building_faces_a_street` passed on
+    /// every seed, and the door was still on the back of the building - because both
+    /// of those ask the LOT which way its frontage looks, and neither asks the MODEL
+    /// which way its door was built. Photographed from above, the cottage's doorstep
+    /// was on the far side of it from the road.
+    ///
+    /// This closes the loop: Blender writes down which way it built the door, and
+    /// the turn the game applies has to bring it round to the gap `Plot::walls`
+    /// leaves. Nothing here is a restatement of the placement rule.
+    #[test]
+    fn a_models_door_lands_where_the_doorway_is() {
+        let note = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets/models/town.txt");
+        let said = std::fs::read_to_string(&note)
+            .unwrap_or_else(|_| panic!("run dev/art/build.sh: {} is missing", note.display()));
+        let built: f32 = said
+            .lines()
+            .find_map(|line| line.strip_prefix("DOOR_ON_BLENDER_Y "))
+            .expect("which way Blender built the door")
+            .trim()
+            .parse()
+            .expect("a number");
+
+        // Blender Z-up to glTF Y-up: (x, y, z) becomes (x, z, -y). So a door built
+        // facing Blender -Y arrives facing +Z.
+        let in_model = Vec3::new(0.0, 0.0, -built);
+
+        for facing in [0.0_f32, 0.7, 1.9, 3.0, -2.2, -0.4] {
+            let turned = Quat::from_rotation_y(model_turn(facing)) * in_model;
+            let shows = Vec2::new(turned.x, turned.z);
+            // Where `Plot::walls` leaves the gap.
+            let gap = Vec2::new(facing.sin(), -facing.cos());
+            assert!(
+                shows.distance(gap) < 1.0e-4,
+                "facing {facing:.2}: the model's door points {shows:?} and the doorway is at {gap:?} - the door is on the wrong wall",
+            );
         }
     }
 }

@@ -1,0 +1,2 @@
+# Written by dev/art/town.py. Read by world::town's tests.
+DOOR_ON_BLENDER_Y -1

@@ -1295,3 +1295,18 @@ def build(name: str) -> None:
 
 for figure in FIGURES:
     build(figure)
+
+# Which way the doorway faces, written where the game can read it.
+#
+# `shell` puts the door on the SOUTH wall - Blender -Y - and the glTF export turns
+# Blender's Z-up into Y-up, so it arrives in the game facing +Z. The game turns each
+# model by `model_turn` to land that on the street. The two were opposite for the
+# life of the project and every measurement missed it, because every measurement
+# asked the LOT where the door should be rather than asking the MODEL where it is.
+HERE = os.path.dirname(os.path.abspath(__file__))
+NOTE = os.path.join(os.path.dirname(os.path.dirname(HERE)), "assets", "models", "town.txt")
+os.makedirs(os.path.dirname(NOTE), exist_ok=True)
+with open(NOTE, "w", encoding="utf-8") as note:
+    note.write("# Written by dev/art/town.py. Read by world::town's tests.\n")
+    note.write("DOOR_ON_BLENDER_Y -1\n")
+print(f"WROTE {NOTE}")
