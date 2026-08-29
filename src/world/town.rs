@@ -184,6 +184,51 @@ impl Parcel {
     }
 }
 
+/// How wide a side lane is. Narrower than the high street, because it is one.
+pub const LANE_WIDE: f32 = 4.2;
+
+/// A strip of buildable ground down each side of a street.
+///
+/// `at` and `axis` are in the town's frame: where the street's middle is and which
+/// way it runs. Both sides get a parcel, each facing back at the street it fronts,
+/// which is what makes a lane have two rows of houses rather than one.
+fn frontage_parcels(
+    into: &mut Vec<Parcel>,
+    at: Vec2,
+    axis: Vec2,
+    length: f32,
+    front: f32,
+    depth: f32,
+    _wide: f32,
+) {
+    let axis = if axis.length_squared() > 1.0e-6 { axis.normalize() } else { Vec2::X };
+    let side_axis = axis.perp();
+    let turn = axis.y.atan2(axis.x);
+    for side in [-1.0_f32, 1.0] {
+        let middle = at + side_axis * (side * (front + depth * 0.5));
+        // A door faces back ACROSS the street, and the turn that does it is the
+        // street's own - not a quarter off it.
+        //
+        // Derived rather than guessed, because guessing got it wrong: a building's
+        // door points along its local -Y, which after a turn of `f` points
+        // `(sin f, -cos f)`. The parcel on the +perp side of a street needs its door
+        // pointing at -perp, which is `(axis.y, -axis.x)` - so `sin f = axis.y` and
+        // `cos f = axis.x`, and f is the street's own angle. The other side is that
+        // plus a half turn. A quarter turn, which is what was there, points every
+        // door straight down the street it is supposed to face.
+        let facing = if side > 0.0 { turn } else { turn + std::f32::consts::PI };
+        let door = Vec2::new(facing.sin(), -facing.cos());
+        let span = Vec2::new(
+            (length * axis.x).abs() + (depth * side_axis.x).abs(),
+            (length * axis.y).abs() + (depth * side_axis.y).abs(),
+        );
+        let edge = middle.dot(door)
+            + (span.x * door.x).abs() * 0.5
+            + (span.y * door.y).abs() * 0.5;
+        into.push(Parcel { at: middle, span, front: edge, facing });
+    }
+}
+
 /// Lays out one settlement.
 ///
 /// `approach` is the direction the road network arrives from, which the high street
@@ -206,60 +251,95 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
     let mut streets = Vec::new();
     let mut parcels = Vec::new();
 
-    // The high street, the length of the town.
+    // # Not a crossroads
+    //
+    // The first cut laid a high street and one cross street at right angles through
+    // the middle, and a symmetric cross is the least interesting plan there is: it
+    // is the shape of a road junction rather than of a place, it puts the town's
+    // best ground under tarmac, and every town in the world comes out identical
+    // because the only thing a hash gets to choose is which way the cross points.
+    //
+    // Towns do not grow that way. One route passes through - that is why the town
+    // is there - and everything else hangs off it: lanes branch where somebody
+    // needed to get somewhere, at whatever spacing the ground allowed, on whichever
+    // side had room. A back lane appears once the frontage on the main street runs
+    // out. What that produces is a town with a spine and ribs, and it reads as
+    // somewhere that grew rather than somewhere that was drawn.
+    let depth = (reach * 0.5).min(20.0);
+    let front = STREET_WIDE * 0.5 + SETBACK;
+
+    // The spine.
     streets.push(Street {
         from: site.at - along * reach,
         to: site.at + along * reach,
         wide: STREET_WIDE,
     });
-    // A parcel either side of it.
-    let depth = (reach * 0.55).min(22.0);
-    let middle = STREET_WIDE * 0.5 + SETBACK + depth * 0.5;
-    for side in [-1.0_f32, 1.0] {
-        let facing = if side > 0.0 { 0.0 } else { std::f32::consts::PI };
-        let at = Vec2::new(0.0, side * middle);
-        let span = Vec2::new(reach * 1.7, depth);
-        let door = Vec2::new(facing.sin(), -facing.cos());
-        let front = at.dot(door) + (span.y * door.y).abs() * 0.5;
-        parcels.push(Parcel {
-            at,
-            span,
-            front,
-            // The front faces back toward the street.
-            //
-            // A building's door is in its own -Y wall, so a facing of 0 already
-            // points the door at -Y: the parcel on the +Y side of the street wants
-            // no turn at all, and the one on the -Y side wants a half turn. The
-            // first cut put quarter turns here, which pointed every door along the
-            // street instead of across it - and the test that walks out of each
-            // doorway and asks whether it got closer to a street caught it.
-            facing,
+    frontage_parcels(&mut parcels, Vec2::ZERO, Vec2::X, reach * 1.9, front, depth, STREET_WIDE);
+
+    // The ribs. Where they leave the spine and how far they run is the town's own
+    // business: irregular spacing is most of what stops a plan looking drawn.
+    let ribs = if site.city { 4 } else { 2 };
+    let mut last_at = -reach;
+    for rib in 0..ribs {
+        let want = reach * (-0.72 + 1.5 * (rib as f32 + 0.4 + 0.45 * unit(seed, 20 + rib)) / ribs as f32);
+        // Never two ribs on top of each other, and never one at the very end of the
+        // spine where it would have a town on one side and a field on the other.
+        if want - last_at < 26.0 || want.abs() > reach * 0.82 {
+            continue;
+        }
+        last_at = want;
+        // Alternating sides, mostly - but not strictly, or the alternation itself
+        // becomes the pattern the eye finds.
+        let side = if unit(seed, 30 + rib) < 0.62 {
+            if rib % 2 == 0 { 1.0 } else { -1.0 }
+        } else if rib % 2 == 0 {
+            -1.0
+        } else {
+            1.0
+        };
+        let run = (depth + front) * (1.5 + 0.9 * unit(seed, 40 + rib));
+        let lane = LANE_WIDE;
+        let mouth = site.at + along * want + across * (side * front * 0.4);
+        streets.push(Street {
+            from: mouth,
+            to: mouth + across * (side * run),
+            wide: lane,
         });
+        // Ground either side of the rib, starting clear of the spine it leaves.
+        frontage_parcels(
+            &mut parcels,
+            Vec2::new(want, side * (front + run * 0.5)),
+            // The TOWN's frame, not the world's: the spine is +X here whatever
+            // direction the road actually arrives from. Passing the world vectors
+            // in was the whole of why a city came out with one building in it -
+            // every parcel was computed against a diagonal and none of the lots
+            // landed anywhere near the streets they were supposed to front.
+            Vec2::Y * side,
+            run * 0.9,
+            lane * 0.5 + SETBACK,
+            depth * 0.8,
+            lane,
+        );
     }
 
-    // A city gets a cross street, and four more parcels with it. A village does not:
-    // one street IS a village, and a crossroads in a place with six buildings on it
-    // reads as a town that failed rather than as a hamlet.
+    // A back lane, once a city has more frontage than one street can carry.
     if site.city {
+        let back = front + depth + STREET_WIDE * 0.6;
+        let side = if unit(seed, 51) < 0.5 { 1.0 } else { -1.0 };
         streets.push(Street {
-            from: site.at - across * reach * 0.8,
-            to: site.at + across * reach * 0.8,
-            wide: STREET_WIDE,
+            from: site.at - along * reach * 0.62 + across * (side * back),
+            to: site.at + along * reach * 0.62 + across * (side * back),
+            wide: LANE_WIDE,
         });
-        let arm = (reach * 0.45).min(18.0);
-        for side in [-1.0_f32, 1.0] {
-            // Across the cross street, so these are the quarter turns.
-            let facing = if side > 0.0 {
-                -std::f32::consts::FRAC_PI_2
-            } else {
-                std::f32::consts::FRAC_PI_2
-            };
-            let at = Vec2::new(side * (STREET_WIDE * 0.5 + SETBACK + arm * 0.5), 0.0);
-            let span = Vec2::new(arm, reach * 1.1);
-            let door = Vec2::new(facing.sin(), -facing.cos());
-            let front = at.dot(door) + (span.x * door.x).abs() * 0.5;
-            parcels.push(Parcel { at, span, front, facing });
-        }
+        frontage_parcels(
+            &mut parcels,
+            Vec2::new(0.0, side * back),
+            Vec2::X,
+            reach * 1.2,
+            LANE_WIDE * 0.5 + SETBACK,
+            depth * 0.7,
+            LANE_WIDE,
+        );
     }
 
     // THE CIVIC PLOT, and why it is carved out before anything is subdivided.
@@ -281,13 +361,39 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
         // instinct. A hall at the head of the high street, looking back down it, is
         // both clear of the junction and the better composition: you see it from
         // the whole length of the street as you walk up.
-        let up = (STREET_WIDE * 0.5 + hall.footprint().x * 0.5 + 4.0).max(reach * 0.34);
-        let at_town = Vec2::new(up, stand);
-        civic = Some(Plot {
-            at: site.at + along * at_town.x + across * at_town.y,
-            facing: turn,
-            what: hall,
-        });
+        // TRIED IN SEVERAL PLACES, because the hall is placed before the lanes are
+        // checked and a lane can now run straight through where it wants to stand.
+        //
+        // It was one fixed spot up the high street when the plan was a cross and
+        // there was nothing else to hit. With ribs branching at hashed intervals
+        // that spot is sometimes a road, and a guild hall in a lane is the same
+        // fault as the one in the crossroads - only harder to see coming, because
+        // it happens for some seeds and not others.
+        let base = (STREET_WIDE * 0.5 + hall.footprint().x * 0.5 + 4.0).max(reach * 0.34);
+        let bulk = hall.footprint().length() * 0.5;
+        'placing: for attempt in 0..12 {
+            let step = 0.16 * reach * (attempt / 2) as f32;
+            let up = if attempt % 2 == 0 { base + step } else { -(base + step) };
+            for side in [1.0_f32, -1.0] {
+                let at_town = Vec2::new(up, side * stand);
+                let at = site.at + along * at_town.x + across * at_town.y;
+                if at.distance(site.at) > reach {
+                    continue;
+                }
+                if streets
+                    .iter()
+                    .any(|street| street.nearest(at).0 < street.wide * 0.5 + bulk * 0.55)
+                {
+                    continue;
+                }
+                civic = Some(Plot {
+                    at,
+                    facing: if side > 0.0 { turn } else { turn + std::f32::consts::PI },
+                    what: hall,
+                });
+                break 'placing;
+            }
+        }
     }
 
     // Each parcel is cut into lots, and each lot gets a building.
@@ -631,7 +737,9 @@ mod tests {
             for plot in &layout.plots {
                 let out = plot.at.distance(site.at);
                 assert!(
-                    out <= site.radius,
+                    // Allowed past the levelled rim - see FILLS, and the user's
+                    // call that encroaching on the surrounding ground is fine.
+                    out <= site.radius * 1.35,
                     "seed {seed}: a building stands {out:.0} m out on a site levelled \
                      to {:.0} m",
                     site.radius
@@ -783,6 +891,28 @@ mod tests {
         // this is not one flat list.
         assert_eq!(name_of(&city, Country::Snow, 0), Some("Hollowfrost"));
         assert_eq!(name_of(&city, Country::Desert, 0), Some("Sunmere"));
+    }
+
+#[test]
+    fn a_town_actually_has_a_town_in_it() {
+        // The test that was missing, and its absence let a change land that emptied
+        // every settlement in the world: the others all say "no building does X",
+        // which is vacuously true of a town with no buildings. Six of them passed
+        // on a city containing one house.
+        for seed in 0..30 {
+            let city = lay_out(&a_site(true, 90.0), Vec2::new(0.8, 0.6).normalize(), seed);
+            assert!(
+                city.plots.len() >= 18,
+                "seed {seed}: a city has {} buildings in it",
+                city.plots.len()
+            );
+            let village = lay_out(&a_site(false, 58.0), Vec2::new(0.3, -0.95).normalize(), seed);
+            assert!(
+                village.plots.len() >= 6,
+                "seed {seed}: a village has {} buildings in it",
+                village.plots.len()
+            );
+        }
     }
 
     #[test]
