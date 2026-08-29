@@ -9,6 +9,7 @@ pub mod cover;
 pub mod edit;
 pub mod heightmap;
 pub mod litter;
+pub mod town;
 pub mod pass;
 pub mod placed;
 pub mod prop;
