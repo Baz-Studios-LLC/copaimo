@@ -279,6 +279,49 @@ fn sunlight_on(ground: vec2<f32>) -> f32 {
     return 1.0 - weather.x * (1.0 - openest);
 }
 
+/// How many steps the light is pushed into, and how hard the step edges are.
+///
+/// # Almost, but not quite, cel shaded
+///
+/// True cel shading quantises light into flat steps with hard edges, and it is a
+/// strong look that fights everything else here: a world of soft rolling ground and
+/// twenty greens of foliage goes to poster paint the moment you posterise it.
+///
+/// This is the "almost". The lighting is pulled TOWARD steps rather than snapped to
+/// them: each band edge is a smoothstep a few percent wide rather than a cliff, and
+/// the result is mixed back over the original at less than full strength. Surfaces
+/// read as banded - a wall has a lit face, a turning face and a shaded face, and you
+/// can see where each begins - while a hillside still rolls.
+///
+/// Bands few enough to read: four is a lit side, a half-lit side, a shaded side and
+/// a dark side, which is what a stylised building wants and no more.
+const BANDS: f32 = 4.0;
+const BAND_EDGE: f32 = 0.055;
+const BAND_STRENGTH: f32 = 0.72;
+
+/// Pulls a lit colour toward flat bands without snapping it to them.
+fn banded(colour: vec3<f32>) -> vec3<f32> {
+    // Banded on BRIGHTNESS, not per channel. Per channel pulls each of red, green
+    // and blue across its own step edge at a different moment, which shifts hue in
+    // the middle of a smooth surface - a grey wall picks up a green face. Working on
+    // the luminance and scaling the original colour by the ratio keeps the hue.
+    let lit = dot(colour, vec3<f32>(0.2126, 0.7152, 0.0722));
+    if lit <= 0.0001 {
+        return colour;
+    }
+
+    let scaled = lit * BANDS;
+    let step_below = floor(scaled);
+    let across = scaled - step_below;
+    // The soft edge: nearly flat through the middle of a band, quick across its rim.
+    let eased = smoothstep(0.5 - BAND_EDGE, 0.5 + BAND_EDGE, across);
+    let stepped = (step_below + eased) / BANDS;
+
+    let pulled = colour * (stepped / lit);
+    return mix(colour, pulled, BAND_STRENGTH);
+}
+
+
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
     var pbr_input = pbr_input_from_standard_material(in, is_front);
@@ -305,6 +348,12 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         let lit = sunlight_on(in.world_position.xz);
         out.color = vec4<f32>(out.color.rgb * lit, out.color.a);
     }
+
+    // The near-cel pass, before the post-lighting one so fog and tone-mapping act
+    // on a banded surface rather than banding a fogged one - otherwise the steps
+    // march about as the view moves, which is the one thing that would make this
+    // read as a bug rather than as a style.
+    out.color = vec4<f32>(banded(out.color.rgb), out.color.a);
 
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
     return out;

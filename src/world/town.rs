@@ -1154,15 +1154,20 @@ const ROAD_STEPS_EVERY: f32 = 2.5;
 // laid, not worn. Cool grey against the warm pale earth a settlement stands on, so
 // the street reads as a different material rather than as a darker patch of the
 // same one.
-const ROAD_STONE: [f32; 4] = [0.34, 0.34, 0.36, 1.0];
+// Mid grey, not dark. These are read UNDER the near-cel banding, which pulls every
+// surface toward the nearest of four steps - so a colour chosen by eye off a swatch
+// lands a whole band darker than intended once it is in the world. Photographed at
+// 0.34 a paved street came out charcoal; a road is a light surface with dark things
+// standing on it, and it has to stay lighter than the grass beside it.
+const ROAD_STONE: [f32; 4] = [0.56, 0.56, 0.58, 1.0];
 
 /// What a VILLAGE's lanes are made of: packed earth and cobble, warm and rough.
 ///
 /// A village is old-school fantasy and a city is modern, and the ground underfoot is
 /// half of that difference - asphalt through a thatched village would undo the
 /// silhouette work above it before you looked up.
-const ROAD_EARTH: [f32; 4] = [0.40, 0.31, 0.22, 1.0];
-const ROAD_COBBLE: [f32; 4] = [0.44, 0.40, 0.35, 1.0];
+const ROAD_EARTH: [f32; 4] = [0.66, 0.54, 0.38, 1.0];
+const ROAD_COBBLE: [f32; 4] = [0.60, 0.55, 0.48, 1.0];
 
 /// How much one paving stone differs from its neighbour.
 ///
@@ -1170,7 +1175,7 @@ const ROAD_COBBLE: [f32; 4] = [0.44, 0.40, 0.35, 1.0];
 /// turns it into stones - it costs nothing, because the paving is already built as
 /// quads and every quad already carries a colour.
 const STONE_VARIES: f32 = 0.16;
-const ROAD_KERB: [f32; 4] = [0.52, 0.50, 0.46, 1.0];
+const ROAD_KERB: [f32; 4] = [0.44, 0.42, 0.39, 1.0];
 
 /// The material a street's paving wears.
 ///
@@ -1362,10 +1367,23 @@ fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2,
             let on = street.from + run * (step as f32 / steps as f32);
             // Three across: kerb, middle, kerb, so the edge can be a shade paler
             // and the road has an edge at all.
+            // FIVE across, not three.
+            //
+            // With three - kerb, middle, kerb - the carriageway's own colour exists
+            // only on the centre LINE, and every other pixel of the road is a blend
+            // toward the grey of a kerb. Photographed, a village's packed-earth lane
+            // came out the same cold grey as a city street, and the two ages of the
+            // world stopped being two ages at the one place they touch the ground.
+            //
+            // Kerbs at the very edge and the surface held flat across the middle.
+            let surface = if city { ROAD_STONE } else { ROAD_EARTH };
+            let half = street.wide * 0.5;
             for (across, colour) in [
-                (-street.wide * 0.5, ROAD_KERB),
-                (0.0, if city { ROAD_STONE } else { ROAD_EARTH }),
-                (street.wide * 0.5, ROAD_KERB),
+                (-half, ROAD_KERB),
+                (-half * 0.84, surface),
+                (0.0, surface),
+                (half * 0.84, surface),
+                (half, ROAD_KERB),
             ] {
                 let at = on + side * across;
                 let height = terrain.drawn_height(at.x, at.y) + ROAD_LIES;
@@ -1376,13 +1394,13 @@ fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2,
             }
         }
 
-        let base = (places.len() - (steps + 1) * 3) as u32;
+        let base = (places.len() - (steps + 1) * 5) as u32;
         for step in 0..steps as u32 {
-            for lane in 0..2u32 {
-                let a = base + step * 3 + lane;
+            for lane in 0..4u32 {
+                let a = base + step * 5 + lane;
                 let b = a + 1;
-                let c = a + 3;
-                let d = a + 4;
+                let c = a + 5;
+                let d = a + 6;
                 indices.extend_from_slice(&[a, c, b, b, c, d]);
             }
         }

@@ -228,6 +228,93 @@ def weld(parts, palette, tall, name="prop", floor_of=None):
     return whole
 
 
+# How thick an outline is, in metres.
+#
+# 5 cm reads at street level and disappears by the time a building is a shape on the
+# skyline, which is what you want - an outline is there to stop a thing dissolving
+# into what is behind it, not to draw a cartoon.
+# 9 cm. Five was there in the photograph and only just - an outline exists to stop a
+# building dissolving into what is behind it, and one you have to look for is not
+# doing that job.
+OUTLINE_THICK = 0.09
+
+# What colour it is. Near-black with a little of the world's blue in it, because a
+# pure black line under a blue sky reads as a hole rather than as a shadow.
+OUTLINE_INK = (0.05, 0.055, 0.07)
+
+
+def outline(whole, thick=OUTLINE_THICK, ink=OUTLINE_INK):
+    """Wraps a finished figure in an inverted hull, so it has an edge.
+
+    # Why a hull and not a shader
+
+    "Interiors and exteriors need edges so they dont blend into the background."
+
+    The classic stylised answer, and the one that needs nothing from the engine: copy
+    the mesh, push every vertex out along its own normal, turn the faces inside out,
+    and paint it near-black. Back-face culling then hides the near side of that shell
+    completely and leaves only the far side visible - which, from any angle, is
+    exactly the silhouette. Guilty Gear and Zelda both use a version of it.
+
+    Pushed along the NORMAL rather than scaled about the middle: scaling a tall
+    building would leave a thick line at its eaves and none at its foot, because the
+    two are different distances from the centre.
+
+    It rides along with the model - same mesh, same vertex colours, same material -
+    so nothing in the game has to know it exists. The one thing it does need is for
+    the model's material to CULL back faces, or the shell is drawn over the building
+    and the building is a black box.
+    """
+    import bmesh
+
+    bpy.ops.object.select_all(action="DESELECT")
+    whole.select_set(True)
+    bpy.context.view_layer.objects.active = whole
+    bpy.ops.object.duplicate()
+    shell = bpy.context.object
+    shell.name = whole.name + "_outline"
+
+    mesh = bmesh.new()
+    mesh.from_mesh(shell.data)
+    mesh.verts.ensure_lookup_table()
+    # Split first: a welded figure shares vertices between faces that point very
+    # different ways, and pushing a shared vertex along an averaged normal pulls the
+    # shell inside out at every corner.
+    bmesh.ops.split_edges(mesh, edges=mesh.edges)
+    mesh.normal_update()
+    for vertex in mesh.verts:
+        vertex.co += vertex.normal * thick
+    bmesh.ops.reverse_faces(mesh, faces=mesh.faces)
+    mesh.to_mesh(shell.data)
+    mesh.free()
+    shell.data.update()
+
+    layer = shell.data.color_attributes[0] if shell.data.color_attributes else None
+    if layer is None:
+        layer = shell.data.color_attributes.new(
+            name="Color", type="FLOAT_COLOR", domain="POINT"
+        )
+    rgb = [to_linear(part) for part in ink]
+    for point in shell.data.vertices:
+        layer.data[point.index].color = (rgb[0], rgb[1], rgb[2], 1.0)
+
+    bpy.ops.object.select_all(action="DESELECT")
+    shell.select_set(True)
+    whole.select_set(True)
+    bpy.context.view_layer.objects.active = whole
+    bpy.ops.object.join()
+    joined = bpy.context.object
+
+    # And back onto the floor. The shell is pushed out along every normal, including
+    # the ones pointing down, so a figure that was standing exactly on Z=0 now has
+    # five centimetres of outline below it - which the export gate refuses, rightly,
+    # as a model that would import half-buried.
+    low = min((joined.matrix_world @ mathutils.Vector(c)).z for c in joined.bound_box)
+    joined.location.z -= low
+    bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
+    return joined
+
+
 def save_beside(filename: str) -> str:
     """Saves the current file next to these scripts, and says where it went."""
     here = os.path.dirname(os.path.abspath(__file__))

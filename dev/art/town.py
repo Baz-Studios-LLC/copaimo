@@ -132,6 +132,14 @@ PAINT = {
     "parapet": (0.50, 0.50, 0.49),
     "canopy": (0.22, 0.30, 0.36),
     "neon": (0.34, 0.72, 0.78),
+    # Surfaces - see `courses` and `shingles`.
+    "stone2": (0.42, 0.41, 0.38),
+    "shingle": (0.38, 0.26, 0.22),
+    "shingle2": (0.32, 0.22, 0.19),
+    "straw": (0.60, 0.49, 0.29),
+    "straw2": (0.54, 0.44, 0.26),
+    "brick": (0.52, 0.31, 0.25),
+    "brick2": (0.46, 0.28, 0.22),
 }
 
 # Which colours are indoor, so their shading ramp starts at the floor they stand on
@@ -650,6 +658,71 @@ OVERHANG = 0.42
 PITCH = 0.55
 
 
+# # Surfaces, not just shapes
+#
+# Every wall in this town was one flat colour and every roof one flat slope, and
+# from any distance where the silhouette had already done its work there was nothing
+# further to look at. These are the second and third tiers: COURSES on stone and
+# SHINGLES on a roof, both built from the same boxes as everything else.
+#
+# Cheap on purpose. A course is one box per row, not one per stone - the eye reads
+# the horizontal banding and supplies the rest - and a roof gets one box per shingle
+# ROW, stepped and overlapping, which is what makes a pitch read as a covering
+# rather than as a ramp.
+
+# How deep a course of stone stands proud of the wall, and how tall a course is.
+COURSE_PROUD = 0.035
+COURSE_TALL = 0.42
+
+# The same for a shingle row.
+SHINGLE_PROUD = 0.05
+SHINGLE_TALL = 0.34
+
+
+def courses(parts, wide, deep, base, height, colour="stone2", faces=("x", "y")):
+    """Horizontal bands of stone up a wall, so it reads as coursed masonry."""
+    rows = max(1, int(height / COURSE_TALL))
+    for row in range(rows):
+        # Every other course stands slightly further out, which is what turns a set
+        # of stripes into stonework: the shadow line alternates.
+        up = base + (row + 0.5) * height / rows
+        proud = COURSE_PROUD * (1.0 if row % 2 == 0 else 0.55)
+        for face, span, off in (("x", wide, deep), ("y", deep, wide)):
+            if face not in faces:
+                continue
+            for side in (-1.0, 1.0):
+                at = (0.0, side * off * 0.5, 0.0) if face == "x" else (side * off * 0.5, 0.0, 0.0)
+                parts.append(
+                    box(_slab(face, span, proud * 2.0, height / rows * 0.62), (at[0], at[1], up), colour)
+                )
+
+
+def shingles(parts, wide, deep, base, rise, ridge="y", colour="shingle", over=OVERHANG):
+    """Rows of tiles up both slopes of a pitched roof.
+
+    Stepped so each row overlaps the one below, which is the whole reason a tiled
+    roof reads as tiled: the shadow under every course.
+    """
+    span = (wide if ridge == "y" else deep) + over * 2.0
+    length = (deep if ridge == "y" else wide) + over * 2.0
+    slope = (span * 0.5, rise)
+    rows = max(2, int((slope[0] ** 2 + slope[1] ** 2) ** 0.5 / SHINGLE_TALL))
+    for side in (-1.0, 1.0):
+        for row in range(rows):
+            part = (row + 0.5) / rows
+            # Along the slope from eaves to ridge.
+            across = side * span * 0.5 * (1.0 - part)
+            up = base + rise * part
+            wide_here = SHINGLE_TALL * 1.15
+            if ridge == "y":
+                place = (across, 0.0, up)
+                size = (wide_here, length, SHINGLE_PROUD * 2.0)
+            else:
+                place = (0.0, across, up)
+                size = (length, wide_here, SHINGLE_PROUD * 2.0)
+            parts.append(box(size, place, colour if row % 2 == 0 else colour + "2"))
+
+
 def roofed(parts, wide, deep, base, colour, ridge="y", over=OVERHANG, pitch=PITCH):
     """A pitched roof with its overhang, its fascia and its gable walls filled in.
 
@@ -662,6 +735,9 @@ def roofed(parts, wide, deep, base, colour, ridge="y", over=OVERHANG, pitch=PITC
         wedge(wide + over * 2.0, deep + over * 2.0, rise, (0.0, 0.0, base), colour, ridge=ridge)
     )
     eaves(parts, wide, deep, base + 0.02, over, "timber", ridge=ridge)
+    if colour in ("slate", "thatch", "roof", "roof2"):
+        shingles(parts, wide, deep, base, rise, ridge=ridge,
+                 colour="shingle" if colour != "thatch" else "straw", over=over)
     # The triangle of wall under each slope, or the roof is a lid on an open box.
     if ridge == "y":
         for side in (-1.0, 1.0):
@@ -714,6 +790,7 @@ def cottage(open_door=True):
     wide, deep = MODULE * 6, MODULE * 5
     parts = []
     parts.append(box((wide + 0.34, deep + 0.34, PLINTH), (0.0, 0.0, PLINTH * 0.5), "stone"))
+    courses(parts, wide + 0.34, deep + 0.34, 0.0, PLINTH)
     doorstep(parts, deep, PLINTH)
     holes = {}
 
@@ -743,6 +820,7 @@ def townhouse(open_door=True):
     jetty = 0.28
     parts = []
     parts.append(box((wide + 0.34, deep + 0.34, PLINTH), (0.0, 0.0, PLINTH * 0.5), "stone"))
+    courses(parts, wide + 0.34, deep + 0.34, 0.0, PLINTH)
     doorstep(parts, deep, PLINTH)
     holes = {}
 
@@ -781,6 +859,7 @@ def shop():
     wide, deep = MODULE * 8, MODULE * 6
     parts = []
     parts.append(box((wide + 0.34, deep + 0.34, PLINTH), (0.0, 0.0, PLINTH * 0.5), "stone"))
+    courses(parts, wide + 0.34, deep + 0.34, 0.0, PLINTH)
     doorstep(parts, deep, PLINTH, wide=3.0)
     holes = {}
 
@@ -1123,7 +1202,9 @@ def build(name: str) -> None:
         # comes from the piece's own height, so nothing has to be told twice.
         return 0.0 if colour not in INDOORS else 0.0
 
-    masonry.weld(parts, PAINT, tall, name="prop", floor_of=floor_of)
+    whole = masonry.weld(parts, PAINT, tall, name="prop", floor_of=floor_of)
+    # And an edge on it, so it does not dissolve into whatever is behind it.
+    masonry.outline(whole)
     masonry.save_beside(f"town_{name}.blend")
     print(f"BUILT town_{name}  ({len(parts)} pieces, {tall:.1f} m tall)")
 
