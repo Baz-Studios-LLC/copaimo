@@ -55,6 +55,7 @@
 //! same town, no file passes between them, and a town nobody visits costs nothing.
 
 use bevy::prelude::*;
+use std::sync::LazyLock;
 
 use crate::config::WORLD_SEED;
 use crate::world::settle::Site;
@@ -2179,8 +2180,36 @@ const ROAD_STEPS_EVERY: f32 = 2.5;
 // Also darkened from 0.56 for the same reason the paving was: it was chosen while
 // every road faced the wrong way and took ambient light only, so it had to be pale
 // to read at all. Taking the sun, a city street came out white.
-/// sRGB (0.42, 0.41, 0.40) - a cobbled street.
-const ROAD_STONE: [f32; 4] = [0.1473, 0.1400, 0.1329, 1.0];
+/// A colour written the way a person picks one, turned into the light a shader wants.
+///
+/// # The trap this exists to close
+///
+/// A vertex colour reaches the shader as LINEAR light. Every road constant here was
+/// written as though it were sRGB - the value you would type into a colour picker -
+/// and linear 0.31 is sRGB 0.58, so every road in the world shipped about twice as
+/// bright as its number said. That is two "perfectly good browns" that photographed
+/// pale, a city street that came out white however far the constant was pushed down,
+/// and three darkenings that each did less than they should have.
+///
+/// Hand-converting the four of them fixed those four. This closes the trap: a colour
+/// is now WRITTEN in the space it was chosen in and converted on the way out, so the
+/// next one cannot be wrong.
+///
+/// Blender's side never had this problem - `masonry.paint` has always run
+/// `to_linear` on its palette. The mistake was only ever possible on the Rust side,
+/// where a colour is a bare array with nothing to say which space it is in.
+fn srgb(r: f32, g: f32, b: f32) -> [f32; 4] {
+    let up = |c: f32| {
+        if c <= 0.040_45 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    [up(r), up(g), up(b), 1.0]
+}
+
+static ROAD_STONE: LazyLock<[f32; 4]> = LazyLock::new(|| srgb(0.42, 0.41, 0.40));
 
 /// How big a cobble is, in metres, and how much one differs from the next.
 ///
@@ -2228,10 +2257,8 @@ const COBBLES_VARY: f32 = 0.30;
 // It was only ever these. Each is now the linear value of the sRGB colour named in
 // its comment.
 
-/// sRGB (0.62, 0.42, 0.24) - packed earth.
-const ROAD_EARTH: [f32; 4] = [0.3424, 0.1473, 0.0470, 1.0];
-/// sRGB (0.46, 0.43, 0.39).
-const ROAD_COBBLE: [f32; 4] = [0.1789, 0.1549, 0.1260, 1.0];
+static ROAD_EARTH: LazyLock<[f32; 4]> = LazyLock::new(|| srgb(0.62, 0.42, 0.24));
+static ROAD_COBBLE: LazyLock<[f32; 4]> = LazyLock::new(|| srgb(0.46, 0.43, 0.39));
 
 /// How much one paving stone differs from its neighbour.
 ///
@@ -2241,8 +2268,7 @@ const ROAD_COBBLE: [f32; 4] = [0.1789, 0.1549, 0.1260, 1.0];
 const STONE_VARIES: f32 = 0.16;
 // The kerb of a PAVED street. A dirt track has no kerb - see `pave`, which uses the
 // surface colour at its edges when there is no city to put a kerb on.
-/// sRGB (0.34, 0.33, 0.32) - kerbstone.
-const ROAD_KERB: [f32; 4] = [0.0946, 0.0890, 0.0835, 1.0];
+static ROAD_KERB: LazyLock<[f32; 4]> = LazyLock::new(|| srgb(0.34, 0.33, 0.32));
 
 /// How wide the margin is where a road gives out into the ground, in metres.
 ///
@@ -2445,7 +2471,7 @@ fn pave(
             // last thirty metres of the approach. `paved` is that, and every colour
             // below is mixed by it.
             let paved = city.max(paved_here(at_plan, on));
-            let surface = mix(ROAD_EARTH, ROAD_STONE, paved);
+            let surface = mix(*ROAD_EARTH, *ROAD_STONE, paved);
 
             // A WALKED PATH WANDERS IN WIDTH.
             //
@@ -2470,7 +2496,7 @@ fn pave(
             // down each side of one is most of why they all read as paved.
             // A kerb only where there is paving to kerb, and it arrives with the
             // paving rather than all at once.
-            let edge = mix(surface, ROAD_KERB, paved);
+            let edge = mix(surface, *ROAD_KERB, paved);
 
             // AND A SHOULDER EITHER SIDE.
             //
@@ -2630,7 +2656,7 @@ fn pave(
         let height = terrain.drawn_height(at.x, at.y) + ROAD_LIES;
         places.push([at.x - low.x, height, at.y - low.y]);
         normals.push([0.0, 1.0, 0.0]);
-        colours.push(mix(ROAD_EARTH, ROAD_STONE, city.max(paved_here(at_plan, at))));
+        colours.push(mix(*ROAD_EARTH, *ROAD_STONE, city.max(paved_here(at_plan, at))));
         uvs.push([0.0, 0.0]);
 
         for step in 0..=AROUND_A_JOINT {
@@ -2644,7 +2670,7 @@ fn pave(
             // from six-metre arc pieces looks like when each joint wears a rim. The
             // disc is there to fill a notch, and a patch that fills a hole should
             // not announce itself.
-            colours.push(mix(ROAD_EARTH, ROAD_STONE, city.max(paved_here(at_plan, rim))));
+            colours.push(mix(*ROAD_EARTH, *ROAD_STONE, city.max(paved_here(at_plan, rim))));
             uvs.push([turn, 1.0]);
         }
         for step in 0..AROUND_A_JOINT as u32 {
@@ -4025,6 +4051,33 @@ mod doorstep {
                 "nothing in ALL sits at place {place} - a kind has a place and is not on the list",
             );
         }
+    }
+
+    /// A colour written in sRGB arrives as the light it should be.
+    ///
+    /// The whole of the road-colour trouble was that a bare `[f32; 4]` says nothing
+    /// about which space it is in, and every one of them was written in the wrong
+    /// one. `srgb` is the fix; this is the check that `srgb` is itself right, against
+    /// values anybody can verify by hand.
+    #[test]
+    fn a_colour_written_in_srgb_arrives_linear() {
+        // Black and white are the same in both spaces, and mid grey is famously not.
+        assert!(srgb(0.0, 0.0, 0.0)[0].abs() < 1.0e-6);
+        assert!((srgb(1.0, 1.0, 1.0)[0] - 1.0).abs() < 1.0e-6);
+        let mid = srgb(0.5, 0.5, 0.5)[0];
+        assert!(
+            (mid - 0.2140).abs() < 1.0e-3,
+            "sRGB 0.5 is linear 0.214 and this makes it {mid:.4}",
+        );
+        // The one that started it: the street is much darker than its number reads.
+        let street = srgb(0.42, 0.41, 0.40);
+        assert!(
+            street[0] < 0.42 * 0.5,
+            "sRGB 0.42 should arrive well under half of itself, not {:.3}",
+            street[0],
+        );
+        // And the alpha is opaque, because a road is.
+        assert_eq!(srgb(0.3, 0.3, 0.3)[3], 1.0);
     }
 
     /// Blender and the game agree about the wall a lit window hangs on.

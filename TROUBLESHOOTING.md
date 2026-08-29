@@ -2284,3 +2284,36 @@ rest of each name lost in the icefield behind it. Names now sit on a dark backin
 They also sit 11 px clear of their mark rather than 7 - at 7 the disc covered the
 first letter, so "Bellwether" read as "ellwether" - and flip to the left of the mark
 near the map's right-hand edge.
+
+## Colours that render twice as bright as their number
+
+**ISSUE.** A city street measured `(200, 195, 191)` on screen from a base colour of
+`0.31`. Three separate darkenings of that constant each moved it far less than they
+should have. Before that, two perfectly good browns photographed pale, and a "dirt"
+road had to be pushed to an almost fluorescent `(0.85, 0.39, 0.15)` before it read as
+brown at all.
+
+**SOLUTION.** A vertex colour reaches the shader as LINEAR light. Every road constant
+was written as though it were sRGB - the value you would type into a colour picker -
+and linear 0.31 is sRGB 0.58. Every road in the world shipped about twice as bright
+as its number said.
+
+Found by MEASURING the rendered pixel and dividing by the constant that produced it,
+after adjusting the constant three times stopped working. The same move that found
+the blue-biased sky light: when a change does less than the arithmetic says it should,
+the arithmetic is being done in the wrong units.
+
+Blender never had this problem - `masonry.paint` has always run `to_linear` on its
+palette. It was only ever possible on the Rust side, where a colour is a bare
+`[f32; 4]` with nothing to say which space it is in.
+
+**And the trap is closed, not just the four holes.** `town::srgb` takes a colour in
+the space a person picks one in and converts it on the way out, so the constants now
+READ in sRGB and cannot be wrong. `a_colour_written_in_srgb_arrives_linear` checks the
+conversion against values anybody can verify by hand.
+
+**Swept the rest.** `build::shape` already converts (`block.colour.to_linear()`);
+`biome::surface_color` is documented as returning linear and does; `chart` writes
+`[u8; 3]` into an `Rgba8UnormSrgb` texture, which is the correct path; the sky's stars
+are near-white in either space. The only raw arrays left are the maker's bench floor,
+which is a dark checker either way and is not in the shipped world.
