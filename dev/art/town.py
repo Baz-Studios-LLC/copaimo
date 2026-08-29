@@ -313,26 +313,77 @@ def chimney(parts, at, base_z, top_z, colour="stone"):
     parts.append(box((0.34, 0.34, 0.22), (at[0], at[1], top_z + 0.24), "roof2"))
 
 
-def framing(parts, wide, deep, floor, height, colour="timber"):
+def framing(parts, wide, deep, floor, height, colour="timber", openings=None):
     """Timber framing: corner posts, rails, studs and a brace to each panel.
 
     Half-timbering is the cheapest strong pattern a stylised building can wear -
     it is all straight boxes, it reads instantly at any distance, and it breaks a
     blank plaster wall into panels so the eye has something to measure the building
     by. The brace is what stops it looking like a grid.
+
+    # It has to know where the holes are
+
+    It did not, and it laid its studs and both its rails straight across the whole
+    wall - so a stud landed in the middle of the doorway and a rail ran across the
+    threshold at shin height. From inside the game that is a post in the door you
+    cannot walk past, which is exactly what was reported.
+
+    Nothing about a wall's framing can be worked out without the openings, so
+    `openings` is the same bay list the wall itself was built from: a stud inside a
+    door bay is not built, and a rail is broken around it. One description of where
+    the holes are, used by both, because two would drift apart the first time
+    anybody changed a bay.
     """
     t = 0.11
     out = WALL * 0.5 + 0.02
+    openings = openings or {}
+
     for face, span in (("x", wide), ("y", deep)):
         for side in (-1.0, 1.0):
             base = (0.0, side * (deep * 0.5 - out * 0.5), 0.0) if face == "x" else (side * (wide * 0.5 - out * 0.5), 0.0, 0.0)
-            # Top and bottom rails.
-            for up in (0.06, height - 0.1):
-                parts.append(box(_slab(face, span, out * 2.0, t), (base[0], base[1], floor + up), colour))
-            # Studs, one about every module.
+
+            # Where this wall's doorways are, as (from, to) along the wall.
+            bays = openings.get((face, side), [])
+            gaps = []
+            if bays:
+                bay = span / max(1, len(bays))
+                for index, kind in enumerate(bays):
+                    if kind != "door":
+                        continue
+                    middle = -span * 0.5 + bay * (index + 0.5)
+                    half = min(DOOR_WIDE, bay - 0.3) * 0.5 + 0.12
+                    gaps.append((middle - half, middle + half))
+
+            def clear(at):
+                return all(at < lo or at > hi for lo, hi in gaps)
+
+            # Top rail runs the whole way; the BOTTOM one is broken by a doorway,
+            # because a rail across a threshold is a bar across a door.
+            parts.append(box(_slab(face, span, out * 2.0, t), (base[0], base[1], floor + height - 0.1), colour))
+            runs = [(-span * 0.5, span * 0.5)]
+            for lo, hi in gaps:
+                cut = []
+                for a, b in runs:
+                    if hi <= a or lo >= b:
+                        cut.append((a, b))
+                        continue
+                    if lo > a:
+                        cut.append((a, lo))
+                    if hi < b:
+                        cut.append((hi, b))
+                runs = cut
+            for a, b in runs:
+                if b - a < 0.06:
+                    continue
+                place = _across(face, (base[0], base[1], floor + 0.06), (a + b) * 0.5)
+                parts.append(box(_slab(face, b - a, out * 2.0, t), place, colour))
+
+            # Studs, one about every module - but never standing in a doorway.
             count = max(2, int(round(span / MODULE)))
             for index in range(count + 1):
                 over = -span * 0.5 + span * index / count
+                if not clear(over):
+                    continue
                 place = _across(face, (base[0], base[1], floor + height * 0.5), over)
                 parts.append(box(_slab(face, t, out * 2.0, height - 0.2), place, colour))
 
@@ -358,7 +409,7 @@ def flowerbox(parts, along, at, wide, sill_z, facing=-1.0):
         parts.append(box(_slab(along, 0.1, 0.1, 0.08), _out(along, (place[0], place[1], place[2] + 0.1), out, facing), "flower"))
 
 
-def shell(parts, wide, deep, storeys, colour, doors, windows):
+def shell(parts, wide, deep, storeys, colour, doors, windows, openings=None):
     """The four walls of a building, split into bays, with the openings placed.
 
     `doors` is which side the doorway is on - "south" always, because a building
@@ -375,6 +426,11 @@ def shell(parts, wide, deep, storeys, colour, doors, windows):
         # Each wall says which way it FACES. The south wall and the west flank look
         # down the negative axis and the other two look up it; without that, every
         # dressing on half the building is built inside the room.
+        if openings is not None:
+            openings[("x", -1.0)] = south
+            openings[("x", 1.0)] = north
+            openings[("y", -1.0)] = sides
+            openings[("y", 1.0)] = sides
         wall_run(parts, "x", (0.0, -deep * 0.5 + WALL * 0.5, 0.0), wide, STOREY, colour, south, floor, -1.0)
         wall_run(parts, "x", (0.0, deep * 0.5 - WALL * 0.5, 0.0), wide, STOREY, colour, north, floor, 1.0)
         wall_run(parts, "y", (-wide * 0.5 + WALL * 0.5, 0.0, 0.0), deep, STOREY, colour, sides, floor, -1.0)
@@ -616,11 +672,13 @@ def cottage():
     parts = []
     parts.append(box((wide + 0.34, deep + 0.34, PLINTH), (0.0, 0.0, PLINTH * 0.5), "stone"))
     doorstep(parts, deep, PLINTH)
-    shell(parts, wide, deep, 1, "plaster", doors=True, windows=True)
+    holes = {}
+
+    shell(parts, wide, deep, 1, "plaster", doors=True, windows=True, openings=holes)
     room(parts, wide, deep, 1)
     hearth(parts, wide, deep)
     bed(parts, wide, deep)
-    framing(parts, wide, deep, 0.0, STOREY)
+    framing(parts, wide, deep, 0.0, STOREY, openings=holes)
     porch(parts, deep, 0.0, roof_colour="thatch")
     # Ridge across the front, so the cottage shows its long eaves to the street and
     # its gable to its neighbour - the opposite of the shop, which is what stops a
@@ -640,12 +698,14 @@ def townhouse():
     parts = []
     parts.append(box((wide + 0.34, deep + 0.34, PLINTH), (0.0, 0.0, PLINTH * 0.5), "stone"))
     doorstep(parts, deep, PLINTH)
-    shell(parts, wide, deep, 2, "plaster", doors=True, windows=True)
+    holes = {}
+
+    shell(parts, wide, deep, 2, "plaster", doors=True, windows=True, openings=holes)
     room(parts, wide, deep, 2)
     stairs(parts, wide, deep, 2)
     hearth(parts, wide, deep)
     table(parts, (-0.3, -0.9), 1.4, 1.0)
-    framing(parts, wide, deep, 0.0, STOREY)
+    framing(parts, wide, deep, 0.0, STOREY, openings=holes)
     framing(parts, wide, deep, STOREY, STOREY)
 
     # THE JETTY: the upper storey oversails the lower on brackets. One medium shape,
@@ -673,11 +733,13 @@ def shop():
     parts = []
     parts.append(box((wide + 0.34, deep + 0.34, PLINTH), (0.0, 0.0, PLINTH * 0.5), "stone"))
     doorstep(parts, deep, PLINTH, wide=3.0)
-    shell(parts, wide, deep, 1, "plaster", doors=True, windows=True)
+    holes = {}
+
+    shell(parts, wide, deep, 1, "plaster", doors=True, windows=True, openings=holes)
     room(parts, wide, deep, 1)
     counter(parts, wide, deep)
     stock(parts, wide, deep)
-    framing(parts, wide, deep, 0.0, STOREY)
+    framing(parts, wide, deep, 0.0, STOREY, openings=holes)
 
     # Ridge along Y, so the GABLE faces the street. A shopfront wants the tall
     # triangle of wall above it - that is where a trade sign goes and it is what
@@ -732,7 +794,9 @@ def guild_hall():
             )
         )
     parts.append(box((wide + 0.6, deep + 0.6, PLINTH), (0.0, 0.0, PLINTH * 0.5), "stone"))
-    shell(parts, wide, deep, 2, "stone", doors=True, windows=True)
+    holes = {}
+
+    shell(parts, wide, deep, 2, "stone", doors=True, windows=True, openings=holes)
     room(parts, wide, deep, 2)
     stairs(parts, wide, deep, 2, side=-1.0)
     guild_hall_inside(parts, wide, deep)

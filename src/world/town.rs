@@ -1036,7 +1036,8 @@ pub fn raise_the_towns(
     mut commands: Commands,
     assets: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
-    surface: Option<Res<RoadSurface>>,
+    mut materials: ResMut<Assets<crate::shade::Shaded>>,
+    mut road_surface: Local<Option<Handle<crate::shade::Shaded>>>,
     terrain: Res<TerrainSource>,
     mut built: ResMut<Built>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
@@ -1089,17 +1090,31 @@ pub fn raise_the_towns(
             ));
         }
         // The streets themselves, as one mesh for the town.
-        if let Some(surface) = &surface {
-            let paving = pave(&layout.streets, &terrain.0, site.at);
-            commands.spawn((
-                FromSite(key),
-                Mesh3d(meshes.add(paving)),
-                MeshMaterial3d(surface.0.clone()),
-                Transform::from_xyz(site.at.x, 0.0, site.at.y),
-                Visibility::default(),
-                bevy::pbr::NotShadowCaster,
-            ));
-        }
+        //
+        // The material is made HERE, on demand, rather than looked up from a
+        // resource a startup system was supposed to have filled in. That lookup was
+        // an `if let Some(..)`, which means the one failure it can have is silent:
+        // the buildings go up and the streets simply do not, which is precisely the
+        // shape of "still no roads" reported three times against a paving mesh that
+        // measured correctly every time it was asked. A road that cannot be skipped
+        // cannot be skipped for a reason nobody can see.
+        let surface = road_surface.get_or_insert_with(|| {
+            materials.add(crate::shade::shaded(StandardMaterial {
+                base_color: Color::WHITE,
+                perceptual_roughness: 0.96,
+                reflectance: 0.02,
+                ..default()
+            }))
+        });
+        let paving = pave(&layout.streets, &terrain.0, site.at);
+        commands.spawn((
+            FromSite(key),
+            Mesh3d(meshes.add(paving)),
+            MeshMaterial3d(surface.clone()),
+            Transform::from_xyz(site.at.x, 0.0, site.at.y),
+            Visibility::default(),
+            bevy::pbr::NotShadowCaster,
+        ));
         built.standing.insert(key, layout);
     }
 }
@@ -1158,7 +1173,6 @@ pub struct TownPlugin;
 impl Plugin for TownPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Built>()
-            .add_systems(Startup, mix_the_road_surface)
             .add_systems(Update, raise_the_towns.run_if(crate::build::a_world_is_up));
     }
 }
@@ -1406,17 +1420,48 @@ mod tests {
     /// a Bevy system with a run condition, a resource it needs, an anchor it looks
     /// for and a schedule it sits in - four things that can each be wrong on their
     /// own, and none of which a test of the layout can see.
+/// The streets are not just computed - they are SPAWNED, with a mesh on them.
+    ///
+    /// "Still no roads", three times, against a paving mesh that measured 1,929
+    /// vertices every time it was asked. A mesh that exists in a function and never
+    /// reaches the world is exactly as useful as no mesh, and nothing here was
+    /// asking the world - only the arithmetic.
     #[test]
-    fn standing_in_a_settlement_raises_it() {
+    fn a_settlement_lays_its_streets_in_the_world() {
+        let (mut app, _site) = a_world_with_a_town();
+        app.update();
+
+        let mut meshes = app.world_mut().query::<(&Mesh3d, &Transform)>();
+        let found: Vec<_> = meshes.iter(app.world()).collect();
+        assert!(!found.is_empty(), "nothing at all was spawned");
+
+        let store = app.world().resource::<Assets<Mesh>>();
+        let paving: Vec<usize> = found
+            .iter()
+            .filter_map(|(mesh, _)| store.get(&mesh.0))
+            .map(|mesh| mesh.count_vertices())
+            .filter(|count| *count > 500)
+            .collect();
+        assert!(
+            !paving.is_empty(),
+            "{} meshes were spawned and none of them is a street - the paving is              computed and thrown away",
+            found.len()
+        );
+        println!("spawned {} meshes; the largest is {} vertices", found.len(),
+            paving.iter().copied().max().unwrap_or(0));
+    }
+
+    /// An app with the town plugin, standing in a real SETTLEMENT.
+    ///
+    /// Not at `sites()[0]` - that is the ranch, which is deliberately not a
+    /// settlement, so a test standing there was measuring whatever happened to be
+    /// in reach rather than the thing it named.
+    fn a_world_with_a_town() -> (App, Site) {
         use bevy::asset::AssetPlugin;
         use bevy::state::app::StatesPlugin;
 
         let mut app = App::new();
-        app.add_plugins((
-            MinimalPlugins,
-            AssetPlugin::default(),
-            StatesPlugin,
-        ));
+        app.add_plugins((MinimalPlugins, AssetPlugin::default(), StatesPlugin));
         app.init_state::<crate::states::AppState>();
         app.insert_state(crate::states::AppState::Playing);
         app.init_asset::<Scene>();
@@ -1426,9 +1471,12 @@ mod tests {
         app.add_plugins(TownPlugin);
 
         let terrain = crate::world::terrain::Terrain::new();
-        // Stand the anchor in the settlement nearest the ranch, which is the one at
-        // the ranch itself.
-        let site = terrain.plan().sites()[0];
+        let site = *terrain
+            .plan()
+            .sites()
+            .iter()
+            .find(|s| !s.ranch)
+            .expect("the world has no settlements at all");
         app.insert_resource(crate::world::terrain::TerrainSource(std::sync::Arc::new(
             terrain,
         )));
@@ -1437,7 +1485,12 @@ mod tests {
             Transform::from_xyz(site.at.x, 0.0, site.at.y),
             GlobalTransform::from_xyz(site.at.x, 0.0, site.at.y),
         ));
+        (app, site)
+    }
 
+    #[test]
+    fn standing_in_a_settlement_raises_it() {
+        let (mut app, site) = a_world_with_a_town();
         app.update();
 
         let standing = app
@@ -1453,7 +1506,11 @@ mod tests {
             "standing in a settlement raised {standing} buildings"
         );
         let built = app.world().resource::<Built>();
-        assert_eq!(built.towns(), 1, "{} towns were built", built.towns());
+        // At least the one being stood in. Two is fine and correct: settlements are
+        // raised within RAISES_WITHIN of the anchor, and the first non-ranch site in
+        // the world happens to have a neighbour inside that. Insisting on exactly
+        // one was asserting a property of the map, not of the code.
+        assert!(built.towns() >= 1, "{} towns were built", built.towns());
         assert_eq!(built.buildings(), standing);
 
         // And its walls are there to be walked into.
