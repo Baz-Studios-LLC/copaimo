@@ -367,6 +367,12 @@ pub struct Variety {
     pub leaves: Handle<Mesh>,
     pub leaf: Handle<Shaded>,
     pub bark: Handle<Shaded>,
+    /// How thick this variety's trunk is at the foot, in its own units.
+    ///
+    /// MEASURED off the wood the tree is actually drawn with rather than taken from
+    /// a number beside it — the two cannot disagree if there is only one of them,
+    /// and what a warden walks into is the mesh. See `trunk_radius`.
+    pub trunk: f32,
     /// Where this variety sits in the leaf range, 0 dark to 1 light.
     ///
     /// Kept because the SEASON re-derives the colour from it: the range moves with
@@ -440,6 +446,66 @@ fn bark_colour(bark: f32) -> Vec4 {
         .lerp(LinearRgba::from(BARK_PALE).to_vec4(), pale)
 }
 
+/// How wide a trunk is at the foot, measured from the wood itself.
+///
+/// # Why the mesh and not a constant
+///
+/// A collider written down beside a shape is a second description of it, and two
+/// descriptions drift: change the tree and the thing a warden bumps into stays
+/// where the old one was. This asks the geometry that is actually drawn.
+///
+/// The lowest fifth of the tree, because that is what a person walks into. Higher
+/// up the question is meaningless — an oak's crown is metres across and nobody
+/// collides with a canopy — and taking the whole mesh's extent would put an
+/// invisible wall out at the drip line.
+fn trunk_radius(wood: &terrain_core::Geometry) -> f32 {
+    let floor = wood
+        .places
+        .iter()
+        .fold(f32::MAX, |low, place| low.min(place[1]));
+    let bole = wood
+        .places
+        .iter()
+        .filter(|place| place[1] <= floor + BASE_RING)
+        .map(|place| (place[0] * place[0] + place[2] * place[2]).sqrt())
+        // Not the axis itself: a trunk is capped and the cap has a centre vertex
+        // sitting at nought, which is not a radius.
+        .filter(|radius| *radius > 0.02)
+        .fold(f32::MAX, f32::min);
+    if bole == f32::MAX { 0.0 } else { bole }
+}
+
+/// How thick a slice at the foot of a tree counts as its base ring, in metres.
+///
+/// # Four answers, and the three the measurement threw out
+///
+/// The wood mesh is trunk AND branches, and several species reach the ground with
+/// something that is not a trunk - a spruce carries limbs down, a willow hangs
+/// withes to the floor. `player::what_the_trunks_measure` prints what each attempt
+/// actually read, and it refused three in a row:
+///
+///     WIDEST in the bottom fifth      oak 3.65 m, willow 3.80 - that is a bough,
+///                                     and it stops a warden in open air three
+///                                     metres from a tree he is nowhere near
+///     TENTH PERCENTILE of the same    fixed the oak and the spruce; willow still
+///                                     read 3.80, because nearly everything low on
+///                                     a willow is hanging withe and no percentile
+///                                     of it lands on the bole
+///     NEAREST THE AXIS, bottom fifth  0.022 m - a fifth of a twenty-metre tree is
+///                                     four metres up, where the trunk has tapered
+///                                     and branches attach close in
+///
+/// What is true of a trunk and of nothing else is that at the FOOT it is the only
+/// thing there, and everything else in the mesh grows outward from it. So: the ring
+/// of vertices nearest the ground, and of those the one closest to the axis. Every
+/// species in the pool then measures between 0.14 m and 0.61 m, which is a tree.
+///
+/// A third of a metre of slice, because the trunk is drawn in six segments and a
+/// tall tree's first ring can sit two metres up - too thin a slice and there is
+/// nothing in it at all, which is how the third attempt above managed to return
+/// infinity for every spruce.
+const BASE_RING: f32 = 0.35;
+
 /// Grows the world's trees once, at startup.
 pub fn grow_the_grove(
     mut commands: Commands,
@@ -454,6 +520,7 @@ pub fn grow_the_grove(
             Variety {
                 species: tree.species,
                 tint: tree.tint,
+                trunk: trunk_radius(&tree.wood),
                 wood: meshes.add(as_mesh(&tree.wood)),
                 leaves: meshes.add(as_mesh(&tree.leaves)),
                 // A material apiece. Twenty of them is nothing — the meshes were

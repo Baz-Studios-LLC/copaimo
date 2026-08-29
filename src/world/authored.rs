@@ -343,6 +343,7 @@ mod tests {
                     wood: meshes.add(flat(3)),
                     leaves: meshes.add(flat(3)),
                     tint: 0.5,
+                    trunk: 0.2,
                     leaf: Handle::default(),
                     bark: Handle::default(),
                 });

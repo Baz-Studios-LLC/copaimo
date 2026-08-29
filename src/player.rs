@@ -222,6 +222,21 @@ pub const CLIMB_LIMIT: f32 = 1.4;
 /// disagree and leave them bobbing at a line they cannot cross.
 const WADE_DEPTH: f32 = 1.4;
 
+/// How wide the warden is, in metres, for the purpose of walking into things.
+///
+/// A third of a metre. It is a shoulder half-width and not a hitbox: the only
+/// question it answers is how close he can stand to a trunk before the trunk stops
+/// him, and a body that stops a third of a metre out reads as leaning on the tree
+/// rather than as clipping into it.
+pub const WARDEN_IS_WIDE: f32 = 0.33;
+
+/// How far to look for things to walk into, in metres.
+///
+/// A step is small and a trunk is not wide, so the box only has to cover the step
+/// plus the widest thing that could reach into it. Kept tight because this runs
+/// every frame: a wide box asks about far more of the wood than a step can reach.
+const LOOKS_AHEAD: f32 = 4.0;
+
 /// Whether one step of a walk is allowed: not into deep water, not up a cliff.
 ///
 /// The sea is for boats. Rather than an invisible wall at the waterline — which
@@ -230,7 +245,12 @@ const WADE_DEPTH: f32 = 1.4;
 /// step INTO deeper water is refused, so someone who somehow ends up out there
 /// can always walk home. The cliff rule is the same shape: only the step UP is
 /// refused, so no slope is a trap.
-fn may_step(terrain: &crate::world::terrain::Terrain, from: Vec3, to: Vec3) -> bool {
+fn may_step(
+    terrain: &crate::world::terrain::Terrain,
+    standing: &[Trunk],
+    from: Vec3,
+    to: Vec3,
+) -> bool {
     let here = terrain.height(from.x, from.z);
     let there = terrain.height(to.x, to.z);
 
@@ -239,8 +259,71 @@ fn may_step(terrain: &crate::world::terrain::Terrain, from: Vec3, to: Vec3) -> b
         return false;
     }
 
+    if into_a_trunk(standing, from, to) {
+        return false;
+    }
+
     let run = Vec2::new(to.x - from.x, to.z - from.z).length();
     run <= f32::EPSILON || there - here <= run * CLIMB_LIMIT
+}
+
+/// One thing standing in the world that a warden cannot walk through.
+#[derive(Clone, Copy, Debug)]
+pub struct Trunk {
+    pub at: Vec2,
+    pub radius: f32,
+}
+
+/// Whether this step walks into something standing.
+///
+/// # Only the step IN is refused
+///
+/// The same shape as the cliff rule and the wading rule above, and for the same
+/// reason: a test that refuses every position inside a trunk would trap anybody who
+/// somehow ended up in one — spawned there, put there by a brush, or standing where
+/// a tree was planted afterwards. Refusing only the step that makes it WORSE means
+/// there is always a way out of anywhere.
+fn into_a_trunk(standing: &[Trunk], from: Vec3, to: Vec3) -> bool {
+    let was = Vec2::new(from.x, from.z);
+    let goes = Vec2::new(to.x, to.z);
+    standing.iter().any(|trunk| {
+        let keep = trunk.radius + WARDEN_IS_WIDE;
+        let after = goes.distance(trunk.at);
+        after < keep && after < was.distance(trunk.at)
+    })
+}
+
+/// The trunks near enough to a step to matter.
+///
+/// Asked ONCE per frame and handed to all three candidate steps, rather than each
+/// asking for itself: `trees_in` walks a lattice and takes the painted forest's
+/// lock, and doing that three times a frame to get the same answer is waste.
+fn trunks_near(
+    terrain: &crate::world::terrain::Terrain,
+    grove: Option<&crate::world::stream::Grove>,
+    at: Vec3,
+) -> Vec<Trunk> {
+    let Some(grove) = grove else {
+        return Vec::new();
+    };
+    let here = Vec2::new(at.x, at.z);
+    let low = here - Vec2::splat(LOOKS_AHEAD);
+    let high = here + Vec2::splat(LOOKS_AHEAD);
+    terrain
+        .trees_in(low, high)
+        .into_iter()
+        .filter_map(|tree| {
+            let variety = grove.trees.get(tree.variety)?;
+            let radius = variety.trunk * tree.scale;
+            // A sapling is not a wall. Below a hand's width the trunk is thinner
+            // than the tolerance either side of it, and stopping a warden dead on
+            // something he could snap reads as an invisible post.
+            (radius > 0.08).then_some(Trunk {
+                at: Vec2::new(tree.at.x, tree.at.z),
+                radius,
+            })
+        })
+        .collect()
 }
 
 #[derive(Component)]
@@ -469,6 +552,7 @@ pub fn move_player(
     keys: Res<ButtonInput<KeyCode>>,
     mode: Res<CameraMode>,
     terrain: Res<TerrainSource>,
+    grove: Option<Res<crate::world::stream::Grove>>,
     bounds: Res<WorldBounds>,
     cameras: Query<&Transform, (With<MainCamera>, Without<Player>)>,
     mut players: Query<(&mut Transform, &mut Striding), With<Player>>,
@@ -527,13 +611,15 @@ pub fn move_player(
         // axis alone, so brushing a canyon wall at an angle slides along it
         // rather than sticking to it.
         let from = transform.translation;
+        // What is standing here, asked once for all three candidate steps below.
+        let standing = trunks_near(&terrain.0, grove.as_deref(), from);
         let step = [
             next,
             Vec3::new(next.x, from.y, from.z),
             Vec3::new(from.x, from.y, next.z),
         ]
         .into_iter()
-        .find(|to| *to != from && may_step(&terrain.0, from, *to));
+        .find(|to| *to != from && may_step(&terrain.0, &standing, from, *to));
         let before = transform.translation;
         if let Some(to) = step {
             transform.translation = to;
@@ -583,6 +669,100 @@ mod tests {
     /// The gate has to refuse the walls and pass the floor. The wall half is the
     /// test below; this is the other half, and it is the one that would strand a
     /// player: a canyon nobody can walk is not a gate, it is a full stop.
+/// A warden cannot walk through a trunk, can always walk out of one, and slides
+    /// along it rather than sticking.
+    #[test]
+    fn a_trunk_stops_a_warden_and_never_traps_one() {
+        let oak = [Trunk {
+            at: Vec2::new(10.0, 0.0),
+            radius: 0.5,
+        }];
+        let keep = 0.5 + WARDEN_IS_WIDE;
+
+        // Walking at it: refused once the step would put him inside.
+        let outside = Vec3::new(10.0 - keep - 0.2, 0.0, 0.0);
+        let inside = Vec3::new(10.0 - keep + 0.1, 0.0, 0.0);
+        assert!(
+            into_a_trunk(&oak, outside, inside),
+            "he walked into the tree"
+        );
+
+        // Standing in it — put there by a brush, or a tree planted around him —
+        // every step that gets him OUT is allowed. This is the half that matters:
+        // a rule that refused every position inside a trunk would trap him there
+        // forever.
+        let stuck = Vec3::new(10.0, 0.0, 0.0);
+        for step in 0..16 {
+            let turn = step as f32 / 16.0 * std::f32::consts::TAU;
+            let out = stuck + Vec3::new(turn.cos(), 0.0, turn.sin()) * 0.3;
+            assert!(
+                !into_a_trunk(&oak, stuck, out),
+                "standing in the trunk, the step at {turn:.2} rad was refused too"
+            );
+        }
+
+        // And sliding: walking north-east into the tree's west face, the diagonal
+        // is refused but the northward part of it is not, which is what
+        // `move_player` retries and what makes him slide round rather than stop
+        // dead.
+        let beside = Vec3::new(10.0 - keep - 0.05, 0.0, 0.0);
+        let diagonal = beside + Vec3::new(0.2, 0.0, 0.2);
+        let sideways = beside + Vec3::new(0.0, 0.0, 0.2);
+        assert!(into_a_trunk(&oak, beside, diagonal), "the diagonal went in");
+        assert!(
+            !into_a_trunk(&oak, beside, sideways),
+            "sliding along the trunk was refused, so he sticks to it"
+        );
+    }
+
+    /// The trunks the world actually grows are wide enough to bump into and narrow
+    /// enough to walk between.
+    ///
+    /// Ignored: it grows the whole pool, which is slower than a unit test should be,
+    /// and it is a measurement to READ as much as a guard.
+    #[test]
+    #[ignore = "a measurement of the real pool"]
+    fn what_the_trunks_measure() {
+        let mut narrowest = f32::MAX;
+        let mut widest: f32 = 0.0;
+        for seed in 0..terrain_core::tree::VARIETIES as u32 {
+            let tree = terrain_core::tree::grow(seed);
+            let _ = tree.height;
+            let floor = tree
+                .wood
+                .places
+                .iter()
+                .fold(f32::MAX, |low, place| low.min(place[1]));
+            let radius = tree
+                .wood
+                .places
+                .iter()
+                .filter(|place| place[1] <= floor + 0.35)
+                .map(|place| (place[0] * place[0] + place[2] * place[2]).sqrt())
+                .filter(|radius| *radius > 0.02)
+                .fold(f32::MAX, f32::min);
+            println!(
+                "{:?} {:.2} m tall, bole {:.3} m at chest height",
+                tree.species, tree.height, radius
+            );
+            narrowest = narrowest.min(radius);
+            widest = widest.max(radius);
+        }
+        println!("trunks run {narrowest:.3} m to {widest:.3} m");
+        // Every bole in the pool falls between 0.14 m and 0.61 m. The bounds are
+        // wide either side of that: this is a runaway guard on the measure in
+        // `stream::trunk_radius`, which has read a bough as a trunk before, not a
+        // pin on the numbers themselves.
+        assert!(
+            widest < 1.0,
+            "the widest bole is {widest:.2} m — that is a bough, not a trunk"
+        );
+        assert!(
+            narrowest > 0.05,
+            "the narrowest bole is {narrowest:.3} m — a warden would walk through it"
+        );
+    }
+
     #[test]
     fn the_canyon_can_be_walked_from_the_desert_to_the_green_world() {
         let terrain = crate::world::terrain::Terrain::new();
@@ -594,7 +774,7 @@ mod tests {
         let mut worst = 0.0_f32;
         for step in -319..=320 {
             let next = crate::world::pass::way_through(step as f32);
-            if may_step(&terrain, stand(at), stand(next)) {
+            if may_step(&terrain, &[], stand(at), stand(next)) {
                 at = next;
             } else {
                 refused += 1;
@@ -648,15 +828,15 @@ mod tests {
             "the scan never found the canyon floor"
         );
         assert!(
-            may_step(&terrain, stand(middle), stand(ahead)),
+            may_step(&terrain, &[], stand(middle), stand(ahead)),
             "walking along the canyon floor is refused"
         );
         assert!(
-            !may_step(&terrain, stand(foot), stand(into_wall)),
+            !may_step(&terrain, &[], stand(foot), stand(into_wall)),
             "the wall let the warden walk up it — the canyon gates nothing"
         );
         assert!(
-            may_step(&terrain, stand(into_wall), stand(foot)),
+            may_step(&terrain, &[], stand(into_wall), stand(foot)),
             "the way back DOWN the wall is refused — a slope became a trap"
         );
     }
