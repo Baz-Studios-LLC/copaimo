@@ -70,7 +70,24 @@ const TOP: f32 = 170.0;
 // tamer rim the last thirty metres fell into the taper, and a straight crossing
 // there climbed only 101 m against a gate that wants 102. Smoothing a wall shortens
 // it, so the wall gets the length back.
-const WALL_LONG: f32 = 940.0;
+// EIGHTEEN HUNDRED, and the number comes from the sea rather than from taste.
+//
+// At 940 the wall held to about 440 m each side. The country roads, which are walked
+// over dry ground and take whatever way there is, went round it at 686 to 1543 m
+// across - so the gate that "closes the road east" was being strolled past, and the
+// player could do exactly the same. Reported as a path going to the SIDE of the
+// canyon instead of to its mouth, which is precisely what a blocked route looks like
+// when it is not blocked.
+//
+// Probing the ground along the wall's own line: the south-west side drops into the
+// sea at about 800 m out, and the north-east side does the same at about 800 before
+// land resumes past a channel. So a wall that reaches 850 m each way has both its
+// ends IN water and there is no way round it that does not involve swimming. At the
+// measured ratio of about 0.47 between reach and length, that wants 1800.
+//
+// No settlement is inside it: the nearest across the wall is 399 m, and it stands
+// 820 m along, well outside the massif's 520 m thickness.
+const WALL_LONG: f32 = 1_800.0;
 const WALL_THICK: f32 = 520.0;
 
 /// How far the walls take to rise from the plain to the top, in metres.
@@ -88,7 +105,15 @@ const WALL_RUN: f32 = 55.0;
 /// clipping rock. Twenty was a crack and thirty was still a corridor — both were
 /// sized by how a slot canyon looks in a photograph rather than by what has to
 /// walk down it.
-const GAP_HALF: f32 = 26.0;
+// NINETEEN, down from 26.
+//
+// "That canyon should not have so much free space, it is supposed to block the
+// player." Fifty-two metres wall to wall was sized as a thoroughfare and read as
+// open ground with cliffs somewhere off to the side. Thirty-eight still passes the
+// traffic guard below - a warden, a companion and oncoming traffic have their room -
+// and the rock is close enough to be the reason you are walking where you are
+// walking, which is the whole point of a slot.
+const GAP_HALF: f32 = 19.0;
 
 /// How far the canyon's walls take to reach full height, in metres.
 ///
@@ -313,7 +338,7 @@ pub fn shape(at: Vec2, ground: f32) -> f32 {
 mod tests {
     use super::*;
 
-    fn axes() -> (Vec2, Vec2) {
+    pub(super) fn axes() -> (Vec2, Vec2) {
         let (sin, cos) = HEADING.sin_cos();
         (Vec2::new(cos, sin), Vec2::new(-sin, cos))
     }
@@ -647,7 +672,14 @@ mod tests {
         let (along, across) = axes();
         for side in [-1.0_f32, 1.0] {
             let mut holds_to = 0.0;
-            for c in 0..90 {
+            // Far enough out to find the end of whatever wall is built. This was a
+            // flat 90 steps of 5 m - 445 m - which was past the end of a 940 m wall
+            // and short of an 1800 m one, so lengthening the wall made the guard
+            // report the wall giving out at exactly the distance it had stopped
+            // looking. A reach fixed in metres cannot measure a thing whose size is
+            // a constant above it.
+            let reach = (WALL_LONG * 0.8 / 5.0) as i32;
+            for c in 0..reach {
                 let aside = c as f32 * 5.0 * side;
                 // A barrier still stands at this offset if SOME point along the
                 // thickness is high — the crossing test's own question.
@@ -713,8 +745,19 @@ mod country {
         let mut desert = 0;
         let mut green = 0;
         let mut looked = 0;
+        // BESIDE THE MOUTHS, in metres, and not along the whole wall.
+        //
+        // Two things were wrong with `WALL_LONG * 0.06` a step. It is a share of a
+        // length that has since doubled, so the samples walked outward when the wall
+        // grew; and even at its old +-282 m it was asking about ground a quarter of a
+        // kilometre from the way through, which is not where anybody steps out.
+        //
+        // The claim is that a walker enters from the desert and leaves into the green
+        // world. That is about the MOUTHS. The wall's far ends now run into the sea -
+        // that is what makes it a gate - and the land they raise out there is not
+        // desert, quite correctly, because it is nowhere near the desert.
         for step in -5..=5 {
-            let down = across_way * step as f32 * (WALL_LONG * 0.06);
+            let down = across_way * step as f32 * 24.0;
             // Just outside each end of the canyon: where a walker actually steps
             // out, and where "which country is this" has an answer that matters.
             let west = AT + down - along_way * WALL_THICK * 0.9;
