@@ -45,6 +45,7 @@ mod editor;
 mod tools;
 #[cfg(feature = "tools")]
 mod hud;
+mod map;
 mod ik;
 /// How a warden looks, and painting it onto the model.
 mod look;
@@ -261,7 +262,11 @@ fn main() {
         ))
         // The bridges that carry a road over water. On their own because the tuple
         // above is at Bevy's limit of sixteen.
-        .add_plugins(world::bridge::BridgePlugin);
+        .add_plugins((
+            world::bridge::BridgePlugin,
+            // The map a player pulls up with M.
+            map::MapPlugin,
+        ));
 
     // The maker's tools, and only in a maker's build.
     //

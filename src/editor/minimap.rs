@@ -17,12 +17,11 @@ use bevy::tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task};
 use crate::camera::MainCamera;
 use crate::tools::theme::{self, UiFont, TEXT_DIM, TEXT_MUTED};
 use crate::states::AppState;
-use crate::world::biome::surface_color;
 use crate::world::terrain::{Terrain, TerrainSource};
 
-/// Width of the rendered overview in pixels. The height follows the world's
-/// aspect ratio.
-const WIDTH: u32 = 256;
+/// Width of the rendered overview in pixels, and the painting itself, both
+/// shared with the map a player pulls up - the two must show the same world.
+use crate::world::chart::{dimensions, paint, WIDTH};
 
 /// How long the edit layer must sit unchanged before the overview redraws.
 /// Without this it would queue a rebuild on every frame of a drag.
@@ -92,10 +91,6 @@ impl Plugin for MinimapPlugin {
 }
 
 /// Pixel dimensions of the overview for a world of the given half-extents.
-fn dimensions(half: Vec2) -> UVec2 {
-    let height = (WIDTH as f32 * half.y / half.x).round().max(1.0) as u32;
-    UVec2::new(WIDTH, height)
-}
 
 fn spawn_panel(mut commands: Commands, font: Res<UiFont>, terrain: Res<TerrainSource>) {
     let size = dimensions(terrain.half());
@@ -292,7 +287,7 @@ fn request_redraw(mut commands: Commands, terrain: Res<TerrainSource>, mut state
 
     let generator = terrain.0.clone();
     let size = dimensions(terrain.half());
-    let task = AsyncComputeTaskPool::get().spawn(async move { (size, render(&generator, size)) });
+    let task = AsyncComputeTaskPool::get().spawn(async move { (size, paint(&generator, size)) });
     commands.spawn(MinimapTask(task));
 }
 
@@ -397,49 +392,4 @@ fn place_marker(
         node.top = Val::Percent(v * 100.0);
         turn.rotation = Quat::from_rotation_z(bearing);
     }
-}
-
-/// Samples the world into RGBA pixels. Pure and thread-safe.
-fn render(terrain: &Terrain, size: UVec2) -> Vec<u8> {
-    let half = terrain.half();
-    let mut pixels = Vec::with_capacity((size.x * size.y * 4) as usize);
-
-    // One pixel is tens of meters, so the normal is taken over that same
-    // distance — a 1 m epsilon would report slopes the map can't show.
-    let epsilon = (half.x * 2.0 / size.x as f32) * 0.5;
-
-    for py in 0..size.y {
-        for px in 0..size.x {
-            let x = (px as f32 / (size.x - 1) as f32 * 2.0 - 1.0) * half.x;
-            let z = (py as f32 / (size.y - 1) as f32 * 2.0 - 1.0) * half.y;
-
-            let height = terrain.height(x, z);
-            let slope = 1.0 - terrain.normal(x, z, epsilon).y;
-            // The same classification the terrain itself uses, so the overview
-            // reads as the world rather than as a separate diagram.
-            let color = surface_color(
-                Vec2::new(x, z),
-                height,
-                slope,
-                terrain.shore_character(x, z),
-                terrain.worn(x, z),
-                terrain.region(x, z).0,
-                terrain.region(x, z).1,
-            );
-
-            // `surface_color` returns linear; the texture is sRGB.
-            let encode = |linear: f32| {
-                let srgba = LinearRgba::rgb(linear, linear, linear);
-                (Srgba::from(srgba).red.clamp(0.0, 1.0) * 255.0) as u8
-            };
-            pixels.extend_from_slice(&[
-                encode(color[0]),
-                encode(color[1]),
-                encode(color[2]),
-                255,
-            ]);
-        }
-    }
-
-    pixels
 }

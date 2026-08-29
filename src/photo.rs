@@ -49,6 +49,8 @@ pub struct Photo {
     pub out: PathBuf,
     /// How many frames to let the world stream before the shutter.
     pub settle: u32,
+    /// Whether to pull the map up before the shutter goes.
+    pub map: bool,
 }
 
 /// Frames counted since the world came up.
@@ -81,6 +83,7 @@ impl Photo {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("dev/art/shots/game.png")),
             settle: value("--settle").and_then(|v| v.parse().ok()).unwrap_or(240),
+            map: args.iter().any(|arg| arg == "--map"),
         })
     }
 }
@@ -200,6 +203,13 @@ fn start_playing(mut next: ResMut<NextState<crate::states::AppState>>) {
     next.set(crate::states::AppState::Playing);
 }
 
+/// Pulls the map up, when the photograph is meant to be of the map.
+fn open_the_map(photo: Res<Photo>, mut open: ResMut<crate::map::Open>) {
+    if photo.map {
+        open.0 = true;
+    }
+}
+
 pub struct PhotoPlugin;
 
 impl Plugin for PhotoPlugin {
@@ -212,7 +222,12 @@ impl Plugin for PhotoPlugin {
             .add_systems(Startup, start_playing)
             .add_systems(
                 Update,
-                (stand_the_warden_there, anchor_where_told, take_the_photo)
+                (
+                    open_the_map,
+                    stand_the_warden_there,
+                    anchor_where_told,
+                    take_the_photo,
+                )
                     .run_if(taking_a_photo)
                     .run_if(in_state(crate::states::AppState::Playing)),
             )

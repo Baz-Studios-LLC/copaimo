@@ -2261,3 +2261,26 @@ Two follow-ons, both of which failed the suite before they were handled:
 kerbs and asking whether any point of road is inside a building - deliberately NOT
 by rerunning the placement rule, which cannot fail against itself. Checked: it
 catches a guild hall with 0.4 m of carriageway inside its walls under the old rule.
+
+## A map of a world nobody lives in
+
+**ISSUE.** The overview painted ground colour only. A settlement LEVELS its ground,
+so the biggest city on the map showed as a slightly flatter patch of the same green
+as the country round it - which is to say, as nothing. The failure is silent: the
+map looks fine, it is just empty.
+
+**SOLUTION.** `world::chart` paints the works over the ground - roads, bridges, and
+a mark per settlement with a pale ring under it so it reads against snow, sand or
+grass alike. `the_map_shows_what_people_built` asks the PIXELS at each thing's own
+coordinates rather than rerunning the painter, which cannot fail against itself.
+
+The painting is shared by the terrain tool's overview and the map a player pulls up
+with M. Two maps drawn by two pieces of code are two maps that disagree the first
+time one of them changes.
+
+**And the labels.** Pale text is legible over green, sea and sand and INVISIBLE over
+snow: photographed, "Marrowmede" read as "Marrowme" and "Colderry" as "Colde", the
+rest of each name lost in the icefield behind it. Names now sit on a dark backing.
+They also sit 11 px clear of their mark rather than 7 - at 7 the disc covered the
+first letter, so "Bellwether" read as "ellwether" - and flip to the left of the mark
+near the map's right-hand edge.
