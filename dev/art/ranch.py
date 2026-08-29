@@ -33,8 +33,14 @@ a barn that does not dwarf a house is a shed.
 
 import math
 import os
+import sys
 
 import bpy
+
+# The shared box/paint/outline helpers, found the same way `town.py` finds them:
+# Blender runs a script with its own folder off sys.path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import masonry
 import mathutils
 
 PIECES = ("house", "barn", "fence", "gate", "trough", "silo")
@@ -265,6 +271,12 @@ def build(name: str) -> None:
     whole.name = "prop"
     whole.data.name = "prop"
     bpy.ops.object.shade_auto_smooth(angle=SHARP_ABOVE)
+
+    # An edge on it, like everything else in the world wears. See
+    # `masonry.outline` - the art direction is "almost but not quite cel shaded",
+    # and an outline is half of that; the banded light in `cloud_shade.wgsl` is the
+    # other half and already applies to everything this material touches.
+    whole = masonry.outline(whole)
 
     low = min((whole.matrix_world @ mathutils.Vector(c)).z for c in whole.bound_box)
     whole.location.z -= low
