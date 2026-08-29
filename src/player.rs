@@ -293,38 +293,79 @@ fn into_a_trunk(standing: &[Trunk], from: Vec3, to: Vec3) -> bool {
     })
 }
 
-/// The trunks near enough to a step to matter.
+/// Everything near enough to a step to be walked into.
 ///
 /// Asked ONCE per frame and handed to all three candidate steps, rather than each
-/// asking for itself: `trees_in` walks a lattice and takes the painted forest's
-/// lock, and doing that three times a frame to get the same answer is waste.
-fn trunks_near(
+/// asking for itself: both queries walk a lattice and the tree one takes the
+/// painted forest's lock, and doing that three times a frame for the same answer is
+/// waste.
+///
+/// Trees and litter come from the same two functions the RENDERER uses to decide
+/// where to draw them — `trees_in` and `litter_in` — so there is no second opinion
+/// anywhere about where the world's furniture stands.
+fn standing_near(
     terrain: &crate::world::terrain::Terrain,
     grove: Option<&crate::world::stream::Grove>,
+    props: Option<&crate::world::prop::PropPool>,
     at: Vec3,
 ) -> Vec<Trunk> {
-    let Some(grove) = grove else {
-        return Vec::new();
-    };
     let here = Vec2::new(at.x, at.z);
     let low = here - Vec2::splat(LOOKS_AHEAD);
     let high = here + Vec2::splat(LOOKS_AHEAD);
-    terrain
-        .trees_in(low, high)
-        .into_iter()
-        .filter_map(|tree| {
+    let mut standing = Vec::new();
+
+    if let Some(grove) = grove {
+        standing.extend(terrain.trees_in(low, high).into_iter().filter_map(|tree| {
             let variety = grove.trees.get(tree.variety)?;
             let radius = variety.trunk * tree.scale;
             // A sapling is not a wall. Below a hand's width the trunk is thinner
             // than the tolerance either side of it, and stopping a warden dead on
             // something he could snap reads as an invisible post.
-            (radius > 0.08).then_some(Trunk {
+            (radius > THIN_ENOUGH_TO_PASS).then_some(Trunk {
                 at: Vec2::new(tree.at.x, tree.at.z),
                 radius,
             })
-        })
-        .collect()
+        }));
+    }
+
+    if let Some(props) = props {
+        standing.extend(
+            crate::world::prop::litter_in(terrain, &props.0, low, high)
+                .into_iter()
+                .filter(|strewn| crate::world::prop::is_solid(strewn.kind))
+                .filter_map(|strewn| {
+                    // `reach` is how far the thing extends from its middle, which
+                    // for a log is its LENGTH — and a log is not a circle. Taken at
+                    // three quarters, so a warden brushes the ends of a long one
+                    // instead of being held off at arm's length from its middle.
+                    let radius = strewn.reach * PROPS_ARE_ROUNDER_THAN_THEY_REACH;
+                    (radius > THIN_ENOUGH_TO_PASS).then_some(Trunk {
+                        at: strewn.at,
+                        radius,
+                    })
+                }),
+        );
+    }
+
+    standing
 }
+
+/// Below this radius, in metres, a thing is not worth being stopped by.
+///
+/// A hand's width. Anything thinner is thinner than the tolerance either side of
+/// it, and a warden brought to a halt by something he cannot see has met a bug
+/// rather than an obstacle.
+const THIN_ENOUGH_TO_PASS: f32 = 0.08;
+
+/// What share of a prop's own reach is treated as solid.
+///
+/// A prop reports how far it extends from its middle, which is the right number for
+/// deciding what it covers and the wrong shape for walking into: a fallen log
+/// reaches its own length, and a circle of that radius is a bollard round a thing
+/// that is mostly thin air at the ends. Three quarters lets a warden get near the
+/// ends of a long prop while still holding him off the body of a boulder, which is
+/// very nearly a circle already.
+const PROPS_ARE_ROUNDER_THAN_THEY_REACH: f32 = 0.75;
 
 #[derive(Component)]
 pub struct Player;
@@ -553,6 +594,7 @@ pub fn move_player(
     mode: Res<CameraMode>,
     terrain: Res<TerrainSource>,
     grove: Option<Res<crate::world::stream::Grove>>,
+    props: Option<Res<crate::world::prop::PropPool>>,
     bounds: Res<WorldBounds>,
     cameras: Query<&Transform, (With<MainCamera>, Without<Player>)>,
     mut players: Query<(&mut Transform, &mut Striding), With<Player>>,
@@ -612,7 +654,7 @@ pub fn move_player(
         // rather than sticking to it.
         let from = transform.translation;
         // What is standing here, asked once for all three candidate steps below.
-        let standing = trunks_near(&terrain.0, grove.as_deref(), from);
+        let standing = standing_near(&terrain.0, grove.as_deref(), props.as_deref(), from);
         let step = [
             next,
             Vec3::new(next.x, from.y, from.z),
@@ -761,6 +803,63 @@ mod tests {
             narrowest > 0.05,
             "the narrowest bole is {narrowest:.3} m — a warden would walk through it"
         );
+    }
+
+/// What lies about stops a warden only when it has a body.
+/// What the litter actually measures, and what a warden will be held off by.
+    ///
+    /// Ignored: it grows the whole prop pool, and it is a measurement to READ.
+    #[test]
+    #[ignore = "a measurement of the real pool"]
+    fn what_the_litter_measures() {
+        use terrain_core::prop;
+        let mut worst_solid = 0.0_f32;
+        for variety in 0..prop::VARIETIES {
+            let grown = prop::from_pool(variety);
+            let held = grown.reach * PROPS_ARE_ROUNDER_THAN_THEY_REACH;
+            println!(
+                "{:?}: reaches {:.2} m, held off at {:.2} m{}",
+                grown.kind,
+                grown.reach,
+                held,
+                if crate::world::prop::is_solid(grown.kind) {
+                    ""
+                } else {
+                    "  (walked through)"
+                }
+            );
+            if crate::world::prop::is_solid(grown.kind) {
+                worst_solid = worst_solid.max(held);
+            }
+        }
+        println!("the widest solid thing holds a warden off at {worst_solid:.2} m");
+        // A boulder is a boulder, not a building. Anything past this and the world
+        // is full of obstacles bigger than the gaps between them.
+        assert!(
+            worst_solid < 4.0,
+            "the widest solid litter holds a warden {worst_solid:.2} m off"
+        );
+    }
+
+    #[test]
+    fn a_boulder_stops_a_warden_and_a_bed_of_scree_does_not() {
+        use terrain_core::prop::Kind;
+
+        for kind in [Kind::Boulder, Kind::Stump, Kind::Log, Kind::Snag, Kind::Cactus] {
+            assert!(
+                crate::world::prop::is_solid(kind),
+                "{kind:?} can be walked through"
+            );
+        }
+        // Ground cover with a shape. Stopping a warden at the rim of a bush is the
+        // same fault as an invisible sapling: something he can see he could step
+        // past, refusing him.
+        for kind in [Kind::Scree, Kind::Bush, Kind::Brush] {
+            assert!(
+                !crate::world::prop::is_solid(kind),
+                "{kind:?} is a wall, and it should not be"
+            );
+        }
     }
 
     #[test]

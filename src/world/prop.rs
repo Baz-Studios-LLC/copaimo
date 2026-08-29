@@ -61,7 +61,7 @@ pub struct HasProps;
 /// Grown once. Two dozen objects is nothing to grow, and growing one per boulder
 /// would be growing a boulder ten thousand times.
 #[derive(Resource, Deref)]
-pub struct PropPool(Arc<Vec<Prop>>);
+pub struct PropPool(pub Arc<Vec<Prop>>);
 
 /// The one material everything in the pool wears.
 #[derive(Resource, Deref)]
@@ -240,7 +240,50 @@ pub fn clear_chunks(
 /// Pure and thread-safe: it asks the terrain questions and stamps geometry, and
 /// touches nothing else. That is what lets it run on the task pool.
 pub fn litter(terrain: &Terrain, pool: &[Prop], low: Vec2) -> Geometry {
-    let high = low + CHUNK_SIZE;
+    let mut mesh = Geometry::default();
+    for standing in litter_in(terrain, pool, low, low + CHUNK_SIZE) {
+        let Some(grown) = pool.get(standing.variety) else {
+            continue;
+        };
+        mesh.stamp(
+            &grown.mesh,
+            Vec3::new(
+                standing.at.x - low.x,
+                bedded(terrain, standing.at, grown.reach * standing.scale),
+                standing.at.y - low.y,
+            ),
+            standing.turn,
+            standing.scale,
+        );
+    }
+    mesh
+}
+
+/// One thing the world has strewn about, and where.
+#[derive(Clone, Copy, Debug)]
+pub struct Strewn {
+    pub at: Vec2,
+    pub variety: usize,
+    pub kind: terrain_core::prop::Kind,
+    pub turn: f32,
+    pub scale: f32,
+    /// How far it reaches from its middle, already scaled.
+    pub reach: f32,
+}
+
+/// WHERE the litter lies, without building any of it.
+///
+/// # Split out so that two things cannot disagree about where a boulder is
+///
+/// This was the body of `litter`, and it stayed there as long as drawing was the
+/// only thing that wanted the answer. Collision wants it too, and the one thing it
+/// must not do is work it out again: two walks of the same lattice would be two
+/// descriptions of the same wood, and the moment either is touched a warden starts
+/// bumping into rocks that are not drawn, or walking through ones that are.
+///
+/// So the loop lives here and `litter` is what it always was minus the arithmetic:
+/// ask where things stand, then stamp them.
+pub fn litter_in(terrain: &Terrain, pool: &[Prop], low: Vec2, high: Vec2) -> Vec<Strewn> {
     let step = PROP_SPACING.max(1.0);
 
     // A world-wide lattice rather than a per-chunk one, so a boulder does not
@@ -249,7 +292,7 @@ pub fn litter(terrain: &Terrain, pool: &[Prop], low: Vec2) -> Geometry {
     let first = (low / step).floor().as_ivec2();
     let last = (high / step).ceil().as_ivec2();
 
-    let mut mesh = Geometry::default();
+    let mut standing = Vec::new();
     for slot_z in first.y..=last.y {
         for slot_x in first.x..=last.x {
             // Jittered off the lattice, or a hillside comes out in rows.
@@ -299,19 +342,38 @@ pub fn litter(terrain: &Terrain, pool: &[Prop], low: Vec2) -> Geometry {
             let scale = PROP_SCALE.0
                 + (PROP_SCALE.1 - PROP_SCALE.0) * terrain_core::forest::chance(slot_x, slot_z, 47);
 
-            mesh.stamp(
-                &grown.mesh,
-                Vec3::new(
-                    at.x - low.x,
-                    bedded(terrain, at, grown.reach * scale),
-                    at.y - low.y,
-                ),
+            standing.push(Strewn {
+                at,
+                variety,
+                kind: grown.kind,
                 turn,
                 scale,
-            );
+                reach: grown.reach * scale,
+            });
         }
     }
-    mesh
+    standing
+}
+
+/// Whether a warden has to walk round this rather than through it.
+///
+/// # Not everything lying about is a wall
+///
+/// A boulder stops you and a bed of scree does not, and the difference is not size
+/// — it is whether the thing has a body. Scree is a spill of small broken stone you
+/// walk over; brush is dead sticks you walk through; a bush is foliage that gives.
+/// Those three are ground cover with a shape, and stopping a warden dead at the rim
+/// of a bush is the same fault as the invisible sapling: something he can see he
+/// could step past, refusing him.
+///
+/// What is left has a body: a boulder, a stump, a fallen log, a standing dead tree,
+/// a cactus. You go round.
+pub fn is_solid(kind: terrain_core::prop::Kind) -> bool {
+    use terrain_core::prop::Kind;
+    match kind {
+        Kind::Boulder | Kind::Stump | Kind::Log | Kind::Snag | Kind::Cactus => true,
+        Kind::Scree | Kind::Bush | Kind::Brush => false,
+    }
 }
 
 /// The height to stand something of a given size at, so it sits IN the ground
