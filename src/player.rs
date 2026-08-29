@@ -313,11 +313,12 @@ fn standing_near(
     grove: Option<&crate::world::stream::Grove>,
     props: Option<&crate::world::prop::PropPool>,
     at: Vec3,
-) -> Vec<Trunk> {
+    standing: &mut Vec<Trunk>,
+) {
     let here = Vec2::new(at.x, at.z);
     let low = here - Vec2::splat(LOOKS_AHEAD);
     let high = here + Vec2::splat(LOOKS_AHEAD);
-    let mut standing = Vec::new();
+    standing.clear();
 
     if let Some(grove) = grove {
         standing.extend(terrain.trees_in(low, high).into_iter().filter_map(|tree| {
@@ -351,8 +352,6 @@ fn standing_near(
                 }),
         );
     }
-
-    standing
 }
 
 /// Whether a step walks into one of a town's walls.
@@ -670,6 +669,11 @@ pub fn move_player(
     bounds: Res<WorldBounds>,
     cameras: Query<&Transform, (With<MainCamera>, Without<Player>)>,
     mut players: Query<(&mut Transform, &mut Striding), With<Player>>,
+    // Two buffers held between frames rather than allocated in each one. What is
+    // standing near the warden is asked for every frame they move, and both of these
+    // were built from nothing every time - see `Plot::walls_into`.
+    mut standing: Local<Vec<Trunk>>,
+    mut walls: Local<Vec<(Vec2, Vec2, f32)>>,
 ) {
     // In free-fly the same keys drive the camera instead.
     if *mode == CameraMode::Fly {
@@ -726,12 +730,12 @@ pub fn move_player(
         // rather than sticking to it.
         let from = transform.translation;
         // What is standing here, asked once for all three candidate steps below.
-        let standing = standing_near(&terrain.0, grove.as_deref(), props.as_deref(), from);
+        standing_near(&terrain.0, grove.as_deref(), props.as_deref(), from, &mut standing);
         // The town's walls. A building is not a post, so it cannot be a circle: a
         // house's front is six metres of wall with a doorway in it, and a disc round
         // its middle would either seal the door or leave the corners walkable. They
         // come as oriented slabs and are tested as such.
-        let walls = towns.walls_near(Vec2::new(from.x, from.z), LOOKS_AHEAD);
+        towns.walls_near(Vec2::new(from.x, from.z), LOOKS_AHEAD, &mut walls);
         let step = [
             next,
             Vec3::new(next.x, from.y, from.z),

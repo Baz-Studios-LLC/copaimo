@@ -527,26 +527,35 @@ fn world_of(
     warden: Affine3A,
     placed: &Query<(&Transform, Option<&ChildOf>), Without<Player>>,
 ) -> Option<Affine3A> {
-    let mut chain = Vec::new();
+    // NO CHAIN, because it does not need one.
+    //
+    // This collected every local transform from the bone up to the warden into a
+    // `Vec` and then multiplied them in reverse - eight heap allocations a frame for
+    // a hierarchy that has not changed since the scene loaded. Codex's audit
+    // suggested a fixed-capacity buffer; there is a better answer, which is that the
+    // product can be built as the walk goes.
+    //
+    // Wanted: warden * root * ... * parent * bone. The walk arrives at those in the
+    // opposite order, so each one is multiplied onto the LEFT of what is already
+    // gathered, and the same product comes out with nothing stored.
+    let mut gathered = Affine3A::IDENTITY;
+    let mut found = false;
     let mut at = entity;
     loop {
         let Ok((local, parent)) = placed.get(at) else {
             break;
         };
-        chain.push(local.compute_affine());
+        gathered = local.compute_affine() * gathered;
+        found = true;
         match parent {
             Some(above) => at = above.parent(),
             None => break,
         }
     }
-    if chain.is_empty() {
+    if !found {
         return None;
     }
-    let mut world = warden;
-    for local in chain.iter().rev() {
-        world *= *local;
-    }
-    Some(world)
+    Some(warden * gathered)
 }
 
 /// Finds the leg bones in the warden's scene, once it has arrived.
@@ -875,6 +884,72 @@ impl Plugin for PlantingPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    /// A bone lands where the whole chain above it puts it.
+    ///
+    /// # Why a rewrite of three lines gets a test
+    ///
+    /// `world_of` used to gather every local transform into a `Vec` and multiply
+    /// them in reverse; it now multiplies each onto the left of what it has as it
+    /// walks, and stores nothing. That is the same product by algebra and a
+    /// different order of operations in the code, which is exactly the kind of
+    /// change that is obviously right and occasionally transposed.
+    ///
+    /// Rotations are in it on purpose. A chain of pure translations commutes, so it
+    /// would pass whichever way round the multiplication went and prove nothing.
+    #[test]
+    fn a_bone_lands_where_the_chain_above_it_puts_it() {
+        #[derive(Resource, Default)]
+        struct Landed(Option<Affine3A>);
+
+        let root = Transform::from_xyz(1.0, 2.0, 3.0)
+            .with_rotation(Quat::from_rotation_y(0.7));
+        let middle = Transform::from_xyz(0.0, 0.5, 0.25)
+            .with_rotation(Quat::from_rotation_x(-0.4));
+        let leaf = Transform::from_xyz(0.1, -0.2, 0.05)
+            .with_rotation(Quat::from_rotation_z(1.1));
+        let warden = Transform::from_xyz(-4.0, 0.0, 9.0)
+            .with_rotation(Quat::from_rotation_y(-2.2))
+            .compute_affine();
+
+        #[derive(Resource)]
+        struct Walk {
+            bone: Entity,
+            warden: Affine3A,
+        }
+
+        fn walk(
+            ask: Res<Walk>,
+            mut landed: ResMut<Landed>,
+            placed: Query<(&Transform, Option<&ChildOf>), Without<Player>>,
+        ) {
+            landed.0 = world_of(ask.bone, ask.warden, &placed);
+        }
+
+        let mut app = App::new();
+        app.init_resource::<Landed>();
+        let world = app.world_mut();
+        let up = world.spawn(root).id();
+        let mid = world.spawn((middle, ChildOf(up))).id();
+        let bone = world.spawn((leaf, ChildOf(mid))).id();
+        app.insert_resource(Walk { bone, warden });
+        app.add_systems(Update, walk);
+        app.update();
+
+        let got = app.world().resource::<Landed>().0.expect("the bone to be found");
+        let want = warden
+            * root.compute_affine()
+            * middle.compute_affine()
+            * leaf.compute_affine();
+        let here = Vec3::new(0.3, -0.7, 0.4);
+        assert!(
+            got.transform_point3(here).distance(want.transform_point3(here)) < 1.0e-5,
+            "the bone landed at {:?} and the chain above it says {:?}",
+            got.transform_point3(here),
+            want.transform_point3(here),
+        );
+    }
 
     #[test]
     fn the_hips_only_ever_drop() {

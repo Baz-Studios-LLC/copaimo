@@ -2094,17 +2094,19 @@ impl Built {
     }
 
     /// Everything standing near a point that cannot be walked through.
-    pub fn walls_near(&self, at: Vec2, reach: f32) -> Vec<(Vec2, Vec2, f32)> {
-        let mut walls = Vec::new();
+    pub fn walls_near(&self, at: Vec2, reach: f32, walls: &mut Vec<(Vec2, Vec2, f32)>) {
+        walls.clear();
         for layout in self.standing.values() {
             for plot in &layout.plots {
-                if plot.at.distance(at) > reach + plot.what.footprint().length() {
+                // Squared, because this only asks whether the plot is in reach and
+                // the answer never needs the distance itself.
+                let far = reach + plot.what.footprint().length();
+                if plot.at.distance_squared(at) > far * far {
                     continue;
                 }
-                walls.extend(plot.walls());
+                plot.walls_into(walls);
             }
         }
-        walls
     }
 }
 
@@ -2919,10 +2921,24 @@ impl Plot {
     /// The front wall comes in two pieces with the doorway between them, which is
     /// what makes the building enterable. Everything else is one slab a side.
     pub fn walls(&self) -> Vec<(Vec2, Vec2, f32)> {
+        let mut walls = Vec::new();
+        self.walls_into(&mut walls);
+        walls
+    }
+
+    /// The same, added to a buffer somebody else owns.
+    ///
+    /// The movement path gathers what is standing near the warden every frame it
+    /// moves, and every plot in reach used to hand back a freshly allocated `Vec` of
+    /// five slabs to be copied into another one and dropped. It refills one buffer
+    /// now. `walls` above is kept for the callers that just want the list.
+    ///
+    /// Found by Codex's audit.
+    pub fn walls_into(&self, walls: &mut Vec<(Vec2, Vec2, f32)>) {
         // A yard's FENCE, if it has one, with the gateway left open.
         if self.what.is_yard() {
             let Some(gate) = self.what.fenced() else {
-                return Vec::new();
+                return;
             };
             let half = self.what.footprint() * 0.5;
             let (sin, cos) = self.facing.sin_cos();
@@ -2930,24 +2946,22 @@ impl Plot {
                 self.at + Vec2::new(local.x * cos - local.y * sin, local.x * sin + local.y * cos)
             };
             let thick = 0.18;
-            let mut fence = vec![
-                // The back run and both flanks.
-                (out(Vec2::new(0.0, half.y)), Vec2::new(half.x, thick), self.facing),
-                (out(Vec2::new(-half.x, 0.0)), Vec2::new(thick, half.y), self.facing),
-                (out(Vec2::new(half.x, 0.0)), Vec2::new(thick, half.y), self.facing),
-            ];
+            // The back run and both flanks.
+            walls.push((out(Vec2::new(0.0, half.y)), Vec2::new(half.x, thick), self.facing));
+            walls.push((out(Vec2::new(-half.x, 0.0)), Vec2::new(thick, half.y), self.facing));
+            walls.push((out(Vec2::new(half.x, 0.0)), Vec2::new(thick, half.y), self.facing));
             // And the front, in two pieces with the gateway between them.
             let stub = (half.x - gate * 0.5).max(0.0);
             if stub > 0.05 {
                 for side in [-1.0_f32, 1.0] {
-                    fence.push((
+                    walls.push((
                         out(Vec2::new(side * (half.x - stub * 0.5), -half.y)),
                         Vec2::new(stub * 0.5, thick),
                         self.facing,
                     ));
                 }
             }
-            return fence;
+            return;
         }
         let half = self.what.footprint() * 0.5;
         let (sin, cos) = self.facing.sin_cos();
@@ -2955,7 +2969,6 @@ impl Plot {
             self.at + Vec2::new(local.x * cos - local.y * sin, local.x * sin + local.y * cos)
         };
         let thick = 0.3;
-        let mut walls = Vec::new();
 
         // Back and both flanks: one slab each.
         walls.push((out(Vec2::new(0.0, half.y)), Vec2::new(half.x, thick), self.facing));
@@ -2975,7 +2988,7 @@ impl Plot {
                 Vec2::new(half.x, thick),
                 self.facing,
             ));
-            return walls;
+            return;
         }
 
         // The front, in two pieces with the doorway between them.
@@ -2990,7 +3003,6 @@ impl Plot {
                 ));
             }
         }
-        walls
     }
 }
 
@@ -3465,7 +3477,8 @@ mod tests {
         assert_eq!(built.buildings(), standing);
 
         // And its walls are there to be walked into.
-        let walls = built.walls_near(site.at, 60.0);
+        let mut walls = Vec::new();
+        built.walls_near(site.at, 60.0, &mut walls);
         assert!(!walls.is_empty(), "the town it raised has no walls in it");
     }
 
