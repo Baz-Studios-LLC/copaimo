@@ -191,10 +191,15 @@ impl Building {
     /// walks under an overhang rather than into it.
     pub fn footprint(self) -> Vec2 {
         match self {
-            Building::Cottage => Vec2::new(6.0, 4.5),
-            Building::Townhouse => Vec2::new(6.0, 6.0),
-            Building::Shop => Vec2::new(7.5, 6.0),
-            Building::GuildHall => Vec2::new(10.5, 7.5),
+            // Half again as big as they started, and the reason is the CAMERA.
+            // It follows the warden from three or four metres back, so a room he
+            // fits in comfortably is one the view clips out of the moment he walks
+            // into it. Kept in step with `dev/art/town.py` by
+            // `a_building_asks_for_the_room_its_model_needs`.
+            Building::Cottage => Vec2::new(9.0, 7.5),
+            Building::Townhouse => Vec2::new(9.0, 9.0),
+            Building::Shop => Vec2::new(12.0, 9.0),
+            Building::GuildHall => Vec2::new(18.0, 13.5),
         }
     }
 
@@ -767,7 +772,10 @@ struct FromSite(u32);
 /// Four centimetres. Flat on the terrain z-fights with it - two surfaces at the
 /// same height flicker against each other wherever they meet - and any higher is a
 /// kerb you can see the edge of from across the square.
-const ROAD_LIES: f32 = 0.04;
+// 9 cm, up from 4. Four cleared the ground in arithmetic and not on screen: the
+// chunk mesh is a grid of flat triangles and the depth buffer has opinions, so a
+// surface laid four centimetres over it flickers along every triangle edge.
+const ROAD_LIES: f32 = 0.09;
 
 /// How long a piece of road is before it takes another height sample.
 ///
@@ -787,7 +795,10 @@ const ROAD_STEPS_EVERY: f32 = 2.5;
 /// that asked whether anything beside a street looked different said no.
 ///
 /// A road has to be a different SURFACE from the ground it crosses, so it is one.
-const ROAD_EARTH: [f32; 4] = [0.42, 0.36, 0.29, 1.0];
+// Dark, and deliberately much darker than the pale earth a settlement's ground
+// is. A road the colour of the ground it crosses is not a road, it is a stain, and
+// "still no roads" is what that looks like from inside the game.
+const ROAD_EARTH: [f32; 4] = [0.26, 0.21, 0.17, 1.0];
 const ROAD_KERB: [f32; 4] = [0.52, 0.50, 0.46, 1.0];
 
 /// The material a street's paving wears.
@@ -1453,6 +1464,36 @@ mod tests {
             homes_out > homes_in + 0.3,
             "cottages are {homes_out:.2} of the outskirts and {homes_in:.2} of the market"
         );
+    }
+
+#[test]
+    #[ignore = "a measurement of the real paving"]
+    fn what_the_paving_measures() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        let site = plan.sites()[0];
+        let layout = lay_out(&site, plan.approach(site.at), crate::config::WORLD_SEED);
+        println!("{} streets", layout.streets.len());
+        let mesh = pave(&layout.streets, &terrain, site.at);
+        use bevy::render::mesh::VertexAttributeValues;
+        let places = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+            Some(VertexAttributeValues::Float32x3(v)) => v.clone(),
+            _ => Vec::new(),
+        };
+        println!("paving: {} vertices, {} indices",
+            places.len(),
+            mesh.indices().map(|i| i.len()).unwrap_or(0));
+        if places.is_empty() { return; }
+        let ys: Vec<f32> = places.iter().map(|p| p[1]).collect();
+        let lo = ys.iter().cloned().fold(f32::MAX, f32::min);
+        let hi = ys.iter().cloned().fold(f32::MIN, f32::max);
+        println!("paving Y from {lo:.2} to {hi:.2}");
+        println!("ground at the site middle: {:.2}", terrain.height(site.at.x, site.at.y));
+        let xs: Vec<f32> = places.iter().map(|p| p[0]).collect();
+        let zs: Vec<f32> = places.iter().map(|p| p[2]).collect();
+        println!("paving spans x {:.0}..{:.0}, z {:.0}..{:.0} (entity sits at the site)",
+            xs.iter().cloned().fold(f32::MAX, f32::min), xs.iter().cloned().fold(f32::MIN, f32::max),
+            zs.iter().cloned().fold(f32::MAX, f32::min), zs.iter().cloned().fold(f32::MIN, f32::max));
     }
 
     #[test]

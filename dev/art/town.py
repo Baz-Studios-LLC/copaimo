@@ -57,7 +57,17 @@ from masonry import box, gable_wall, lean, tube, wedge
 MODULE = 1.5
 
 # A storey, floor to floor. Two modules, which is what the kit's stairs climb.
-STOREY = 3.0
+# 3.6 m, up from 3.0.
+#
+# # A building the CAMERA has to fit in, not just the warden
+#
+# The warden is 1.7 m and a 3 m ceiling was generous for him. He is not the thing
+# that has to fit: the camera follows him from three or four metres behind and a
+# little above, so the room has to hold the pair of them or the view clips through
+# the wall the instant he steps inside. Everything here is sized for the camera,
+# which is why these rooms would read as slightly grand for a cottage if a person
+# stood in one alone.
+STOREY = 3.6
 
 # How thick a wall is. Thick enough to read as masonry from inside AND outside,
 # which a plane cannot do at all.
@@ -74,8 +84,10 @@ WALL = 0.22
 #
 # So the opening is wider AND the leaf hangs flat against the wall beside it rather
 # than in it. What is left is the whole 1.4 m.
-DOOR_WIDE = 1.4
-DOOR_TALL = 2.15
+# A door the camera can follow him through, for the same reason. 1.4 m was a
+# doorway a person fits through and a camera does not.
+DOOR_WIDE = 1.9
+DOOR_TALL = 2.45
 
 # A window, and how far up the wall it sits.
 WINDOW_WIDE = 0.95
@@ -123,7 +135,7 @@ INDOORS = {
 # --------------------------------------------------------------- wall grammar
 
 
-def wall_run(parts, along, at, length, height, colour, bays, floor=0.0):
+def wall_run(parts, along, at, length, height, colour, bays, floor=0.0, facing=-1.0):
     """One wall, split into bays, each bay resolved to what the rule says.
 
     This is the split rule and it is the whole grammar: a wall of length L is cut
@@ -140,10 +152,10 @@ def wall_run(parts, along, at, length, height, colour, bays, floor=0.0):
         centre = (
             (at[0] + middle, at[1], at[2]) if along == "x" else (at[0], at[1] + middle, at[2])
         )
-        _one_bay(parts, along, centre, bay, height, colour, kind, floor)
+        _one_bay(parts, along, centre, bay, height, colour, kind, floor, facing)
 
 
-def _one_bay(parts, along, at, wide, height, colour, kind, floor):
+def _one_bay(parts, along, at, wide, height, colour, kind, floor, facing=-1.0):
     """One bay of wall, with its hole cut by building around the hole.
 
     Boolean subtraction would be the obvious way and it is the wrong one here: it
@@ -191,7 +203,7 @@ def _one_bay(parts, along, at, wide, height, colour, kind, floor):
         mid = floor + sill + hole_tall * 0.5
         size = (hole_wide, 0.06, hole_tall) if along == "x" else (0.06, hole_wide, hole_tall)
         parts.append(box(size, (at[0], at[1], mid), "glass"))
-        _dress_window(parts, along, at, hole_wide, hole_tall, mid, floor + sill)
+        _dress_window(parts, along, at, hole_wide, hole_tall, mid, floor + sill, facing)
     else:
         # The leaf, hung open flat against the wall BESIDE the opening rather than
         # standing in it - so the doorway's clear width is the doorway's width. See
@@ -200,20 +212,34 @@ def _one_bay(parts, along, at, wide, height, colour, kind, floor):
         size = (leaf, 0.07, hole_tall) if along == "x" else (0.07, leaf, hole_tall)
         off = (hole_wide + leaf) * 0.5 + 0.03
         centre = (
-            (at[0] - off, at[1] - WALL * 0.5 - 0.04, floor + hole_tall * 0.5)
+            (at[0] - off, at[1] + facing * (WALL * 0.5 + 0.04), floor + hole_tall * 0.5)
             if along == "x"
-            else (at[0] - WALL * 0.5 - 0.04, at[1] - off, floor + hole_tall * 0.5)
+            else (at[0] + facing * (WALL * 0.5 + 0.04), at[1] - off, floor + hole_tall * 0.5)
         )
         parts.append(box(size, centre, "door"))
         # And a threshold, so the gap reads as a doorway rather than as damage.
         sill_size = (hole_wide + 0.3, WALL + 0.2, 0.06) if along == "x" else (WALL + 0.2, hole_wide + 0.3, 0.06)
         parts.append(box(sill_size, (at[0], at[1], floor + 0.03), "stone"))
-        _dress_door(parts, along, at, hole_wide, hole_tall, floor)
+        _dress_door(parts, along, at, hole_wide, hole_tall, floor, facing)
 
 
-def _out(along, at, push):
-    """A point pushed out of the wall toward the street it faces."""
-    return (at[0], at[1] - push, at[2]) if along == "x" else (at[0] - push, at[1], at[2])
+def _out(along, at, push, facing=-1.0):
+    """A point pushed OUT of a wall, on the side that wall actually faces.
+
+    # Half the dressing was inside the building
+
+    This used to push in the negative direction always, which is outward for the
+    south wall and the west flank and INWARD for the other two. So every frame,
+    sill, mullion, shutter and flowerbox on the north wall and the east flank was
+    built a hand's width inside the room instead of on the street - reported as
+    "windows and planters are not lined properly", which is exactly what it looks
+    like from outside: a window with no frame, and a flowerbox that has vanished.
+
+    A wall knows which way it faces. `facing` is that, and it is the only thing that
+    was ever missing.
+    """
+    push = push * facing
+    return (at[0], at[1] + push, at[2]) if along == "x" else (at[0] + push, at[1], at[2])
 
 
 def _across(along, at, over):
@@ -226,38 +252,38 @@ def _slab(along, wide, thick, tall):
     return (wide, thick, tall) if along == "x" else (thick, wide, tall)
 
 
-def _dress_window(parts, along, at, wide, tall, mid, sill_z):
+def _dress_window(parts, along, at, wide, tall, mid, sill_z, facing=-1.0):
     """Frame, sill, mullion and shutters. See the note where it is called."""
     edge = 0.07
     out = WALL * 0.5 + 0.03
     # Frame: two jambs, a head and a sill, each standing proud of the plaster.
     for side in (-1.0, 1.0):
         place = _across(along, (at[0], at[1], mid), side * (wide * 0.5 + edge * 0.5))
-        parts.append(box(_slab(along, edge, out * 2.0, tall + edge * 2.0), _out(along, place, out * 0.5), "trim"))
+        parts.append(box(_slab(along, edge, out * 2.0, tall + edge * 2.0), _out(along, place, out * 0.5, facing), "trim"))
     for up in (-1.0, 1.0):
         place = (at[0], at[1], mid + up * (tall * 0.5 + edge * 0.5))
-        parts.append(box(_slab(along, wide + edge * 2.0, out * 2.0, edge), _out(along, place, out * 0.5), "trim"))
+        parts.append(box(_slab(along, wide + edge * 2.0, out * 2.0, edge), _out(along, place, out * 0.5, facing), "trim"))
     # A sill with a real overhang, because the shadow under it is what says stone.
     parts.append(
-        box(_slab(along, wide + 0.34, out * 2.6, 0.07), _out(along, (at[0], at[1], sill_z - 0.02), out * 0.9), "stone")
+        box(_slab(along, wide + 0.34, out * 2.6, 0.07), _out(along, (at[0], at[1], sill_z - 0.02), out * 0.9, facing), "stone")
     )
     # One mullion, which turns a pane into panes.
     parts.append(box(_slab(along, 0.05, 0.1, tall), (at[0], at[1], mid), "trim"))
     # Shutters, hung flat against the wall either side.
     for side in (-1.0, 1.0):
         place = _across(along, (at[0], at[1], mid), side * (wide * 0.5 + edge + wide * 0.25))
-        parts.append(box(_slab(along, wide * 0.48, 0.05, tall * 0.96), _out(along, place, out + 0.02), "shutter"))
+        parts.append(box(_slab(along, wide * 0.48, 0.05, tall * 0.96), _out(along, place, out + 0.02, facing), "shutter"))
 
 
-def _dress_door(parts, along, at, wide, tall, floor):
+def _dress_door(parts, along, at, wide, tall, floor, facing=-1.0):
     """A surround and a lintel, so a doorway is an entrance and not a gap."""
     edge = 0.09
     out = WALL * 0.5 + 0.04
     for side in (-1.0, 1.0):
         place = _across(along, (at[0], at[1], floor + tall * 0.5), side * (wide * 0.5 + edge * 0.5))
-        parts.append(box(_slab(along, edge, out * 2.0, tall + edge), _out(along, place, out * 0.5), "stone"))
+        parts.append(box(_slab(along, edge, out * 2.0, tall + edge), _out(along, place, out * 0.5, facing), "stone"))
     parts.append(
-        box(_slab(along, wide + edge * 2.4, out * 2.2, 0.14), _out(along, (at[0], at[1], floor + tall + 0.07), out * 0.6), "stone")
+        box(_slab(along, wide + edge * 2.4, out * 2.2, 0.14), _out(along, (at[0], at[1], floor + tall + 0.07), out * 0.6, facing), "stone")
     )
 
 
@@ -321,15 +347,15 @@ def porch(parts, deep, floor, colour="timber", roof_colour="roof2"):
     parts.append(box((2.7, 0.1, 0.14), (0.0, -deep * 0.5 - reach + 0.05, floor + top), colour))
 
 
-def flowerbox(parts, along, at, wide, sill_z):
+def flowerbox(parts, along, at, wide, sill_z, facing=-1.0):
     """A box of flowers under a window. Pure charm, and it costs eight boxes."""
     out = WALL * 0.5 + 0.16
-    parts.append(box(_slab(along, wide * 0.9, 0.24, 0.2), _out(along, (at[0], at[1], sill_z - 0.16), out), "timber"))
+    parts.append(box(_slab(along, wide * 0.9, 0.24, 0.2), _out(along, (at[0], at[1], sill_z - 0.16), out, facing), "timber"))
     for index in range(3):
         over = (index - 1) * wide * 0.26
         place = _across(along, (at[0], at[1], sill_z - 0.03), over)
-        parts.append(box(_slab(along, 0.16, 0.16, 0.14), _out(along, place, out), "leafy"))
-        parts.append(box(_slab(along, 0.1, 0.1, 0.08), _out(along, (place[0], place[1], place[2] + 0.1), out), "flower"))
+        parts.append(box(_slab(along, 0.16, 0.16, 0.14), _out(along, place, out, facing), "leafy"))
+        parts.append(box(_slab(along, 0.1, 0.1, 0.08), _out(along, (place[0], place[1], place[2] + 0.1), out, facing), "flower"))
 
 
 def shell(parts, wide, deep, storeys, colour, doors, windows):
@@ -346,10 +372,13 @@ def shell(parts, wide, deep, storeys, colour, doors, windows):
         north = _bays(wide, windows, door=False)
         sides = _bays(deep, windows, door=False)
 
-        wall_run(parts, "x", (0.0, -deep * 0.5 + WALL * 0.5, 0.0), wide, STOREY, colour, south, floor)
-        wall_run(parts, "x", (0.0, deep * 0.5 - WALL * 0.5, 0.0), wide, STOREY, colour, north, floor)
-        wall_run(parts, "y", (-wide * 0.5 + WALL * 0.5, 0.0, 0.0), deep, STOREY, colour, sides, floor)
-        wall_run(parts, "y", (wide * 0.5 - WALL * 0.5, 0.0, 0.0), deep, STOREY, colour, sides, floor)
+        # Each wall says which way it FACES. The south wall and the west flank look
+        # down the negative axis and the other two look up it; without that, every
+        # dressing on half the building is built inside the room.
+        wall_run(parts, "x", (0.0, -deep * 0.5 + WALL * 0.5, 0.0), wide, STOREY, colour, south, floor, -1.0)
+        wall_run(parts, "x", (0.0, deep * 0.5 - WALL * 0.5, 0.0), wide, STOREY, colour, north, floor, 1.0)
+        wall_run(parts, "y", (-wide * 0.5 + WALL * 0.5, 0.0, 0.0), deep, STOREY, colour, sides, floor, -1.0)
+        wall_run(parts, "y", (wide * 0.5 - WALL * 0.5, 0.0, 0.0), deep, STOREY, colour, sides, floor, 1.0)
 
 
 def _bays(length, windows, door):
@@ -535,6 +564,20 @@ def doorstep(parts, deep, rises: float, wide: float = 2.4):
 # lives, and the overhang throws the shadow that makes a wall look like a wall.
 
 # How far a roof reaches past the wall it sits on.
+# How high a building sits above the ground it stands on.
+#
+# # A plinth you cannot step onto is a building you cannot enter
+#
+# These stood on a 42 cm stone plinth, which is a handsome thing to look at and a
+# wall to a warden: he walks on the TERRAIN, not on a building's floor, so a floor
+# 42 cm up is a floor he arrives at shin-first. Reported exactly that way - "the
+# foundation of buildings is also too high so I can't walk in any".
+#
+# 12 cm instead: enough to read as a course of stone under the wall and to keep the
+# sill out of the mud, low enough to be a threshold rather than a step. The
+# doorstep in front of it bridges the rest.
+PLINTH = 0.12
+
 OVERHANG = 0.42
 
 # How high a roof rises per metre of its span. A hair over a 45 degree pitch.
@@ -569,10 +612,10 @@ def roofed(parts, wide, deep, base, colour, ridge="y", over=OVERHANG, pitch=PITC
 
 def cottage():
     """One room under a steep thatch. The commonest thing in a village."""
-    wide, deep = MODULE * 4, MODULE * 3
+    wide, deep = MODULE * 6, MODULE * 5
     parts = []
-    parts.append(box((wide + 0.34, deep + 0.34, 0.42), (0.0, 0.0, 0.21), "stone"))
-    doorstep(parts, deep, 0.42)
+    parts.append(box((wide + 0.34, deep + 0.34, PLINTH), (0.0, 0.0, PLINTH * 0.5), "stone"))
+    doorstep(parts, deep, PLINTH)
     shell(parts, wide, deep, 1, "plaster", doors=True, windows=True)
     room(parts, wide, deep, 1)
     hearth(parts, wide, deep)
@@ -592,11 +635,11 @@ def cottage():
 
 def townhouse():
     """Two storeys, the upper one jettied out over the lower. What a town is made of."""
-    wide, deep = MODULE * 4, MODULE * 4
+    wide, deep = MODULE * 6, MODULE * 6
     jetty = 0.28
     parts = []
-    parts.append(box((wide + 0.34, deep + 0.34, 0.46), (0.0, 0.0, 0.23), "stone"))
-    doorstep(parts, deep, 0.46)
+    parts.append(box((wide + 0.34, deep + 0.34, PLINTH), (0.0, 0.0, PLINTH * 0.5), "stone"))
+    doorstep(parts, deep, PLINTH)
     shell(parts, wide, deep, 2, "plaster", doors=True, windows=True)
     room(parts, wide, deep, 2)
     stairs(parts, wide, deep, 2)
@@ -626,10 +669,10 @@ def townhouse():
 
 def shop():
     """Gable to the street, a big display window, and a sign hung out in the light."""
-    wide, deep = MODULE * 5, MODULE * 4
+    wide, deep = MODULE * 8, MODULE * 6
     parts = []
-    parts.append(box((wide + 0.34, deep + 0.34, 0.46), (0.0, 0.0, 0.23), "stone"))
-    doorstep(parts, deep, 0.46, wide=3.0)
+    parts.append(box((wide + 0.34, deep + 0.34, PLINTH), (0.0, 0.0, PLINTH * 0.5), "stone"))
+    doorstep(parts, deep, PLINTH, wide=3.0)
     shell(parts, wide, deep, 1, "plaster", doors=True, windows=True)
     room(parts, wide, deep, 1)
     counter(parts, wide, deep)
@@ -668,21 +711,27 @@ def shop():
 
 def guild_hall():
     """The building a city is a city because it has. Stone, buttressed, and towered."""
-    wide, deep = MODULE * 7, MODULE * 5
+    wide, deep = MODULE * 12, MODULE * 9
     parts = []
-    # Steps up to the door: a hall you climb to is a hall that matters.
-    # The ceremonial flight, which climbs the plinth's full 70 cm rather than
-    # stopping partway up it - they used to reach 54 and leave a 16 cm lip at the
-    # top, which is a trip rather than a step.
-    for step in range(4):
+    # A BROAD SHALLOW APPROACH, not a flight.
+    #
+    # This was a four-step ceremonial climb onto a 70 cm plinth, on the reasoning
+    # that a hall you climb to is a hall that matters. It is - and a warden walks on
+    # the TERRAIN, not on step geometry, so those steps were scenery in front of a
+    # 70 cm wall and the hall was the least enterable building in the town.
+    #
+    # The ceremony survives as WIDTH rather than as height: two long shallow courses
+    # spanning most of the frontage, climbing the same threshold every other
+    # building uses. It still reads as an approach; it no longer refuses anyone.
+    for step in range(2):
         parts.append(
             box(
-                (3.6 - step * 0.25, 1.7 - step * 0.36, 0.175),
-                (0.0, -deep * 0.5 - 1.3 + step * 0.36, 0.0875 + step * 0.175),
+                (wide * 0.55 - step * 0.6, 1.5 - step * 0.5, PLINTH * 0.5),
+                (0.0, -deep * 0.5 - 1.2 + step * 0.5, PLINTH * 0.25 + step * PLINTH * 0.5),
                 "stone",
             )
         )
-    parts.append(box((wide + 0.6, deep + 0.6, 0.7), (0.0, 0.0, 0.35), "stone"))
+    parts.append(box((wide + 0.6, deep + 0.6, PLINTH), (0.0, 0.0, PLINTH * 0.5), "stone"))
     shell(parts, wide, deep, 2, "stone", doors=True, windows=True)
     room(parts, wide, deep, 2)
     stairs(parts, wide, deep, 2, side=-1.0)
