@@ -46,8 +46,10 @@ def street():
     parts.append(
         box((reach, 0.13, 0.13), (reach * 0.5, 0.0, STREET_HEAD + 0.05), "steel")
     )
+    # A stay under the arm. Small: at half a metre square this read as a diamond
+    # panel hanging off the column rather than as a bracket.
     parts.append(
-        box((0.5, 0.13, 0.5), (0.26, 0.0, STREET_HEAD - 0.22), "steel",
+        box((0.62, 0.07, 0.07), (0.31, 0.0, STREET_HEAD - 0.24), "steel",
             tilt=(0.0, math.radians(-38.0), 0.0))
     )
     at = (reach, 0.0, STREET_HEAD)

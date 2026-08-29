@@ -430,6 +430,46 @@ impl Building {
     ///
     /// A landmark takes no lot and keeps no frontage: it stands in the open where
     /// people gather, which is what makes a node a node.
+    /// How many kinds there are.
+    const KINDS: usize = 19;
+
+    /// Where each kind sits in `ALL`.
+    ///
+    /// # Making the list actually exhaustive
+    ///
+    /// `ALL` on its own is a list somebody has to remember to extend, and Rust is
+    /// perfectly happy to compile a twentieth variant while the array stays at
+    /// nineteen - so "a future variant cannot evade it" was a stronger claim than the
+    /// code backed, which Codex was right to pick up.
+    ///
+    /// This match is EXHAUSTIVE, so the compiler will not accept a new variant until
+    /// somebody gives it a place. `the_list_of_kinds_is_every_kind` then checks that
+    /// every place from nought to `KINDS` is filled exactly once, which fails until
+    /// `ALL` and `KINDS` have been extended too. Neither half is enough alone.
+    fn place(self) -> usize {
+        match self {
+            Building::Cottage => 0,
+            Building::Townhouse => 1,
+            Building::Shop => 2,
+            Building::GuildHall => 3,
+            Building::CityBlock => 4,
+            Building::CityTower => 5,
+            Building::CitySpire => 6,
+            Building::MarketCross => 7,
+            Building::Well => 8,
+            Building::Monument => 9,
+            Building::Garden => 10,
+            Building::WorkYard => 11,
+            Building::Pen => 12,
+            Building::StoreYard => 13,
+            Building::Stall => 14,
+            Building::CityGreen => 15,
+            Building::CityService => 16,
+            Building::CityKiosk => 17,
+            Building::CityForecourt => 18,
+        }
+    }
+
     /// Every kind there is.
     ///
     /// Written once so a test cannot miss one. `every_building_has_a_model_on_disk`
@@ -437,7 +477,7 @@ impl Building {
     /// without being added to it - so the one guard that proves a `Building` names a
     /// file that exists stopped covering a third of them, silently, which is the
     /// only way that guard can fail.
-    pub const ALL: [Building; 19] = [
+    pub const ALL: [Building; Self::KINDS] = [
         Building::Cottage,
         Building::Townhouse,
         Building::Shop,
@@ -785,6 +825,9 @@ const LAMPS_OFF_THE_KERB: f32 = 1.1;
 /// `dev/art/lamp.py` - see `the_lamp_models_hang_their_light_where_the_game_thinks`.
 pub const STREET_HEAD: f32 = 5.6;
 pub const POST_HEAD: f32 = 3.1;
+/// How far a city fitting's arm reaches out over the carriageway, in metres. The
+/// head - and so the light - is on the end of it, not over the column.
+pub const STREET_ARM: f32 = 1.5;
 
 /// Stands lamps along a settlement's streets.
 ///
@@ -2056,6 +2099,28 @@ fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2,
     let mut uvs: Vec<[f32; 2]> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
 
+    // The joints are NOT mitred, and one attempt at it is worth recording.
+    //
+    // A ring road is a chain of short straight pieces, each laid as its own rectangle
+    // square across its own direction. On a curve the outer edge of a rectangle is
+    // shorter than the arc it stands for and the inner edge is longer, so consecutive
+    // pieces gap on the outside and overlap on the inside - a row of triangular bites
+    // out of the kerb the whole way round the ring. Widening the ribbon with
+    // shoulders made a fault that was always there impossible to miss, and Codex
+    // called it the strongest remaining settlement defect. It is.
+    //
+    // The fix is the standard polyline mitre: where two pieces meet, both use one
+    // cross-section bisecting the turn, lengthened by 1/cos(half the turn) so the
+    // road keeps its width. I wrote it and it came out far worse than the sawtooth -
+    // a starburst of spikes at every junction, because the lengthening runs away
+    // where pieces meet near-perpendicular and because a ring meeting a radial has
+    // two neighbours at that point rather than one, so "which chain am I in" is not
+    // the question I was answering.
+    //
+    // Reverted rather than left in. The sawtooth is a fault; the spikes were a
+    // bigger one. Doing it properly means building the CHAINS first - deciding which
+    // pieces are one road before laying any of them - which is a change to how a
+    // layout describes itself, not a change to how it is drawn.
     for street in streets {
         let run = street.to - street.from;
         let length = run.length();
@@ -3507,6 +3572,37 @@ mod tests {
 #[cfg(test)]
 mod doorstep {
     use super::*;
+
+    /// `ALL` really is every kind.
+    ///
+    /// `Building::place` is an exhaustive match, so a new variant cannot be added
+    /// without being given a place; this then fails until it has been added to `ALL`
+    /// and `KINDS` as well. The two together are what make the artefact guard
+    /// exhaustive - `ALL` on its own is a list somebody has to remember.
+    #[test]
+    fn the_list_of_kinds_is_every_kind() {
+        let mut seen = vec![None; Building::KINDS];
+        for what in Building::ALL {
+            let place = what.place();
+            assert!(
+                place < Building::KINDS,
+                "{what:?} sits at {place}, past the end of a list of {}",
+                Building::KINDS,
+            );
+            assert!(
+                seen[place].is_none(),
+                "{what:?} and {:?} both claim place {place}",
+                seen[place].unwrap(),
+            );
+            seen[place] = Some(what);
+        }
+        for (place, what) in seen.iter().enumerate() {
+            assert!(
+                what.is_some(),
+                "nothing in ALL sits at place {place} - a kind has a place and is not on the list",
+            );
+        }
+    }
 
     /// A model's door lands where the doorway is.
     ///

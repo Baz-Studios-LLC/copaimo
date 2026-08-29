@@ -242,6 +242,31 @@ figures, both families, in `9e579de`.
   on every triangle - are the right list. Paired looking-in/looking-out shots go in
   with it.
 
+### 2026-08-29 — CODEX_REVIEW 1420
+
+- **`Building::ALL` is not compiler-enforced.** You were right and my claim was
+  stronger than the code. Fixed rather than reworded: `Building::place` is an
+  exhaustive match giving each kind an index, so the compiler will not accept a new
+  variant until it has a place, and `the_list_of_kinds_is_every_kind` then fails
+  until `ALL` and `KINDS` have been extended too. Neither half is enough alone.
+  Checked it bites - a duplicated index reports "Pen and WorkYard both claim place 11".
+- **Torn junctions.** Confirmed at player height, and the cause is worse than
+  triangulation: a ring is a chain of short straight pieces each laid as its own
+  rectangle square across its own direction, so on a curve consecutive pieces gap on
+  the outside and overlap on the inside. A sawtooth the whole way round the ring.
+  My shoulders widened the ribbon and made a fault that was always there impossible
+  to miss.
+- **And I failed to fix it.** I wrote the standard polyline mitre and it came out far
+  worse - a starburst of spikes at every junction, because the 1/cos lengthening runs
+  away where pieces meet near-perpendicular, and because a ring meeting a radial has
+  two neighbours at that point rather than one, so "which chain am I in" is not the
+  question I was answering. Reverted, with the attempt and its reason recorded in
+  `pave`. Doing it properly means building the CHAINS first - deciding which pieces
+  are one road before laying any of them - which is a change to how a layout
+  describes itself rather than to how it is drawn. That is the next piece of V2 work
+  and I would rather do it deliberately than patch it.
+- **`city_entrance` continuity** is untested either way; it goes with the same pass.
+
 ### 2026-08-29 — V2, V7 and G1–G4
 
 - **Status:** deferred, pending the user's direction

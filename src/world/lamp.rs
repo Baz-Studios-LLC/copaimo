@@ -32,13 +32,21 @@ const MOST_LIT: usize = 20;
 /// How far a lamp can be from the warden and still be lit, in metres.
 const LIT_WITHIN: f32 = 85.0;
 
-/// How bright a lamp burns, and how far its light carries.
+/// How bright each fitting burns, in lumens, and how far its light carries.
 ///
 /// Warm, because every other light in this world is daylight or a grey overcast, and
 /// the one thing a lamp has to do is feel like a different KIND of light from the
-/// sky. Not so bright that a street at night stops being night.
-const BURNS: f32 = 120_000.0;
-const CARRIES: f32 = 22.0;
+/// sky.
+///
+/// These were both a tenth of this and reported as "very dim", which they were:
+/// Bevy's own default point light is a million lumens, so 120,000 is a candle. A
+/// street lamp is a made thing on a pole meant to light a carriageway; a village
+/// lantern is somebody's lamp outside their door and is meant to be the smaller of
+/// the two, so they no longer share a number.
+const STREET_BURNS: f32 = 900_000.0;
+const POST_BURNS: f32 = 380_000.0;
+const STREET_CARRIES: f32 = 34.0;
+const POST_CARRIES: f32 = 20.0;
 const LAMPLIGHT: Color = Color::srgb(1.0, 0.82, 0.55);
 
 /// How high the sun has to sink before the lamps come on.
@@ -55,6 +63,16 @@ const FULLY_LIT_AT: f32 = -0.04;
 pub struct Lamp {
     /// Where its light hangs above its foot.
     head: f32,
+    /// How far out along the arm the head is.
+    ///
+    /// # The light was coming out of the column
+    ///
+    /// A city fitting reaches 1.5 m out over the carriageway and the lamp is on the
+    /// END of that arm. The light was hung at `(0, head, 0)` - straight up from the
+    /// foot - so the glow came off the top of the post while the lamp head beside it
+    /// stayed dark, which reads as a bug rather than as a lamp. A village lantern
+    /// sits on top of its post and this is nought for it.
+    arm: f32,
 }
 
 /// The light hung on the lamp this is a child of.
@@ -78,16 +96,18 @@ pub fn stand_the_lamps(
         }
         for lamp in &layout.lamps {
             let ground = terrain.0.drawn_height(lamp.at.x, lamp.at.y);
+            let street = lamp.head > crate::world::town::POST_HEAD + 0.5;
             commands.spawn((
-                Lamp { head: lamp.head },
+                Lamp {
+                    head: lamp.head,
+                    arm: if street { crate::world::town::STREET_ARM } else { 0.0 },
+                },
                 crate::world::town::FromSite(*key),
-                SceneRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(
-                    if lamp.head > crate::world::town::POST_HEAD + 0.5 {
-                        "models/lamp_street.glb"
-                    } else {
-                        "models/lamp_post.glb"
-                    },
-                ))),
+                SceneRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(if street {
+                    "models/lamp_street.glb"
+                } else {
+                    "models/lamp_post.glb"
+                }))),
                 Transform::from_xyz(lamp.at.x, ground, lamp.at.y)
                     .with_rotation(Quat::from_rotation_y(lamp.turn)),
                 Visibility::default(),
@@ -113,10 +133,12 @@ pub fn light_them_at_night(
     let up = crate::util::smoothstep(LIT_BELOW, FULLY_LIT_AT, clock.sun_height());
 
     // The nearest few, which are the ones anybody is going to look at.
-    let mut near: Vec<(f32, Entity, f32)> = lamps
+    let mut near: Vec<(f32, Entity, f32, f32)> = lamps
         .iter()
-        .map(|(entity, at, lamp)| (at.translation().distance(here), entity, lamp.head))
-        .filter(|(away, _, _)| *away < LIT_WITHIN)
+        .map(|(entity, at, lamp)| {
+            (at.translation().distance(here), entity, lamp.head, lamp.arm)
+        })
+        .filter(|(away, ..)| *away < LIT_WITHIN)
         .collect();
     near.sort_by(|a, b| a.0.total_cmp(&b.0));
     near.truncate(MOST_LIT);
@@ -124,8 +146,8 @@ pub fn light_them_at_night(
     // Put out anything that is no longer in that list, and dim everything by day
     // rather than tearing the lights down and building them again at dusk.
     for (entity, of, mut light) in &mut lit {
-        if near.iter().any(|(_, lamp, _)| *lamp == of.parent()) {
-            light.intensity = BURNS * up;
+        if let Some((_, _, _, arm)) = near.iter().find(|(_, lamp, ..)| *lamp == of.parent()) {
+            light.intensity = if *arm > 0.0 { STREET_BURNS } else { POST_BURNS } * up;
         } else {
             commands.entity(entity).despawn();
         }
@@ -134,23 +156,25 @@ pub fn light_them_at_night(
     if up <= 0.0 {
         return;
     }
-    for (_, lamp, head) in near {
+    for (_, lamp, head, arm) in near {
         if lit.iter().any(|(_, of, _)| of.parent() == lamp) {
             continue;
         }
+        let street = arm > 0.0;
         commands.entity(lamp).with_children(|on| {
             on.spawn((
                 Lit,
                 PointLight {
                     color: LAMPLIGHT,
-                    intensity: BURNS * up,
-                    range: CARRIES,
+                    intensity: if street { STREET_BURNS } else { POST_BURNS } * up,
+                    range: if street { STREET_CARRIES } else { POST_CARRIES },
                     // A hundred and change of these and shadows are the whole frame
                     // budget. The fitting casts none; what it lights does.
                     shadows_enabled: false,
                     ..default()
                 },
-                Transform::from_xyz(0.0, head, 0.0),
+                // OUT ON THE ARM, which is where the head is.
+                Transform::from_xyz(arm, head, 0.0),
             ));
         });
     }
@@ -195,6 +219,7 @@ mod tests {
         for (key, ours) in [
             ("STREET_HEAD", crate::world::town::STREET_HEAD),
             ("POST_HEAD", crate::world::town::POST_HEAD),
+            ("STREET_ARM", crate::world::town::STREET_ARM),
         ] {
             assert!(
                 (read(key) - ours).abs() < 1.0e-3,
