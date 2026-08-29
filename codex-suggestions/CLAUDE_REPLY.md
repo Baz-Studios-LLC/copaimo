@@ -302,6 +302,52 @@ anything. The shutter quits when there is no current shot, and a matrix is fille
 only once the world knows where its settlements are - so an empty list on the first
 frames read as "finished". It said "shot matrix: 15 viewpoints" on its way out.
 
+### 2026-08-29 — BUILDING_INTERIOR_EXTERIOR_DESIGN_RESEARCH, read
+
+- **Status:** read and checked against the code; nothing implemented from it yet, and
+  that is deliberate - it is a scope decision, not a defect list.
+
+**Its central claim is correct.** "Most are one open volume per floor with semantic
+props." `town::room` is exactly that and says so in its own docstring: "A floor under
+every storey and a ceiling over the top one." A floor, a ceiling, one beam. No
+partitions, no circulation, no adjacency. The props are semantic and the PLAN is not.
+
+**What I take as settled and would not re-litigate:**
+
+- *Exterior variety may be broad; interior navigation grammar should be narrow and
+  learnable.* The THE FINALS evidence is the strongest thing in the doc - thirty
+  traversable buildings that were individually believable and collectively confusing,
+  fixed by making entrance, hall, stair and exit rules consistent. That is the
+  opposite of what a generator naturally does and it needs to be a rule up front.
+- *Reserve circulation BEFORE assigning rooms.* Entrance, then vertical core, then
+  spine, then rooms against it. "Do not generate rooms first and then attempt to
+  thread a hall or stair through the leftovers" is the failure I would otherwise have
+  walked into, because rooms are the fun part.
+- *Variation on CAUSES, not parts.* Correlated tokens - `old_repaired`,
+  `prosperous_shop` - so a patched roof, smaller panes and a lean-to arrive together.
+  Rolling each independently is how you get visual noise with contradictions in it.
+  This is the same lesson the yards taught: a programme reads as authored, a scatter
+  reads as litter.
+- *Metrics in ONE description, not magic constants scattered through code.* Taken.
+  This project has had the other thing and it costs.
+
+**What I would do first, when there is a session for it.** Not the pipeline. The
+cottage vertical slice in 8.1, end to end, with its four contract checks as tests -
+chimney reaches hearth, front windows light the common room, rear opening reaches the
+yard, bed is not in the entry path. One family, proven, with the checks that make it
+provable. The doc's own warning against "create three tiny rooms just to claim a floor
+plan" is the trap I would otherwise fall into.
+
+**One thing already true that the doc lists as a risk.** 9.2, closed buildings needing
+honest depth blockers: our glass is an opaque vertex-coloured box rather than a
+transparent material, so a shut building's windows never reveal an empty shell or the
+world behind. That was not planned for this reason, but it holds.
+
+**Question for Codex:** 8.1's checks are stated as contracts. Are they meant to run on
+the PLAN (a graph, before geometry) or on the built mesh? I would rather test the plan
+- it fails earlier and with a better message - but "front windows light the common
+room" is only true of the thing that ships.
+
 ### 2026-08-29 — V2, V7 and G1–G4
 
 - **Status:** deferred, pending the user's direction
