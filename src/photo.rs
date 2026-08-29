@@ -54,6 +54,19 @@ pub struct Shot {
     pub height: f32,
     /// How far back from `at` the camera sits. Zero looks straight down.
     pub back: f32,
+    /// What hour this shot wants, if it wants a particular one.
+    ///
+    /// # A shot called `night_node` taken at noon
+    ///
+    /// The run had one hour and a shot had none, so the three viewpoints written
+    /// down as "the lighting evidence, at the hours it has to be judged at" were all
+    /// photographed at `EVIDENCE_HOUR` - midday. Nobody had looked at them, and the
+    /// file names said they were evidence about the lamps.
+    ///
+    /// That is worse than having no night shots at all: an instrument that reports
+    /// the wrong thing under a convincing label is how a fault survives a review.
+    /// `--hour` still overrides everything, because that is a deliberate ask.
+    pub hour: Option<f32>,
 }
 
 /// What was asked for on the command line.
@@ -159,6 +172,8 @@ impl Photo {
                 from: Vec2::new(0.0, 1.0),
                 height: value("--height").and_then(|v| v.parse().ok()).unwrap_or(28.0),
                 back: value("--back").and_then(|v| v.parse().ok()).unwrap_or(46.0),
+                // The whole-run `--hour` covers the single-shot route.
+                hour: None,
             }],
             matrix: None,
             out: value("--out")
@@ -283,6 +298,7 @@ pub fn fill_the_matrix(
             from: from.normalize_or(Vec2::new(0.0, 1.0)),
             height,
             back,
+            hour: None,
         });
     };
 
@@ -402,6 +418,17 @@ pub fn fill_the_matrix(
         );
     }
 
+    // AND THE LIGHTING SHOTS ARE TAKEN AT NIGHT, which is the entire point of them.
+    //
+    // Here rather than beside them because `add` holds the list until the last shot
+    // is placed. Named rather than counted: a positional fix would quietly move the
+    // hour onto a different picture the next time a viewpoint is inserted.
+    for shot in &mut shots {
+        if shot.name.starts_with("night_") {
+            shot.hour = Some(AFTER_DARK);
+        }
+    }
+
     info!("shot matrix: {} viewpoints", shots.len());
     photo.shots = shots;
 }
@@ -493,12 +520,17 @@ fn start_playing(mut next: ResMut<NextState<crate::states::AppState>>) {
 /// any other - a shot at "about four" is a shot whose lighting nobody can reproduce.
 const EVIDENCE_HOUR: f32 = 12.0;
 
+/// And the hour a shot of the lighting is taken at: full dark, with the lamps up
+/// and no dusk left in the sky to flatter them.
+const AFTER_DARK: f32 = 22.0;
+
 /// Holds the clock and the sky still, so two photographs differ only by their subject.
 ///
 /// Every frame, for the reason the camera override is every frame: the game's own
 /// systems will happily move both back.
 pub fn hold_the_world_still(
     photo: Res<Photo>,
+    taking: Res<Taking>,
     mut clock: ResMut<crate::sky::TimeOfDay>,
     mut weather: ResMut<crate::weather::TheWeather>,
 ) {
@@ -513,7 +545,12 @@ pub fn hold_the_world_still(
     // the sun's own system had already run. Setting the nudge instead means the
     // clock itself reports the hour asked for, and every consumer agrees without
     // anybody having to be ordered.
-    let wanted = photo.hour.unwrap_or(EVIDENCE_HOUR);
+    // The command line first, because that is somebody asking; then the shot's own
+    // hour; then noon.
+    let wanted = photo
+        .hour
+        .or_else(|| photo.shots.get(taking.at).and_then(|shot| shot.hour))
+        .unwrap_or(EVIDENCE_HOUR);
     clock.follows_clock = false;
     let real = (clock.hours - clock.nudge).rem_euclid(24.0);
     clock.nudge = (wanted - real).rem_euclid(24.0);
