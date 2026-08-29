@@ -13,7 +13,7 @@ use bevy::asset::RenderAssetUsages;
 use bevy::prelude::*;
 use bevy::render::mesh::{Indices, PrimitiveTopology};
 
-use crate::config::{CHUNK_QUADS, CHUNK_SIZE, RIVER_QUADS};
+use crate::config::{CHUNK_QUADS, CHUNK_SIZE, RIVERS, RIVER_QUADS};
 use crate::shade::{shaded, Shaded};
 use crate::world::biome::surface_color;
 use crate::world::terrain::Terrain;
@@ -66,7 +66,21 @@ pub fn chunk_at(position: Vec3) -> IVec2 {
 /// twice to draw a river that covers a hundredth of it.
 pub fn build_chunk(terrain: &Terrain, coord: IVec2) -> (Mesh, Option<Mesh>) {
     let ground = build_mesh(terrain, coord);
-    (ground, build_river(terrain, coord))
+    // A SWITCHED-OFF FEATURE COSTS NOTHING.
+    //
+    // `build_river` samples a 65x65 grid and every sample starts with
+    // `drawn_height`, which is four terrain heights - so it does about four times
+    // the height work the visible mesh does, and with `RIVERS` off it does all of it
+    // to return `None`. Measured over the 253-chunk view disc with
+    // `--measure stream`: 932.7 ms of a 1360.6 ms fill, or 218 % ON TOP of the
+    // ground it was drawn beside. Two thirds of a cold start's terrain CPU spent on
+    // water that cannot appear.
+    //
+    // Found by Codex's audit. The switch was honoured everywhere it was visible -
+    // `terrain.rs` has three `if RIVERS` guards - and not on the one path that had no
+    // visible symptom, because nothing looks wrong about a river that is not there.
+    let water = if RIVERS { build_river(terrain, coord) } else { None };
+    (ground, water)
 }
 
 /// The surface of any river crossing this chunk.
