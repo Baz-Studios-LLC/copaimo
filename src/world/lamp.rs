@@ -110,6 +110,16 @@ struct Glass;
 /// How much brighter than its colour the glass burns.
 const GLASS_GLOWS: f32 = 6.0;
 
+/// Whether the lamps are burning, from the height of the sun.
+///
+/// One function because three systems ask, and a fourth thing now depends on the
+/// answer: a fitting streamed in at noon has to arrive with its glass already dark.
+/// Written out separately in each of them, that is four copies of a threshold and
+/// the certainty that one of them ends up on the wrong side of it.
+fn burning(clock: &crate::sky::TimeOfDay) -> bool {
+    crate::util::smoothstep(LIT_BELOW, FULLY_LIT_AT, clock.sun_height()) > 0.0
+}
+
 /// A storey of a city building with somebody still in it.
 ///
 /// # A city with nobody home
@@ -125,6 +135,23 @@ const GLASS_GLOWS: f32 = 6.0;
 /// change as you walk toward it.
 #[derive(Component)]
 struct Awake;
+
+/// On a building whose windows are already lit tonight.
+///
+/// # Asking the building instead of counting its children
+///
+/// Whether a tower had been done was worked out by scanning every lit pane in the
+/// world looking for one whose parent was this tower - inside a loop over every
+/// tower, every frame. A city of thirty-four buildings with a dozen lit storeys
+/// each turns that into hundreds of comparisons a frame to re-learn something the
+/// building itself could simply say.
+///
+/// It comes off when the panes come down, which is the only time it stops being
+/// true; and if the building is despawned it goes with it.
+///
+/// Found by Codex's audit.
+#[derive(Component)]
+struct LitTonight;
 
 /// How far away a city's windows are still worth lighting, in metres.
 ///
@@ -174,7 +201,10 @@ const ADMIT_WITHIN: f32 = 62.0;
 const INDOORS: Color = Color::srgb(1.0, 0.90, 0.68);
 const WINDOW_GLOWS: f32 = 2.6;
 
-/// Stands every lamp near the warden, and takes down the ones left behind.
+/// Stands every lamp near the warden.
+///
+/// Taking them down again is `raise_the_towns`' job: a lamp carries the same
+/// `FromSite` its settlement's buildings do and goes when they go.
 ///
 /// The FITTING and its glass, always. Only the handful nearest actually cast light -
 /// see `light_them_at_night` - but every one of them shows a lit head, which is what
@@ -187,8 +217,9 @@ pub fn stand_the_lamps(
     mut paints: ResMut<Assets<StandardMaterial>>,
     mut bulbs: Local<Option<(Handle<Mesh>, Handle<StandardMaterial>, Handle<StandardMaterial>)>>,
     terrain: Res<TerrainSource>,
+    clock: Res<crate::sky::TimeOfDay>,
     built: Res<crate::world::town::Built>,
-    standing: Query<(Entity, &crate::world::town::FromSite), With<Lamp>>,
+    mut raised: Local<std::collections::HashSet<u32>>,
 ) {
     let (bulb, street_glass, post_glass) = bulbs
         .get_or_insert_with(|| {
@@ -206,8 +237,22 @@ pub fn stand_the_lamps(
         })
         .clone();
 
+    // WHICH TOWNS HAVE THEIR LAMPS UP, remembered rather than rediscovered.
+    //
+    // This used to ask by scanning every standing lamp for one belonging to this
+    // settlement - a query over hundreds of fittings, per settlement, every frame,
+    // to re-learn something that cannot change once it is true.
+    //
+    // A key leaves this set exactly when it leaves `Built::standing`, and that is
+    // the same moment `raise_the_towns` despawns everything carrying its `FromSite`
+    // - the lamps with it. So the two can only agree.
+    //
+    // Found by Codex's audit.
+    raised.retain(|key| built.standing.contains_key(key));
+    let lit = burning(&clock);
+
     for (key, layout) in built.standing.iter() {
-        if standing.iter().any(|(_, from)| from.0 == *key) {
+        if !raised.insert(*key) {
             continue;
         }
         for lamp in &layout.lamps {
@@ -244,7 +289,14 @@ pub fn stand_the_lamps(
                             post_glass.clone()
                         }),
                         Transform::from_xyz(arm, lamp.head + drop, 0.0).with_scale(size),
-                        Visibility::default(),
+                        // LIT OR DARK AS IT ARRIVES.
+                        //
+                        // It used to arrive visible and wait for `open_the_glass` to
+                        // notice. That was harmless while that system looked at every
+                        // pane every frame; now that it only looks when the sun
+                        // crosses the threshold, a lamp streamed in at noon would
+                        // have burned until dusk.
+                        if lit { Visibility::Inherited } else { Visibility::Hidden },
                         bevy::pbr::NotShadowCaster,
                     ));
                 });
@@ -252,17 +304,29 @@ pub fn stand_the_lamps(
     }
 }
 
-/// Shows and hides the glass with the sun.
+/// Shows and hides the glass with the sun, at the moment the sun crosses.
 ///
 /// Separate from the lights because there are hundreds of these and twenty of those.
 /// Hiding costs nothing and keeps the fitting's own geometry standing by day.
+///
+/// # Twice a day, not sixty times a second
+///
+/// The answer changes at dusk and at dawn and at no other time, so the scan runs
+/// then. What makes that safe is that a fitting is now spawned with its glass
+/// already right - see `stand_the_lamps` - because a system that only looks on the
+/// threshold cannot notice anything that arrives between two of them.
 pub fn open_the_glass(
     clock: Res<crate::sky::TimeOfDay>,
     mut glass: Query<&mut Visibility, With<Glass>>,
+    mut showing: Local<Option<bool>>,
 ) {
-    let lit = crate::util::smoothstep(LIT_BELOW, FULLY_LIT_AT, clock.sun_height()) > 0.0;
+    let lit = burning(&clock);
+    if *showing == Some(lit) {
+        return;
+    }
+    *showing = Some(lit);
+    let want = if lit { Visibility::Inherited } else { Visibility::Hidden };
     for mut show in &mut glass {
-        let want = if lit { Visibility::Inherited } else { Visibility::Hidden };
         if *show != want {
             *show = want;
         }
@@ -396,9 +460,19 @@ pub fn light_the_windows(
     year: Res<crate::season::TheYear>,
     mut tonight: Local<i64>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
-    towers: Query<(Entity, &GlobalTransform, &crate::world::town::Standing)>,
+    towers: Query<
+        (Entity, &GlobalTransform, &crate::world::town::Standing),
+        Without<LitTonight>,
+    >,
     awake: Query<(Entity, &ChildOf), With<Awake>>,
 ) {
+    // Panes down, and the buildings they belonged to told so.
+    let put_out = |commands: &mut Commands| {
+        for (pane, of) in &awake {
+            commands.entity(pane).despawn();
+            commands.entity(of.parent()).remove::<LitTonight>();
+        }
+    };
     let Some(anchor) = anchors.iter().next() else {
         return;
     };
@@ -413,18 +487,14 @@ pub fn light_the_windows(
     let night = crate::season::what_night_it_is(&year);
     if *tonight != night {
         *tonight = night;
-        for (entity, _) in &awake {
-            commands.entity(entity).despawn();
-        }
+        put_out(&mut commands);
         return;
     }
 
     // By day every window is off, and the panes come down rather than being left
     // black - a dark quad over the glass is worse than no quad at all.
     if up <= 0.0 {
-        for (entity, _) in &awake {
-            commands.entity(entity).despawn();
-        }
+        put_out(&mut commands);
         return;
     }
 
@@ -449,9 +519,7 @@ pub fn light_the_windows(
         if at.translation().distance(here) > AWAKE_WITHIN {
             continue;
         }
-        if awake.iter().any(|(_, of)| of.parent() == entity) {
-            continue;
-        }
+        commands.entity(entity).insert(LitTonight);
 
         let foot = at.translation();
         let footprint = standing.what.footprint();
