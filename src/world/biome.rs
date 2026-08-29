@@ -174,6 +174,25 @@ pub fn surface_color(
     let cap_outside = smoothstep(SNOWLINE - 30.0, SNOWLINE + 20.0, height);
     let cap_inside = smoothstep(snowline - 30.0, snowline + 20.0, height);
     let cap = cap_outside + (cap_inside - cap_outside) * into;
+
+    // BUT NOT ON THE CANYON MASSIF.
+    //
+    // Its top stands 170 m over the plain and the snow line is 165, so it cleared
+    // the line by five metres and wore a white cap - a snow-capped mesa in the
+    // middle of a desert, and the most prominent thing in that whole country once
+    // the wall was lengthened to reach the sea.
+    //
+    // The snow line's own note says what is wrong with that: snow is meant to mean
+    // THE mountain, the one landmark you navigate by, and nothing else in the world
+    // is supposed to reach one. The canyon is a different landform with a different
+    // job - it is the gate that closes the road east - and `world::pass` says in its
+    // first paragraph that its walls strip to bare rock.
+    //
+    // Asked of the canyon itself rather than by moving the snow line, which would
+    // have taken the cap off the mountain too. `pass::stands` answers most of the
+    // world with one comparison, so this costs nothing away from the massif.
+    let bare = (crate::world::pass::lift(at) / 40.0).clamp(0.0, 1.0);
+    let cap = cap * (1.0 - bare);
     let capped = above_treeline.lerp(p.snow, cap);
 
     let mut color = if height >= SEA_LEVEL { capped } else { underwater };

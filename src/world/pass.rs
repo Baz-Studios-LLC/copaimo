@@ -279,10 +279,13 @@ fn stands(at: Vec2) -> (f32, f32, f32) {
 
 /// What the massif adds to the ground here, in metres. Only ever ADDS.
 ///
-/// The game itself goes through [`shape`]; this is the bare rock alone, and it is
-/// the tests' own instrument.
-#[cfg(test)]
-fn lift(at: Vec2) -> f32 {
+/// The game itself goes through [`shape`]; this is the bare rock alone.
+///
+/// No longer test-only. `biome::surface_color` asks it whether the ground it is
+/// painting belongs to the massif, because the massif must not wear the snow cap -
+/// snow is meant to mean THE mountain, and this is a desert mesa. `stands` answers
+/// most of the world with a single comparison, so asking costs nothing off it.
+pub fn lift(at: Vec2) -> f32 {
     stands(at).0
 }
 
