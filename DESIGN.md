@@ -1073,9 +1073,10 @@ bench, and the bench does not have the generator — it still builds the drawn
 world. Until `LANDMASSES` moves into `terrain-core` where both read it, that test
 only says the game is stable against itself.
 
-## Planned: seasons and weather
+## Seasons and weather
 
-**Asked for 2026-08-28, to be built after the new continent has been walked.**
+**Asked for 2026-08-28; both built. `src/season.rs`, `src/weather.rs` and
+`src/fall.rs`.**
 
 **Seasons.** A new season every 28 days, on the real-world clock the game already
 runs on, so a season is about a real month and a year is about four. Biomes stay
