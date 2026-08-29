@@ -1,18 +1,41 @@
 //! How a settlement is laid out: streets, the plots between them, and what stands
 //! on each one.
 //!
+//! # Lynch's five, which is what every game city is built on
+//!
+//! Konstantinos Dimopoulos, who designs cities for games for a living, and the
+//! level-design reading on Breath of the Wild both come back to the same framework:
+//! Kevin Lynch's five elements of a legible place. A player builds a mental map out
+//! of exactly these, and a settlement missing any of them is one they get lost in:
+//!
+//!   * PATHS - routes that lead somewhere on purpose rather than petering out.
+//!   * NODES - focal points where people gather, spaced along the paths.
+//!   * LANDMARKS - distinctive things you can fix your position by. Placed BESIDE a
+//!     node, so the two reinforce each other: Death Mountain beside Goron City.
+//!   * DISTRICTS - areas that are internally consistent and different from their
+//!     neighbours, told apart by architectural scale, material and street layout.
+//!   * EDGES - boundaries that break continuity and separate one part from another.
+//!
+//! The other lesson from that reading is that LEGIBILITY BEATS REALISM. Breath of
+//! the Wild's districts are more sharply bounded than any real geography, on
+//! purpose, because a player who can read the world at a glance is worth more than
+//! one who could survey it.
+//!
+//! And a game city is SMALLER than the thing it stands for. Novigrad is presented
+//! as a trade capital of thirty thousand and is built at the size of a real small
+//! town - the density of things to look at is what sells it, not the acreage.
+//!
 //! # Roads, then parcels, then lots
 //!
-//! This is the standard pipeline and it is worth naming because every step of it
-//! exists for a reason the step before cannot supply:
+//! Which is the standard pipeline, and every step exists for a reason the step
+//! before cannot supply:
 //!
 //!   1. STREETS are laid first, because everything else is defined relative to
 //!      them. A plot is not a piece of ground, it is a piece of ground *with
 //!      frontage*.
 //!   2. The ground between streets is a PARCEL.
-//!   3. A parcel is cut into LOTS by recursive subdivision, sliced along its
-//!      shorter axis and stopped by rules: too small, too thin, or no longer
-//!      touching a street.
+//!   3. A parcel is cut into LOTS along its frontage, stopped by rules: too narrow,
+//!      or no longer touching a street.
 //!
 //! The alternative - scattering buildings on a disc and drawing paths afterwards -
 //! is what makes a procedural town read as a campsite. Buildings face the street
@@ -51,7 +74,13 @@ pub const SETBACK: f32 = 1.6;
 /// A cottage is 6 m across and wants a little air either side, so a strip narrower
 /// than this holds nothing. Measured as FRONTAGE rather than as area because that
 /// is what a lot on a street is sold by, and because depth is the parcel's to give.
-const A_FRONTAGE_IS_AT_LEAST: f32 = 8.2;
+///
+/// 13 m rather than the 8.2 it started at. At 8.2 the ranch's town came to THREE
+/// HUNDRED AND ELEVEN buildings on a 130 m site - which is not a village, it is a
+/// terrace wrapped four times round a square. The frontage rule is the density
+/// knob: widen the strips and the same streets carry fewer, larger plots with air
+/// between them.
+const A_FRONTAGE_IS_AT_LEAST: f32 = 13.0;
 
 /// How far a town reaches, as a share of the ground levelled for it.
 ///
@@ -67,8 +96,76 @@ const A_FRONTAGE_IS_AT_LEAST: f32 = 8.2;
 /// floating over it.
 const FILLS: f32 = 1.15;
 
+/// A part of a town that is internally consistent and unlike its neighbours.
+///
+/// Lynch's fourth element, and the one my towns had none of: every building was
+/// picked by distance from the middle and a dice roll, so a street looked the same
+/// wherever you stood in it and there was nothing to tell one part of a town from
+/// another. Districts are told apart by what is BUILT in them, which is the
+/// cheapest of the three levers the reading names - architectural scale, material,
+/// and street layout - and the one that shows from furthest away.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum District {
+    /// Around the square: trade. Shops, and the guild hall on the square itself.
+    Market,
+    /// The working quarter: townhouses over workshops, tight to the street.
+    Crafts,
+    /// The edge, where the town thins out into cottages and gardens.
+    Outskirts,
+}
+
+impl District {
+    /// The district a place belongs to.
+    ///
+    /// By RING rather than by a smooth falloff, and that is the legibility lesson
+    /// applied: a boundary you can see is worth more than a gradient that is more
+    /// truthful. A player should be able to stand somewhere and know which part of
+    /// the town they are in.
+    fn of(out: f32, square: f32, band: f32) -> District {
+        if out < square + band * 0.75 {
+            District::Market
+        } else if out < square + band * 1.9 {
+            District::Crafts
+        } else {
+            District::Outskirts
+        }
+    }
+
+    /// What is built here, given a roll.
+    fn builds(self, roll: f32) -> Building {
+        match self {
+            // Trade, and a few homes over the shops.
+            District::Market => {
+                if roll < 0.62 {
+                    Building::Shop
+                } else {
+                    Building::Townhouse
+                }
+            }
+            // The workshops: mostly two-storey, some trade, few cottages.
+            District::Crafts => {
+                if roll < 0.55 {
+                    Building::Townhouse
+                } else if roll < 0.72 {
+                    Building::Shop
+                } else {
+                    Building::Cottage
+                }
+            }
+            // Homes and gardens.
+            District::Outskirts => {
+                if roll < 0.78 {
+                    Building::Cottage
+                } else {
+                    Building::Townhouse
+                }
+            }
+        }
+    }
+}
+
 /// What stands on a plot.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Building {
     Cottage,
     Townhouse,
@@ -265,7 +362,11 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
     let depth = (reach * 0.16).clamp(9.0, 15.0);
     // One ring per band of blocks, out as far as the town reaches.
     let band = depth * 2.0 + LANE_WIDE + SETBACK * 2.0;
-    let rings = (((reach - square) / band).floor() as usize).clamp(1, 3);
+    // A city may have three bands of blocks; a village has one or two. A place with
+    // forty houses does not need three ring roads, and giving it them is what turned
+    // the ranch's town into a small city.
+    let most = if site.city { 3 } else { 2 };
+    let rings = (((reach - square) / band).floor() as usize).clamp(1, most);
 
     // The radials. One PAIR of them is the road that got here, carried straight
     // through the square and out the other side - a town on a road has that road
@@ -431,7 +532,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
         if !lot.has_frontage() {
             continue;
         }
-        let what = what_stands_here(index, lot, site.at, seed);
+        let what = what_stands_here(index, lot, site.at, square, band, seed);
         let Some(what) = what else { continue };
 
         // Placed against the street rather than in the middle of its lot.
@@ -518,25 +619,25 @@ fn subdivide(parcel: Parcel, seed: u32, depth: u32, into: &mut Vec<Parcel>) {
 /// takes the best lot of all. Cottages go where the town thins out. Doing this by
 /// distance from the centre rather than by a dice roll is most of what makes a
 /// generated town read as a place rather than as a scatter.
-fn what_stands_here(index: usize, lot: &Parcel, middle: Vec2, seed: u32) -> Option<Building> {
+fn what_stands_here(
+    index: usize,
+    lot: &Parcel,
+    middle: Vec2,
+    square: f32,
+    band: f32,
+    seed: u32,
+) -> Option<Building> {
     let roll = unit(seed.wrapping_add(index as u32 * 131), 11);
     let fits = |what: Building| {
         let wants = what.wants();
         lot.frontage >= wants.x && lot.depth >= wants.y
     };
 
-    // TRADE ON THE SQUARE, HOMES ON THE EDGE. The medieval rule and the obvious one:
-    // the ground with the most feet on it carries the shops and the inns, and the
-    // houses are further out. Sorted by distance from the middle rather than rolled,
-    // so a town has a centre rather than a scatter.
-    let out = lot.at.distance(middle);
-    let wanted = if out < 34.0 && roll < 0.62 {
-        Building::Shop
-    } else if out < 58.0 && roll < 0.55 {
-        Building::Townhouse
-    } else {
-        Building::Cottage
-    };
+    // TRADE ON THE SQUARE, WORKSHOPS BEHIND IT, HOMES AT THE EDGE. The medieval
+    // rule, the obvious one, and Lynch's districts all at once: the ground with the
+    // most feet on it carries the trade, and what a place is FOR is what tells one
+    // part of a town from another.
+    let wanted = District::of(lot.at.distance(middle), square, band).builds(roll);
     if fits(wanted) {
         Some(wanted)
     } else if fits(Building::Cottage) {
@@ -689,6 +790,36 @@ const ROAD_STEPS_EVERY: f32 = 2.5;
 const ROAD_EARTH: [f32; 4] = [0.42, 0.36, 0.29, 1.0];
 const ROAD_KERB: [f32; 4] = [0.52, 0.50, 0.46, 1.0];
 
+/// The material a street's paving wears.
+///
+/// # Why it cannot borrow the ground cover's
+///
+/// It did, and the roads came out writhing. `CoverMaterial` is the GRASS material,
+/// and the grass material's whole job is to be displaced: its shader bends every
+/// vertex away from whatever is standing in it, which is what makes a meadow part
+/// as a warden walks through it. Laying a road in it made the road part too - the
+/// paving pulled open around the player and shut behind him, which was reported,
+/// exactly and correctly, as "the roads are odd and show the grass where I walk".
+///
+/// Nothing was growing there at all: measured, a town's ground is `Settled` out to
+/// its rim with a cover density of 0.00. The grass was the road.
+///
+/// So the paving has its own material, with the bending switched off. It is still a
+/// `Shaded`, because the cloud shadows have to fall on a street like they fall on
+/// everything else.
+#[derive(Resource)]
+pub struct RoadSurface(pub Handle<crate::shade::Shaded>);
+
+fn mix_the_road_surface(mut commands: Commands, mut materials: ResMut<Assets<crate::shade::Shaded>>) {
+    let surface = materials.add(crate::shade::shaded(StandardMaterial {
+        base_color: Color::WHITE,
+        perceptual_roughness: 0.96,
+        reflectance: 0.02,
+        ..default()
+    }));
+    commands.insert_resource(RoadSurface(surface));
+}
+
 /// Builds one town's streets as a mesh laid on the ground.
 fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2) -> Mesh {
     let mut places: Vec<[f32; 3]> = Vec::new();
@@ -761,7 +892,7 @@ pub fn raise_the_towns(
     mut commands: Commands,
     assets: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
-    surface: Option<Res<crate::world::cover::CoverMaterial>>,
+    surface: Option<Res<RoadSurface>>,
     terrain: Res<TerrainSource>,
     mut built: ResMut<Built>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
@@ -883,6 +1014,7 @@ pub struct TownPlugin;
 impl Plugin for TownPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Built>()
+            .add_systems(Startup, mix_the_road_surface)
             .add_systems(Update, raise_the_towns.run_if(crate::build::a_world_is_up));
     }
 }
@@ -1144,6 +1276,7 @@ mod tests {
         app.insert_state(crate::states::AppState::Playing);
         app.init_asset::<Scene>();
         app.init_asset::<Mesh>();
+        app.init_asset::<crate::shade::Shaded>();
         app.init_asset::<bevy::gltf::Gltf>();
         app.add_plugins(TownPlugin);
 
@@ -1219,6 +1352,106 @@ mod tests {
         assert!(
             worst < 0.01,
             "the paving stands {worst:.2} m off the ground it is laid on"
+        );
+    }
+
+#[test]
+    #[ignore = "a measurement of the real ground"]
+    fn what_the_town_ground_is() {
+        use crate::world::terrain::Biome;
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        let climate = terrain.climate();
+        let site = plan.sites()[0];
+        let layout = lay_out(&site, plan.approach(site.at), crate::config::WORLD_SEED);
+        println!("site at ({:.0},{:.0}) r={:.0}, {} buildings, {} streets",
+            site.at.x, site.at.y, site.radius, layout.plots.len(), layout.streets.len());
+
+        let street = layout.streets[0];
+        let mid = (street.from + street.to) * 0.5;
+        for (label, at) in [
+            ("on a street ", mid),
+            ("5 m off it  ", mid + (street.to - street.from).perp().normalize() * 5.0),
+            ("20 m off it ", mid + (street.to - street.from).perp().normalize() * 20.0),
+            ("site middle ", site.at),
+            ("120 m out   ", site.at + Vec2::new(120.0, 0.0)),
+        ] {
+            let ground = terrain.ground_at(at.x, at.y);
+            let biome = Biome::of(ground, &climate);
+            let thick = terrain_core::cover::density(
+                biome,
+                Biome::confidence(ground, &climate),
+                terrain_core::cover::patch(biome, at),
+            );
+            println!(
+                "  {label}: {biome:?}  levelled {:.2}  height {:.2}  cover {thick:.2}",
+                ground.levelled, ground.height
+            );
+        }
+    }
+
+/// A town has districts you could tell apart standing in them.
+    ///
+    /// Lynch's fourth element, and the test is the point of it: a district that is
+    /// not DIFFERENT from its neighbours is not a district, it is a name. So this
+    /// asks what is actually built in each ring and refuses a town where the answer
+    /// is the same everywhere - which is exactly what the first three layouts were,
+    /// buildings picked by a dice roll and a distance.
+    #[test]
+    fn a_town_has_districts_and_they_do_not_look_alike() {
+        let site = a_site(true, 190.0);
+        let layout = lay_out(&site, Vec2::X, 9);
+
+        let square = (190.0 * FILLS * 0.19f32).clamp(11.0, 17.0);
+        let depth = (190.0 * FILLS * 0.16f32).clamp(9.0, 15.0);
+        let band = depth * 2.0 + LANE_WIDE + SETBACK * 2.0;
+
+        let mut counts = std::collections::HashMap::new();
+        for plot in &layout.plots {
+            let district = District::of(plot.at.distance(site.at), square, band);
+            *counts
+                .entry((district, plot.what))
+                .or_insert(0usize) += 1;
+        }
+
+        let share = |district: District, what: Building| {
+            let here: usize = counts
+                .iter()
+                .filter(|((d, _), _)| *d == district)
+                .map(|(_, n)| *n)
+                .sum();
+            let this = counts.get(&(district, what)).copied().unwrap_or(0);
+            if here == 0 { 0.0 } else { this as f32 / here as f32 }
+        };
+
+        // Every district has to exist at all.
+        for district in [District::Market, District::Crafts, District::Outskirts] {
+            let here: usize = counts
+                .iter()
+                .filter(|((d, _), _)| *d == district)
+                .map(|(_, n)| *n)
+                .sum();
+            assert!(here > 3, "{district:?} has {here} buildings in it");
+        }
+
+        // And they have to be DIFFERENT. Trade at the middle, homes at the edge -
+        // if a shop is as likely on the outskirts as on the square then the town
+        // has one district wearing three names.
+        let shops_in = share(District::Market, Building::Shop);
+        let shops_out = share(District::Outskirts, Building::Shop);
+        let homes_in = share(District::Market, Building::Cottage);
+        let homes_out = share(District::Outskirts, Building::Cottage);
+        println!(
+            "market: {:.0}% shops, {:.0}% cottages | outskirts: {:.0}% shops, {:.0}% cottages",
+            shops_in * 100.0, homes_in * 100.0, shops_out * 100.0, homes_out * 100.0
+        );
+        assert!(
+            shops_in > shops_out + 0.3,
+            "shops are {shops_in:.2} of the market and {shops_out:.2} of the outskirts"
+        );
+        assert!(
+            homes_out > homes_in + 0.3,
+            "cottages are {homes_out:.2} of the outskirts and {homes_in:.2} of the market"
         );
     }
 
