@@ -184,7 +184,29 @@ impl District {
     }
 
     /// What is built here, given a roll.
-    fn builds(self, roll: f32) -> Building {
+    fn builds(self, roll: f32, city: bool) -> Building {
+        if city {
+            // The modern city. Height falls off from the middle, which is what a
+            // skyline IS - a city whose every building is the same height reads as
+            // a housing scheme however tall they all are.
+            return match self {
+                District::Market => {
+                    if roll < 0.55 {
+                        Building::CityTower
+                    } else {
+                        Building::CityBlock
+                    }
+                }
+                District::Crafts => {
+                    if roll < 0.30 {
+                        Building::CityTower
+                    } else {
+                        Building::CityBlock
+                    }
+                }
+                District::Outskirts => Building::CityBlock,
+            };
+        }
         match self {
             // Trade, and a few homes over the shops.
             District::Market => {
@@ -219,10 +241,30 @@ impl District {
 /// What stands on a plot.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Building {
+    // # Two ages of the world
+    //
+    // A village is old-school fantasy - half-timbered, thatch and slate. A city is
+    // modern: curtain wall, concrete, a paved street. That is not two art styles
+    // stapled together, it is the setting's own history showing on the ground, and
+    // it is the strongest district tool there is: you know what kind of place you
+    // are standing in from the silhouette, before you can read a single sign.
     Cottage,
     Townhouse,
     Shop,
     GuildHall,
+    /// A city's ordinary building: five floors of curtain wall over a lobby.
+    CityBlock,
+    /// Nine floors with a stepped crown - where a skyline starts.
+    CityTower,
+    /// Fifteen floors and a mast. THE tall thing, and the reason a city has a
+    /// middle you can see from outside it. See `Building::is_landmark`.
+    CitySpire,
+    /// A stepped stone cross on a village square.
+    MarketCross,
+    /// A roofed well, for a village junction.
+    Well,
+    /// A city's junction landmark: a plinth under a leaning steel spike.
+    Monument,
 }
 
 impl Building {
@@ -231,6 +273,12 @@ impl Building {
         match self {
             Building::Cottage => "models/town_cottage.glb",
             Building::Townhouse => "models/town_townhouse.glb",
+            Building::CityBlock => "models/town_city_block.glb",
+            Building::CityTower => "models/town_city_tower.glb",
+            Building::CitySpire => "models/town_city_spire.glb",
+            Building::MarketCross => "models/town_market_cross.glb",
+            Building::Well => "models/town_well.glb",
+            Building::Monument => "models/town_monument.glb",
             Building::Shop => "models/town_shop.glb",
             Building::GuildHall => "models/town_guild_hall.glb",
         }
@@ -252,6 +300,50 @@ impl Building {
             Building::Townhouse => Vec2::new(9.0, 9.0),
             Building::Shop => Vec2::new(12.0, 9.0),
             Building::GuildHall => Vec2::new(18.0, 13.5),
+            // Measured off the exported models, same as the rest.
+            Building::CityBlock => Vec2::new(11.3, 10.8),
+            Building::CityTower => Vec2::new(10.8, 11.3),
+            Building::CitySpire => Vec2::new(11.8, 12.8),
+            // A landmark stands in the open, so its footprint is what it occupies
+            // rather than what it needs around it.
+            Building::MarketCross => Vec2::new(3.4, 3.4),
+            Building::Well => Vec2::new(2.4, 2.2),
+            Building::Monument => Vec2::new(5.0, 5.0),
+        }
+    }
+
+/// Whether this is a LANDMARK rather than a building somebody lives in.
+    ///
+    /// Scott Rogers' hub-town rules, from the Disneyland model, name two things my
+    /// towns did not have. One is a "weenie": something tall enough to see from
+    /// outside the place, that pulls you toward its middle. The other is that a
+    /// landmark has to be a DIFFERENT KIND OF THING from what surrounds it, not a
+    /// bigger one - a tall house is a house, and my guild hall was exactly that.
+    ///
+    /// A landmark takes no lot and keeps no frontage: it stands in the open where
+    /// people gather, which is what makes a node a node.
+    pub fn is_landmark(self) -> bool {
+        matches!(
+            self,
+            Building::MarketCross | Building::Well | Building::Monument
+        )
+    }
+
+    /// The tall thing a settlement of this kind is known by, seen from the road in.
+    pub fn weenie(city: bool) -> Building {
+        if city {
+            Building::CitySpire
+        } else {
+            Building::GuildHall
+        }
+    }
+
+    /// The landmark that stands on the square, and the one at a lesser junction.
+    pub fn landmarks(city: bool) -> (Building, Building) {
+        if city {
+            (Building::Monument, Building::Monument)
+        } else {
+            (Building::MarketCross, Building::Well)
         }
     }
 
@@ -609,7 +701,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
         if !lot.has_frontage() {
             continue;
         }
-        let what = what_stands_here(index, lot, site.at, inner, outer, seed);
+        let what = what_stands_here(index, lot, site.at, inner, outer, site.city, seed);
         let Some(what) = what else { continue };
 
         // Placed against the street rather than in the middle of its lot.
@@ -640,6 +732,59 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
         });
     }
 
+    // LANDMARKS, before the thinning, because they are not houses and must not be
+    // thinned away.
+    //
+    // Rogers' hub-town rules, applied: a landmark stands ON a node - the square, and
+    // the junctions where the ring roads meet the radials - and it is a different
+    // KIND of thing from the buildings around it, so it reads as somewhere to gather
+    // rather than as a bigger house. They take no lot and keep no frontage.
+    let (on_the_square, at_a_junction) = Building::landmarks(site.city);
+    plots.push(Plot {
+        at: site.at,
+        facing: approach.y.atan2(approach.x),
+        what: on_the_square,
+    });
+
+    // And one at every second junction, so a hub is visible from the hub before it -
+    // which is the other half of the rule and the thing that makes a town navigable
+    // rather than merely decorated.
+    let mut junctions = 0;
+    for street in &streets {
+        if street.wide >= STREET_WIDE - 0.01 {
+            continue;
+        }
+        junctions += 1;
+        if junctions % 2 != 0 {
+            continue;
+        }
+        let mouth = street.from;
+        if mouth.distance(site.at) < square * 1.4 {
+            continue;
+        }
+        // Set into the open CORNER beside the junction, not back along the lane.
+        //
+        // Backwards along the lane puts it in the ring road it just left, which is a
+        // monument in the middle of the carriageway. Perpendicular, and away from
+        // the middle of town, is the corner nobody drives through.
+        let run = (street.to - street.from).normalize_or_zero();
+        let aside = run.perp();
+        let out = (mouth - site.at).normalize_or_zero();
+        let aside = if aside.dot(out) < 0.0 { -aside } else { aside };
+        let at = mouth + run * (street.wide * 0.6 + 1.4) + aside * (street.wide * 0.5 + 3.4);
+        if plots
+            .iter()
+            .any(|p| p.at.distance(at) < p.what.footprint().length() * 0.5 + 4.0)
+        {
+            continue;
+        }
+        plots.push(Plot {
+            at,
+            facing: run.y.atan2(run.x),
+            what: at_a_junction,
+        });
+    }
+
     // Thinned to what a town of this kind HAS. See HOUSES_IN_A_VILLAGE.
     //
     // Evenly, by stride, rather than by cutting the list short - taking the first N
@@ -654,10 +799,6 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
         let mut kept: Vec<Plot> = Vec::with_capacity(wanted);
         // The hall is never thinned out: a city without its guild hall is not a
         // city, and it is the one building the game needs to be able to find.
-        let hall = plots.iter().position(|p| p.what == Building::GuildHall);
-        if let Some(at) = hall {
-            kept.push(plots[at]);
-        }
         // Thinned WITHIN each district, in proportion to what that district had.
         //
         // One stride across the whole list is not the same thing: the list runs ring
@@ -669,7 +810,17 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
             let mut out: Vec<f32> = plots.iter().map(|p| p.at.distance(site.at)).collect();
             District::divisions(&mut out)
         };
-        let others: Vec<usize> = (0..plots.len()).filter(|i| Some(*i) != hall).collect();
+        // The hall and every landmark survive whatever the size: a city without its
+        // guild hall is not a city, and a node without its landmark is a junction.
+        let keep_always: Vec<usize> = (0..plots.len())
+            .filter(|i| plots[*i].what == Building::GuildHall || plots[*i].what.is_landmark())
+            .collect();
+        for at in &keep_always {
+            kept.push(plots[*at]);
+        }
+        let others: Vec<usize> = (0..plots.len())
+            .filter(|i| !keep_always.contains(i))
+            .collect();
         let room = wanted.saturating_sub(kept.len()).max(1);
         for district in [District::Market, District::Crafts, District::Outskirts] {
             let here: Vec<usize> = others
@@ -755,6 +906,7 @@ fn what_stands_here(
     middle: Vec2,
     inner: f32,
     outer: f32,
+    city: bool,
     seed: u32,
 ) -> Option<Building> {
     let roll = unit(seed.wrapping_add(index as u32 * 131), 11);
@@ -767,11 +919,11 @@ fn what_stands_here(
     // rule, the obvious one, and Lynch's districts all at once: the ground with the
     // most feet on it carries the trade, and what a place is FOR is what tells one
     // part of a town from another.
-    let wanted = District::of(lot.at.distance(middle), inner, outer).builds(roll);
+    let wanted = District::of(lot.at.distance(middle), inner, outer).builds(roll, city);
     if fits(wanted) {
         Some(wanted)
-    } else if fits(Building::Cottage) {
-        Some(Building::Cottage)
+    } else if fits(if city { Building::CityBlock } else { Building::Cottage }) {
+        Some(if city { Building::CityBlock } else { Building::Cottage })
     } else {
         None
     }
@@ -926,6 +1078,14 @@ const ROAD_STEPS_EVERY: f32 = 2.5;
 // same one.
 const ROAD_STONE: [f32; 4] = [0.34, 0.34, 0.36, 1.0];
 
+/// What a VILLAGE's lanes are made of: packed earth and cobble, warm and rough.
+///
+/// A village is old-school fantasy and a city is modern, and the ground underfoot is
+/// half of that difference - asphalt through a thatched village would undo the
+/// silhouette work above it before you looked up.
+const ROAD_EARTH: [f32; 4] = [0.40, 0.31, 0.22, 1.0];
+const ROAD_COBBLE: [f32; 4] = [0.44, 0.40, 0.35, 1.0];
+
 /// How much one paving stone differs from its neighbour.
 ///
 /// A road of one flat colour is a painted stripe. Varying each quad a little is what
@@ -965,7 +1125,7 @@ fn mix_the_road_surface(mut commands: Commands, mut materials: ResMut<Assets<cra
 }
 
 /// Builds one town's streets as a mesh laid on the ground.
-fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2) -> Mesh {
+fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2, city: bool) -> Mesh {
     let mut places: Vec<[f32; 3]> = Vec::new();
     let mut normals: Vec<[f32; 3]> = Vec::new();
     let mut colours: Vec<[f32; 4]> = Vec::new();
@@ -988,7 +1148,7 @@ fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2)
             // and the road has an edge at all.
             for (across, colour) in [
                 (-street.wide * 0.5, ROAD_KERB),
-                (0.0, ROAD_STONE),
+                (0.0, if city { ROAD_STONE } else { ROAD_EARTH }),
                 (street.wide * 0.5, ROAD_KERB),
             ] {
                 let at = on + side * across;
@@ -1106,7 +1266,7 @@ pub fn raise_the_towns(
                 ..default()
             }))
         });
-        let paving = pave(&layout.streets, &terrain.0, site.at);
+        let paving = pave(&layout.streets, &terrain.0, site.at, site.city);
         commands.spawn((
             FromSite(key),
             Mesh3d(meshes.add(paving)),
@@ -1343,6 +1503,15 @@ mod tests {
                     Building::Shop => [126, 178, 208],
                     Building::Townhouse => [206, 150, 116],
                     Building::Cottage => [150, 196, 140],
+                    // The city, in cooler greys - the plan should read as two ages
+                    // at a glance, exactly as the world does.
+                    Building::CitySpire => [236, 240, 246],
+                    Building::CityTower => [186, 198, 212],
+                    Building::CityBlock => [150, 164, 180],
+                    // Landmarks, in the one colour nothing else wears.
+                    Building::MarketCross | Building::Well | Building::Monument => {
+                        [240, 122, 96]
+                    }
                 };
                 let half = plot.what.footprint() * 0.5;
                 let (sin, cos) = plot.facing.sin_cos();
@@ -1539,7 +1708,7 @@ mod tests {
         let layout = lay_out(&site, plan.approach(site.at), crate::config::WORLD_SEED);
         assert!(!layout.streets.is_empty(), "the town has no streets");
 
-        let paving = pave(&layout.streets, &terrain, site.at);
+        let paving = pave(&layout.streets, &terrain, site.at, site.city);
         let count = paving.count_vertices();
         assert!(count > 200, "the paving is {count} vertices, which is nothing");
 
@@ -1614,6 +1783,9 @@ mod tests {
 
         let mut counts = std::collections::HashMap::new();
         for plot in &layout.plots {
+            if plot.what.is_landmark() {
+                continue;
+            }
             let district = District::of(plot.at.distance(site.at), inner, outer);
             *counts
                 .entry((district, plot.what))
@@ -1643,10 +1815,20 @@ mod tests {
         // And they have to be DIFFERENT. Trade at the middle, homes at the edge -
         // if a shop is as likely on the outskirts as on the square then the town
         // has one district wearing three names.
-        let shops_in = share(District::Market, Building::Shop);
-        let shops_out = share(District::Outskirts, Building::Shop);
-        let homes_in = share(District::Market, Building::Cottage);
-        let homes_out = share(District::Outskirts, Building::Cottage);
+        // A CITY is modern, so its districts are told apart by HEIGHT rather than by
+        // trade: towers at the middle, blocks at the rim. That is what a skyline is,
+        // and a city whose every building is the same height reads as a housing
+        // scheme however tall they all are. A village is still trade at the middle
+        // and homes at the edge.
+        let (tall, low) = if site.city {
+            (Building::CityTower, Building::CityBlock)
+        } else {
+            (Building::Shop, Building::Cottage)
+        };
+        let shops_in = share(District::Market, tall);
+        let shops_out = share(District::Outskirts, tall);
+        let homes_in = share(District::Market, low);
+        let homes_out = share(District::Outskirts, low);
         println!(
             "market: {:.0}% shops, {:.0}% cottages | outskirts: {:.0}% shops, {:.0}% cottages",
             shops_in * 100.0, homes_in * 100.0, shops_out * 100.0, homes_out * 100.0
@@ -1669,7 +1851,7 @@ mod tests {
         let site = plan.sites()[0];
         let layout = lay_out(&site, plan.approach(site.at), crate::config::WORLD_SEED);
         println!("{} streets", layout.streets.len());
-        let mesh = pave(&layout.streets, &terrain, site.at);
+        let mesh = pave(&layout.streets, &terrain, site.at, site.city);
         use bevy::render::mesh::VertexAttributeValues;
         let places = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
             Some(VertexAttributeValues::Float32x3(v)) => v.clone(),
@@ -1735,6 +1917,12 @@ mod tests {
             let approach = Vec2::new(0.7, -0.7).normalize();
             let layout = lay_out(&site, approach, seed);
             for plot in &layout.plots {
+                // A landmark stands in the open ON a node - it has no frontage and
+                // faces nothing, which is exactly what makes it a landmark rather
+                // than a bigger house.
+                if plot.what.is_landmark() {
+                    continue;
+                }
                 // The way the door looks, which is the building's own -Y turned by
                 // its facing.
                 let out = Vec2::new(plot.facing.cos(), plot.facing.sin());

@@ -23,11 +23,15 @@ import mathutils
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-BUILDINGS = ("cottage", "townhouse", "shop", "guild_hall")
+BUILDINGS = (
+    # The old world, then its landmarks; then the city and its own.
+    "cottage", "townhouse", "shop", "guild_hall", "market_cross", "well",
+    "city_block", "city_tower", "city_spire", "monument",
+)
 
 # How much room each gets on the shelf, in metres. Wider than the widest building,
 # so nothing overlaps its neighbour and the gaps read as gaps.
-BAY = 26.0
+BAY = 24.0
 
 # A warden is this tall. The post is not decoration: a building sized by eye against
 # nothing is how a cottage ends up a barn.
@@ -84,7 +88,7 @@ def main():
     clear()
     scene = bpy.context.scene
 
-    bpy.ops.mesh.primitive_plane_add(size=260.0, location=(BAY * 1.5, 0.0, -0.02))
+    bpy.ops.mesh.primitive_plane_add(size=460.0, location=(BAY * 4.5, 0.0, -0.02))
     paint(bpy.context.object, (0.16, 0.19, 0.14, 1.0))
 
     print("THE TOWN'S BUILDINGS, as they will stand in the world:")
@@ -119,9 +123,9 @@ def main():
     camera = bpy.data.objects.new("look", bpy.data.cameras.new("look"))
     bpy.context.collection.objects.link(camera)
     scene.camera = camera
-    camera.data.lens = 40.0
-    aim = mathutils.Vector((BAY * 1.5, 0.0, 5.0))
-    eye = aim + mathutils.Vector((-6.0, -58.0, 26.0))
+    camera.data.lens = 50.0
+    aim = mathutils.Vector((BAY * 4.5, 0.0, 14.0))
+    eye = aim + mathutils.Vector((-10.0, -150.0, 46.0))
     camera.location = eye
     camera.rotation_euler = (aim - eye).normalized().to_track_quat("-Z", "Y").to_euler()
 

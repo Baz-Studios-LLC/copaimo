@@ -122,6 +122,16 @@ PAINT = {
     "counter": (0.48, 0.35, 0.22),
     "shelf": (0.50, 0.38, 0.24),
     "board": (0.34, 0.26, 0.18),
+    # The city, which is a different age of the world - see `tower`.
+    "concrete": (0.72, 0.71, 0.68),
+    "concrete2": (0.62, 0.62, 0.60),
+    "curtain": (0.30, 0.42, 0.50),
+    "curtain2": (0.24, 0.34, 0.42),
+    "mullion": (0.46, 0.48, 0.50),
+    "steel": (0.56, 0.58, 0.60),
+    "parapet": (0.50, 0.50, 0.49),
+    "canopy": (0.22, 0.30, 0.36),
+    "neon": (0.34, 0.72, 0.78),
 }
 
 # Which colours are indoor, so their shading ramp starts at the floor they stand on
@@ -836,11 +846,195 @@ def guild_hall():
     return parts, max(top, tower_top + 3.3)
 
 
+# # THE CITY IS A DIFFERENT AGE OF THE WORLD
+#
+# Villages and towns are old-school fantasy - half-timbered, thatch and slate, a
+# cobbled street. Cities are modern: curtain wall, concrete, and a paved road. That
+# is not two art styles bolted together, it is the game's own history showing on the
+# ground, and it is the sharpest District tool there is - you know which kind of
+# place you are in from the silhouette before you can read a sign.
+#
+# The pieces below are built from the same `masonry` boxes as everything else, so a
+# tower costs what a cottage costs and wears the same shading.
+
+FLOOR_TALL = 3.4          # one storey of a modern building
+CORE = 0.34               # how far the service core stands proud of the facade
+
+
+def curtain_wall(parts, wide, deep, floors, base=0.0, banded=True):
+    """A modern facade: floor bands of glass between slim spandrels.
+
+    The whole readable difference between a tower and a big shed is that a tower has
+    a REPEAT you can count. Bands do that at any distance, and they cost two boxes a
+    storey a side rather than a window apiece.
+    """
+    for floor in range(floors):
+        z = base + floor * FLOOR_TALL
+        glass = "curtain" if (floor % 2 == 0 or not banded) else "curtain2"
+        for face, span, off in (("x", wide, deep), ("y", deep, wide)):
+            for side in (-1.0, 1.0):
+                at = (0.0, side * off * 0.5, 0.0) if face == "x" else (side * off * 0.5, 0.0, 0.0)
+                # The glass band, inset a little so the spandrel reads as a lip.
+                parts.append(box(
+                    _slab(face, span * 0.94, 0.10, FLOOR_TALL * 0.62),
+                    (at[0], at[1], z + FLOOR_TALL * 0.5), glass))
+                # The spandrel under it.
+                parts.append(box(
+                    _slab(face, span, 0.16, FLOOR_TALL * 0.34),
+                    (at[0], at[1], z + FLOOR_TALL * 0.13), "concrete"))
+                # Mullions, one every couple of metres, which is what stops a band
+                # reading as a stripe of paint.
+                count = max(2, int(span / 2.2))
+                for index in range(count + 1):
+                    over = -span * 0.47 + span * 0.94 * index / count
+                    place = _across(face, (at[0], at[1], z + FLOOR_TALL * 0.5), over)
+                    parts.append(box(_slab(face, 0.10, 0.14, FLOOR_TALL * 0.62), place, "mullion"))
+
+
+def tower(floors, wide=9.0, deep=9.0, crown="flat"):
+    """A city block: a modern tower with a lobby, a core and a crown.
+
+    Three parts, because that is what makes a tall box read as a building rather
+    than as a wall: a BASE you meet at street level, a SHAFT that repeats, and a TOP
+    that finishes. A tower without a top is a building that got cut off.
+    """
+    parts = []
+    tall = FLOOR_TALL * floors
+
+    # The base: taller than a storey, glassier, with a canopy over the door.
+    lobby = FLOOR_TALL * 1.5
+    parts.append(box((wide + 0.5, deep + 0.5, 0.14), (0.0, 0.0, 0.07), "concrete2"))
+    for face, span, off in (("x", wide, deep), ("y", deep, wide)):
+        for side in (-1.0, 1.0):
+            at = (0.0, side * off * 0.5, 0.0) if face == "x" else (side * off * 0.5, 0.0, 0.0)
+            parts.append(box(_slab(face, span, 0.14, lobby - 0.3), (at[0], at[1], lobby * 0.5), "curtain"))
+            parts.append(box(_slab(face, span, 0.22, 0.30), (at[0], at[1], lobby - 0.15), "concrete"))
+    # The doorway, in the -Y face like every other building in this game.
+    hole = min(DOOR_WIDE * 1.6, wide - 1.0)
+    for side in (-1.0, 1.0):
+        pier = (wide - hole) * 0.5
+        parts.append(box((pier, 0.30, DOOR_TALL + 0.4),
+                         (side * (wide - pier) * 0.5, -deep * 0.5, (DOOR_TALL + 0.4) * 0.5), "concrete2"))
+    parts.append(box((hole + 0.6, 0.30, 0.34), (0.0, -deep * 0.5, DOOR_TALL + 0.55), "concrete2"))
+    parts.append(box((hole + 2.2, 1.5, 0.18), (0.0, -deep * 0.5 - 0.75, DOOR_TALL + 0.95), "canopy"))
+
+    # The shaft.
+    curtain_wall(parts, wide, deep, floors - 1, base=lobby)
+
+    # The service core, standing proud on one flank the whole way up - the thing
+    # that stops a tower being a rectangle from every angle.
+    parts.append(box((CORE * 2.0, deep * 0.42, tall - lobby * 0.4),
+                     (wide * 0.5 + CORE * 0.6, deep * 0.12, lobby * 0.2 + (tall - lobby * 0.4) * 0.5),
+                     "concrete2"))
+
+    # The crown.
+    top = lobby + (floors - 1) * FLOOR_TALL
+    parts.append(box((wide + 0.6, deep + 0.6, 0.5), (0.0, 0.0, top + 0.25), "parapet"))
+    if crown == "stepped":
+        parts.append(box((wide * 0.68, deep * 0.68, FLOOR_TALL * 1.1),
+                         (0.0, 0.0, top + 0.5 + FLOOR_TALL * 0.55), "concrete"))
+        parts.append(box((wide * 0.70, deep * 0.70, 0.36),
+                         (0.0, 0.0, top + 0.5 + FLOOR_TALL * 1.1), "parapet"))
+        top += 0.5 + FLOOR_TALL * 1.1
+    elif crown == "mast":
+        parts.append(box((0.9, 0.9, FLOOR_TALL * 0.8), (0.0, 0.0, top + FLOOR_TALL * 0.4), "concrete2"))
+        parts.append(box((0.22, 0.22, FLOOR_TALL * 1.6), (0.0, 0.0, top + FLOOR_TALL * 1.2), "steel"))
+        parts.append(box((0.5, 0.5, 0.3), (0.0, 0.0, top + FLOOR_TALL * 0.55), "neon"))
+        top += FLOOR_TALL * 2.0
+    # Rooftop plant, so the skyline is not a row of flat lids.
+    parts.append(box((wide * 0.3, deep * 0.3, 0.9), (-wide * 0.18, deep * 0.16, top + 0.5), "steel"))
+    return parts, top + 1.0
+
+
+def city_block():
+    """A mid-rise: the ordinary building of a city street."""
+    return tower(5, wide=10.5, deep=9.0, crown="flat")
+
+
+def city_tower():
+    """Taller, and stepped - the one that starts to read as a skyline."""
+    return tower(9, wide=10.0, deep=9.5, crown="stepped")
+
+
+def city_spire():
+    """The tallest thing for miles. A WEENIE, in Disney's sense.
+
+    Scott Rogers' hub-town rules name it: something tall enough to see from outside
+    the place, that pulls you toward the middle of it. A city whose tallest building
+    is the same as its second tallest has no middle.
+    """
+    # Fourteen floors, not fifteen. Fifteen came out at 60.5 m and the export gate
+    # refuses anything over 60 - a bound chosen to catch the classic scale mistake, a
+    # 1.8 m figure built in centimetres. The guard is right and half a metre of
+    # skyscraper is not worth widening it for; this is 57 m and still six times the
+    # cottage beside it.
+    return tower(14, wide=11.0, deep=11.0, crown="mast")
+
+def market_cross():
+    """A village's landmark: a stepped stone cross on the square.
+
+    The other half of Rogers' rule, and the half my towns were missing: a landmark
+    has to be a DIFFERENT KIND OF THING from the buildings around it, not a bigger
+    one. A tall house is a house. A cross on three steps is a place to meet at.
+    """
+    parts = []
+    for step in range(3):
+        size = 3.4 - step * 0.7
+        parts.append(box((size, size, 0.24), (0.0, 0.0, 0.12 + step * 0.24), "stone"))
+    base = 0.72
+    parts.append(box((0.9, 0.9, 0.5), (0.0, 0.0, base + 0.25), "stone"))
+    parts.append(box((0.42, 0.42, 3.6), (0.0, 0.0, base + 0.5 + 1.8), "stone"))
+    # The head: a squared cross, which reads from every side.
+    top = base + 0.5 + 3.6
+    parts.append(box((1.5, 0.34, 0.34), (0.0, 0.0, top + 0.2), "stone"))
+    parts.append(box((0.34, 1.5, 0.34), (0.0, 0.0, top + 0.2), "stone"))
+    parts.append(box((0.5, 0.5, 0.6), (0.0, 0.0, top + 0.6), "brass"))
+    return parts, top + 0.9
+
+
+def well():
+    """A junction landmark for a village: a well with a roof over it."""
+    parts = []
+    parts.append(box((2.2, 2.2, 0.22), (0.0, 0.0, 0.11), "stone"))
+    for side in (-1.0, 1.0):
+        for face in (-1.0, 1.0):
+            parts.append(box((1.6 if face > 0 else 0.3, 0.3 if face > 0 else 1.6, 0.7),
+                             (0.0 if face > 0 else side * 0.75, side * 0.75 if face > 0 else 0.0, 0.57),
+                             "stone"))
+    for side in (-1.0, 1.0):
+        parts.append(box((0.16, 0.16, 2.0), (side * 0.85, 0.0, 1.9), "timber"))
+    parts.append(box((0.14, 1.4, 0.14), (0.0, 0.0, 2.75), "timber"))
+    parts.append(wedge(2.4, 2.0, 0.7, (0.0, 0.0, 2.9), "roof2", ridge="y"))
+    parts.append(box((0.5, 0.5, 0.4), (0.0, 0.0, 2.3), "board"))
+    return parts, 3.7
+
+
+def monument():
+    """A city's junction landmark: a raised plinth under a steel figure."""
+    parts = []
+    parts.append(box((5.0, 5.0, 0.3), (0.0, 0.0, 0.15), "concrete2"))
+    parts.append(box((3.4, 3.4, 0.3), (0.0, 0.0, 0.45), "concrete"))
+    parts.append(box((1.6, 1.6, 2.2), (0.0, 0.0, 1.7), "concrete2"))
+    parts.append(box((2.0, 2.0, 0.24), (0.0, 0.0, 2.9), "parapet"))
+    # A spike of steel, leaning - a shape nothing else in the city has.
+    parts.append(box((0.5, 0.5, 4.4), (0.0, 0.0, 5.2), "steel", tilt=(0.16, 0.0, 0.5)))
+    parts.append(box((1.1, 1.1, 0.3), (0.0, 0.0, 7.6), "neon"))
+    return parts, 8.0
+
+
 FIGURES = {
+    # The old world: villages and towns.
     "cottage": cottage,
     "townhouse": townhouse,
     "shop": shop,
     "guild_hall": guild_hall,
+    "market_cross": market_cross,
+    "well": well,
+    # The new: cities.
+    "city_block": city_block,
+    "city_tower": city_tower,
+    "city_spire": city_spire,
+    "monument": monument,
 }
 
 
