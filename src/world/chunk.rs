@@ -203,6 +203,7 @@ pub fn build_mesh(terrain: &Terrain, coord: IVec2) -> Mesh {
                 worn,
                 country,
                 belonging,
+                terrain.settled(world.x, world.y),
             ));
             uvs.push([ix as f32 / quads as f32, iz as f32 / quads as f32]);
         }

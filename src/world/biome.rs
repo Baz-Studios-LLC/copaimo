@@ -33,6 +33,10 @@ struct Palette {
     silt: Vec3,
     /// Bare earth, for roads and yards and the worn ground round a door.
     dirt: Vec3,
+    /// What a modern city stands on. Cool and pale, so it reads as a made surface
+    /// rather than as very dry ground - the two ages of the world have to be
+    /// different underfoot as well as overhead.
+    paving: Vec3,
     shallow: Vec3,
     sand: Vec3,
     lush_grass: Vec3,
@@ -46,6 +50,7 @@ static PALETTE: LazyLock<Palette> = LazyLock::new(|| Palette {
     // Warm and mid — a cart road in daylight, not mud and not sand. Reads as
     // earth against both the dry and the lush grass it has to sit between.
     dirt: linear(0.40, 0.31, 0.20),
+    paving: linear(0.52, 0.52, 0.53),
     shallow: linear(0.22, 0.38, 0.46),
     sand: linear(0.74, 0.68, 0.50),
     lush_grass: linear(0.26, 0.47, 0.22),
@@ -85,6 +90,9 @@ pub fn surface_color(
     worn: f32,
     country: terrain_core::region::Country,
     belonging: f32,
+    // How built-up this ground is: positive for the old world's packed earth,
+    // negative for a modern city's paving, zero for open country.
+    settled: f32,
 ) -> [f32; 4] {
     let p = &*PALETTE;
 
@@ -214,6 +222,18 @@ pub fn surface_color(
     } else if worn < 0.0 {
         // Forced green: whatever the biome had, grown back over.
         color = color.lerp(p.lush_grass, (-worn * 0.7).clamp(0.0, 1.0));
+    }
+
+    // AND WHAT PEOPLE HAVE MADE OF IT.
+    //
+    // After the wear and before the blotching, because a town's ground is a made
+    // surface and the blotching is grass growing unevenly ON a surface - which is
+    // true of a village's earth and not of a city's pavement, so the fade below is
+    // what keeps a paved square from sprouting.
+    if settled > 0.0 && height >= SEA_LEVEL {
+        color = color.lerp(p.dirt, (settled * 0.82).clamp(0.0, 1.0));
+    } else if settled < 0.0 && height >= SEA_LEVEL {
+        color = color.lerp(p.paving, (-settled * 0.9).clamp(0.0, 1.0));
     }
 
     // # Ground is never one colour, and this one was

@@ -36,21 +36,61 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use bevy::render::view::screenshot::{save_to_disk, Screenshot};
 
-/// What was asked for on the command line.
-#[derive(Resource, Clone)]
-pub struct Photo {
-    /// Where to stand, in world metres.
+/// One named viewpoint.
+#[derive(Clone)]
+pub struct Shot {
+    /// What the file is called, without the extension.
+    pub name: String,
+    /// What the camera looks AT, in world metres.
     pub at: Vec2,
+    /// Which way the camera sits FROM that point, as a unit vector on the ground.
+    ///
+    /// The single-shot `--photo` route leaves this at `+Z`, which is what it always
+    /// did. A matrix shot needs it: "the village entrance" means standing outside
+    /// the gate looking in, and which way that is depends on where the road comes
+    /// from, not on which way the world's Z axis happens to run.
+    pub from: Vec2,
     /// How far above the ground to put the eye.
     pub height: f32,
     /// How far back from `at` the camera sits. Zero looks straight down.
     pub back: f32,
-    /// Where the file goes.
+}
+
+/// What was asked for on the command line.
+#[derive(Resource, Clone)]
+pub struct Photo {
+    /// The viewpoints to take, in order.
+    ///
+    /// One for `--photo`. For `--matrix` this starts empty and is filled from the
+    /// world once the settlements exist - a named viewpoint is "the entrance to the
+    /// nearest village", which nothing can work out at the time argv is read.
+    pub shots: Vec<Shot>,
+    /// The folder a matrix goes into, if this is one.
+    pub matrix: Option<PathBuf>,
+    /// Where a single photograph goes.
     pub out: PathBuf,
     /// How many frames to let the world stream before the shutter.
     pub settle: u32,
     /// Whether to pull the map up before the shutter goes.
     pub map: bool,
+}
+
+impl Photo {
+    /// The viewpoint being taken right now.
+    pub fn shot(&self, taking: &Taking) -> Option<&Shot> {
+        self.shots.get(taking.at)
+    }
+}
+
+/// Where the run has got to.
+#[derive(Resource, Default)]
+pub struct Taking {
+    /// Which shot is being taken.
+    pub at: usize,
+    /// Frames waited on it.
+    pub waited: u32,
+    /// Whether its shutter has already gone.
+    pub taken: bool,
 }
 
 /// Frames counted since the world came up.
@@ -71,19 +111,39 @@ impl Photo {
                 .cloned()
         };
 
+        let settle = value("--settle").and_then(|v| v.parse().ok()).unwrap_or(240);
+        let map = args.iter().any(|arg| arg == "--map");
+
+        // A whole matrix, filled in from the world once it exists.
+        if let Some(folder) = value("--matrix") {
+            return Some(Photo {
+                shots: Vec::new(),
+                matrix: Some(PathBuf::from(folder)),
+                out: PathBuf::new(),
+                settle,
+                map,
+            });
+        }
+
         let spot = value("--photo")?;
         let (x, z) = spot.split_once(',')?;
         let at = Vec2::new(x.trim().parse().ok()?, z.trim().parse().ok()?);
 
         Some(Photo {
-            at,
-            height: value("--height").and_then(|v| v.parse().ok()).unwrap_or(28.0),
-            back: value("--back").and_then(|v| v.parse().ok()).unwrap_or(46.0),
+            shots: vec![Shot {
+                name: "game".into(),
+                at,
+                // Straight back along +Z, which is what this always did.
+                from: Vec2::new(0.0, 1.0),
+                height: value("--height").and_then(|v| v.parse().ok()).unwrap_or(28.0),
+                back: value("--back").and_then(|v| v.parse().ok()).unwrap_or(46.0),
+            }],
+            matrix: None,
             out: value("--out")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("dev/art/shots/game.png")),
-            settle: value("--settle").and_then(|v| v.parse().ok()).unwrap_or(240),
-            map: args.iter().any(|arg| arg == "--map"),
+            settle,
+            map,
         })
     }
 }
@@ -100,14 +160,18 @@ pub fn taking_a_photo(photo: Option<Res<Photo>>) -> bool {
 /// for its camera.
 pub fn stand_where_told(
     photo: Res<Photo>,
+    taking: Res<Taking>,
     terrain: Option<Res<crate::world::terrain::TerrainSource>>,
     mut cameras: Query<&mut Transform, With<Camera3d>>,
 ) {
+    let Some(shot) = photo.shot(&taking) else {
+        return;
+    };
     let ground = terrain
-        .map(|t| t.0.height(photo.at.x, photo.at.y))
+        .map(|t| t.0.walk_height(shot.at.x, shot.at.y))
         .unwrap_or(0.0);
-    let aim = Vec3::new(photo.at.x, ground + 2.0, photo.at.y);
-    let eye = aim + Vec3::new(0.0, photo.height, photo.back);
+    let aim = Vec3::new(shot.at.x, ground + 2.0, shot.at.y);
+    let eye = aim + Vec3::new(shot.from.x * shot.back, shot.height, shot.from.y * shot.back);
     for mut place in &mut cameras {
         place.translation = eye;
         place.look_at(aim, Vec3::Y);
@@ -123,14 +187,18 @@ pub fn stand_where_told(
 /// itself, and the override below only has to choose the angle.
 pub fn stand_the_warden_there(
     photo: Res<Photo>,
+    taking: Res<Taking>,
     terrain: Option<Res<crate::world::terrain::TerrainSource>>,
     mut wardens: Query<&mut Transform, With<crate::player::Player>>,
 ) {
+    let Some(shot) = photo.shot(&taking) else {
+        return;
+    };
     let ground = terrain
-        .map(|t| t.0.height(photo.at.x, photo.at.y))
+        .map(|t| t.0.walk_height(shot.at.x, shot.at.y))
         .unwrap_or(0.0);
     for mut place in &mut wardens {
-        place.translation = Vec3::new(photo.at.x, ground, photo.at.y);
+        place.translation = Vec3::new(shot.at.x, ground, shot.at.y);
     }
 }
 
@@ -141,57 +209,186 @@ pub fn stand_the_warden_there(
 /// town two kilometres behind it.
 pub fn anchor_where_told(
     photo: Res<Photo>,
+    taking: Res<Taking>,
     terrain: Option<Res<crate::world::terrain::TerrainSource>>,
     mut anchors: Query<
         (&mut Transform, &mut GlobalTransform),
         With<crate::world::StreamAnchor>,
     >,
 ) {
+    let Some(shot) = photo.shot(&taking) else {
+        return;
+    };
     let ground = terrain
-        .map(|t| t.0.height(photo.at.x, photo.at.y))
+        .map(|t| t.0.walk_height(shot.at.x, shot.at.y))
         .unwrap_or(0.0);
-    let at = Vec3::new(photo.at.x, ground, photo.at.y);
+    let at = Vec3::new(shot.at.x, ground, shot.at.y);
     for (mut place, mut world) in &mut anchors {
         place.translation = at;
         *world = GlobalTransform::from(*place);
     }
 }
 
-/// Waits for the world to arrive, takes the picture, and quits.
+/// Fills in the matrix, once the world knows where its settlements are.
+///
+/// # Why the shot list is not on the command line
+///
+/// A named viewpoint is a claim about the WORLD - "the entrance to the nearest
+/// village", "the middle of the long bridge" - and none of those can be turned into
+/// a coordinate until the settlements have been planned. Naming them rather than
+/// writing coordinates down is the whole point: the same nine shots keep meaning the
+/// same nine things after the map changes, which is what makes two runs comparable.
+pub fn fill_the_matrix(
+    mut photo: ResMut<Photo>,
+    terrain: Option<Res<crate::world::terrain::TerrainSource>>,
+) {
+    if photo.matrix.is_none() || !photo.shots.is_empty() {
+        return;
+    }
+    let Some(terrain) = terrain else { return };
+    let plan = terrain.plan();
+    if plan.sites().is_empty() {
+        return;
+    }
+
+    let mut shots = Vec::new();
+    let mut add = |name: &str, at: Vec2, from: Vec2, height: f32, back: f32| {
+        shots.push(Shot {
+            name: name.into(),
+            at,
+            from: from.normalize_or(Vec2::new(0.0, 1.0)),
+            height,
+            back,
+        });
+    };
+
+    // The ranch, where the game starts.
+    if let Some(ranch) = plan.sites().iter().find(|site| site.ranch) {
+        add("ranch_gate", ranch.at, Vec2::new(0.0, 1.0), 5.0, 34.0);
+    }
+
+    // A village and a city: their entrance, from outside the boundary looking in,
+    // and their middle. `EDGE_LIES_AT` is where the wall stands, so a little past
+    // that is outside it.
+    for (label, city) in [("village", false), ("city", true)] {
+        let Some(site) = plan
+            .sites()
+            .iter()
+            .find(|site| !site.ranch && site.city == city)
+        else {
+            continue;
+        };
+        let out = plan.approach(site.at).normalize_or(Vec2::new(0.0, 1.0));
+        let gate = site.at + out * site.radius * 1.02;
+        add(
+            &format!("{label}_entrance"),
+            gate,
+            out,
+            if city { 7.0 } else { 5.0 },
+            if city { 52.0 } else { 40.0 },
+        );
+        add(
+            &format!("{label}_node"),
+            site.at,
+            out,
+            if city { 9.0 } else { 5.0 },
+            if city { 66.0 } else { 40.0 },
+        );
+        // And the country outside it, which is where the arrival ought to begin.
+        add(
+            &format!("{label}_approach"),
+            site.at + out * site.radius * 2.4,
+            out,
+            5.0,
+            40.0,
+        );
+    }
+
+    // The longest bridge: its entrance and its middle, which is the shot that says
+    // whether a kilometre of crossing has anything to look at along it.
+    if let Some(bridge) = plan
+        .spans()
+        .iter()
+        .max_by(|a, b| {
+            a.from
+                .distance(a.to)
+                .total_cmp(&b.from.distance(b.to))
+        })
+    {
+        let along = (bridge.to - bridge.from).normalize_or(Vec2::new(0.0, 1.0));
+        add("bridge_entrance", bridge.from, -along, 6.0, 46.0);
+        add(
+            "bridge_middle",
+            (bridge.from + bridge.to) * 0.5,
+            -along,
+            5.0,
+            34.0,
+        );
+    }
+
+    info!("shot matrix: {} viewpoints", shots.len());
+    photo.shots = shots;
+}
+
+/// Waits for the world to arrive, takes each picture in turn, and quits.
+///
+/// One run, many shots. A named matrix is only useful if taking it is cheap, and
+/// booting the game nine times to photograph nine places is not cheap - each boot
+/// spends several hundred frames streaming a world it then throws away. The camera
+/// is moved instead, and the world is given time to arrive at each new place.
 pub fn take_the_photo(
     mut commands: Commands,
     photo: Res<Photo>,
-    mut waiting: ResMut<Waiting>,
-    mut done: Local<bool>,
+    mut taking: ResMut<Taking>,
     mut quit: EventWriter<AppExit>,
 ) {
-    if *done {
-        // A frame or two after the shutter, so the file is written before the
-        // process goes away.
-        waiting.0 += 1;
-        if waiting.0 > photo.settle + 30 {
-            quit.write(AppExit::Success);
+    let Some(shot) = photo.shot(&taking) else {
+        quit.write(AppExit::Success);
+        return;
+    };
+
+    taking.waited += 1;
+    if taking.taken {
+        // A few frames after the shutter, so the file is written before either the
+        // camera moves on or the process goes away.
+        if taking.waited > 30 {
+            taking.at += 1;
+            taking.waited = 0;
+            taking.taken = false;
         }
         return;
     }
 
-    waiting.0 += 1;
-    if waiting.0 < photo.settle {
+    // The first shot pays the full streaming cost. The rest have most of the world
+    // already in hand, so they wait for what moving actually changes.
+    let settle = if taking.at == 0 {
+        photo.settle
+    } else {
+        photo.settle.min(180).max(90)
+    };
+    if taking.waited < settle {
         return;
     }
 
-    if let Some(folder) = photo.out.parent() {
+    let out = match &photo.matrix {
+        Some(folder) => folder.join(format!("{}.png", shot.name)),
+        None => photo.out.clone(),
+    };
+    if let Some(folder) = out.parent() {
         let _ = std::fs::create_dir_all(folder);
     }
-    let out = photo.out.clone();
     info!(
-        "photographing {:.0}, {:.0} into {}",
-        photo.at.x,
-        photo.at.y,
+        "photographing {} at {:.0}, {:.0} into {}",
+        shot.name,
+        shot.at.x,
+        shot.at.y,
         out.display()
     );
-    commands.spawn(Screenshot::primary_window()).observe(save_to_disk(out));
-    *done = true;
+    commands
+        .spawn(Screenshot::primary_window())
+        .observe(save_to_disk(out));
+    taking.taken = true;
+    taking.waited = 0;
 }
 
 /// Starts the game rather than the menu, when a photograph was asked for.
@@ -219,10 +416,12 @@ impl Plugin for PhotoPlugin {
         };
         app.insert_resource(photo)
             .init_resource::<Waiting>()
+            .init_resource::<Taking>()
             .add_systems(Startup, start_playing)
             .add_systems(
                 Update,
                 (
+                    fill_the_matrix,
                     open_the_map,
                     stand_the_warden_there,
                     anchor_where_told,

@@ -53,6 +53,7 @@ pub fn paint(terrain: &Terrain, size: UVec2) -> Vec<u8> {
                 terrain.worn(x, z),
                 terrain.region(x, z).0,
                 terrain.region(x, z).1,
+                terrain.settled(x, z),
             );
 
             // `surface_color` returns linear; the texture is sRGB.

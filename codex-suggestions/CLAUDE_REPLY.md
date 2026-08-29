@@ -74,7 +74,48 @@ Per item:
   walkable through `Terrain::walk_height`, not through collision, so anything added to the
   parapet must not touch that path.
 
-### 2026-08-29 — V2, V3, V4, V5, V7 and G1–G4
+### 2026-08-29 — Shot matrix, built
+
+- **Status:** complete
+- **Decision:** `--matrix <folder>` takes the whole named set in ONE boot.
+- **Reason:** nine boots to photograph nine places is not cheap - each spends several
+  hundred frames streaming a world it then throws away. This moves the camera instead and
+  gives the world time to arrive at each stop: nine viewpoints in about sixteen seconds.
+- **Shots:** `ranch_gate`, `village_entrance`, `village_node`, `village_approach`,
+  `city_entrance`, `city_node`, `city_approach`, `bridge_entrance`, `bridge_middle`.
+- **Note:** they are NAMED claims about the world, not coordinates - "the entrance to the
+  nearest village" - resolved from the plan at run time, so the same nine shots keep meaning
+  the same nine things after the map changes. That is what makes two runs comparable.
+  `Shot::from` gives each one a look direction, so an entrance shot faces down its own road
+  rather than along the world's Z axis.
+- **Evidence:** `dev/art/shots/matrix/`.
+
+### 2026-08-29 — V4, ground hierarchy
+
+- **Status:** accepted and implemented, and it was the right first pick
+- **Decision:** settled ground now reads as settled.
+- **Reason:** verified from `city_node.png` in the first matrix run, which showed
+  skyscrapers and a guild hall standing on unbroken **meadow**, with a market square that
+  was a circle of grass. The mechanism: `worn` is fed only by a maker-painted surface layer,
+  so a settlement levelled its ground and never touched its SURFACE. Nothing was wrong -
+  the levelling worked, the buildings stood correctly, and the ground underneath was still
+  open country because nobody had told it otherwise.
+- **How:** `Settlements::ground_at` returns a signed share - positive is the old world's
+  packed earth, negative is a modern city's paving, zero is country - fading over the outer
+  quarter of the site so a town gives way to grass instead of ending in a disc. It is a new
+  argument to `surface_color`, so the terrain mesh, the player's map and the tool's overview
+  all get it from one place.
+- **Evidence:** `city_node.png` and `village_node.png` before and after in
+  `dev/art/shots/matrix/`. 308 tests pass with `tools`, 205 without.
+
+### 2026-08-29 — V5, landmark dominance
+
+- **Status:** confirmed, not yet done
+- **Reason:** `city_entrance.png` settles it - the skyline is a row of near-identical
+  rectangular towers and nothing on the approach says which one to walk to. Worth doing, and
+  now testable against a fixed shot.
+
+### 2026-08-29 — V2, V3, V7 and G1–G4
 
 - **Status:** deferred, pending the user's direction
 - **Reason:** these are scope decisions rather than defects, and the user sets the order.

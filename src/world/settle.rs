@@ -83,6 +83,16 @@ impl Lane {
     }
 }
 
+/// How far out a settlement's own ground reaches, as a share of its radius.
+///
+/// Past the buildings, because a place's ground is what it stands on AND what it
+/// has trodden flat around itself. A boundary wall at 1.06 with the ground stopping
+/// at 1.0 would put a stripe of meadow between the last yard and the wall.
+const SETTLED_REACHES: f32 = 1.12;
+
+/// How much of that is solid before it starts giving way to country.
+const SETTLED_SOLID: f32 = 0.72;
+
 /// How far past its kerb a lane keeps levelling, in metres.
 ///
 /// Short. A street with a wide skirt is a clearing with a path in it.
@@ -163,6 +173,45 @@ impl Settlements {
     /// Every bridge the network needs.
     pub fn spans(&self) -> &[Bridge] {
         &self.bridges
+    }
+
+    /// How built-up the ground here is, and of which age of the world.
+    ///
+    /// # A city standing on a lawn
+    ///
+    /// A settlement LEVELS its ground and never changed its surface, so a
+    /// photograph from the middle of a city showed skyscrapers and a guild hall
+    /// standing on unbroken meadow, with a market square that was a circle of grass.
+    /// Nothing was wrong with any of it: the levelling worked, the buildings stood
+    /// where they should, and the ground underneath was still open country because
+    /// nobody had ever told it otherwise.
+    ///
+    /// Signed, the same trick `worn` uses for its own second meaning. POSITIVE is
+    /// packed earth - the old world's yards and thoroughfares. NEGATIVE is paving,
+    /// which is what the modern cities stand on. Zero is country.
+    ///
+    /// Fades over the outer part of the site rather than stopping at a line, so a
+    /// town's ground gives way to grass instead of ending in a disc you can see from
+    /// the air.
+    pub fn ground_at(&self, at: Vec2) -> f32 {
+        let mut most = 0.0f32;
+        for site in &self.sites {
+            if site.ranch {
+                continue;
+            }
+            let away = site.at.distance(at);
+            let reach = site.radius * SETTLED_REACHES;
+            if away > reach {
+                continue;
+            }
+            // Solid across the built part, easing out over the last of it.
+            let share = crate::util::smoothstep(reach, site.radius * SETTLED_SOLID, away);
+            let signed = if site.city { -share } else { share };
+            if signed.abs() > most.abs() {
+                most = signed;
+            }
+        }
+        most
     }
 
     /// The height of a bridge deck over this point, if a bridge carries it.

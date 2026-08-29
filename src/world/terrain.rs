@@ -281,6 +281,11 @@ impl Terrain {
     /// How worn to bare earth the ground is at a point, -1 to 1.
     ///
     /// Zero is the biome's own answer, and that is almost the whole world.
+    /// How built-up the ground is here - see `Settlements::ground_at`.
+    pub fn settled(&self, x: f32, z: f32) -> f32 {
+        self.settlements.ground_at(Vec2::new(x, z))
+    }
+
     pub fn worn(&self, x: f32, z: f32) -> f32 {
         self.surface.read().map_or(0.0, |worn| worn.at(x, z))
     }
@@ -2065,6 +2070,7 @@ mod tests {
                         terrain.worn(at.x, at.y),
                         terrain.region(at.x, at.y).0,
                         terrain.region(at.x, at.y).1,
+                        terrain.settled(at.x, at.y),
                         );
                     for channel in 0..3 {
                         sum[channel] += colour[channel];
@@ -2330,7 +2336,7 @@ mod tests {
             // mottling and all. A fixed point would take the mottle out of the
             // measurement and leave the test blind to a seam it could cause.
             let colour =
-                crate::world::biome::surface_color(at, 30.0, 0.0, 0.5, 0.0, country, belonging);
+                crate::world::biome::surface_color(at, 30.0, 0.0, 0.5, 0.0, country, belonging, 0.0);
             if let Some(last) = was {
                 for channel in 0..3 {
                     biggest = biggest.max((colour[channel] - last[channel]).abs());
@@ -3478,6 +3484,7 @@ mod look {
                     terrain.worn(at.x, at.y),
                     country,
                     belonging,
+                    terrain.settled(at.x, at.y),
                 );
                 // Linear to sRGB, because that is what a screen shows.
                 let byte = |v: f32| {
