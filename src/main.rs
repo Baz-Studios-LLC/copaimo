@@ -46,6 +46,8 @@ mod tools;
 #[cfg(feature = "tools")]
 mod hud;
 mod map;
+/// Timing the parts of the game that can be timed honestly.
+mod measure;
 mod ik;
 /// How a warden looks, and painting it onto the model.
 mod look;
@@ -197,6 +199,17 @@ fn which_asset_file(
 
 
 fn main() {
+    // A measurement, if one was asked for, and then nothing else.
+    //
+    // Before the app rather than inside it: the generation work this times is pure
+    // and thread-safe by design, so it needs no window, no renderer and no frame
+    // loop - and standing one up around it would put the thing being measured
+    // inside something far larger and noisier than itself.
+    if let Some(job) = measure::Job::asked_for() {
+        measure::run(job);
+        return;
+    }
+
     let mut app = App::new();
     app
         .add_plugins(DefaultPlugins.set(AssetPlugin {
