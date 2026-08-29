@@ -73,6 +73,19 @@ pub struct Photo {
     pub settle: u32,
     /// Whether to pull the map up before the shutter goes.
     pub map: bool,
+    /// Whether to let the world's own clock and weather run.
+    ///
+    /// Off by default, and that is the point. A photograph is EVIDENCE, and two
+    /// photographs of the same place are only comparable if the only thing that
+    /// changed between them is the thing being judged. Left to itself the game
+    /// follows the real clock and rolls its own weather, so the matrix came back
+    /// rainy and overcast one run and bright the next - and every difference in
+    /// haze, cloud, shadow length and rain streaks reads as a change to whatever
+    /// was being reviewed.
+    ///
+    /// `--live` puts the clock and the weather back, for the times when the weather
+    /// IS the subject.
+    pub live: bool,
 }
 
 impl Photo {
@@ -113,6 +126,7 @@ impl Photo {
 
         let settle = value("--settle").and_then(|v| v.parse().ok()).unwrap_or(240);
         let map = args.iter().any(|arg| arg == "--map");
+        let live = args.iter().any(|arg| arg == "--live");
 
         // A whole matrix, filled in from the world once it exists.
         if let Some(folder) = value("--matrix") {
@@ -122,6 +136,7 @@ impl Photo {
                 out: PathBuf::new(),
                 settle,
                 map,
+                live,
             });
         }
 
@@ -144,6 +159,7 @@ impl Photo {
                 .unwrap_or_else(|| PathBuf::from("dev/art/shots/game.png")),
             settle,
             map,
+            live,
         })
     }
 }
@@ -304,6 +320,36 @@ pub fn fill_the_matrix(
         );
     }
 
+    // THE CANYON, at head height and from inside it.
+    //
+    // A high oblique shows the geography and answers none of the questions worth
+    // asking about a gate: whether the mouths read as the only way through, whether
+    // the walls feel close from the follow camera, and whether the heightfield's
+    // edge combs where you can see it. Three shots, both mouths and the turn
+    // between them, taken from where a warden's eyes are.
+    {
+        use crate::world::pass::way_through;
+        // ON THE FLOOR, which is not the massif's middle: the canyon winds two
+        // hundred metres either side on the way through, so a shot placed at the
+        // middle of the rock stands on the plain beside it and shows anything but
+        // the slot. `way_through` is the centreline itself.
+        let reach = 300.0;
+        for (name, at, look) in [
+            ("canyon_west_mouth", -reach, 1.0_f32),
+            ("canyon_inside", 0.0, 1.0),
+            ("canyon_east_mouth", reach, -1.0),
+        ] {
+            let here = way_through(at);
+            // Facing along the canyon, so the camera looks down it rather than at a
+            // wall: the eye sits back the way the warden came.
+            let ahead = (way_through(at + 40.0 * look) - here).normalize_or(Vec2::Y);
+            // Close behind. The slot is 38 m wall to wall, so a 34 m pull-back puts
+            // the camera IN the rock and the lower half of the frame is the inside
+            // of a cliff. A shot has to be sized to the space it is taken in.
+            add(name, here, -ahead, 2.4, 12.0);
+        }
+    }
+
     // The longest bridge: its entrance and its middle, which is the shot that says
     // whether a kilometre of crossing has anything to look at along it.
     if let Some(bridge) = plan
@@ -400,6 +446,36 @@ fn start_playing(mut next: ResMut<NextState<crate::states::AppState>>) {
     next.set(crate::states::AppState::Playing);
 }
 
+/// The hour every photograph is taken at, unless `--live` says otherwise.
+///
+/// Noon rather than a pretty hour. The sun is at its highest, so shadows are short
+/// and nothing is lost in them, and it is the one hour that cannot be confused with
+/// any other - a shot at "about four" is a shot whose lighting nobody can reproduce.
+const EVIDENCE_HOUR: f32 = 12.0;
+
+/// Holds the clock and the sky still, so two photographs differ only by their subject.
+///
+/// Every frame, for the reason the camera override is every frame: the game's own
+/// systems will happily move both back.
+pub fn hold_the_world_still(
+    photo: Res<Photo>,
+    mut clock: ResMut<crate::sky::TimeOfDay>,
+    mut weather: ResMut<crate::weather::TheWeather>,
+) {
+    if photo.live {
+        return;
+    }
+    clock.follows_clock = false;
+    clock.nudge = 0.0;
+    clock.hours = EVIDENCE_HOUR;
+
+    weather.follows_clock = false;
+    weather.falling = crate::weather::Falling::Nothing;
+    weather.fall = 0.0;
+    weather.overcast = 0.0;
+    weather.wind = 0.15;
+}
+
 /// Pulls the map up, when the photograph is meant to be of the map.
 fn open_the_map(photo: Res<Photo>, mut open: ResMut<crate::map::Open>) {
     if photo.map {
@@ -421,6 +497,7 @@ impl Plugin for PhotoPlugin {
             .add_systems(
                 Update,
                 (
+                    hold_the_world_still,
                     fill_the_matrix,
                     open_the_map,
                     stand_the_warden_there,

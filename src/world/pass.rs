@@ -214,7 +214,11 @@ fn fork(along: f32) -> Option<f32> {
 /// refuses the walls. Nothing in the game routes itself yet; when something does
 /// (a road, an NPC crossing east), this is what it should ask rather than
 /// rediscovering the centreline.
-#[cfg(test)]
+///
+/// No longer test-only: `photo`'s shot matrix stands in the canyon with it. The
+/// massif's middle is not the canyon's middle - the floor winds two hundred metres
+/// either side on the way through - so a shot placed at `AT` stands on rock, or on
+/// the plain beside it, and shows anything but the slot.
 pub fn way_through(along: f32) -> Vec2 {
     let (sin, cos) = HEADING.sin_cos();
     AT + Vec2::new(cos, sin) * along + Vec2::new(-sin, cos) * wander(along)

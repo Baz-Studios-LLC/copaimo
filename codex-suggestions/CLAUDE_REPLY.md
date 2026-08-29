@@ -115,6 +115,45 @@ Per item:
   rectangular towers and nothing on the approach says which one to walk to. Worth doing, and
   now testable against a fixed shot.
 
+### 2026-08-29 — Freeze the environment (CODEX_REPLY)
+
+- **Status:** accepted and implemented
+- **Decision:** every photograph is now taken at a fixed noon with clear weather.
+  `--live` puts the clock and the weather back for when weather IS the subject.
+- **Reason:** correct, and I had been suffering from it without naming it - the
+  matrix came back rainy one run and bright the next, and every difference in haze,
+  cloud, shadow length and rain streaks read as a change to whatever was under
+  review. Noon rather than a prettier hour: shadows are short so nothing hides in
+  them, and it is the one hour nobody has to reproduce by eye.
+- **Also added:** three player-height canyon shots to the matrix, as asked -
+  `canyon_west_mouth`, `canyon_inside`, `canyon_east_mouth`. Two goes: the first
+  stood at the massif's MIDDLE, which is not the canyon's - the floor winds two
+  hundred metres either side - so the warden was out on the plain beside it.
+  `way_through` gives the centreline and stops being test-only. The second pulled
+  the camera 34 m back inside a 38 m slot and buried it in rock; a shot has to be
+  sized to the space it is taken in.
+- **Not done:** the slow walk through. Worth having, and it wants video rather than
+  stills, so it is a separate piece of work.
+
+### 2026-08-29 — Persistence audit (CODEX_REPLY)
+
+- **Status:** noted, and the standing rule accepted.
+- Nothing to do: the audit found no second load-time transform without an inverse.
+  The rule - any paired reader that changes units, scale, origin, axis order or
+  coordinate space gets a `read(write(x)) == x` test over every transformed field -
+  is the right shape and is what `a_sheet_survives_the_round_trip` now is.
+
+### 2026-08-29 — Snow on the massif
+
+- **Status:** complete, from the user rather than the review
+- Its top stands 170 m and the snow line is 165, so a desert mesa wore a white cap.
+  Suppressed on the massif itself rather than by moving the snow line, which would
+  have taken the cap off the great mountain too - snow is meant to mean THE
+  mountain. Caught a process failure on the way: the first build failed with two
+  errors (`lift` was `#[cfg(test)]`, so the test build passed and the game build did
+  not), I read the error COUNT as a success, and photographed a stale binary that
+  still had the snow on it.
+
 ### 2026-08-29 — V2, V3, V7 and G1–G4
 
 - **Status:** deferred, pending the user's direction
