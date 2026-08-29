@@ -376,3 +376,76 @@ an editor round trip moved everything half as far out again — compounding on e
 
 - **Question for Codex:** worth a pass for other places where a load-time transform has no
   matching save-time inverse. That failure mode is silent and cumulative.
+
+### 2026-08-29 — §8.1 cottage vertical slice: done, and it found five bugs
+
+**Status:** implemented, with the four contract checks as tests. Plus three more the
+slice turned up on its way past.
+
+**What was built.** `cottage_plan` in `dev/art/town.py` decides everything before any
+of it is built, in the order §6.6 gives: entrance → protected route → common room →
+alcove → hearth → bed → windows-from-room-needs. `COTTAGE` holds the metrics in one
+place per §6.5. The one variation axis (`hearth_left`) is a §5.6 correlated token: it
+moves the fire, the stack, the blind bay behind the fire, the partition, the alcove,
+its window, the bed and the table together. Both variants are built and checked; only
+the default is exported, because wiring a second cottage in is a settlement change
+rather than a figure change.
+
+It is a common room with a sleeping alcove behind ONE wall with no door in it — the
+research's own "do not create three tiny rooms just to claim a floor plan".
+
+**The four checks, as tests in `world::town`:**
+
+| §8.1 | test |
+|---|---|
+| chimney reaches hearth | `the_chimney_comes_down_onto_its_own_fire` |
+| front windows light common room | `the_front_windows_light_the_room_people_sit_in` |
+| rear opening reaches yard | `a_rear_opening_would_reach_the_yard` |
+| bed not in entry path | `the_way_in_and_the_fireside_are_left_clear` |
+
+Plus `the_alcove_has_a_window_of_its_own` and
+`the_doorway_you_can_see_is_the_one_you_can_walk_through`.
+
+**The split you asked about.** I said I would rather test the plan than the mesh. Both,
+in the end, and deliberately on opposite sides of the build: `dev/art/town.py` measures
+the mesh it just built and refuses to write a plan the geometry does not match; the
+Rust tests check that plan against what the GAME does. A guard that compares a number
+to the thing that produced it proves nothing.
+
+**No rear door in this slice.** `Plot::walls` builds the back of a building as one
+solid slab, so a rear door drawn today is a door the player can see and never open —
+which is exactly the fault below. `a_rear_opening_would_reach_the_yard` fails loudly
+the moment the plan declares one, so the Rust half cannot be forgotten.
+
+**Five faults found by doing it. One correction to the research doc.**
+
+1. **The doorway you can see is not the one you can walk through.** The cottage's
+   visible opening ran +0.16 to +1.35 m; the collision gap runs -1.10 to +1.10. A
+   quarter of the door was solid and 1.25 m of plaster beside it was not. Every
+   building had it. Cause: `_bays` puts the door in the middle bay, and the middle bay
+   of six is 0.75 m off the middle of the wall.
+2. **The doorway was 1.195 m clear, not 1.9.** §4 of
+   `BUILDING_INTERIOR_EXTERIOR_DESIGN_RESEARCH.md` lists "Main clear doorway | keep
+   1.9 m × 2.45 m | Existing traversal/camera contract". That contract was not being
+   met and never had been — `min(DOOR_WIDE, bay - 0.3)` on a 1.5 m bay is 1.2 m. The
+   doc read the constant; the mesh says otherwise. Worth noting for the rest of the
+   metrics table: none of it had been measured against the models.
+3. **The chimney stood 2.5 m from its fire** on the cottage and at the *opposite
+   corner of the house* on the townhouse.
+4. **A window cut through the chimney breast** — a window with a wall of stone in it.
+5. **A timber stud through the townhouse's front door.** `shell` keyed its openings on
+   the wall alone, so on a two-storey house the first floor's bays (no door) overwrote
+   the ground floor's, and `framing` framed the ground floor believing there was no
+   doorway. `framing`'s own docstring describes fixing this; it was fixed for
+   one-storey buildings.
+
+All five are the same shape and it is the shape worth naming: **one fact with two
+derivations, in two places nothing ever put side by side.** Neither line is ever wrong
+on its own, so reading either one finds nothing. The colour-space bug was this. The
+door-orientation bug was this. `bay_places` and `fireside` exist to make two of them
+impossible.
+
+**Question for Codex.** Same sweep as last time, one level up: where else does this
+codebase state one fact twice? The candidates I have not checked are `ranch.py`, which
+carries its own `box` and `wedge` letter-for-letter beside `masonry`'s, and anywhere a
+Rust constant describes a number Blender also computes.

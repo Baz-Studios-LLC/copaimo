@@ -2317,3 +2317,80 @@ conversion against values anybody can verify by hand.
 `[u8; 3]` into an `Rgba8UnormSrgb` texture, which is the correct path; the sky's stars
 are near-white in either space. The only raw arrays left are the maker's bench floor,
 which is a dark checker either way and is not in the shipped world.
+
+## A doorway you could see and only half walk through
+
+**ISSUE.** Nothing was reported. This was found by building the cottage's interior
+plan and measuring the mesh it produced, and it is the worst fault the town has had:
+the cottage's visible doorway ran from **+0.16 to +1.35 m** across its front wall,
+and the gap `Plot::walls` leaves for the player to walk through runs from **-1.10 to
++1.10**. So a quarter of the door you can see was solid, and 1.25 m of blank plaster
+beside it was not. Every building in the game had it.
+
+Two more numbers were wrong on the way there. The doorway was **1.195 m clear**, not
+the 1.9 m `DOOR_WIDE` says and the research doc repeated; and a comment on
+`DOOR_CLEAR` said the built doorway was 1.4 m, which it never was.
+
+**SOLUTION.** One cause, three symptoms. `_bays` splits a wall into equal bays and
+puts the door in the middle one - and the middle bay of SIX is not the middle of the
+wall, it is 0.75 m off it. The clear opening was then `min(DOOR_WIDE, bay - 0.3)`,
+which on a 1.5 m bay is 1.2 m and never 1.9.
+
+- A wall with a door in it now gets an **odd** number of bays, so the door bay is the
+  middle of the wall. That is what a facade with a central entrance has anyway.
+- A door bay takes the width a door needs and the rest of the wall gives it up
+  between them, so `DOOR_WIDE` is what gets built.
+- `bay_places` is the only thing that knows where a bay is. `wall_run`, `framing` and
+  the figures all ask it. There were three copies of that arithmetic.
+- `Building::walk_in` sizes the collision gap from the opening the model was built
+  with, and a tower gets its lobby (3.04 m) rather than a cottage's door.
+
+**Measured, both ways.** `dev/art/town.py` walks across each figure's front wall at
+three heights, finds the gap, and refuses to build if it is not centred and the width
+the constant claims. Those numbers go into `assets/models/town.txt`, and
+`the_doorway_you_can_see_is_the_one_you_can_walk_through` checks every one of them
+against the gap the game leaves. Blender proves the mesh matches the plan; Rust proves
+the plan matches the game. Neither guard can pass by comparing a number to itself.
+
+## A chimney two and a half metres from its own fire
+
+**ISSUE.** Every cottage in the world had a flue coming down through the roof onto an
+empty corner of the room. The townhouse was worse: fire at `-wide * 0.25`, stack at
+`(wide * 0.5 - 0.6, -deep * 0.15)` - **the opposite corner of the house**, six metres
+across and five back.
+
+**SOLUTION.** `fireside` is one expression and both are told it. The same shape as the
+bay-grid fault above and the colour-space fault before it: one fact, two derivations,
+in two places that nothing ever put side by side. Neither line is wrong on its own,
+which is why reading either of them finds nothing.
+
+`the_chimney_comes_down_onto_its_own_fire` checks the built stack's footprint against
+the built fireplace's, off the mesh.
+
+## A window cut through a chimney breast, and a stud through a front door
+
+**ISSUE.** Two more found by the same measuring pass. The bay rule alternates windows
+along a wall and cannot know what is behind them, so it cut one straight through the
+cottage's chimney breast - from the street a window with a wall of stone in it. And
+`shell` recorded its openings keyed on the wall alone, so on a two-storey house the
+loop wrote the ground floor's bays and then **overwrote them with the first floor's**,
+which has no door in it; `framing` then framed the ground floor believing there was no
+doorway and stood a timber post in the middle of the townhouse's front door, at the
+exact height a warden walks.
+
+`framing`'s own docstring describes fixing that fault. It was fixed for buildings with
+one storey.
+
+**SOLUTION.** `blind_behind` makes solid any bay a fireplace stands against, and
+`shell` keys its openings per storey.
+
+## A shutter hanging off the corner of the house
+
+**ISSUE.** A shutter is hung outside its window frame, and on the last bay of a wall
+that put it 26 cm past the corner, in mid air under the eave.
+
+**SOLUTION.** `_dress_window` is told how much wall there is either side of its bay
+and narrows the leaf to fit. Both leaves, to the same width: narrowing only the one
+that would not fit gives a window with a wide shutter on one side and a thin one on
+the other, which reads as a mistake rather than as a shutter against a corner - and on
+the cottage that is both its front windows, so the whole village wears it.

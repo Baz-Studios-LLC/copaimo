@@ -569,6 +569,16 @@ impl Building {
     /// writes out by `the_facades_are_the_size_the_game_thinks_they_are`. A tower
     /// spends its ground floor on a lobby, so the glazing starts a storey and a half
     /// up and there is one fewer of it than the building has floors.
+    /// How wide the gap in this building's front wall is, in metres.
+    ///
+    /// The opening the model was actually built with, plus `DOOR_GIVE`. A tower gets
+    /// its lobby rather than a cottage's door - one constant for both is what left
+    /// the city with an entrance it could only be walked through the middle of.
+    pub fn walk_in(self) -> f32 {
+        let opening = if self.facade().is_some() { LOBBY_DOORWAY } else { DOORWAY };
+        opening + DOOR_GIVE
+    }
+
     pub fn facade(self) -> Option<(f32, f32, usize)> {
         match self {
             Building::CityBlock => Some((10.5, 9.0, 4)),
@@ -2969,7 +2979,7 @@ impl Plot {
         }
 
         // The front, in two pieces with the doorway between them.
-        let door = DOOR_CLEAR * 0.5;
+        let door = self.what.walk_in() * 0.5;
         let pier = (half.x - door).max(0.0);
         if pier > 0.05 {
             for side in [-1.0_f32, 1.0] {
@@ -2984,14 +2994,33 @@ impl Plot {
     }
 }
 
-/// How wide the gap in the front wall is, in metres.
+/// The clear opening `dev/art/town.py` builds, in metres.
 ///
-/// The doorway `dev/art/town.py` builds is 1.4 m, and this is wider on purpose: a
-/// collision gap exactly as wide as the opening leaves a warden 0.66 m across
-/// aiming at a 1.4 m target with no tolerance, which reads as a door that
-/// sometimes refuses you. The extra is invisible - the geometry either side of it
-/// is wall - and it is the difference between walking in and fighting the frame.
-const DOOR_CLEAR: f32 = 2.2;
+/// There are two, because there are two kinds of way in: a doorway, and a tower's
+/// LOBBY, which that file deliberately builds at 1.6 times a door because a city
+/// block's entrance is a pair of piers and not a cottage door. Both are measured off
+/// the built mesh into `assets/models/town.txt` and checked against these by
+/// `the_doorway_you_can_see_is_the_one_you_can_walk_through`, so neither can drift
+/// from the model without going red.
+const DOORWAY: f32 = 1.9;
+const LOBBY_DOORWAY: f32 = 3.04;
+
+/// How much wider than the opening the collision gap is, in metres.
+///
+/// Wider on purpose: a gap exactly as wide as the opening leaves a warden aiming at
+/// it with no tolerance, which reads as a door that sometimes refuses you. The extra
+/// is invisible - the geometry either side of it is wall - and it is the difference
+/// between walking in and fighting the frame.
+///
+/// # It has to actually contain the doorway
+///
+/// There used to be one number here, 2.2, described in a comment as a 1.4 m doorway
+/// plus give. The doorway was 1.195 m, it was not centred - the bay grid put it at
+/// +0.75 while this gap has always been centred on nought - and a tower's was 3.04.
+/// So a quarter of a cottage's visible doorway was solid to the player, 1.25 m of
+/// blank plaster beside it was not, and a city block had 42 cm of invisible wall
+/// inside each edge of its own lobby.
+const DOOR_GIVE: f32 = 0.3;
 
 /// Lays the country roads around the player, and takes them up behind.
 ///
@@ -4166,6 +4195,272 @@ mod doorstep {
                 "facing {facing:.2}: the model's door points {shows:?} and the doorway is at {gap:?} - the door is on the wrong wall",
             );
         }
+    }
+
+    // ------------------------------------------------------------ THE COTTAGE'S PLAN
+
+    /// What `dev/art/town.py` measured off the cottage it actually built.
+    ///
+    /// # Why the plan is a file and not a constant
+    ///
+    /// The game cannot see inside a `.glb`, and the checks below are about
+    /// RELATIONSHIPS - does the flue come down on the fire, is the bed out of the way
+    /// in - which no amount of looking at the outside of a model answers. Blender
+    /// measures the mesh it built and writes the answer down; this reads it back and
+    /// checks it against what the game itself does.
+    ///
+    /// The two halves of the contract are deliberately on opposite sides of the
+    /// build: Blender proves the geometry matches its own plan, and this proves the
+    /// plan matches the game. A guard that compares a number against the thing that
+    /// produced it proves nothing, which this project has already learnt the hard way.
+    struct Plan {
+        doors: Vec<(String, f32, f32)>,
+        rects: Vec<(String, [f32; 4])>,
+        spots: Vec<(String, Vec2)>,
+    }
+
+    impl Plan {
+        fn read() -> Self {
+            let note = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("assets/models/town.txt");
+            let said = std::fs::read_to_string(&note)
+                .unwrap_or_else(|_| panic!("run dev/art/build.sh: {} is missing", note.display()));
+            let number = |line: &str, tag: &str| -> Option<f32> {
+                line.strip_prefix(tag)?.trim().parse().ok()
+            };
+            let mut plan = Plan { doors: Vec::new(), rects: Vec::new(), spots: Vec::new() };
+            for line in said.lines() {
+                if let Some(rest) = line.strip_prefix("DOORWAY ") {
+                    let mut word = rest.split_whitespace();
+                    let figure = word.next().expect("a figure").to_string();
+                    let said: Vec<f32> = word.filter_map(|n| n.parse().ok()).collect();
+                    assert_eq!(said.len(), 2, "DOORWAY {figure} wants a middle and a width");
+                    plan.doors.push((figure, said[0], said[1]));
+                } else if let Some(rest) = line.strip_prefix("COTTAGE ") {
+                    let mut word = rest.split_whitespace();
+                    let name = word.next().expect("a name").to_string();
+                    let said: Vec<f32> = word.filter_map(|n| n.parse().ok()).collect();
+                    match said.len() {
+                        4 => plan.rects.push((name, [said[0], said[1], said[2], said[3]])),
+                        2 => plan.spots.push((name, Vec2::new(said[0], said[1]))),
+                        _ => {}
+                    }
+                }
+            }
+            assert!(!plan.doors.is_empty(), "town.txt has no measured doorway - run dev/art/build.sh");
+            plan
+        }
+
+        /// Which building kind a Blender figure is built for.
+        fn kind(figure: &str) -> Building {
+            match figure {
+                "cottage" => Building::Cottage,
+                "townhouse" => Building::Townhouse,
+                "shop" => Building::Shop,
+                "guild_hall" => Building::GuildHall,
+                "city_block" => Building::CityBlock,
+                "city_tower" => Building::CityTower,
+                "city_spire" => Building::CitySpire,
+                other => panic!("town.txt names a figure the game has no kind for: {other}"),
+            }
+        }
+
+        /// The cottage's own doorway, which its plan is laid out around.
+        fn cottage_door(&self) -> (f32, f32) {
+            self.doors
+                .iter()
+                .find(|(figure, ..)| figure == "cottage")
+                .map(|(_, middle, clear)| (*middle, *clear))
+                .expect("town.txt has no cottage doorway")
+        }
+
+        fn rect(&self, name: &str) -> [f32; 4] {
+            self.rects
+                .iter()
+                .find(|(had, _)| had == name)
+                .unwrap_or_else(|| panic!("the cottage plan has no {name}"))
+                .1
+        }
+
+        fn every(&self, name: &str) -> Vec<Vec2> {
+            self.spots.iter().filter(|(had, _)| had == name).map(|(_, at)| *at).collect()
+        }
+
+        fn spot(&self, name: &str) -> Vec2 {
+            let found = self.every(name);
+            assert_eq!(found.len(), 1, "the cottage plan has {} {name}s", found.len());
+            found[0]
+        }
+    }
+
+    /// Do two footprints share any ground?
+    fn overlap(a: [f32; 4], b: [f32; 4]) -> bool {
+        a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1]
+    }
+
+    /// Is a point inside a footprint?
+    fn holds(rect: [f32; 4], at: Vec2) -> bool {
+        at.x >= rect[0] && at.x <= rect[2] && at.y >= rect[1] && at.y <= rect[3]
+    }
+
+    /// The doorway you can see is the doorway you can walk through. Every one of them.
+    ///
+    /// # The one the player would have felt
+    ///
+    /// Everything else here is a fault you can see. This is one you could only feel:
+    /// a cottage's visible opening ran from +0.16 to +1.35 and the gap `Plot::walls`
+    /// leaves runs from -1.10 to +1.10, so a quarter of the doorway was solid and
+    /// there was over a metre of walk-through plaster beside it.
+    ///
+    /// It survived because the two are described in different languages by different
+    /// tools - a bay index in a Python split grammar, and a symmetric pair of boxes
+    /// in Rust - and nothing had ever put the two numbers side by side.
+    ///
+    /// EVERY figure, because the fault was in the grammar rather than in one house:
+    /// a check that only looked at the cottage would have gone green with a guild
+    /// hall still refusing the player at its own front door.
+    ///
+    /// Blender's +X arrives as the plot's -x once the model is turned to face its
+    /// street; a doorway is symmetric about the middle of its wall, so only the
+    /// distance matters, but that is a reason and not an accident.
+    #[test]
+    fn the_doorway_you_can_see_is_the_one_you_can_walk_through() {
+        let plan = Plan::read();
+        assert!(!plan.doors.is_empty(), "town.txt lists no doorways at all");
+        for (figure, middle, clear) in &plan.doors {
+            let what = Plan::kind(figure);
+            let gap = what.walk_in();
+            let reach = middle.abs() + clear * 0.5;
+            assert!(
+                reach <= gap * 0.5,
+                "{figure}'s built doorway runs to {reach:.3} m from the middle of its wall \
+                 and the collision gap only reaches {:.3} - part of the way in that the \
+                 player can see is solid to them",
+                gap * 0.5,
+            );
+            // And the gap is not so much wider than the opening that you walk
+            // through wall to get to it.
+            assert!(
+                gap - clear < 0.7,
+                "{figure}'s collision gap is {:.2} m wider than its {clear:.2} m opening - \
+                 that much of the wall either side is not there",
+                gap - clear,
+            );
+        }
+    }
+
+    /// The flue comes down onto its own fire.
+    ///
+    /// The cottage's stack stood 2.5 m from its fireplace and the townhouse's stood at
+    /// the opposite corner of the house, because each was one expression and the fire
+    /// was a different one. See `fireside` in `dev/art/town.py`.
+    #[test]
+    fn the_chimney_comes_down_onto_its_own_fire() {
+        let plan = Plan::read();
+        let away = plan.spot("HEARTH").distance(plan.spot("CHIMNEY"));
+        assert!(
+            away < 0.4,
+            "the chimney stands {away:.2} m from the fireplace it is supposed to carry",
+        );
+    }
+
+    /// The front windows light the room people sit in.
+    ///
+    /// A window is only worth cutting if it lights somewhere somebody is. These have
+    /// to reach the COMMON room - the interior less the sleeping alcove - which is
+    /// what putting the alcove at the back of the plan buys and what a plan that moved
+    /// it forward would immediately lose.
+    #[test]
+    fn the_front_windows_light_the_room_people_sit_in() {
+        let plan = Plan::read();
+        let (inner, alcove) = (plan.rect("INNER"), plan.rect("ALCOVE"));
+        let windows = plan.every("FRONT_WINDOW");
+        assert!(!windows.is_empty(), "the cottage has no front windows");
+        for at in windows {
+            // Just inside the glass, which is where the light lands.
+            let lands = Vec2::new(at.x, inner[1] + 0.3);
+            assert!(
+                holds(inner, lands) && !holds(alcove, lands),
+                "the front window at {at:?} looks into {lands:?}, which is not the common room",
+            );
+        }
+    }
+
+    /// And nobody sleeps in a cupboard.
+    #[test]
+    fn the_alcove_has_a_window_of_its_own() {
+        let plan = Plan::read();
+        let alcove = plan.rect("ALCOVE");
+        let lit = plan.every("ALCOVE_WINDOW");
+        assert!(!lit.is_empty(), "the sleeping alcove has no window");
+        for at in lit {
+            assert!(
+                at.x >= alcove[0] && at.x <= alcove[2],
+                "the window at {at:?} was supposed to light the alcove and is not on it",
+            );
+        }
+    }
+
+    /// The bed is not in the way in, and neither is anything else.
+    ///
+    /// # Circulation is reserved before rooms, not threaded through them afterwards
+    ///
+    /// The route from the door to the fire is decided first and nothing is allowed to
+    /// stand in it; so is the standing room in front of the fire, which is a room's
+    /// second anchor. Furniture is placed last, around both. Done the other way round
+    /// - put the furniture down, then hope there is a way past it - is how a cottage
+    /// ends up with a bed in its hall, and the old one had its bed 1.1 m inside the
+    /// front door.
+    #[test]
+    fn the_way_in_and_the_fireside_are_left_clear() {
+        let plan = Plan::read();
+        let route = plan.rect("ROUTE");
+        let apron = plan.rect("APRON");
+        for name in ["BED_RECT", "TABLE_RECT"] {
+            let stands = plan.rect(name);
+            assert!(!overlap(stands, route), "{name} stands in the way in from the door");
+            assert!(!overlap(stands, apron), "{name} stands in the fire's own floor");
+        }
+        assert!(!overlap(route, apron), "the way in and the fireside are the same floor");
+        // The way in is at least as wide as the door that opens onto it.
+        let (_, clear) = plan.cottage_door();
+        assert!(
+            route[2] - route[0] >= clear - 0.01,
+            "the way in is {:.2} m across and the door is {clear:.2} m wide",
+            route[2] - route[0],
+        );
+    }
+
+    /// A rear opening, if the cottage ever gets one, has to reach the yard.
+    ///
+    /// It has none today, and that is a decision rather than an oversight: a second
+    /// doorway needs a matching gap in `Plot::walls` and a yard proven reachable
+    /// behind it, which is its own piece of work. The check is written now so that
+    /// adding one cannot quietly skip either - a door onto the back of the collision
+    /// box is a door the player can see and never use, which is the same fault this
+    /// build has just finished paying for at the front.
+    #[test]
+    fn a_rear_opening_would_reach_the_yard() {
+        let plan = Plan::read();
+        let Some(rear) = plan.every("REAR").first().copied() else {
+            return;
+        };
+        let (inner, alcove) = (plan.rect("INNER"), plan.rect("ALCOVE"));
+        let lands = Vec2::new(rear.x, inner[3] - 0.3);
+        assert!(
+            holds(inner, lands) && !holds(alcove, lands),
+            "the rear door opens out of the sleeping alcove rather than the common room",
+        );
+        // And then the half nobody would remember on their own. `Plot::walls` builds
+        // the back of every building as ONE SOLID SLAB - see the `walls` above - so a
+        // rear door drawn in Blender today is a door the player can see and can never
+        // open. That is the fault this whole build has just finished paying for at the
+        // front of the house, and it costs nothing to refuse it in advance.
+        panic!(
+            "the cottage plan declares a rear opening at {rear:?}, and `Plot::walls` still \
+             builds the back of a building as one solid slab. Split it the way the front \
+             is split before this ships.",
+        );
     }
 }
 

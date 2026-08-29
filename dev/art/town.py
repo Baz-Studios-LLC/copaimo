@@ -123,17 +123,17 @@ def wall_run(parts, along, at, length, height, colour, bays, floor=0.0, facing=-
     `along` is "x" for a wall running east-west and "y" for one running north-south.
     `at` is the middle of the wall on the ground.
     """
-    count = max(1, len(bays))
-    bay = length / count
-    for index, kind in enumerate(bays):
-        middle = -length * 0.5 + bay * (index + 0.5)
+    for (middle, bay), kind in zip(bay_places(length, bays), bays):
         centre = (
             (at[0] + middle, at[1], at[2]) if along == "x" else (at[0], at[1] + middle, at[2])
         )
-        _one_bay(parts, along, centre, bay, height, colour, kind, floor, facing)
+        # How much wall is left either side of this bay, so nothing dressed onto it
+        # can hang off the end of the building.
+        room = (length * 0.5 + middle, length * 0.5 - middle)
+        _one_bay(parts, along, centre, bay, height, colour, kind, floor, facing, room)
 
 
-def _one_bay(parts, along, at, wide, height, colour, kind, floor, facing=-1.0):
+def _one_bay(parts, along, at, wide, height, colour, kind, floor, facing=-1.0, room=None):
     """One bay of wall, with its hole cut by building around the hole.
 
     Boolean subtraction would be the obvious way and it is the wrong one here: it
@@ -154,10 +154,9 @@ def _one_bay(parts, along, at, wide, height, colour, kind, floor, facing=-1.0):
         slab(wide, height, 0.0, 0.0)
         return
 
-    hole_wide = DOOR_WIDE if kind == "door" else WINDOW_WIDE
+    hole_wide = hole_in(kind, wide)
     hole_tall = DOOR_TALL if kind == "door" else WINDOW_TALL
     sill = 0.0 if kind == "door" else WINDOW_SILL
-    hole_wide = min(hole_wide, wide - 0.3)
 
     side = (wide - hole_wide) * 0.5
     if side > 0.02:
@@ -181,7 +180,7 @@ def _one_bay(parts, along, at, wide, height, colour, kind, floor, facing=-1.0):
         mid = floor + sill + hole_tall * 0.5
         size = (hole_wide, 0.06, hole_tall) if along == "x" else (0.06, hole_wide, hole_tall)
         parts.append(box(size, (at[0], at[1], mid), "glass"))
-        _dress_window(parts, along, at, hole_wide, hole_tall, mid, floor + sill, facing)
+        _dress_window(parts, along, at, hole_wide, hole_tall, mid, floor + sill, facing, room)
     else:
         # The leaf, hung open flat against the wall BESIDE the opening rather than
         # standing in it - so the doorway's clear width is the doorway's width. See
@@ -230,8 +229,15 @@ def _slab(along, wide, thick, tall):
     return (wide, thick, tall) if along == "x" else (thick, wide, tall)
 
 
-def _dress_window(parts, along, at, wide, tall, mid, sill_z, facing=-1.0):
-    """Frame, sill, mullion and shutters. See the note where it is called."""
+def _dress_window(parts, along, at, wide, tall, mid, sill_z, facing=-1.0, room=None):
+    """Frame, sill, mullion and shutters. See the note where it is called.
+
+    `room` is how much wall there is either side of this bay. A shutter is hung
+    outside the frame, and on the last bay of a wall that put it PAST THE CORNER -
+    the cottage had one standing 26 cm off the end of the house, in mid air under
+    the eave. Where there is not room for a full leaf it is narrowed to fit, which
+    reads as a shutter against a corner rather than as a mistake.
+    """
     edge = 0.07
     out = WALL * 0.5 + 0.03
     # Frame: two jambs, a head and a sill, each standing proud of the plaster.
@@ -248,9 +254,19 @@ def _dress_window(parts, along, at, wide, tall, mid, sill_z, facing=-1.0):
     # One mullion, which turns a pane into panes.
     parts.append(box(_slab(along, 0.05, 0.1, tall), (at[0], at[1], mid), "trim"))
     # Shutters, hung flat against the wall either side.
-    for side in (-1.0, 1.0):
-        place = _across(along, (at[0], at[1], mid), side * (wide * 0.5 + edge + wide * 0.25))
-        parts.append(box(_slab(along, wide * 0.48, 0.05, tall * 0.96), _out(along, place, out + 0.02, facing), "shutter"))
+    #
+    # A PAIR, and the same size. Narrowing only the one that would not fit gives a
+    # window with a wide shutter on one side and a thin one on the other, which reads
+    # as a mistake rather than as a shutter against a corner - and on the cottage
+    # that is both its front windows, so the whole village wears it.
+    clear = wide * 0.5 + edge
+    leaf = wide * 0.48
+    if room is not None:
+        leaf = min(leaf, min(room) - clear)
+    if leaf >= 0.12:
+        for side in (-1.0, 1.0):
+            place = _across(along, (at[0], at[1], mid), side * (clear + leaf * 0.5))
+            parts.append(box(_slab(along, leaf, 0.05, tall * 0.96), _out(along, place, out + 0.02, facing), "shutter"))
 
 
 def _dress_door(parts, along, at, wide, tall, floor, facing=-1.0):
@@ -315,22 +331,20 @@ def framing(parts, wide, deep, floor, height, colour="timber", openings=None):
     t = 0.11
     out = WALL * 0.5 + 0.02
     openings = openings or {}
+    storey = int(round(floor / STOREY))
 
     for face, span in (("x", wide), ("y", deep)):
         for side in (-1.0, 1.0):
             base = (0.0, side * (deep * 0.5 - out * 0.5), 0.0) if face == "x" else (side * (wide * 0.5 - out * 0.5), 0.0, 0.0)
 
             # Where this wall's doorways are, as (from, to) along the wall.
-            bays = openings.get((face, side), [])
+            bays = openings.get((face, side, storey), [])
             gaps = []
-            if bays:
-                bay = span / max(1, len(bays))
-                for index, kind in enumerate(bays):
-                    if kind != "door":
-                        continue
-                    middle = -span * 0.5 + bay * (index + 0.5)
-                    half = min(DOOR_WIDE, bay - 0.3) * 0.5 + 0.12
-                    gaps.append((middle - half, middle + half))
+            for (middle, width), kind in zip(bay_places(span, bays), bays):
+                if kind != "door":
+                    continue
+                half = hole_in(kind, width) * 0.5 + 0.12
+                gaps.append((middle - half, middle + half))
 
             def clear(at):
                 return all(at < lo or at > hi for lo, hi in gaps)
@@ -366,14 +380,21 @@ def framing(parts, wide, deep, floor, height, colour="timber", openings=None):
                 parts.append(box(_slab(face, t, out * 2.0, height - 0.2), place, colour))
 
 
-def porch(parts, deep, floor, colour="timber", roof_colour="roof2"):
-    """A little roof on two posts over the door. A medium shape, and a welcome."""
+def porch(parts, deep, floor, colour="timber", roof_colour="roof2", at=0.0):
+    """A little roof on two posts over the door. A medium shape, and a welcome.
+
+    `at` is where the doorway is, and every measurement here is taken off `DOOR_WIDE`
+    rather than written out. Both used to be assumed: the posts stood at 0.95 either
+    side of nought while the doorway they framed was at +0.75, so the porch covered
+    plaster and the door stood out in the rain beside it.
+    """
     reach = 1.05
     top = DOOR_TALL + 0.55
+    stand = DOOR_WIDE * 0.5 + 0.2
     for side in (-1.0, 1.0):
-        parts.append(box((0.12, 0.12, top - 0.1), (side * 0.95, -deep * 0.5 - reach + 0.1, floor + (top - 0.1) * 0.5), colour))
-    parts.append(wedge(2.6, reach + 0.35, 0.5, (0.0, -deep * 0.5 - reach * 0.5 + 0.1, floor + top), roof_colour, ridge="x"))
-    parts.append(box((2.7, 0.1, 0.14), (0.0, -deep * 0.5 - reach + 0.05, floor + top), colour))
+        parts.append(box((0.12, 0.12, top - 0.1), (at + side * stand, -deep * 0.5 - reach + 0.1, floor + (top - 0.1) * 0.5), colour))
+    parts.append(wedge(stand * 2.0 + 0.7, reach + 0.35, 0.5, (at, -deep * 0.5 - reach * 0.5 + 0.1, floor + top), roof_colour, ridge="x"))
+    parts.append(box((stand * 2.0 + 0.8, 0.1, 0.14), (at, -deep * 0.5 - reach + 0.05, floor + top), colour))
 
 
 def flowerbox(parts, along, at, wide, sill_z, facing=-1.0):
@@ -387,32 +408,113 @@ def flowerbox(parts, along, at, wide, sill_z, facing=-1.0):
         parts.append(box(_slab(along, 0.1, 0.1, 0.08), _out(along, (place[0], place[1], place[2] + 0.1), out, facing), "flower"))
 
 
-def shell(parts, wide, deep, storeys, colour, doors, windows, openings=None):
+def shell(parts, wide, deep, storeys, colour, doors, windows, openings=None, back=None):
     """The four walls of a building, split into bays, with the openings placed.
 
     `doors` is which side the doorway is on - "south" always, because a building
     faces its street and the game turns the whole building to face the road.
+
+    `back` lets a figure say what its ground-floor NORTH wall is made of, bay by bay.
+    A wall's openings are supposed to come from what is behind them, and the default
+    rule cannot know: it put a window straight behind the cottage's fireplace, which
+    from inside is a hole in a chimney breast and from outside is a window with a
+    wall of stone in it. See `cottage_plan`.
     """
     for storey in range(storeys):
         floor = storey * STOREY
         ground = storey == 0
 
         south = _bays(wide, windows, door=ground and doors)
-        north = _bays(wide, windows, door=False)
+        north = back if (back and ground) else _bays(wide, windows, door=False)
         sides = _bays(deep, windows, door=False)
 
         # Each wall says which way it FACES. The south wall and the west flank look
         # down the negative axis and the other two look up it; without that, every
         # dressing on half the building is built inside the room.
+        # PER STOREY, because a building has more than one.
+        #
+        # These were keyed on the wall alone, so on a two-storey house the loop
+        # wrote the ground floor's bays and then overwrote them with the first
+        # floor's - and the first floor has no door in it. `framing` then framed the
+        # ground floor believing there was no doorway and stood a stud in the middle
+        # of it: a timber post through the townhouse's front door, at the exact
+        # height a warden walks, for as long as the townhouse has had two storeys.
+        #
+        # `framing`'s own docstring describes fixing this fault. It was fixed for
+        # buildings with one storey.
         if openings is not None:
-            openings[("x", -1.0)] = south
-            openings[("x", 1.0)] = north
-            openings[("y", -1.0)] = sides
-            openings[("y", 1.0)] = sides
+            openings[("x", -1.0, storey)] = south
+            openings[("x", 1.0, storey)] = north
+            openings[("y", -1.0, storey)] = sides
+            openings[("y", 1.0, storey)] = sides
         wall_run(parts, "x", (0.0, -deep * 0.5 + WALL * 0.5, 0.0), wide, STOREY, colour, south, floor, -1.0)
         wall_run(parts, "x", (0.0, deep * 0.5 - WALL * 0.5, 0.0), wide, STOREY, colour, north, floor, 1.0)
         wall_run(parts, "y", (-wide * 0.5 + WALL * 0.5, 0.0, 0.0), deep, STOREY, colour, sides, floor, -1.0)
         wall_run(parts, "y", (wide * 0.5 - WALL * 0.5, 0.0, 0.0), deep, STOREY, colour, sides, floor, 1.0)
+
+
+# ------------------------------------------------------ where the bays actually are
+
+# How much wall is left either side of an opening, and how narrow a bay may be
+# squeezed to. A bay has to stay wide enough to carry a window with its reveals,
+# which is what stops a doorway borrowing until its neighbours cannot hold glass.
+JAMB = 0.18
+REVEAL = 0.15
+LEAST_BAY = WINDOW_WIDE + REVEAL * 2.0
+DOOR_BAY = DOOR_WIDE + JAMB * 2.0
+
+
+def bay_places(length, bays):
+    """Where each bay sits along its wall and how wide it is, as (middle, width).
+
+    # One description of a wall's grid, because there were three
+
+    `wall_run` builds the bays, `framing` has to know where the holes in them are so
+    it does not put a stud through a doorway, and the figures have to know where the
+    door is so the porch and the steps land on it. All three worked the grid out for
+    themselves from the same two lines of arithmetic, and three copies of a formula
+    is one formula and two bugs waiting for somebody to edit the first.
+
+    # A doorway is a fixed size and a bay is not
+
+    The clear opening was `min(DOOR_WIDE, bay - 0.3)`, so on the 9 m front of a
+    cottage - six bays of 1.5 m - the 1.9 m doorway this project believes it has was
+    quietly built at 1.195 m. Every door in the game was. Nothing said so: the
+    constant still read 1.9, and the research that reviewed the metrics read the
+    constant rather than the mesh and passed it.
+
+    So a door bay takes the width a door needs and the rest of the wall gives it up
+    between them. Measured off the built mesh by `measure_the_cottage`, not argued.
+    """
+    count = max(1, len(bays))
+    widths = [length / count] * count
+    for index, kind in enumerate(bays):
+        if kind != "door" or widths[index] >= DOOR_BAY:
+            continue
+        others = [n for n in range(count) if n != index]
+        spare = sum(max(0.0, widths[n] - LEAST_BAY) for n in others)
+        borrow = min(DOOR_BAY - widths[index], spare)
+        if borrow <= 0.0:
+            continue
+        # Equally from every other bay, so the rhythm either side stays even. They
+        # are all the same width when this runs, so an equal share can never push
+        # one below `LEAST_BAY` once the total has been capped at what is spare.
+        for n in others:
+            widths[n] -= borrow / len(others)
+        widths[index] += borrow
+
+    places = []
+    run = -length * 0.5
+    for width in widths:
+        places.append((run + width * 0.5, width))
+        run += width
+    return places
+
+
+def hole_in(kind, width):
+    """The clear opening a bay of this width gets, reveals taken off."""
+    want = DOOR_WIDE if kind == "door" else WINDOW_WIDE
+    return min(want, width - REVEAL * 2.0)
 
 
 def _bays(length, windows, door):
@@ -420,8 +522,23 @@ def _bays(length, windows, door):
 
     A bay is about a module wide. Fewer than three and a facade has no rhythm; more
     than seven and the windows read as a factory.
+
+    # A wall with a door in it gets an ODD number of bays
+
+    The door goes in the middle bay, and the middle bay of six is not the middle of
+    the wall - it is three quarters of a metre off it. So the doorway stood at +0.75
+    while the porch over it, the steps up to it and the gap the GAME leaves in the
+    wall for the player to walk through were all centred on nought. You could walk
+    through the plaster beside the door, and a quarter of the real doorway was solid
+    to the player.
+
+    An odd rhythm is what a facade with a central entrance has anyway - three, five,
+    seven bays - so this is the split grammar agreeing with the architecture rather
+    than a correction bolted onto it.
     """
     count = max(1, min(7, int(round(length / MODULE))))
+    if door and count % 2 == 0:
+        count = max(1, count - 1)
     bays = ["solid"] * count
     if door:
         bays[count // 2] = "door"
@@ -474,19 +591,80 @@ def stairs(parts, wide, deep, storeys, side=1.0):
         )
 
 
-def hearth(parts, wide, deep):
-    """A fireplace against the north wall, and the chimney that goes with it."""
-    x = -wide * 0.25
-    y = deep * 0.5 - WALL - 0.25
-    parts.append(box((1.5, 0.5, 1.3), (x, y, 0.65), "hearth"))
+# How wide and deep a fireplace is. The chimney is sized off the same numbers, so
+# a stack can never again stand somewhere its own fire is not.
+FIRE_WIDE = 1.5
+FIRE_DEEP = 0.5
+
+
+def fireside(wide, deep, left=True):
+    """Where a fire stands against the back wall, and therefore where its stack does.
+
+    # Two expressions for one fact, in two buildings
+
+    The cottage worked its fireplace out as `-wide * 0.25` and its chimney as
+    `-wide * 0.5 + 0.55`, and the stack came down 2.5 m from the fire. The townhouse
+    was worse: fire at `-wide * 0.25`, stack at `(wide * 0.5 - 0.6, -deep * 0.15)`,
+    which put the flue at the OPPOSITE CORNER of the house - six metres across and
+    five back, over the front room, venting a fireplace that was not there.
+
+    Neither is a hard bug to see once the two lines are next to each other, and that
+    is the point: they never were. So there is one expression now and both are told
+    it, which is the same fix as `bay_places` and for the same reason.
+
+    A fire is set in from the corner by rather less than its own width, so the
+    chimney breast has wall either side of it to be a breast against.
+    """
+    side = -1.0 if left else 1.0
+    return (side * (wide * 0.5 - WALL - FIRE_WIDE * 0.8),
+            deep * 0.5 - WALL - FIRE_DEEP * 0.5)
+
+
+def blind_behind(wide, bays, fire_x):
+    """Makes solid any bay a fireplace stands against.
+
+    The bay rule alternates windows along a wall and cannot know what is behind them.
+    It cut one straight through the cottage's chimney breast: from the street a window
+    with a wall of stone in it, from inside a hole in the fireplace.
+    """
+    for index, (middle, width) in enumerate(bay_places(wide, bays)):
+        against = (middle - width * 0.5 < fire_x + FIRE_WIDE * 0.5
+                   and middle + width * 0.5 > fire_x - FIRE_WIDE * 0.5)
+        if bays[index] == "window" and against:
+            bays[index] = "solid"
+    return bays
+
+
+def hearth(parts, at):
+    """A fireplace where the plan puts it.
+
+    # The stack that stood two and a half metres from its own fire
+
+    This used to work its position out from the building's size - `-wide * 0.25` -
+    and `chimney` was called with a different expression, `-wide * 0.5 + 0.55`. Both
+    were plausible, neither was wrong on its own, and nothing compared them. So every
+    cottage in the world had a chimney 1.7 m along and 1.8 m back from the fireplace
+    it was supposed to carry: a flue through the middle of the roof over an empty
+    corner of the room, and a fire venting into the ceiling.
+
+    Two derivations of one fact is the same fault as two copies of a formula. There
+    is one now, in `cottage_plan`, and both are told it.
+    """
+    x, y = at
+    parts.append(box((FIRE_WIDE, FIRE_DEEP, 1.3), (x, y, 0.65), "hearth"))
     parts.append(box((0.9, 0.3, 0.8), (x, y - 0.12, 0.4), "inbeam"))
 
 
-def bed(parts, wide, deep):
-    x = wide * 0.5 - WALL - 0.75
-    y = -deep * 0.5 + WALL + 1.1
-    parts.append(box((1.3, 2.0, 0.35), (x, y, 0.35), "inbeam"))
-    parts.append(box((1.2, 1.7, 0.18), (x, y, 0.60), "cloth"))
+# What a bed takes up on the floor. The plan keeps it clear of the way in.
+BED_WIDE = 1.3
+BED_DEEP = 2.0
+
+
+def bed(parts, at):
+    """A bed where the plan puts it, which is in the alcove and off the route in."""
+    x, y = at
+    parts.append(box((BED_WIDE, BED_DEEP, 0.35), (x, y, 0.35), "inbeam"))
+    parts.append(box((BED_WIDE - 0.1, BED_DEEP - 0.3, 0.18), (x, y, 0.60), "cloth"))
 
 
 def table(parts, at, wide, deep):
@@ -546,7 +724,7 @@ def guild_hall_inside(parts, wide, deep):
     )
 
 
-def doorstep(parts, deep, rises: float, wide: float = 2.4):
+def doorstep(parts, deep, rises: float, wide: float = 2.4, at: float = 0.0):
     """Steps up to the door, from the ground to the floor inside.
 
     # Why every building was sealed
@@ -574,7 +752,7 @@ def doorstep(parts, deep, rises: float, wide: float = 2.4):
         parts.append(
             box(
                 (wide, run * (treads - step), rise),
-                (0.0, -deep * 0.5 - out * 0.5, rise * (step + 0.5)),
+                (at, -deep * 0.5 - out * 0.5, rise * (step + 0.5)),
                 "stone",
             )
         )
@@ -727,50 +905,212 @@ def roofed(parts, wide, deep, base, colour, ridge="y", over=OVERHANG, pitch=PITC
 # bed are half its pieces - so a town can carry more of them for less.
 
 
-def shut_the_door(parts, wide, deep, floor=0.0):
-    """Fills the doorway with a door that is closed, and frames it."""
+def shut_the_door(parts, wide, deep, floor=0.0, at=0.0):
+    """Fills the doorway with a door that is closed, and frames it.
+
+    The leaf is `DOOR_WIDE` less a gap, and until the bay grid was fixed the opening
+    it filled was 1.195 m - so every shut door in the game was a leaf 64 cm wider
+    than its own hole, sunk into the plaster either side of it.
+    """
     leaf = DOOR_WIDE - 0.06
     parts.append(box((leaf, 0.09, DOOR_TALL - 0.04),
-                     (0.0, -deep * 0.5 - 0.02, floor + (DOOR_TALL - 0.04) * 0.5), "door"))
+                     (at, -deep * 0.5 - 0.02, floor + (DOOR_TALL - 0.04) * 0.5), "door"))
     # A handle, so it reads as shut rather than as boarded up.
     parts.append(box((0.12, 0.12, 0.12),
-                     (leaf * 0.32, -deep * 0.5 - 0.12, floor + DOOR_TALL * 0.45), "brass"))
+                     (at + leaf * 0.32, -deep * 0.5 - 0.12, floor + DOOR_TALL * 0.45), "brass"))
     # And the room behind it goes dark, so nothing shows through the windows.
     parts.append(box((wide - WALL * 2.2, deep - WALL * 2.2, 0.12),
                      (0.0, 0.0, floor + 0.06), "board"))
 
 
-def cottage(open_door=True):
-    """One room under a steep thatch. The commonest thing in a village.
+# =========================================================== THE COTTAGE, PLANNED
+#
+# # A room with props in it is not a floor plan
+#
+# Every interior in this file is one open volume per storey with furniture standing
+# in it - `room` says so in its own docstring - and that was honest as far as it
+# went. What it cannot do is make a building read as somewhere people LIVE, because
+# what does that is the relationships between the parts: the fire you can see from
+# the door, the bed that is not in the way, the window that lights the chair.
+#
+# Nothing held those relationships, so nothing could be wrong about them and nothing
+# could be checked. The chimney missed the fire by two and a half metres for the life
+# of the project. A window was cut into the wall behind the fireplace. The porch
+# covered plaster while the door stood beside it in the rain. Each of those is one
+# expression disagreeing with another expression, and no amount of looking at the
+# outside of the house finds any of them.
+#
+# So the cottage gets a PLAN, and the plan is the only thing that says where anything
+# goes. Everything below is told; nothing works it out again.
+#
+# This is deliberately the only building that has one yet. The research is explicit
+# that exterior variety can be broad while interior grammar should be narrow and
+# learnable - Embark shipped thirty individually believable buildings on THE FINALS
+# and found them collectively confusing - so one family is proven, with checks, before
+# a second is written. It is equally explicit about what NOT to do: "create three tiny
+# rooms just to claim a floor plan". A cottage is a common room with a place to sleep
+# off it. That is the whole plan and it is enough.
+
+# The metrics, in one place.
+#
+# Scattered as magic numbers they drift and contradict each other, which is what this
+# file has just spent a day paying for. Real accessibility minima are a reality anchor
+# and not a game metric: a third-person camera wants roughly one and a half times life
+# size, which is why the doorway is `DOOR_WIDE` and not a realistic 0.9 m.
+COTTAGE = {
+    "wide": MODULE * 6,             # 9.0 m
+    "deep": MODULE * 5,             # 7.5 m
+    "route": DOOR_WIDE,             # the way in, kept clear, as wide as the door
+    "apron": 1.2,                   # standing room in front of the fire
+    "alcove_deep": 2.6,             # how far the sleeping alcove reaches in
+    "alcove_front": 3.4,            # how far back it starts, which is its own opening
+}
+
+
+def _rect(at, size):
+    """A footprint as (x0, y0, x1, y1), which is what every check below wants."""
+    return (at[0] - size[0] * 0.5, at[1] - size[1] * 0.5,
+            at[0] + size[0] * 0.5, at[1] + size[1] * 0.5)
+
+
+def cottage_plan(hearth_left=True):
+    """Where everything in a cottage goes, worked out once, before any of it is built.
+
+    # Circulation first, and the rooms put against it
+
+    The order is the one the research gives and it is not the obvious one: the way in
+    is reserved BEFORE any room is assigned, and everything else is placed against it.
+    Generating rooms first and threading a route through what is left over is how a
+    building ends up with a bed in its hallway.
+
+    `hearth_left` is the variation axis, and it is a CAUSE rather than a decoration:
+    it moves the fire, the stack, the solid bay behind the fire, the partition, the
+    alcove, its window, the bed and the table together, so the two cottages differ in
+    a way that stays coherent instead of in nine independent rolls that can contradict
+    each other.
+    """
+    wide, deep = COTTAGE["wide"], COTTAGE["deep"]
+    hx, hy = wide * 0.5 - WALL, deep * 0.5 - WALL
+    side = -1.0 if hearth_left else 1.0
+    TABLE = (1.6, 1.0)
+
+    # 1. THE WAY IN. Which bay the front door lands in decides everything else, so it
+    #    is asked for rather than assumed - see `bay_places`.
+    front = _bays(wide, True, door=True)
+    places = bay_places(wide, front)
+    door = next(m for (m, _), kind in zip(places, front) if kind == "door")
+    route = (door - COTTAGE["route"] * 0.5, -hy, door + COTTAGE["route"] * 0.5, hy)
+
+    # 2. THE FIRE, against the back wall on its own side, and the stack ON it.
+    fire = fireside(wide, deep, hearth_left)
+    # Standing room in front of it, which is a room's second anchor after the door
+    # and the reason nothing is allowed to be put there.
+    apron = (fire[0] - FIRE_WIDE * 0.5, fire[1] - FIRE_DEEP * 0.5 - COTTAGE["apron"],
+             fire[0] + FIRE_WIDE * 0.5, fire[1] - FIRE_DEEP * 0.5)
+
+    # 3. THE BACK WALL, which is asked what is behind it.
+    #
+    #    The default rule alternates windows along a wall and cannot know. It cut one
+    #    straight behind the fireplace: from the street a window with a wall of stone
+    #    in it, from inside a hole in the chimney breast. A bay with a fire against it
+    #    is solid.
+    back = blind_behind(wide, _bays(wide, True, door=False), fire[0])
+
+    # 4. THE ALCOVE, in the far back corner from the fire, behind one wall.
+    #
+    #    One wall, not two, and no door in it. An alcove is a place you can see into
+    #    from the room it belongs to; give it a doorway and it becomes a second room,
+    #    and a cottage with two rooms in it has neither.
+    inner = (-hx, -hy, hx, hy)
+    across = -side * (hx - COTTAGE["alcove_deep"])
+    back_of = -hy + COTTAGE["alcove_front"]
+    alcove = (across, back_of, hx, hy) if side < 0 else (-hx, back_of, across, hy)
+
+    # 5. THE BED, at the back of the alcove - clear of the route by where it is, not
+    #    by luck.
+    lying = ((across + (hx if side < 0 else -hx)) * 0.5, hy - BED_DEEP * 0.65)
+    sitting = (fire[0] - side * (FIRE_WIDE * 0.5 - 0.25), -0.5)
+
+    # 6. WHAT THE WINDOWS LIGHT. The front wall is all common room - that is what
+    #    putting the alcove at the BACK buys - and the alcove gets its own from the
+    #    back wall, so nobody sleeps in a cupboard.
+    front_windows = [(m, -deep * 0.5) for (m, _), kind in zip(places, front) if kind == "window"]
+    lit_alcove = [
+        (m, deep * 0.5)
+        for (m, _), kind in zip(bay_places(wide, back), back)
+        if kind == "window" and alcove[0] < m < alcove[2]
+    ]
+
+    return {
+        "wide": wide, "deep": deep, "inner": inner, "table_size": TABLE,
+        "door": door, "route": route,
+        "front": front, "back": back,
+        "hearth": fire, "chimney": fire, "apron": apron,
+        "partition": (across, back_of, hy), "alcove": alcove,
+        "bed": lying, "bed_rect": _rect(lying, (BED_WIDE, BED_DEEP)),
+        # The table is furniture rather than structure, so it goes last and it goes
+        # where the protected things are not: beside the fire, out of the route.
+        "table": sitting, "table_rect": _rect(sitting, TABLE),
+        "windows": front_windows,
+        "alcove_windows": lit_alcove,
+        # No rear door in this slice. One would need a matching gap in the game's own
+        # wall - see `Plot::walls` - and a yard proven reachable behind it, which is
+        # its own piece of work. The back is made to READ as a working back instead:
+        # no porch, no flower boxes, a blind bay where the chimney breast is.
+        "rear": None,
+    }
+
+
+def partition(parts, plan):
+    """The one wall inside a cottage, and the way round it."""
+    across, back_of, hy = plan["partition"]
+    run = hy - back_of
+    tall = STOREY - 0.1
+    parts.append(box((WALL, run, tall), (across, back_of + run * 0.5, tall * 0.5), "inwall"))
+    # A post at its open end, so the wall stops deliberately rather than just ending.
+    parts.append(box((0.22, 0.22, tall), (across, back_of, tall * 0.5), "inbeam"))
+
+
+def cottage(open_door=True, hearth_left=True):
+    """A common room with a fire, and a place to sleep off it, under a steep thatch.
+
+    Built from `cottage_plan`. Nothing here decides where anything goes; it asks.
 
     `open_door` false builds the same cottage with its door shut and no interior -
     see `shut_the_door`. Parameterised rather than copied, so the two can never
     drift into being different cottages.
     """
-    wide, deep = MODULE * 6, MODULE * 5
+    plan = cottage_plan(hearth_left)
+    wide, deep = plan["wide"], plan["deep"]
     parts = []
     parts.append(box((wide + 0.34, deep + 0.34, PLINTH), (0.0, 0.0, PLINTH * 0.5), "stone"))
     courses(parts, wide + 0.34, deep + 0.34, 0.0, PLINTH)
-    doorstep(parts, deep, PLINTH)
+    doorstep(parts, deep, PLINTH, at=plan["door"])
     holes = {}
 
-    shell(parts, wide, deep, 1, "plaster", doors=True, windows=True, openings=holes)
+    shell(parts, wide, deep, 1, "plaster", doors=True, windows=True, openings=holes,
+          back=plan["back"])
     if open_door:
         room(parts, wide, deep, 1)
-        hearth(parts, wide, deep)
-        bed(parts, wide, deep)
+        partition(parts, plan)
+        hearth(parts, plan["hearth"])
+        bed(parts, plan["bed"])
+        table(parts, plan["table"], *plan["table_size"])
     else:
-        shut_the_door(parts, wide, deep)
+        shut_the_door(parts, wide, deep, at=plan["door"])
     framing(parts, wide, deep, 0.0, STOREY, openings=holes)
-    porch(parts, deep, 0.0, roof_colour="thatch")
+    porch(parts, deep, 0.0, roof_colour="thatch", at=plan["door"])
     # Ridge across the front, so the cottage shows its long eaves to the street and
     # its gable to its neighbour - the opposite of the shop, which is what stops a
     # row of them reading as a terrace.
     top = roofed(parts, wide, deep, STOREY, "thatch", ridge="x", pitch=0.62)
-    chimney(parts, (-wide * 0.5 + 0.55, deep * 0.2), STOREY - 0.4, top + 0.5)
-    # Flower boxes under the front windows.
-    for side in (-1.0, 1.0):
-        flowerbox(parts, "x", (side * wide * 0.31, -deep * 0.5 + WALL * 0.5, 0.0), WINDOW_WIDE, WINDOW_SILL)
+    chimney(parts, plan["chimney"], STOREY - 0.4, top + 0.5)
+    # Flower boxes under the front windows - under the ones there ARE, rather than
+    # under where a second expression guessed they would be. They were at 31% of the
+    # width and the windows are at 41%, so every planter in the village hung on blank
+    # plaster - half a metre from one window and a metre from the other.
+    for at in plan["windows"]:
+        flowerbox(parts, "x", (at[0], -deep * 0.5 + WALL * 0.5, 0.0), WINDOW_WIDE, WINDOW_SILL)
     return parts, top + 0.8
 
 
@@ -784,11 +1124,16 @@ def townhouse(open_door=True):
     doorstep(parts, deep, PLINTH)
     holes = {}
 
-    shell(parts, wide, deep, 2, "plaster", doors=True, windows=True, openings=holes)
+    # Where the fire is, and therefore where the stack is and which bay behind it
+    # goes blind. Worked out before the door is opened, because a house with its
+    # door shut still has a chimney and it still has to stand over something.
+    fire = fireside(wide, deep)
+    shell(parts, wide, deep, 2, "plaster", doors=True, windows=True, openings=holes,
+          back=blind_behind(wide, _bays(wide, True, door=False), fire[0]))
     if open_door:
         room(parts, wide, deep, 2)
         stairs(parts, wide, deep, 2)
-        hearth(parts, wide, deep)
+        hearth(parts, fire)
         table(parts, (-0.3, -0.9), 1.4, 1.0)
     else:
         shut_the_door(parts, wide, deep)
@@ -804,7 +1149,7 @@ def townhouse(open_door=True):
                 box((0.16, 0.5, 0.4), (over * wide * 0.33, side * (deep * 0.5 + 0.1), STOREY - 0.42), "timber")
             )
     top = roofed(parts, wide + jetty, deep + jetty, STOREY * 2, "roof", ridge="x")
-    chimney(parts, (wide * 0.5 - 0.6, -deep * 0.15), STOREY * 2 - 0.4, top + 0.6)
+    chimney(parts, fire, STOREY * 2 - 0.4, top + 0.6)
 
     # A dormer: a small gable poking out of the roof slope. Breaks the ridge line,
     # which is the other half of what a jetty does for the wall line.
@@ -1323,6 +1668,205 @@ def build(name: str) -> None:
 for figure in FIGURES:
     build(figure)
 
+
+# ------------------------------------------------------- the plan, against the mesh
+
+
+def doorways_in(solids):
+    """Every doorway in a building's front wall, as (middle, clear width).
+
+    # The wall is found, not assumed
+
+    The first version of this was told the building's width, and worked it out from
+    the widest thing standing on the ground - which for the shop is an awning post
+    outside the wall. So it walked two metres past the corner of the building, found
+    open air there, and reported a second doorway. A measurement that guesses its own
+    ruler is worse than no measurement: it fails in a way that looks like a finding.
+
+    So the wall says where it is. Pieces standing on the ground and reaching above
+    head height are grouped by the plane they share, and the front is the group
+    nearest the street, which also gives its two ends. Not FULL height: a city
+    block's lobby piers stop at 2.85 m under a five-metre storey, and asking for
+    full-height slabs found the building's own core instead and called the whole
+    ground floor a ten-metre doorway.
+
+    # What tells a doorway from a window
+
+    Both are gaps. A doorway is open from the FLOOR to above head height and a window
+    is not - it has a sill under it and a lintel over it - so the wall is sampled at
+    three heights and only a gap open at all three counts. Sampling at one height
+    finds shop windows and calls them doors.
+
+    Only pieces as thick as the wall count as wall. An open door LEAF stands against
+    the plaster beside its own opening and is 7 cm thick, and counting it would have
+    the door narrowing the doorway.
+    """
+    slabs = [b for b in solids if b[4] < 0.15 and b[5] > 2.0
+             and b[3] - b[2] > WALL * 0.9]
+    assert slabs, "nothing in this figure looks like a wall standing on the ground"
+    planes = {}
+    for slab in slabs:
+        planes.setdefault(round((slab[2] + slab[3]) * 0.5, 1), []).append(slab)
+    front = min(planes)
+    low = min(b[0] for b in planes[front])
+    high = max(b[1] for b in planes[front])
+
+    wall = [b for b in solids
+            if b[3] - b[2] > WALL * 0.9 and b[5] > 0.1
+            and b[2] < front + 0.14 and b[3] > front - 0.14]
+    ways, opened, along = [], None, low
+    while along <= high + 1e-9:
+        open_here = all(
+            not any(x0 <= along <= x1 and z0 <= up <= z1 for x0, x1, _, _, z0, z1 in wall)
+            for up in (0.3, 1.6, 2.2)
+        )
+        if open_here and opened is None:
+            opened = along
+        if not open_here and opened is not None:
+            ways.append(((opened + along) * 0.5, along - opened))
+            opened = None
+        along += 0.005
+    if opened is not None:
+        ways.append(((opened + high) * 0.5, high - opened))
+    return [(middle, clear) for middle, clear in ways if clear > 0.6]
+
+
+def every_doorway():
+    """Measures the front door of every figure that has one.
+
+    # The fix was to the grammar, so the check has to be too
+
+    The 1.195 m off-centre doorway was not a cottage bug. It was `_bays` putting the
+    door in the middle bay of an even number of bays, so EVERY building in the game
+    had it, and a check that only looked at the cottage would have gone green while a
+    guild hall still refused the player at its own front door.
+    """
+    found = []
+    for name in ("cottage", "townhouse", "shop", "guild_hall",
+                 "city_block", "city_tower", "city_spire"):
+        masonry.fresh()
+        parts, _ = FIGURES[name]()
+        solids = []
+        for obj, _ in parts:
+            points = [obj.matrix_world @ v.co for v in obj.data.vertices]
+            solids.append((min(p.x for p in points), max(p.x for p in points),
+                           min(p.y for p in points), max(p.y for p in points),
+                           min(p.z for p in points), max(p.z for p in points)))
+        ways = doorways_in(solids)
+        assert len(ways) == 1, f"{name} has {len(ways)} doorways in its front: {ways}"
+        middle, clear = ways[0]
+        assert abs(middle) < 0.05, \
+            f"{name}'s doorway is {middle:+.3f} m off the middle of its front wall, and the \
+game leaves its collision gap centred - see DOOR_CLEAR in src/world/town.rs"
+        assert clear > DOOR_WIDE - 0.4, \
+            f"{name}'s doorway is only {clear:.3f} m clear"
+        found.append((name, middle, clear))
+    return found
+
+
+def measure_the_cottage(hearth_left=True):
+    """Builds a cottage and MEASURES it, then checks the plan against what was built.
+
+    # Validate the ruler before the thing it measures
+
+    A plan the game trusts is worth nothing if the geometry quietly disagrees with
+    it, and this file has just produced four faults of exactly that shape - a chimney
+    that missed its fire, a window behind a fireplace, a porch beside its door, a
+    planter under blank wall. Every one of them was two expressions that were each
+    fine and never compared.
+
+    So the numbers written into `town.txt` are not the plan's opinion of the cottage.
+    They are taken off the built mesh: the doorway is found by walking across the
+    front wall and looking for the gap, the stack and the fire are found by their
+    sizes and their footprints are intersected. If the plan and the mesh ever part
+    company the build stops here rather than shipping a house that lies.
+
+    `world::town`'s tests then check those measured numbers against the GAME's
+    contracts - chiefly that the opening the player can see is inside the gap the
+    game leaves in the wall for them to walk through, which for the life of the
+    project it was not.
+    """
+    masonry.fresh()
+    plan = cottage_plan(hearth_left)
+    parts, _ = cottage(True, hearth_left)
+    wide, deep = plan["wide"], plan["deep"]
+
+    def extent(obj):
+        points = [obj.matrix_world @ v.co for v in obj.data.vertices]
+        return (min(p.x for p in points), max(p.x for p in points),
+                min(p.y for p in points), max(p.y for p in points),
+                min(p.z for p in points), max(p.z for p in points))
+
+    solids = [extent(obj) for obj, _ in parts]
+    ways = doorways_in(solids)
+    assert len(ways) == 1, f"the cottage's front wall has {len(ways)} doorways in it: {ways}"
+    middle, clear = ways[0]
+    assert abs(middle - plan["door"]) < 0.02, \
+        f"the doorway was built at {middle:+.3f} and the plan puts it at {plan['door']:+.3f}"
+    assert abs(clear - DOOR_WIDE) < 0.05, \
+        f"the doorway was built {clear:.3f} m clear and DOOR_WIDE says {DOOR_WIDE}"
+
+    # THE STACK OVER THE FIRE. Both found by their own size, and intersected.
+    def like(want, got, slack=0.06):
+        return abs(want - got) < slack
+
+    fires = [b for b in solids
+             if like(FIRE_WIDE, b[1] - b[0]) and like(FIRE_DEEP, b[3] - b[2]) and b[4] < 0.05]
+    stacks = [b for b in solids
+              if like(0.75, b[1] - b[0]) and like(0.75, b[3] - b[2]) and b[5] > STOREY]
+    assert len(fires) == 1 and len(stacks) == 1, \
+        f"found {len(fires)} fireplaces and {len(stacks)} chimney stacks"
+    fire, stack = fires[0], stacks[0]
+    over = min(fire[1], stack[1]) - max(fire[0], stack[0])
+    through = min(fire[3], stack[3]) - max(fire[2], stack[2])
+    assert over > 0.3 and through > 0.15, (
+        f"the chimney stands at x {stack[0]:+.2f}..{stack[1]:+.2f} y {stack[2]:+.2f}..{stack[3]:+.2f} "
+        f"and the fire at x {fire[0]:+.2f}..{fire[1]:+.2f} y {fire[2]:+.2f}..{fire[3]:+.2f} - "
+        "a flue has to come down onto its own fire"
+    )
+
+    # NOTHING DRESSED ONTO A WINDOW HANGS OFF THE END OF THE HOUSE.
+    band = (WINDOW_SILL + 0.3, WINDOW_SILL + WINDOW_TALL - 0.1)
+    for x0, x1, y0, y1, z0, z1 in solids:
+        if z0 < band[0] or z1 > band[1]:
+            continue
+        assert x1 <= wide * 0.5 + 0.01 and x0 >= -wide * 0.5 - 0.01, \
+            f"window dressing at x {x0:+.3f}..{x1:+.3f} hangs past the corner at {wide * 0.5:+.3f}"
+        assert y1 <= deep * 0.5 + 0.01 and y0 >= -deep * 0.5 - 0.01, \
+            f"window dressing at y {y0:+.3f}..{y1:+.3f} hangs past the corner at {deep * 0.5:+.3f}"
+
+    return plan, middle, clear
+
+
+def write_the_plan(note, plan, door, clear):
+    """The cottage's plan, in the units the game measures its lots in."""
+    note.write(f"DOORWAY cottage {door:.4f} {clear:.4f}\n")
+    for name, middle, wide in DOORWAYS:
+        if name != "cottage":
+            note.write(f"DOORWAY {name} {middle:.4f} {wide:.4f}\n")
+    for name in ("inner", "route", "alcove", "apron", "bed_rect", "table_rect"):
+        x0, y0, x1, y1 = plan[name]
+        note.write(f"COTTAGE {name.upper()} {x0:.4f} {y0:.4f} {x1:.4f} {y1:.4f}\n")
+    for name in ("hearth", "chimney"):
+        note.write(f"COTTAGE {name.upper()} {plan[name][0]:.4f} {plan[name][1]:.4f}\n")
+    for at in plan["windows"]:
+        note.write(f"COTTAGE FRONT_WINDOW {at[0]:.4f} {at[1]:.4f}\n")
+    for at in plan["alcove_windows"]:
+        note.write(f"COTTAGE ALCOVE_WINDOW {at[0]:.4f} {at[1]:.4f}\n")
+    rear = plan["rear"]
+    note.write("COTTAGE REAR none\n" if rear is None else f"COTTAGE REAR {rear[0]:.4f} {rear[1]:.4f}\n")
+
+
+# Both variations are built and measured, so the axis is proven rather than claimed.
+# Only the default is exported: wiring the mirrored one in as a second kind is a
+# change to the settlement, not to the figure.
+COTTAGE_PLAN, COTTAGE_DOOR, COTTAGE_CLEAR = measure_the_cottage(True)
+measure_the_cottage(False)
+DOORWAYS = every_doorway()
+for _name, _middle, _clear in DOORWAYS:
+    print(f"MEASURED {_name:11} doorway {_clear:.3f} m clear at {_middle:+.3f}")
+
+
 # Which way the doorway faces, written where the game can read it.
 #
 # `shell` puts the door on the SOUTH wall - Blender -Y - and the glTF export turns
@@ -1349,4 +1893,5 @@ with open(NOTE, "w", encoding="utf-8") as note:
     note.write("FACADE city_block 10.5 9.0 4\n")
     note.write("FACADE city_tower 10.0 9.5 8\n")
     note.write("FACADE city_spire 11.0 11.0 13\n")
+    write_the_plan(note, COTTAGE_PLAN, COTTAGE_DOOR, COTTAGE_CLEAR)
 print(f"WROTE {NOTE}")
