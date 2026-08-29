@@ -59,6 +59,7 @@ mod motion;
 // chunk's worth of them is welded into one mesh on a background thread with no
 // access to Bevy's assets, the moment the chunk streams in.
 mod models;
+mod photo;
 mod player;
 mod save;
 mod season;
@@ -239,6 +240,7 @@ fn main() {
             // needs to ask how high the ground is.
             world::WorldPlugin,
             sky::SkyPlugin,
+            photo::PhotoPlugin,
             season::SeasonPlugin,
             weather::WeatherPlugin,
             world::town::TownPlugin,

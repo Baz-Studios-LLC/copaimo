@@ -676,8 +676,41 @@ def roofed(parts, wide, deep, base, colour, ridge="y", over=OVERHANG, pitch=PITC
     return base + rise
 
 
-def cottage():
-    """One room under a steep thatch. The commonest thing in a village."""
+# # Most doors do not open, and that is the convention rather than a shortcut
+#
+# "We probably don't actually need to have every building open. Lets just do
+# essentials like guild halls, stores and some homes."
+#
+# Which is how these games have always worked: a Pokemon town has a dozen houses and
+# four of them let you in. The ones that do not are not FAKE - they are buildings
+# somebody lives in, with the door shut, and that reads as a town where people have
+# their own business rather than as a showroom.
+#
+# A shut building is the same figure with its doorway filled by a closed door and no
+# interior built at all. That is most of its cost gone - a cottage's room, hearth and
+# bed are half its pieces - so a town can carry more of them for less.
+
+
+def shut_the_door(parts, wide, deep, floor=0.0):
+    """Fills the doorway with a door that is closed, and frames it."""
+    leaf = DOOR_WIDE - 0.06
+    parts.append(box((leaf, 0.09, DOOR_TALL - 0.04),
+                     (0.0, -deep * 0.5 - 0.02, floor + (DOOR_TALL - 0.04) * 0.5), "door"))
+    # A handle, so it reads as shut rather than as boarded up.
+    parts.append(box((0.12, 0.12, 0.12),
+                     (leaf * 0.32, -deep * 0.5 - 0.12, floor + DOOR_TALL * 0.45), "brass"))
+    # And the room behind it goes dark, so nothing shows through the windows.
+    parts.append(box((wide - WALL * 2.2, deep - WALL * 2.2, 0.12),
+                     (0.0, 0.0, floor + 0.06), "board"))
+
+
+def cottage(open_door=True):
+    """One room under a steep thatch. The commonest thing in a village.
+
+    `open_door` false builds the same cottage with its door shut and no interior -
+    see `shut_the_door`. Parameterised rather than copied, so the two can never
+    drift into being different cottages.
+    """
     wide, deep = MODULE * 6, MODULE * 5
     parts = []
     parts.append(box((wide + 0.34, deep + 0.34, PLINTH), (0.0, 0.0, PLINTH * 0.5), "stone"))
@@ -685,9 +718,12 @@ def cottage():
     holes = {}
 
     shell(parts, wide, deep, 1, "plaster", doors=True, windows=True, openings=holes)
-    room(parts, wide, deep, 1)
-    hearth(parts, wide, deep)
-    bed(parts, wide, deep)
+    if open_door:
+        room(parts, wide, deep, 1)
+        hearth(parts, wide, deep)
+        bed(parts, wide, deep)
+    else:
+        shut_the_door(parts, wide, deep)
     framing(parts, wide, deep, 0.0, STOREY, openings=holes)
     porch(parts, deep, 0.0, roof_colour="thatch")
     # Ridge across the front, so the cottage shows its long eaves to the street and
@@ -701,7 +737,7 @@ def cottage():
     return parts, top + 0.8
 
 
-def townhouse():
+def townhouse(open_door=True):
     """Two storeys, the upper one jettied out over the lower. What a town is made of."""
     wide, deep = MODULE * 6, MODULE * 6
     jetty = 0.28
@@ -711,10 +747,13 @@ def townhouse():
     holes = {}
 
     shell(parts, wide, deep, 2, "plaster", doors=True, windows=True, openings=holes)
-    room(parts, wide, deep, 2)
-    stairs(parts, wide, deep, 2)
-    hearth(parts, wide, deep)
-    table(parts, (-0.3, -0.9), 1.4, 1.0)
+    if open_door:
+        room(parts, wide, deep, 2)
+        stairs(parts, wide, deep, 2)
+        hearth(parts, wide, deep)
+        table(parts, (-0.3, -0.9), 1.4, 1.0)
+    else:
+        shut_the_door(parts, wide, deep)
     framing(parts, wide, deep, 0.0, STOREY, openings=holes)
     framing(parts, wide, deep, STOREY, STOREY)
 
@@ -891,7 +930,7 @@ def curtain_wall(parts, wide, deep, floors, base=0.0, banded=True):
                     parts.append(box(_slab(face, 0.10, 0.14, FLOOR_TALL * 0.62), place, "mullion"))
 
 
-def tower(floors, wide=9.0, deep=9.0, crown="flat"):
+def tower(floors, wide=9.0, deep=9.0, crown="flat", lobby_open=True):
     """A city block: a modern tower with a lobby, a core and a crown.
 
     Three parts, because that is what makes a tall box read as a building rather
@@ -925,6 +964,13 @@ def tower(floors, wide=9.0, deep=9.0, crown="flat"):
     # the ground floor: the doorway leads into a lobby with a desk and a lift bank,
     # which is what a tower's ground floor IS, and the floors above are shell.
     inner = (wide - 0.5, deep - 0.5)
+    if not lobby_open:
+        # SHUT: the glass front stays and the way in does not. A dark slab behind it
+        # so nothing shows through, and no fit-out at all - most of this figure's
+        # cost, gone.
+        parts.append(box((hole + 0.24, 0.12, DOOR_TALL + 0.34),
+                         (0.0, -deep * 0.5 - 0.06, (DOOR_TALL + 0.34) * 0.5), "curtain2"))
+        parts.append(box((inner[0], inner[1], 0.12), (0.0, 0.0, 0.06), "board"))
     parts.append(box((inner[0], inner[1], 0.10), (0.0, 0.0, 0.05), "infloor"))
     parts.append(box((inner[0], inner[1], 0.14), (0.0, 0.0, lobby - 0.07), "inwall"))
     for face, span, off in (("x", inner[0], inner[1]), ("y", inner[1], inner[0])):
@@ -936,9 +982,10 @@ def tower(floors, wide=9.0, deep=9.0, crown="flat"):
             parts.append(box(_slab(face, span, 0.12, lobby - 0.2),
                              (at[0], at[1], (lobby - 0.2) * 0.5), "inwall"))
     # A desk facing the door, and a bank of lifts on the back wall.
-    parts.append(box((3.0, 0.8, 1.05), (-wide * 0.14, deep * 0.16, 0.58), "counter"))
-    parts.append(box((3.2, 0.24, 0.12), (-wide * 0.14, deep * 0.16 - 0.4, 1.14), "board"))
-    for lift in (-1.0, 1.0):
+    if lobby_open:
+        parts.append(box((3.0, 0.8, 1.05), (-wide * 0.14, deep * 0.16, 0.58), "counter"))
+        parts.append(box((3.2, 0.24, 0.12), (-wide * 0.14, deep * 0.16 - 0.4, 1.14), "board"))
+    for lift in (-1.0, 1.0) if lobby_open else ():
         parts.append(box((1.5, 0.16, 2.3), (lift * 2.1, inner[1] * 0.5 - 0.14, 1.15), "steel"))
         parts.append(box((0.3, 0.2, 0.3), (lift * 2.1, inner[1] * 0.5 - 0.24, 2.7), "neon"))
 
@@ -1056,6 +1103,11 @@ FIGURES = {
     "well": well,
     # The new: cities.
     "city_block": city_block,
+    # The same figures with the door shut and no interior. Most doors in a town do
+    # not open, which is the genre's own convention - see `shut_the_door`.
+    "cottage_shut": lambda: cottage(open_door=False),
+    "townhouse_shut": lambda: townhouse(open_door=False),
+    "city_block_shut": lambda: tower(5, wide=10.5, deep=9.0, crown="flat", lobby_open=False),
     "city_tower": city_tower,
     "city_spire": city_spire,
     "monument": monument,

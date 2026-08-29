@@ -1202,6 +1202,144 @@ fn mix_the_road_surface(mut commands: Commands, mut materials: ResMut<Assets<cra
     commands.insert_resource(RoadSurface(surface));
 }
 
+/// How high a settlement's boundary stands, in metres, and how thick.
+///
+/// # Lynch's fifth element, and the one a generated town never has
+///
+/// Paths, nodes, landmarks and districts can all be produced by laying out ground.
+/// An EDGE cannot: it is the thing that says the town is over. Without one a
+/// settlement fades into countryside - the buildings just get sparser until they
+/// stop - and a player never has the moment of arriving anywhere or of leaving it.
+///
+/// Low on purpose. This is a boundary, not a fortification: you can see over it, it
+/// never encloses the view, and the roads run straight through it. A village wears
+/// a timber palisade and a city a concrete parapet, which is the same two-ages rule
+/// the buildings and the streets already follow.
+const EDGE_STANDS: f32 = 1.35;
+const EDGE_THICK: f32 = 0.34;
+
+/// How far outside the built ground the boundary runs, as a share of the reach.
+const EDGE_LIES_AT: f32 = 1.06;
+
+/// How wide a gateway is where a road crosses the boundary, in metres.
+///
+/// Generous. A gate the exact width of its road is a gate you scrape through, and
+/// this is a line on the ground rather than a defence.
+const A_GATE_IS: f32 = 9.0;
+
+const EDGE_TIMBER: [f32; 4] = [0.34, 0.25, 0.17, 1.0];
+const EDGE_CAP: [f32; 4] = [0.26, 0.19, 0.13, 1.0];
+const EDGE_CONCRETE: [f32; 4] = [0.60, 0.60, 0.58, 1.0];
+const EDGE_CONCRETE_CAP: [f32; 4] = [0.48, 0.48, 0.47, 1.0];
+
+/// The wall that says where a settlement ends, with the roads left open through it.
+///
+/// One ring mesh, built the same way the paving is - a ribbon of quads following
+/// the ground - because that is the cheap way to get a continuous thing across
+/// terrain that is not flat. The ring is broken wherever a street crosses it, and
+/// what is left of those breaks is the gateways.
+fn enclose(
+    layout: &Layout,
+    site: &Site,
+    terrain: &crate::world::terrain::Terrain,
+    low: Vec2,
+) -> Mesh {
+    let mut places: Vec<[f32; 3]> = Vec::new();
+    let mut normals: Vec<[f32; 3]> = Vec::new();
+    let mut colours: Vec<[f32; 4]> = Vec::new();
+    let mut uvs: Vec<[f32; 2]> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+
+    let (face, cap) = if site.city {
+        (EDGE_CONCRETE, EDGE_CONCRETE_CAP)
+    } else {
+        (EDGE_TIMBER, EDGE_CAP)
+    };
+    let radius = site.radius * FILLS * EDGE_LIES_AT;
+
+    // Where the roads go out. A gateway is an ANGLE, because the wall is a ring:
+    // measured at the boundary, a 9 m gap subtends more of a small town than a
+    // large one, which is right - a village gate should read as most of one side.
+    let mut gates: Vec<f32> = Vec::new();
+    for street in &layout.streets {
+        for end in [street.from, street.to] {
+            let out = end - site.at;
+            if out.length() < radius * 0.72 {
+                continue;
+            }
+            gates.push(out.y.atan2(out.x));
+        }
+    }
+    let gate_half = (A_GATE_IS * 0.5 / radius.max(1.0)).atan();
+
+    // Around the ring in short steps, skipping the gateways.
+    let steps = 160;
+    let mut run: Vec<usize> = Vec::new();
+    for step in 0..=steps {
+        let turn = step as f32 / steps as f32 * std::f32::consts::TAU;
+        let open = gates.iter().any(|gate| {
+            let mut apart = (turn - gate).abs();
+            if apart > std::f32::consts::PI {
+                apart = std::f32::consts::TAU - apart;
+            }
+            apart < gate_half
+        });
+
+        if open {
+            // The run ends here; the next stretch starts after the gate.
+            stitch(&mut indices, &run);
+            run.clear();
+            continue;
+        }
+
+        let at = site.at + Vec2::new(turn.cos(), turn.sin()) * radius;
+        let ground = terrain.drawn_height(at.x, at.y);
+        let out = Vec2::new(turn.cos(), turn.sin());
+        // Six points: outside foot and top, the cap, and inside top and foot - so
+        // the wall has two faces and a lid rather than being a single sheet.
+        let here = places.len();
+        for (side, up, colour) in [
+            (-EDGE_THICK * 0.5, 0.0, face),
+            (-EDGE_THICK * 0.5, EDGE_STANDS, face),
+            (-EDGE_THICK * 0.5, EDGE_STANDS, cap),
+            (EDGE_THICK * 0.5, EDGE_STANDS, cap),
+            (EDGE_THICK * 0.5, EDGE_STANDS, face),
+            (EDGE_THICK * 0.5, 0.0, face),
+        ] {
+            let on = at + out * side;
+            places.push([on.x - low.x, ground + up, on.y - low.y]);
+            normals.push([out.x, 0.35, out.y]);
+            colours.push(colour);
+            uvs.push([step as f32, up]);
+        }
+        run.push(here);
+    }
+    stitch(&mut indices, &run);
+
+    let mut mesh = Mesh::new(
+        bevy::render::mesh::PrimitiveTopology::TriangleList,
+        bevy::asset::RenderAssetUsages::default(),
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, places);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colours);
+    mesh.insert_indices(bevy::render::mesh::Indices::U32(indices));
+    mesh
+}
+
+/// Joins one unbroken stretch of boundary into triangles.
+fn stitch(indices: &mut Vec<u32>, run: &[usize]) {
+    for pair in run.windows(2) {
+        let (a, b) = (pair[0] as u32, pair[1] as u32);
+        for rung in 0..5u32 {
+            let (p, q) = (a + rung, a + rung + 1);
+            let (r, t) = (b + rung, b + rung + 1);
+            indices.extend_from_slice(&[p, r, q, q, r, t]);
+        }
+    }
+}
+
 /// Builds one town's streets as a mesh laid on the ground.
 fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2, city: bool) -> Mesh {
     let mut places: Vec<[f32; 3]> = Vec::new();
@@ -1288,6 +1426,17 @@ pub fn raise_the_towns(
 
     let plan = terrain.plan();
     for (index, site) in plan.sites().iter().enumerate() {
+        // THE RANCH IS NOT A SETTLEMENT. It is a `Site` only so nothing else can
+        // take its ground, and the player SPAWNS on it - a market cross stood on the
+        // spawn point with the warden wedged inside it, unable to move.
+        //
+        // This skip was written once and lost to a later edit of the same block, and
+        // the guard meant to catch that walked the OTHER settlements measuring how
+        // far their buildings were from the ranch. It never asked what comes up when
+        // you stand HERE. `standing_at_the_ranch_raises_nothing` asks that now.
+        if site.ranch {
+            continue;
+        }
         let key = index as u32;
         let near = site.at.distance(here) < RAISES_WITHIN;
         if near == built.standing.contains_key(&key) {
@@ -1341,6 +1490,12 @@ pub fn raise_the_towns(
                 base_color: Color::WHITE,
                 perceptual_roughness: 0.96,
                 reflectance: 0.02,
+                // Both sides. A road is a single-sided ribbon, and a ribbon wound the
+                // wrong way is not dim or dark - it is INVISIBLE, which is what
+                // "still no roads" looked like through three rounds of measuring a
+                // mesh that was entirely correct.
+                double_sided: true,
+                cull_mode: None,
                 ..default()
             }))
         });
@@ -1352,6 +1507,16 @@ pub fn raise_the_towns(
             Transform::from_xyz(site.at.x, 0.0, site.at.y),
             Visibility::default(),
             bevy::pbr::NotShadowCaster,
+        ));
+
+        // And the boundary that says where the place ends - Lynch's edge.
+        let boundary = enclose(&layout, site, &terrain.0, site.at);
+        commands.spawn((
+            FromSite(key),
+            Mesh3d(meshes.add(boundary)),
+            MeshMaterial3d(surface.clone()),
+            Transform::from_xyz(site.at.x, 0.0, site.at.y),
+            Visibility::default(),
         ));
         built.standing.insert(key, layout);
     }
@@ -2103,6 +2268,121 @@ mod tests {
                 what.model()
             );
         }
+    }
+
+/// A settlement has a boundary, and the roads run THROUGH it.
+    ///
+    /// Lynch's fifth element - the one a generated town never has, because paths,
+    /// nodes, landmarks and districts all fall out of laying ground and an edge does
+    /// not. It is what says the town is over.
+    ///
+    /// Both halves are asserted, because a wall with no gates is a wall that traps
+    /// you in the place it was meant to define.
+    #[test]
+    fn a_settlement_has_an_edge_with_the_roads_left_open_through_it() {
+        use bevy::render::mesh::VertexAttributeValues;
+
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        for site in plan.sites().iter().filter(|s| !s.ranch).take(4) {
+            let layout = lay_out(site, plan.approach(site.at), crate::config::WORLD_SEED);
+            let mesh = enclose(&layout, site, &terrain, site.at);
+            let places = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+                Some(VertexAttributeValues::Float32x3(v)) => v.clone(),
+                _ => Vec::new(),
+            };
+            assert!(
+                places.len() > 300,
+                "the boundary is {} vertices - a town with no edge fades into the                  countryside instead of ending",
+                places.len()
+            );
+
+            // It stands up off the ground.
+            let low = places.iter().map(|p| p[1]).fold(f32::MAX, f32::min);
+            let high = places.iter().map(|p| p[1]).fold(f32::MIN, f32::max);
+            assert!(
+                high - low > EDGE_STANDS * 0.5,
+                "the boundary spans {:.2} m of height and should stand {EDGE_STANDS}",
+                high - low
+            );
+
+            // AND THE GATES. Every street that reaches the boundary has to pass
+            // through a gap in it - measured by asking whether any wall vertex sits
+            // in the way of where the road leaves.
+            let radius = site.radius * FILLS * EDGE_LIES_AT;
+            let mut gated = 0;
+            let mut reaching = 0;
+            for street in &layout.streets {
+                for end in [street.from, street.to] {
+                    let out = end - site.at;
+                    if out.length() < radius * 0.72 {
+                        continue;
+                    }
+                    reaching += 1;
+                    let cross = site.at + out.normalize_or_zero() * radius - site.at;
+                    let blocked = places.iter().any(|p| {
+                        let at = Vec2::new(p[0], p[2]);
+                        at.distance(cross) < A_GATE_IS * 0.28
+                    });
+                    if !blocked {
+                        gated += 1;
+                    }
+                }
+            }
+            assert!(
+                reaching == 0 || gated > 0,
+                "{reaching} roads reach the boundary and none of them has a gateway                  - the wall would pen the player in"
+            );
+        }
+    }
+
+/// Standing AT THE RANCH raises nothing at all.
+    ///
+    /// The previous guard walked the settlements and measured the distance from the
+    /// ranch to their buildings - and never asked the only question that matters,
+    /// which is whether the ranch's OWN site gets built on. It passed while a market
+    /// cross stood on the spawn point with the player wedged inside it.
+    ///
+    /// This stands an app at the ranch and counts what came up.
+    #[test]
+    fn standing_at_the_ranch_raises_nothing() {
+        use bevy::asset::AssetPlugin;
+        use bevy::state::app::StatesPlugin;
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default(), StatesPlugin));
+        app.init_state::<crate::states::AppState>();
+        app.insert_state(crate::states::AppState::Playing);
+        app.init_asset::<Scene>();
+        app.init_asset::<Mesh>();
+        app.init_asset::<crate::shade::Shaded>();
+        app.init_asset::<bevy::gltf::Gltf>();
+        app.add_plugins(TownPlugin);
+
+        let terrain = crate::world::terrain::Terrain::new();
+        let ranch = Vec2::new(crate::config::RANCH_AT.0, crate::config::RANCH_AT.1);
+        app.insert_resource(crate::world::terrain::TerrainSource(std::sync::Arc::new(
+            terrain,
+        )));
+        app.world_mut().spawn((
+            StreamAnchor,
+            Transform::from_xyz(ranch.x, 0.0, ranch.y),
+            GlobalTransform::from_xyz(ranch.x, 0.0, ranch.y),
+        ));
+        app.update();
+
+        let mut standing = app.world_mut().query::<(&Standing, &Transform)>();
+        let near: Vec<f32> = standing
+            .iter(app.world())
+            .map(|(_, at)| Vec2::new(at.translation.x, at.translation.z).distance(ranch))
+            .collect();
+        let closest = near.iter().cloned().fold(f32::MAX, f32::min);
+        assert!(
+            near.is_empty() || closest > crate::config::RANCH_RADIUS,
+            "{} buildings were raised standing at the ranch, the nearest {closest:.0} m              away - the ranch is not a settlement and the player SPAWNS here",
+            near.len()
+        );
+        println!("standing at the ranch raised {} buildings", near.len());
     }
 
     #[test]

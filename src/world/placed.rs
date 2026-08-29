@@ -229,6 +229,24 @@ pub fn read(json: &str) -> Result<Standing, String> {
         }
     }
 
+    // THE SHEET IS IN THE WORLD IT WAS DRAWN ON, and the world has grown since.
+    //
+    // Every position here was placed by hand on the 8,192 m world. When the world was
+    // scaled up to make room for the fifth continent, `RANCH_AT` scaled with it and
+    // this sheet did not - so the ranch pin, the spawn point, moved 1.5 km away from
+    // the ranch's own gate, house and barn. Photographed from inside the game, the
+    // player stood alone in an empty green field.
+    //
+    // Scaled here rather than rewritten into the file, because the file is the
+    // authored artefact: somebody placed those things looking at the world as it was,
+    // and the game is what has to keep up.
+    //
+    // Positions only. A barn is a barn whatever the map is worth.
+    let mut sheet = sheet;
+    for thing in &mut sheet.placed {
+        thing.at *= crate::config::WORLD_GREW;
+    }
+
     Ok(Standing {
         things: sheet.placed,
         unsaved: false,

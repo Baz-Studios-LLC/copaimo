@@ -3213,6 +3213,49 @@ mod atlas {
 mod ranch_tests {
     use super::*;
 
+#[test]
+    #[ignore = "a measurement of where the ranch sits"]
+    fn where_is_the_ranch() {
+        let terrain = Terrain::new();
+        let climate = terrain.climate();
+        let ranch = Vec2::new(RANCH_AT.0, RANCH_AT.1);
+        let half = terrain.half();
+        let (u, v) = terrain.map_uv(ranch.x, ranch.y);
+        let ground = terrain.ground_at(ranch.x, ranch.y);
+        println!(
+            "ranch at ({:.0}, {:.0})  map uv ({u:.3}, {v:.3})  height {:.1} m",
+            ranch.x, ranch.y, ground.height
+        );
+        println!(
+            "  biome {:?}  country {:?}  world is {:.0} x {:.0} m",
+            Biome::of(ground, &climate),
+            terrain.region(ranch.x, ranch.y).0,
+            half.x * 2.0,
+            half.y * 2.0
+        );
+        // How far to the sea in each direction, so "which part of the map" is
+        // answerable rather than a feeling.
+        for (name, dir) in [
+            ("west ", Vec2::new(-1.0, 0.0)),
+            ("east ", Vec2::new(1.0, 0.0)),
+            ("north", Vec2::new(0.0, -1.0)),
+            ("south", Vec2::new(0.0, 1.0)),
+        ] {
+            let mut out = 0.0f32;
+            while out < 12000.0 {
+                let at = ranch + dir * out;
+                if at.x.abs() > half.x || at.y.abs() > half.y {
+                    break;
+                }
+                if terrain.height(at.x, at.y) <= SEA_LEVEL {
+                    break;
+                }
+                out += 40.0;
+            }
+            println!("  {name}: {out:.0} m of land");
+        }
+    }
+
     #[test]
     fn the_ranch_stands_on_land_at_the_height_the_bench_reported() {
         // 22.9 m, the number the Opificium bench measured, and it STILL holds after

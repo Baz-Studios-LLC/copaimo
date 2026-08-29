@@ -579,7 +579,38 @@ pub const TREE_SCALE_HIGH: f32 = 1.35;
 ///
 /// Exported in `world.json`, because the bench must level the same ground or a
 /// farm sculpted there would sit at the wrong height in the game.
-pub const RANCH_AT: (f32, f32) = (-3064.0 * WORLD_GREW, 659.0 * WORLD_GREW);
+/// The map sheet, in pixels. 2,478 x 1,290 until the fifth landmass was added by
+/// growing it north and south; 2,478 x 3,090 since.
+pub const SHEET: (f32, f32) = (2478.0, 3090.0);
+
+/// How deep the world is, which the sheet's own shape decides.
+pub const WORLD_DEEP: f32 = WORLD_WIDTH * SHEET.1 / SHEET.0;
+
+/// Where the ranch sits ON THE MAP, as a fraction of the sheet.
+///
+/// # Pinned to the picture, not to a number of metres
+///
+/// It was `(-3064, 659)` in metres, and when the world was scaled up those were
+/// multiplied by the width ratio - which is right for x and WRONG for z, because
+/// growing the map for the new continent changed its ASPECT as well as its scale.
+/// The sheet went from 1,290 rows to 3,090, so the same z in metres is a different
+/// place on the picture: the ranch slid from v 0.654 to v 0.565 and woke up about
+/// 1.4 km north of the spot it was chosen for. Reported as "the ranch is still in
+/// the wrong area", and it was.
+///
+/// A fraction of the sheet cannot drift. Resize the world, add rows to the map, and
+/// the ranch stays on the ground somebody picked by eye.
+// v 0.5645, NOT the 0.6545 the ranch had on the old sheet. Growing the map for the
+// fifth continent added 900 rows above the old picture and 900 below, so the old
+// sheet now occupies rows 900-2,190 of 3,090 - and a point that was 0.6545 of the
+// way down the OLD picture is 0.5645 of the way down this one. Setting it to 0.6545
+// put the ranch 1.4 km out to sea in 58 m of water.
+pub const RANCH_ON_MAP: (f32, f32) = (0.1260, 0.5645);
+
+pub const RANCH_AT: (f32, f32) = (
+    (RANCH_ON_MAP.0 - 0.5) * WORLD_WIDTH,
+    (RANCH_ON_MAP.1 - 0.5) * WORLD_DEEP,
+);
 pub const RANCH_RADIUS: f32 = 130.0;
 
 /// The one great mountain: how high it stands above the ground it sits on, and
