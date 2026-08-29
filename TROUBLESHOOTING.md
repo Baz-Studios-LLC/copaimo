@@ -2213,3 +2213,51 @@ Every symbol named here was checked to still exist when it was written. If one h
 moved, the entry is stale — fix it rather than leaving it, because a troubleshooting
 doc that names things that are gone is worse than no doc: it sends the next reader
 looking for code that was renamed for a reason.
+
+## A brown road that photographs grey
+
+**ISSUE.** `ROAD_EARTH` was set to a good brown twice - a mid `(0.56, 0.40, 0.24)`
+and a light `(0.82, 0.63, 0.40)` - and a photographed village lane came back neutral
+grey both times, indistinguishable from a city's paving. Blamed on the near-cel
+banding, then on the material. Neither was at fault: a magenta probe rendered
+magenta, so vertex colours reach the screen intact.
+
+**SOLUTION.** Divide an observed road pixel by the colour that produced it. That put
+this world's road light at about `(0.22, 0.30, 0.50)` - a road is a flat upward face,
+so nearly all the light on it is SKY light, and blue arrives 2.2x stronger than red.
+Any colour whose blue channel is more than about a 2.2th of its red comes out
+neutral however brown the constant looks. Crush the blue rather than raise the red:
+`(0.85, 0.39, 0.15)` lands on screen at roughly 2.5:1 red-to-blue and reads as dirt.
+
+Worth keeping for any surface that faces the sky. The constant is not the colour.
+
+## Buildings standing in roads, with their doors facing correctly
+
+**ISSUE.** Reported three times. Doors demonstrably addressed a street - there is a
+test for it - and buildings still stood in roads.
+
+**SOLUTION.** The clearance test reserved `footprint().length() * 0.55`, a little
+over half the footprint's DIAGONAL, as a stand-in for "how much building is in the
+way". A cottage's diagonal half is 5.86 m, so it reserved 3.22 m against a corner
+that reaches 5.86: cleared to stand 6.22 m from a centreline, its corner sat 0.36 m
+from it - inside a 3 m carriageway. It never showed against the street a lot was cut
+from, because that is the shallow side; it showed every time against a street
+crossing behind or beside it.
+
+Replaced with the box's exact support function (`reach_toward`): project the two
+half-extents onto the direction of the street being asked about. Against its own
+street that is the half depth, so a set-back building still passes; against a street
+off its flank it is the half width, which is what is really in the way.
+
+Two follow-ons, both of which failed the suite before they were handled:
+- Testing properly and DROPPING the failures thinned a city from 34 buildings to 17.
+  A corner plot slides along its own frontage instead, which keeps the facing that
+  frontage gave it. That is what a surveyor does with a corner plot.
+- The guild hall used to face the square unconditionally. Pushed a ring outward to
+  find room, that turned its back on the high street. It now fronts whichever street
+  it stands nearest.
+
+`no_building_stands_in_a_road` guards it by walking each carriageway between its
+kerbs and asking whether any point of road is inside a building - deliberately NOT
+by rerunning the placement rule, which cannot fail against itself. Checked: it
+catches a guild hall with 0.4 m of carriageway inside its walls under the old rule.

@@ -94,8 +94,8 @@ const LANE_SKIRT: f32 = 2.4;
 /// outside this file reads their fields.
 #[derive(Clone)]
 pub struct Road {
-    from: Vec2,
-    to: Vec2,
+    pub from: Vec2,
+    pub to: Vec2,
     /// The height the road holds, sampled along its length and then graded.
     ///
     /// **Not a straight line between the two ends.** That is what it was, and it
@@ -152,9 +152,11 @@ impl Settlements {
         }
     }
 
-    /// The roads themselves. Test-only: nothing in the running game asks about
-    /// the network, and the probe that pulls a lip apart does.
-    #[cfg(test)]
+    /// The roads themselves.
+    ///
+    /// No longer test-only: `world::town` draws them. They were graded into the
+    /// terrain and never rendered, so the only sign a road existed was a
+    /// suspiciously level line of grass.
     pub fn ways(&self) -> &[Road] {
         &self.roads
     }
@@ -364,13 +366,18 @@ impl Settlements {
         }
         // The widest a road can ever pull, not the narrowest. Filing them by the
         // unbattered skirt is what put a wall down each side of every one.
-        let road_reach = ROAD_WIDTH + ROAD_MAX_SKIRT;
+        // COUNTRY ROADS ARE NOT FILED, because they no longer move any earth.
+        //
+        // A road's profile is the ground it crosses, so levelling against it is an
+        // identity - except that it is sampled at stations and interpolated straight
+        // between them, which on curved ground flattens a little, and the edge of
+        // that little flattening is a step. Measured: 1.64 m over a quarter-metre.
+        //
+        // They are a SURFACE now, drawn by `world::town`, so the terrain does not
+        // need to hear about them at all. `roads` is still kept and still shapes
+        // `approach` - which way a town's high street runs - it simply does not
+        // reach the levelling.
         let offset = self.sites.len() as u16;
-        for (i, road) in self.roads.iter().enumerate() {
-            let low = road.from.min(road.to) - road_reach;
-            let high = road.from.max(road.to) + road_reach;
-            filings.push((offset + i as u16, low, high));
-        }
         let lane_offset = offset + self.roads.len() as u16;
         for (i, lane) in self.lanes.iter().enumerate() {
             let reach = lane.wide * 0.5 + LANE_SKIRT;
@@ -578,25 +585,96 @@ fn link(sites: &[Site], ground: &dyn Fn(Vec2) -> f32) -> Vec<Road> {
         }
         let Some((_, from, to)) = best else { break };
         joined[to] = true;
-        let (foot, head) = (sites[from].at, sites[to].at);
-        let profile = grade(ground, foot, head, sites[from].height, sites[to].height);
-        // The ground it was graded through, minus where it settled. Taken here
-        // because this is where the ground function is to hand — `level` has no
-        // way to ask, and asking at the sample point is what scalloped the sides.
-        let cuts = profile
-            .iter()
-            .enumerate()
-            .map(|(step, held)| {
-                let along = step as f32 / (profile.len() - 1).max(1) as f32;
-                ground(foot.lerp(head, along)) - held
-            })
-            .collect();
-        roads.push(Road {
-            profile,
-            cuts,
-            from: foot,
-            to: head,
-        });
+
+        // # A ROAD WANDERS
+        //
+        // Laid as one straight run, a graded road holds its grade across whatever is
+        // in the way and cuts through it - which is the objection that switched this
+        // machinery off in the first place. Walked in short legs instead, each one
+        // nudged off the straight line, it goes round a shoulder rather than through
+        // it, and every leg is graded on its own between its own two heights.
+        //
+        // The nudge is a hash of the leg, not a roll: the same world lays the same
+        // road every time, and the bench and the game agree about where it goes.
+        let (start, finish) = (sites[from].at, sites[to].at);
+        let span = finish - start;
+        let legs = ((span.length() / ROAD_LEG).round() as usize).max(1);
+        let aside = span.perp().normalize_or_zero();
+
+        let mut waypoints: Vec<Vec2> = Vec::with_capacity(legs + 1);
+        for leg in 0..=legs {
+            let along = leg as f32 / legs as f32;
+            // Nothing at either end: a road arrives at a town, it does not swerve
+            // past it.
+            let free = (along * std::f32::consts::PI).sin();
+            let wobble = unit(
+                WORLD_SEED
+                    .wrapping_add(from as u32 * 7717)
+                    .wrapping_add(to as u32 * 131),
+                leg as u32,
+            ) - 0.5;
+            waypoints.push(start + span * along + aside * (wobble * 2.0 * free * span.length() * ROAD_WANDERS));
+        }
+
+        // SMOOTHED, so the road turns rather than kinks.
+        //
+        // Each waypoint is nudged independently, so consecutive legs can meet at a
+        // hard angle - "roads shouldn't have sharp turns". Two passes of averaging
+        // each point with its neighbours pulls the line into curves without moving
+        // where it goes: the ends are pinned, so it still arrives at both towns.
+        for _ in 0..2 {
+            let was = waypoints.clone();
+            for at in 1..was.len() - 1 {
+                waypoints[at] = (was[at - 1] + was[at] * 2.0 + was[at + 1]) * 0.25;
+            }
+        }
+
+        // AND OUT OF THE WATER.
+        //
+        // A road between two towns on the same landmass can still clip the head of a
+        // bay, and a graded road under the sea is a road you cannot walk. Each
+        // waypoint that has ended up wet is pulled back toward the straight line
+        // until it is dry, which is where the land was in the first place.
+        for at in 1..waypoints.len() - 1 {
+            let along = at as f32 / (waypoints.len() - 1) as f32;
+            let straight = start + span * along;
+            for pull in 0..6 {
+                if ground(waypoints[at]) > SEA_LEVEL + 1.0 {
+                    break;
+                }
+                let part = (pull + 1) as f32 / 6.0;
+                waypoints[at] = waypoints[at].lerp(straight, part);
+            }
+        }
+
+        for pair in waypoints.windows(2) {
+            let (foot, head) = (pair[0], pair[1]);
+            let along_start = (foot - start).length() / span.length().max(1.0);
+            let along_end = (head - start).length() / span.length().max(1.0);
+            let lift = |part: f32| {
+                sites[from].height + (sites[to].height - sites[from].height) * part
+            };
+            // NO EARTHWORKS. The profile IS the ground.
+            //
+            // Grading is what cut gorges through hills and what put a 1.84 m lip
+            // beside every country road - and every attempt to soften it traded one
+            // fault for another: a gentler blend broke the walkable-grade guard, and
+            // a wider skirt flattened enough land to move a desert's boundary.
+            //
+            // "Just make it flat, don't worry about realism." A road between towns
+            // is a SURFACE laid on the country, not a cutting through it: it follows
+            // whatever it crosses, moves no earth, and therefore cannot leave a step
+            // to fall off or disturb a biome. The grading machinery stays for the
+            // ground a TOWN stands on, which does need to be flat.
+            let steps = ((foot.distance(head) / ROAD_STEP).ceil() as usize).clamp(1, 512);
+            let profile: Vec<f32> = (0..=steps)
+                .map(|i| ground(foot.lerp(head, i as f32 / steps as f32)))
+                .collect();
+            let _ = (lift(along_start), lift(along_end));
+            // Nothing is cut, so every cut is zero.
+            let cuts = vec![0.0; profile.len()];
+            roads.push(Road { profile, cuts, from: foot, to: head });
+        }
     }
     roads
 }

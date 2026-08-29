@@ -415,14 +415,83 @@ pub struct Street {
 }
 
 impl Street {
+    /// The point on this street's middle line closest to `at`.
+    pub fn nearest_point(&self, at: Vec2) -> Vec2 {
+        let run = self.to - self.from;
+        let length2 = run.length_squared().max(1.0e-8);
+        self.from + run * ((at - self.from).dot(run) / length2).clamp(0.0, 1.0)
+    }
+
     /// How far a point is from the middle of this street, and how far along it.
     pub fn nearest(&self, at: Vec2) -> (f32, f32) {
-        let run = self.to - self.from;
-        let length = run.length().max(1.0e-4);
-        let along = ((at - self.from).dot(run) / (length * length)).clamp(0.0, 1.0);
-        let on = self.from + run * along;
-        (at.distance(on), along * length)
+        let on = self.nearest_point(at);
+        (at.distance(on), on.distance(self.from))
     }
+}
+
+/// How much bare ground is kept between a kerb and the nearest wall, in metres.
+const KERB_CLEAR: f32 = 0.8;
+
+/// How far in front of a door we look for the street it is supposed to open onto.
+const DOOR_LOOKS: f32 = 3.0;
+
+/// How far this building reaches from its middle in one direction.
+///
+/// # Why buildings kept standing in the road
+///
+/// The clearance test used `footprint().length() * 0.55` - a little over half the
+/// footprint's DIAGONAL - as a stand-in for "how much building is in the way". It is
+/// not one. A cottage's diagonal half is 5.86 m, so the test reserved 3.22 m while
+/// the building's own corner reaches 5.86: a cottage cleared to sit 6.22 m from a
+/// centreline put its corner 0.36 m from it, which is inside a road that is 3 m to
+/// the kerb. Against the street a lot was CUT from that never showed, because the
+/// door face is the shallow side; against a street crossing behind or beside it, it
+/// showed every time.
+///
+/// This is the box's exact support function instead: project the two half-extents
+/// onto the direction being asked about. Against its own street it returns the half
+/// DEPTH, which is what is actually pointing that way, so a properly set-back
+/// building still passes; against a street off its flank it returns the half WIDTH,
+/// which is what that street is really up against.
+fn reach_toward(what: Building, facing: f32, toward: Vec2) -> f32 {
+    let half = what.footprint() * 0.5;
+    let (sin, cos) = facing.sin_cos();
+    // The axes `Plot::walls` builds on: across the frontage, and out through the door.
+    let across = Vec2::new(cos, sin);
+    let door = Vec2::new(sin, -cos);
+    toward.dot(across).abs() * half.x + toward.dot(door).abs() * half.y
+}
+
+/// Whether a building of this size, standing here and facing this way, is off every
+/// street - measured against the part of it that actually faces each one.
+fn clear_of_streets(streets: &[Street], at: Vec2, facing: f32, what: Building) -> bool {
+    streets.iter().all(|street| {
+        let on = street.nearest_point(at);
+        let away = at.distance(on);
+        if away < 1.0e-3 {
+            return false;
+        }
+        away > street.wide * 0.5 + reach_toward(what, facing, (on - at) / away) + KERB_CLEAR
+    })
+}
+
+/// Whether the door on this spot opens onto a street rather than away from one.
+///
+/// A lot inherits the facing of the street it was cut from, so in principle every
+/// door already addresses one. In practice a lot can be cut against one street and
+/// end up nearer another - the ring it fronts curves away, a radial crosses behind
+/// it - and then the door is the far side of the building from the road anybody
+/// walks up. Asked directly rather than assumed: step out of the door, step out of
+/// the back wall, and the door had better be the end that finds a street first.
+fn door_faces_a_street(streets: &[Street], at: Vec2, facing: f32, what: Building) -> bool {
+    if streets.is_empty() {
+        return true;
+    }
+    let door = Vec2::new(facing.sin(), -facing.cos());
+    let out = what.footprint().y * 0.5 + DOOR_LOOKS;
+    let nearest =
+        |p: Vec2| streets.iter().map(|s| s.nearest(p).0).fold(f32::MAX, f32::min);
+    nearest(at + door * out) < nearest(at - door * out)
 }
 
 /// Everything laid out for one settlement.
@@ -859,30 +928,60 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
     let mut civic: Option<Plot> = None;
     if site.city {
         let hall = Building::GuildHall;
-        let bulk = hall.footprint().length() * 0.5;
         let stand = square + STREET_WIDE * 0.5 + SETBACK + hall.footprint().y * 0.5;
+        // Walked outward as well as around.
+        //
+        // A guild hall is 18 m across, so standing clear of a radial's kerb wants
+        // nearly 13 m from its middle line - more than half the gap between two
+        // radials where they leave a square, which is exactly where the old search
+        // looked and only there. It found nothing and the city got no guild hall.
+        // One ring further out the same gap is wider, because the radials diverge.
+        'find: for out in 0..6 {
+            let stand = stand + out as f32 * hall.footprint().x * 0.5;
         for step in 0..48 {
             let turn = through + std::f32::consts::TAU * step as f32 / 48.0;
             let at = site.at + Vec2::from_angle(turn) * stand;
             if at.distance(site.at) > reach {
                 continue;
             }
-            if streets
+            // FACING THE NEAREST STREET, not the square.
+            //
+            // It used to face back at the square unconditionally, which reads well
+            // only while it is ON the square. Pushed a ring outward to find room, a
+            // hall facing inward addresses an empty green with its back to the high
+            // street - "entrances need to face a road". So the street it stands
+            // nearest chooses which way it looks, and the square keeps it only when
+            // the square is what it fronts.
+            let Some(on) = streets
                 .iter()
-                .any(|street| street.nearest(at).0 < street.wide * 0.5 + bulk * 0.6)
+                .map(|street| street.nearest_point(at))
+                .min_by(|a, b| {
+                    a.distance(at)
+                        .partial_cmp(&b.distance(at))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+            else {
+                continue;
+            };
+            let door = (on - at).normalize_or_zero();
+            if door == Vec2::ZERO {
+                continue;
+            }
+            let facing = door.x.atan2(-door.y);
+            if !clear_of_streets(&streets, at, facing, hall)
+                || !door_faces_a_street(&streets, at, facing, hall)
             {
                 continue;
             }
-            // Facing back at the square.
-            let door = (site.at - at).normalize();
             civic = Some(Plot {
                 at,
-                facing: door.x.atan2(-door.y),
+                facing,
                 what: hall,
                 // On the square, whatever the percentiles would have said.
                 district: District::Market,
             });
-            break;
+            break 'find;
+        }
         }
     }
 
@@ -922,13 +1021,39 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
             continue;
         }
 
-        let bulk = what.footprint().length() * 0.5;
-        if streets
-            .iter()
-            .any(|street| street.nearest(at).0 < street.wide * 0.5 + bulk * 0.55)
-        {
-            continue;
+        // OFF EVERY ROAD, and OPENING ONTO ONE.
+        //
+        // Slid along its own frontage rather than dropped. A lot cut near the end of
+        // a parcel sits close to whatever street crosses there, so testing properly
+        // and giving up thinned a city from thirty-odd buildings to seventeen - the
+        // rule was right and the response to it was wrong. Sliding keeps the
+        // building on the frontage it was cut from, keeps the facing that frontage
+        // gave it, and just moves it clear of the crossing: which is what a surveyor
+        // does with a corner plot.
+        let (sin, cos) = lot.facing.sin_cos();
+        let across = Vec2::new(cos, sin);
+        let room = (lot.frontage - what.footprint().x) * 0.5;
+        let mut stood = None;
+        for step in 0..=8 {
+            for side in [1.0_f32, -1.0] {
+                let shift = side * room * step as f32 / 8.0;
+                let try_at = at + across * shift;
+                if clear_of_streets(&streets, try_at, lot.facing, what)
+                    && door_faces_a_street(&streets, try_at, lot.facing, what)
+                {
+                    stood = Some(try_at);
+                    break;
+                }
+                if step == 0 {
+                    break;
+                }
+            }
+            if stood.is_some() {
+                break;
+            }
         }
+        let Some(at) = stood else { continue };
+        let bulk = what.footprint().length() * 0.5;
         if plots.iter().any(|placed| {
             let want = (bulk + placed.what.footprint().length() * 0.5) * 0.62;
             at.distance(placed.at) < want
@@ -1351,7 +1476,26 @@ const ROAD_STONE: [f32; 4] = [0.56, 0.56, 0.58, 1.0];
 /// A village is old-school fantasy and a city is modern, and the ground underfoot is
 /// half of that difference - asphalt through a thatched village would undo the
 /// silhouette work above it before you looked up.
-const ROAD_EARTH: [f32; 4] = [0.66, 0.54, 0.38, 1.0];
+// Warmer and more saturated than it was. At (0.66, 0.54, 0.38) a village lane was a
+// pale tan, and the near-cel banding pulls saturation out of everything it steps -
+// so on screen it read as the same grey as a city street and every road in the world
+// looked paved. Dirt has to be unmistakably BROWN before the banding gets it.
+// # Why a brown road kept photographing grey
+//
+// Twice this was set to a perfectly good brown - a mid (0.56, 0.40, 0.24) and a
+// light (0.82, 0.63, 0.40) - and twice a photograph of a village lane came back
+// neutral grey, indistinguishable from a city's paving.
+//
+// It is not the banding and it is not the material. A road is a flat, upward-facing
+// surface, so almost all the light landing on it is SKY light, and the sky is blue.
+// Dividing an observed road pixel by the colour that produced it puts this world's
+// road light at about (0.22, 0.30, 0.50) - blue arrives 2.2x stronger than red.
+// Any colour whose blue channel is more than about a 2.2th of its red comes out the
+// other side neutral, however brown it looked in the constant.
+//
+// So the blue is crushed rather than the red raised. R:B here is about 5.6:1, which
+// lands on screen at roughly 2.5:1 - brown, and legibly not paving.
+const ROAD_EARTH: [f32; 4] = [0.85, 0.39, 0.15, 1.0];
 const ROAD_COBBLE: [f32; 4] = [0.60, 0.55, 0.48, 1.0];
 
 /// How much one paving stone differs from its neighbour.
@@ -1360,6 +1504,8 @@ const ROAD_COBBLE: [f32; 4] = [0.60, 0.55, 0.48, 1.0];
 /// turns it into stones - it costs nothing, because the paving is already built as
 /// quads and every quad already carries a colour.
 const STONE_VARIES: f32 = 0.16;
+// The kerb of a PAVED street. A dirt track has no kerb - see `pave`, which uses the
+// surface colour at its edges when there is no city to put a kerb on.
 const ROAD_KERB: [f32; 4] = [0.44, 0.42, 0.39, 1.0];
 
 /// The material a street's paving wears.
@@ -1563,12 +1709,16 @@ fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2,
             // Kerbs at the very edge and the surface held flat across the middle.
             let surface = if city { ROAD_STONE } else { ROAD_EARTH };
             let half = street.wide * 0.5;
+            // A kerb only where there is paving to kerb. A cart track's edge is
+            // where the dirt stops and the grass starts, and putting a stone kerb
+            // down each side of one is most of why they all read as paved.
+            let edge = if city { ROAD_KERB } else { surface };
             for (across, colour) in [
-                (-half, ROAD_KERB),
+                (-half, edge),
                 (-half * 0.84, surface),
                 (0.0, surface),
                 (half * 0.84, surface),
-                (half, ROAD_KERB),
+                (half, edge),
             ] {
                 let at = on + side * across;
                 let height = terrain.drawn_height(at.x, at.y) + ROAD_LIES;
@@ -1660,6 +1810,53 @@ fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2,
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colours);
     mesh.insert_indices(bevy::render::mesh::Indices::U32(indices));
     mesh
+}
+
+/// The country roads near the player, drawn as dirt.
+///
+/// # A graded road nobody can see is a graded road
+///
+/// `settle` has always cut these into the terrain - it flattens a strip and eases
+/// the sides back into the land - but nothing ever DREW them, so the only sign a
+/// road existed was a suspiciously level line of grass. A road is a surface.
+///
+/// Built with the same ribbon the town's streets use, at the same height above the
+/// ground and with the same junction discs, so a country road meeting a town's
+/// high street looks like one road rather than two that happen to touch.
+fn dirt_roads_near(
+    plan: &crate::world::settle::Settlements,
+    terrain: &crate::world::terrain::Terrain,
+    at: Vec2,
+) -> Vec<Street> {
+    plan.ways()
+        .iter()
+        .filter(|road| {
+            let mid = (road.from + road.to) * 0.5;
+            mid.distance(at) < RAISES_WITHIN * 1.6
+        })
+        // NOT THROUGH THE DESERT OR THE SNOW.
+        //
+        // "The desert doesn't need or would even have a dirt path, the snow would
+        // also cover it." Both true, and both are the same rule the weather already
+        // follows: what a place IS decides what happens on it. A track is worn by
+        // feet into ground that holds a mark, and sand and snow do not hold one.
+        //
+        // Asked per leg, so a road running out of the green world into the dunes
+        // simply stops being drawn where the dunes start - no border to author, and
+        // the leg is short enough that the end is not abrupt.
+        .filter(|road| {
+            let mid = (road.from + road.to) * 0.5;
+            !matches!(
+                terrain.region(mid.x, mid.y).0,
+                terrain_core::region::Country::Desert | terrain_core::region::Country::Snow
+            )
+        })
+        .map(|road| Street {
+            from: road.from,
+            to: road.to,
+            wide: crate::config::ROAD_WIDE,
+        })
+        .collect()
 }
 
 /// Builds the settlements near the player, and takes down the ones left behind.
@@ -1844,11 +2041,81 @@ impl Plot {
 /// is wall - and it is the difference between walking in and fighting the frame.
 const DOOR_CLEAR: f32 = 2.2;
 
+/// Lays the country roads around the player, and takes them up behind.
+///
+/// Keyed on a coarse cell rather than rebuilt every frame: the mesh is the same for
+/// as long as the player is anywhere near the same place, and a road that is rebuilt
+/// per frame is a road that flickers.
+#[derive(Resource, Default)]
+pub struct DirtLaid {
+    cell: Option<IVec2>,
+}
+
+#[derive(Component)]
+struct CountryRoad;
+
+fn lay_the_country_roads(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<crate::shade::Shaded>>,
+    mut surface: Local<Option<Handle<crate::shade::Shaded>>>,
+    terrain: Res<TerrainSource>,
+    mut laid: ResMut<DirtLaid>,
+    anchors: Query<&GlobalTransform, With<StreamAnchor>>,
+    standing: Query<Entity, With<CountryRoad>>,
+) {
+    let Some(anchor) = anchors.iter().next() else {
+        return;
+    };
+    let here = Vec2::new(anchor.translation().x, anchor.translation().z);
+    let cell = (here / (RAISES_WITHIN * 0.5)).floor().as_ivec2();
+    if laid.cell == Some(cell) {
+        return;
+    }
+    laid.cell = Some(cell);
+
+    for entity in &standing {
+        commands.entity(entity).despawn();
+    }
+
+    let roads = dirt_roads_near(terrain.plan(), &terrain.0, here);
+    if roads.is_empty() {
+        return;
+    }
+    let material = surface
+        .get_or_insert_with(|| {
+            materials.add(crate::shade::shaded(StandardMaterial {
+                base_color: Color::WHITE,
+                perceptual_roughness: 0.97,
+                reflectance: 0.02,
+                double_sided: true,
+                cull_mode: None,
+                ..default()
+            }))
+        })
+        .clone();
+
+    let mesh = pave(&roads, &terrain.0, here, false);
+    commands.spawn((
+        CountryRoad,
+        Mesh3d(meshes.add(mesh)),
+        MeshMaterial3d(material),
+        Transform::from_xyz(here.x, 0.0, here.y),
+        Visibility::default(),
+        bevy::pbr::NotShadowCaster,
+    ));
+}
+
 pub struct TownPlugin;
 
 impl Plugin for TownPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Built>()
+            .init_resource::<DirtLaid>()
+            .add_systems(
+                Update,
+                lay_the_country_roads.run_if(crate::build::a_world_is_up),
+            )
             .add_systems(Update, raise_the_towns.run_if(crate::build::a_world_is_up));
     }
 }
@@ -2645,6 +2912,50 @@ mod tests {
             near.len()
         );
         println!("standing at the ranch raised {} buildings", near.len());
+    }
+
+    #[test]
+    fn no_building_stands_in_a_road() {
+        // The other half of the same complaint, and the one nothing tested: a door
+        // can face a street perfectly while the building's far corner sits in a
+        // different street. That is what `footprint().length() * 0.55` allowed - it
+        // reserved a little over half the footprint's DIAGONAL against a road the
+        // building met side-on with its full half WIDTH.
+        //
+        // Asked of the CARRIAGEWAY rather than of the placement rule: walk each
+        // street between its kerbs and check that no point of road is inside any
+        // building. A guard that reruns the rule it is guarding cannot fail.
+        for seed in 0..30 {
+            let site = a_site(seed % 2 == 0, 85.0);
+            let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), seed);
+            for plot in &layout.plots {
+                let half = plot.what.footprint() * 0.5;
+                let (sin, cos) = plot.facing.sin_cos();
+                let across = Vec2::new(cos, sin);
+                let door = Vec2::new(sin, -cos);
+                for street in &layout.streets {
+                    let run = street.to - street.from;
+                    let steps = (run.length() / 1.0).ceil().max(1.0) as usize;
+                    let side = run.normalize_or_zero().perp();
+                    for step in 0..=steps {
+                        let on = street.from + run * (step as f32 / steps as f32);
+                        for kerb in [-1.0_f32, 0.0, 1.0] {
+                            let point = on + side * (kerb * street.wide * 0.5);
+                            let local = point - plot.at;
+                            let inside = local.dot(across).abs() < half.x
+                                && local.dot(door).abs() < half.y;
+                            assert!(
+                                !inside,
+                                "seed {seed}: a {:?} stands in a road - the         carriageway runs {:.1} m inside its walls",
+                                plot.what,
+                                (half.x - local.dot(across).abs())
+                                    .min(half.y - local.dot(door).abs()),
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

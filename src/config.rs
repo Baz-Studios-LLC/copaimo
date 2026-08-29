@@ -950,7 +950,36 @@ pub const ROAD_BATTER: f32 = 3.0;
 /// The machinery below is kept, tested, and one word from returning — this is a
 /// switch rather than a deletion, so turning towns back into a linked network is
 /// changing `false` to `true`.
-pub const LINK_TOWNS_WITH_ROADS: bool = false;
+/// TRUE again, and the objection above is answered rather than overruled.
+///
+/// The complaint was that a graded run holds its grade across a ridge and cuts
+/// through it - "a machine's answer to a question that wants a person's". That is
+/// true of a road laid as ONE straight line between two towns, which is what this
+/// used to build. It now walks between them in short legs that wander, so it goes
+/// round a shoulder rather than through it, and each leg is graded on its own.
+///
+/// A hand-laid road still beats it. This is what the map has until somebody lays
+/// one, and a world where you cannot get from one town to the next without
+/// striking out across country is worse than either.
+pub const LINK_TOWNS_WITH_ROADS: bool = true;
+
+/// How long one leg of a country road is, in metres.
+///
+/// Short enough that the road can bend around things, long enough that it is not a
+/// scribble: at 90 m a run between towns two kilometres apart is about twenty-two
+/// legs, each graded separately.
+pub const ROAD_LEG: f32 = 90.0;
+
+/// How far a country road wanders off the straight line, as a share of its length.
+///
+/// "Natural, not narrow." A road between two places is not a ruled line and it is
+/// not a random walk either - it is a line that gives way to the country. This is
+/// how far it is allowed to give.
+pub const ROAD_WANDERS: f32 = 0.16;
+
+/// How wide a country road is, in metres. Narrower than a town's high street: this
+/// is a cart track between places, not a street with houses on it.
+pub const ROAD_WIDE: f32 = 4.6;
 
 /// The widest a cutting's skirt may reach, in metres.
 ///
