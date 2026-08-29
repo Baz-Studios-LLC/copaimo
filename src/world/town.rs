@@ -553,6 +553,30 @@ impl Building {
         }
     }
 
+    /// The wall a lit window hangs on: how wide, how deep, and how many storeys of
+    /// it are glass.
+    ///
+    /// # A footprint is not a facade
+    ///
+    /// The lit panes were placed against `footprint`, which is what a building keeps
+    /// clear on the GROUND and is deliberately bigger than the building itself. So
+    /// they floated a metre off the glass, hung past the corners, and lined up with
+    /// none of the windows behind them - reported as lights floating in front of the
+    /// buildings, which is exactly what they were.
+    ///
+    /// These are the numbers the figure was built with, checked against what Blender
+    /// writes out by `the_facades_are_the_size_the_game_thinks_they_are`. A tower
+    /// spends its ground floor on a lobby, so the glazing starts a storey and a half
+    /// up and there is one fewer of it than the building has floors.
+    pub fn facade(self) -> Option<(f32, f32, usize)> {
+        match self {
+            Building::CityBlock => Some((10.5, 9.0, 4)),
+            Building::CityTower => Some((10.0, 9.5, 8)),
+            Building::CitySpire => Some((11.0, 11.0, 13)),
+            _ => None,
+        }
+    }
+
     /// How many floors this has, and how tall one is.
     ///
     /// Measured off the exported models, like the footprints, and kept in step with
@@ -561,9 +585,9 @@ impl Building {
     pub fn storeys(self) -> Option<usize> {
         match self {
             // 19.7 m, 37.6 m and 57.1 m over a 3.4 m floor, less their crowns.
-            Building::CityBlock => Some(5),
-            Building::CityTower => Some(10),
-            Building::CitySpire => Some(15),
+            Building::CityBlock => Some(4),
+            Building::CityTower => Some(8),
+            Building::CitySpire => Some(13),
             // The old world, on its own 3.6 m storey. Two floors each, which is what
             // these are built with - see `shell` in `dev/art/town.py`.
             Building::Cottage | Building::Townhouse | Building::Shop => Some(2),
@@ -2146,10 +2170,25 @@ const ROAD_STEPS_EVERY: f32 = 2.5;
 // lands a whole band darker than intended once it is in the world. Photographed at
 // 0.34 a paved street came out charcoal; a road is a light surface with dark things
 // standing on it, and it has to stay lighter than the grass beside it.
-// Darkened from 0.56 with the paving, and for the same reason: it was chosen while
+// A CITY STREET IS COBBLED.
+//
+// It was a flat grey slab - one value over the whole carriageway, which reads as
+// poured concrete and is the one surface a stone-built city should not have. Warmer
+// and darker than the slab was, so the stones have somewhere to vary to.
+//
+// Also darkened from 0.56 for the same reason the paving was: it was chosen while
 // every road faced the wrong way and took ambient light only, so it had to be pale
 // to read at all. Taking the sun, a city street came out white.
-const ROAD_STONE: [f32; 4] = [0.34, 0.34, 0.36, 1.0];
+/// sRGB (0.42, 0.41, 0.40) - a cobbled street.
+const ROAD_STONE: [f32; 4] = [0.1473, 0.1400, 0.1329, 1.0];
+
+/// How big a cobble is, in metres, and how much one differs from the next.
+///
+/// Small enough to be a stone rather than a slab, big enough to survive the road
+/// being drawn at a metre a vertex - what carries at distance is that the surface is
+/// BROKEN, not that any one stone is legible.
+const COBBLE_IS: f32 = 0.55;
+const COBBLES_VARY: f32 = 0.30;
 
 /// What a VILLAGE's lanes are made of: packed earth and cobble, warm and rough.
 ///
@@ -2175,8 +2214,24 @@ const ROAD_STONE: [f32; 4] = [0.34, 0.34, 0.36, 1.0];
 //
 // So the blue is crushed rather than the red raised. R:B here is about 5.6:1, which
 // lands on screen at roughly 2.5:1 - brown, and legibly not paving.
-const ROAD_EARTH: [f32; 4] = [0.85, 0.39, 0.15, 1.0];
-const ROAD_COBBLE: [f32; 4] = [0.60, 0.55, 0.48, 1.0];
+// # These are LINEAR, and for a long time they were not
+//
+// A vertex colour reaches the shader as LINEAR light, and every one of these was
+// written as though it were sRGB - the value you would type into a colour picker.
+// Linear 0.31 is sRGB 0.58, so every road in the world shipped about twice as bright
+// as the number said, which is most of the history above: two "perfectly good
+// browns" that photographed pale, a city street that came out white however far the
+// constant was pushed down, and three separate darkenings that each moved it less
+// than expected.
+//
+// Blender's side was never wrong - `masonry.paint` runs `to_linear` on the palette.
+// It was only ever these. Each is now the linear value of the sRGB colour named in
+// its comment.
+
+/// sRGB (0.62, 0.42, 0.24) - packed earth.
+const ROAD_EARTH: [f32; 4] = [0.3424, 0.1473, 0.0470, 1.0];
+/// sRGB (0.46, 0.43, 0.39).
+const ROAD_COBBLE: [f32; 4] = [0.1789, 0.1549, 0.1260, 1.0];
 
 /// How much one paving stone differs from its neighbour.
 ///
@@ -2186,7 +2241,8 @@ const ROAD_COBBLE: [f32; 4] = [0.60, 0.55, 0.48, 1.0];
 const STONE_VARIES: f32 = 0.16;
 // The kerb of a PAVED street. A dirt track has no kerb - see `pave`, which uses the
 // surface colour at its edges when there is no city to put a kerb on.
-const ROAD_KERB: [f32; 4] = [0.28, 0.27, 0.26, 1.0];
+/// sRGB (0.34, 0.33, 0.32) - kerbstone.
+const ROAD_KERB: [f32; 4] = [0.0946, 0.0890, 0.0835, 1.0];
 
 /// How wide the margin is where a road gives out into the ground, in metres.
 ///
@@ -2273,7 +2329,46 @@ fn stitch(indices: &mut Vec<u32>, run: &[usize]) {
 }
 
 /// Builds one town's streets as a mesh laid on the ground.
-fn pave(ways: &[Way], terrain: &crate::world::terrain::Terrain, low: Vec2, city: bool) -> Mesh {
+/// Mixes two road colours.
+fn mix(a: [f32; 4], b: [f32; 4], part: f32) -> [f32; 4] {
+    let part = part.clamp(0.0, 1.0);
+    [
+        a[0] + (b[0] - a[0]) * part,
+        a[1] + (b[1] - a[1]) * part,
+        a[2] + (b[2] - a[2]) * part,
+        1.0,
+    ]
+}
+
+/// How paved the ground under a point is, nought to one.
+///
+/// One where it is well inside a city and nought out in the country, easing over
+/// `PAVING_ARRIVES` at the edge - so a dirt road coming in becomes a street over the
+/// last stretch of its approach instead of at a line.
+fn paved_here(plan: &crate::world::settle::Settlements, at: Vec2) -> f32 {
+    plan.sites()
+        .iter()
+        .filter(|site| site.city && !site.ranch)
+        .map(|site| {
+            crate::util::smoothstep(
+                site.radius + PAVING_ARRIVES,
+                site.radius,
+                site.at.distance(at),
+            )
+        })
+        .fold(0.0_f32, f32::max)
+}
+
+/// Over what distance a country road turns into a city street, in metres.
+const PAVING_ARRIVES: f32 = 34.0;
+
+fn pave(
+    ways: &[Way],
+    terrain: &crate::world::terrain::Terrain,
+    low: Vec2,
+    city: f32,
+) -> Mesh {
+    let at_plan = terrain.plan();
     let mut places: Vec<[f32; 3]> = Vec::new();
     let mut normals: Vec<[f32; 3]> = Vec::new();
     let mut colours: Vec<[f32; 4]> = Vec::new();
@@ -2335,7 +2430,22 @@ fn pave(ways: &[Way], terrain: &crate::world::terrain::Terrain, low: Vec2, city:
             // world stopped being two ages at the one place they touch the ground.
             //
             // Kerbs at the very edge and the surface held flat across the middle.
-            let surface = if city { ROAD_STONE } else { ROAD_EARTH };
+            // HOW PAVED IS IT HERE, rather than is this a paved road.
+            //
+            // # A dirt track that stops dead against a kerb
+            //
+            // A country road was drawn as dirt or as paving by a single flag for the
+            // whole mesh, decided by whether the leg's MIDDLE stood on a city's
+            // ground. So the surface changed material at a leg boundary, in one
+            // step, in the middle of open country - reported as a path ending
+            // abruptly at the city path, which is exactly what a boolean looks like
+            // when what it describes is a gradient.
+            //
+            // A road does not become a street at a line; it becomes one over the
+            // last thirty metres of the approach. `paved` is that, and every colour
+            // below is mixed by it.
+            let paved = city.max(paved_here(at_plan, on));
+            let surface = mix(ROAD_EARTH, ROAD_STONE, paved);
 
             // A WALKED PATH WANDERS IN WIDTH.
             //
@@ -2348,17 +2458,19 @@ fn pave(ways: &[Way], terrain: &crate::world::terrain::Terrain, low: Vec2, city:
             //
             // A city's paving does NOT do this: a kerb is a made edge and a straight
             // one, and wandering it would read as a mistake rather than as wear.
-            let wander = if city {
-                1.0
-            } else {
-                1.0 + (terrain_core::forest::field(on / ROAD_WANDERS_OVER, 733) - 0.5)
+            // A kerb is a made edge and a straight one, so the wander fades out as
+            // the paving comes in rather than stopping with it.
+            let wander = 1.0
+                + (terrain_core::forest::field(on / ROAD_WANDERS_OVER, 733) - 0.5)
                     * ROAD_WANDERS_BY
-            };
+                    * (1.0 - paved);
             let half = way.wide * 0.5 * wander;
             // A kerb only where there is paving to kerb. A cart track's edge is
             // where the dirt stops and the grass starts, and putting a stone kerb
             // down each side of one is most of why they all read as paved.
-            let edge = if city { ROAD_KERB } else { surface };
+            // A kerb only where there is paving to kerb, and it arrives with the
+            // paving rather than all at once.
+            let edge = mix(surface, ROAD_KERB, paved);
 
             // AND A SHOULDER EITHER SIDE.
             //
@@ -2420,10 +2532,22 @@ fn pave(ways: &[Way], terrain: &crate::world::terrain::Terrain, low: Vec2, city:
                 // Three scales, because wear has three: where the carts go, where
                 // the puddles sit, and the scuff of the ground itself.
                 let close = terrain_core::forest::field(at / (ROAD_WEARS_OVER * 0.06), 519);
-                let worn = 1.0
+                let mut worn = 1.0
                     + (broad - 0.5) * ROAD_WEARS
                     + (fine - 0.5) * ROAD_WEARS * 0.5
                     + (close - 0.5) * ROAD_WEARS * 0.22;
+
+                // AND THE STONES THEMSELVES, on a city street.
+                //
+                // Every cobble takes its own value from a field sampled at the size
+                // of a stone, so what you see is a surface made of pieces rather
+                // than a poured one. Only where there is paving to cobble: a dirt
+                // track has no stones in it, and giving it some would read as
+                // gravel.
+                if paved > 0.0 {
+                    let stone = terrain_core::forest::field(at / COBBLE_IS, 941);
+                    worn *= 1.0 + (stone - 0.5) * COBBLES_VARY * paved;
+                }
                 let colour = [
                     colour[0] * worn,
                     colour[1] * worn,
@@ -2506,7 +2630,7 @@ fn pave(ways: &[Way], terrain: &crate::world::terrain::Terrain, low: Vec2, city:
         let height = terrain.drawn_height(at.x, at.y) + ROAD_LIES;
         places.push([at.x - low.x, height, at.y - low.y]);
         normals.push([0.0, 1.0, 0.0]);
-        colours.push(if city { ROAD_STONE } else { ROAD_EARTH });
+        colours.push(mix(ROAD_EARTH, ROAD_STONE, city.max(paved_here(at_plan, at))));
         uvs.push([0.0, 0.0]);
 
         for step in 0..=AROUND_A_JOINT {
@@ -2520,7 +2644,7 @@ fn pave(ways: &[Way], terrain: &crate::world::terrain::Terrain, low: Vec2, city:
             // from six-metre arc pieces looks like when each joint wears a rim. The
             // disc is there to fill a notch, and a patch that fills a hole should
             // not announce itself.
-            colours.push(if city { ROAD_STONE } else { ROAD_EARTH });
+            colours.push(mix(ROAD_EARTH, ROAD_STONE, city.max(paved_here(at_plan, rim))));
             uvs.push([turn, 1.0]);
         }
         for step in 0..AROUND_A_JOINT as u32 {
@@ -2739,7 +2863,7 @@ pub fn raise_the_towns(
                 ..default()
             }))
         });
-        let paving = pave(&layout.ways, &terrain.0, site.at, site.city);
+        let paving = pave(&layout.ways, &terrain.0, site.at, f32::from(u8::from(site.city)));
         commands.spawn((
             FromSite(key),
             Mesh3d(meshes.add(paving)),
@@ -2897,16 +3021,14 @@ fn lay_the_country_roads(
         })
         .clone();
 
-    // Two surfaces, two meshes: the dirt between the towns and the paving where the
-    // same road crosses a city.
-    for (run, city) in [
-        (roads, false),
-        (paved_roads_near(terrain.plan(), &terrain.0, here), true),
-    ] {
-        if run.is_empty() {
-            continue;
-        }
-        let mesh = pave(&run, &terrain.0, here, city);
+    // ONE mesh, and the surface decides itself.
+    //
+    // This used to be two - a dirt run and a paved run, split by whether a leg's
+    // middle stood on a city's ground - which put a hard material change at a leg
+    // boundary out in open country. `pave` asks how paved each POINT is now, so the
+    // same road becomes a street over the last stretch of its approach.
+    if !roads.is_empty() {
+        let mesh = pave(&roads, &terrain.0, here, 0.0);
         commands.spawn((
             CountryRoad,
             Mesh3d(meshes.add(mesh)),
@@ -3313,7 +3435,7 @@ mod tests {
         let layout = lay_out(&site, plan.approach(site.at), crate::config::WORLD_SEED);
         assert!(!layout.streets.is_empty(), "the town has no streets");
 
-        let paving = pave(&layout.ways, &terrain, site.at, site.city);
+        let paving = pave(&layout.ways, &terrain, site.at, f32::from(u8::from(site.city)));
         let count = paving.count_vertices();
         assert!(count > 200, "the paving is {count} vertices, which is nothing");
 
@@ -3489,7 +3611,7 @@ mod tests {
         let site = plan.sites()[0];
         let layout = lay_out(&site, plan.approach(site.at), crate::config::WORLD_SEED);
         println!("{} streets", layout.streets.len());
-        let mesh = pave(&layout.ways, &terrain, site.at, site.city);
+        let mesh = pave(&layout.ways, &terrain, site.at, f32::from(u8::from(site.city)));
         use bevy::render::mesh::VertexAttributeValues;
         let places = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
             Some(VertexAttributeValues::Float32x3(v)) => v.clone(),
@@ -3905,6 +4027,51 @@ mod doorstep {
         }
     }
 
+    /// Blender and the game agree about the wall a lit window hangs on.
+    ///
+    /// The panes used to be placed against the collision footprint, which is bigger
+    /// than the building on purpose, so they floated off the glass and past the
+    /// corners. Numbers this specific drift the moment somebody widens a figure, so
+    /// Blender writes down what it built and this reads it back.
+    #[test]
+    fn the_facades_are_the_size_the_game_thinks_they_are() {
+        let note = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets/models/town.txt");
+        let said = std::fs::read_to_string(&note)
+            .unwrap_or_else(|_| panic!("run dev/art/build.sh: {} is missing", note.display()));
+        for (name, what) in [
+            ("city_block", Building::CityBlock),
+            ("city_tower", Building::CityTower),
+            ("city_spire", Building::CitySpire),
+        ] {
+            let line = said
+                .lines()
+                .find_map(|line| line.strip_prefix(&format!("FACADE {name} ")))
+                .unwrap_or_else(|| panic!("{name} has no facade in {}", note.display()));
+            let said: Vec<f32> = line
+                .split_whitespace()
+                .map(|n| n.parse().expect("a number"))
+                .collect();
+            let (wide, deep, storeys) = what.facade().expect("a city figure has a facade");
+            assert!(
+                (said[0] - wide).abs() < 1.0e-3 && (said[1] - deep).abs() < 1.0e-3,
+                "{name} is built {} x {} and the game hangs windows on {wide} x {deep}",
+                said[0],
+                said[1],
+            );
+            assert_eq!(
+                said[2] as usize, storeys,
+                "{name} has {} glazed storeys and the game lights {storeys}",
+                said[2],
+            );
+            assert_eq!(
+                what.storeys(),
+                Some(storeys),
+                "{name} disagrees with itself about how many storeys it has",
+            );
+        }
+    }
+
     /// A model's door lands where the doorway is.
     ///
     /// # The one thing nothing compared
@@ -3978,7 +4145,7 @@ mod facing {
         for city in [false, true] {
             let site = a_site(city, if city { 120.0 } else { 70.0 });
             let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), 3);
-            let mesh = pave(&layout.ways, &terrain, site.at, city);
+            let mesh = pave(&layout.ways, &terrain, site.at, f32::from(u8::from(city)));
             let Some(VertexAttributeValues::Float32x3(places)) =
                 mesh.attribute(Mesh::ATTRIBUTE_POSITION)
             else {

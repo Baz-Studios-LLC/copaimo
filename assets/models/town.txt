@@ -1,2 +1,7 @@
 # Written by dev/art/town.py. Read by world::town's tests.
 DOOR_ON_BLENDER_Y -1
+FLOOR_TALL 3.4
+LOBBY 5.1
+FACADE city_block 10.5 9.0 4
+FACADE city_tower 10.0 9.5 8
+FACADE city_spire 11.0 11.0 13

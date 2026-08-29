@@ -1336,4 +1336,17 @@ os.makedirs(os.path.dirname(NOTE), exist_ok=True)
 with open(NOTE, "w", encoding="utf-8") as note:
     note.write("# Written by dev/art/town.py. Read by world::town's tests.\n")
     note.write("DOOR_ON_BLENDER_Y -1\n")
+    # The FACADE of each city figure: the wall the game hangs lit windows on.
+    #
+    # Not the footprint. The footprint is what a building keeps clear on the ground
+    # and it is bigger than the building - so panes placed against it floated a
+    # metre off the glass, past the corners, lining up with nothing. This is the
+    # `wide` and `deep` the figure was actually built with, the storeys that are
+    # GLAZED (a tower spends its ground floor on a lobby), and how far up the
+    # glazing starts.
+    note.write(f"FLOOR_TALL {FLOOR_TALL}\n")
+    note.write(f"LOBBY {FLOOR_TALL * 1.5}\n")
+    note.write("FACADE city_block 10.5 9.0 4\n")
+    note.write("FACADE city_tower 10.0 9.5 8\n")
+    note.write("FACADE city_spire 11.0 11.0 13\n")
 print(f"WROTE {NOTE}")

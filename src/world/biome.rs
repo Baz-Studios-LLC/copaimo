@@ -54,7 +54,12 @@ static PALETTE: LazyLock<Palette> = LazyLock::new(|| Palette {
     // chosen while every road and every square took ambient light only, so it had
     // to be pale to read at all - and the day the surfaces started taking the sun,
     // a city square came out the colour of snow.
-    paving: linear(0.34, 0.34, 0.35),
+    // Down again, to 0.22. Two darkenings did almost nothing on screen and the
+    // reason is the near-cel banding: a mid grey lit by an eleven-thousand-lux sun
+    // lands in the top band and is stepped to nearly white, so the constant has to
+    // clear the band's lower edge rather than merely be darker than it was. Same
+    // mechanism that once made two perfectly good browns photograph grey.
+    paving: linear(0.22, 0.22, 0.235),
     shallow: linear(0.22, 0.38, 0.46),
     sand: linear(0.74, 0.68, 0.50),
     lush_grass: linear(0.26, 0.47, 0.22),

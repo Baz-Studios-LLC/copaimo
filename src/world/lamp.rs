@@ -43,13 +43,14 @@ const LIT_WITHIN: f32 = 85.0;
 /// street lamp is a made thing on a pole meant to light a carriageway; a village
 /// lantern is somebody's lamp outside their door and is meant to be the smaller of
 /// the two, so they no longer share a number.
-// Halved once the road was wound the right way up. These were tuned while the
-// paving faced DOWN and took no light at all, so they were set bright enough to
-// make the GROUND read - and the moment the road started taking light too, a city
-// square came out blown white.
-const STREET_BURNS: f32 = 420_000.0;
-const POST_BURNS: f32 = 190_000.0;
-const STREET_CARRIES: f32 = 34.0;
+// Halved once the road was wound the right way up, then put back up and past where
+// they started once the GROUND was darkened. The blown-white square was never the
+// lamps: it was a mid-grey paving that the near-cel banding stepped to nearly white,
+// and dimming the lamps to compensate was treating the symptom. With the ground at a
+// value that stays in its own band, a street lamp can be as bright as one.
+const STREET_BURNS: f32 = 1_150_000.0;
+const POST_BURNS: f32 = 460_000.0;
+const STREET_CARRIES: f32 = 42.0;
 const POST_CARRIES: f32 = 20.0;
 const LAMPLIGHT: Color = Color::srgb(1.0, 0.82, 0.55);
 
@@ -132,6 +133,13 @@ const AWAKE_SHARE: f32 = 0.34;
 /// in `dev/art/town.py`.
 const FLOOR_TALL: f32 = 3.4;
 const STOREY: f32 = 3.6;
+
+/// How far up a tower's glazing starts - it spends its ground floor on a lobby.
+const LOBBY: f32 = FLOOR_TALL * 1.5;
+
+/// How far proud of the glass a lit pane sits. Enough to win the depth test and
+/// little enough that it is in the window rather than in front of it.
+const PROUD: f32 = 0.02;
 
 /// How wide and tall a cottage's window is, in metres, and how far up its storey.
 const PANE: Vec2 = Vec2::new(0.9, 1.15);
@@ -375,8 +383,11 @@ pub fn light_the_windows(
                 // the width of it. A cottage has windows in a wall: lighting the
                 // whole face of one would read as a building on fire, so it gets
                 // panes the size of the windows that are actually there.
-                let panes: Vec<(Vec3, Vec3)> = if standing.what.glazed_in_bands() {
-                    let z = storey as f32 * FLOOR_TALL + FLOOR_TALL * 0.67;
+                let panes: Vec<(Vec3, Vec3)> = if let Some((wide, deep, _)) =
+                    standing.what.facade()
+                {
+                    // ON THE FACADE, at the height the glazing actually is.
+                    let z = LOBBY + storey as f32 * FLOOR_TALL + FLOOR_TALL * 0.67;
                     let band = FLOOR_TALL * 0.66;
                     // ONE LIGHT AT A TIME, not the whole floor.
                     //
@@ -385,8 +396,13 @@ pub fn light_the_windows(
                     // room with somebody in it. The facade is divided into squares
                     // by its own mullions - see `curtain_wall` - so the lit pane is
                     // one of those squares.
+                    // Blender builds a figure Z-up and the export turns it Y-up, so
+                    // the wall whose span runs along Blender X keeps its span on
+                    // local X and its FACE moves to local Z. Getting that the wrong
+                    // way round hangs a wall's worth of windows off the end of the
+                    // building.
                     let mut panes = Vec::new();
-                    for (span, face) in [(footprint.x, true), (footprint.y, false)] {
+                    for (span, face) in [(wide, true), (deep, false)] {
                         let lights = ((span * 0.94 / band).round() as usize).max(2);
                         for light in 0..lights {
                             // Which of them is in, hashed per pane.
@@ -399,22 +415,24 @@ pub fn light_the_windows(
                             }
                             let over = -span * 0.47
                                 + span * 0.94 * (light as f32 + 0.5) / lights as f32;
-                            let wide = span * 0.94 / lights as f32 - 0.16;
+                            let across = span * 0.94 / lights as f32 - 0.18;
                             if face {
                                 panes.push((
-                                    Vec3::new(wide, band - 0.16, 0.06),
-                                    Vec3::new(over, z, footprint.y * 0.5 + 0.02),
+                                    Vec3::new(across, band - 0.18, 0.04),
+                                    Vec3::new(over, z, deep * 0.5 + PROUD),
                                 ));
                             } else {
                                 panes.push((
-                                    Vec3::new(0.06, band - 0.16, wide),
-                                    Vec3::new(footprint.x * 0.5 + 0.02, z, over),
+                                    Vec3::new(0.04, band - 0.18, across),
+                                    Vec3::new(wide * 0.5 + PROUD, z, over),
                                 ));
                             }
                         }
                     }
                     panes
                 } else {
+                    // The old world hangs its windows on the walls the footprint
+                    // describes, which for a cottage IS the building.
                     let z = storey as f32 * STOREY + PANE_UP;
                     // Two panes across the front and one down each flank - a lit
                     // room shows at whichever window somebody is standing near.
