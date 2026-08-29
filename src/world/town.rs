@@ -789,6 +789,74 @@ fn door_faces_a_street(streets: &[Street], at: Vec2, facing: f32, what: Building
     nearest(at + door * out) < nearest(at - door * out)
 }
 
+/// One ROAD, as the line it actually runs along.
+///
+/// # Why a road is a chain and not a bag of segments
+///
+/// A ring road was built as a few dozen short straight pieces and drawn as a few
+/// dozen separate rectangles, each square across its own direction. On a curve a
+/// rectangle's outer edge is shorter than the arc it stands for and its inner edge
+/// is longer, so consecutive pieces gap on the outside and overlap on the inside -
+/// a sawtooth of triangular bites out of the kerb the whole way round.
+///
+/// It cannot be fixed while drawing, because at that point the pieces have already
+/// forgotten they were one road: the only way to find a piece's neighbour is to
+/// search for another piece that happens to share an endpoint, and where a ring
+/// meets a radial that search finds two. I tried it and got a starburst of spikes.
+///
+/// So the chain is what the layout holds and the segments are DERIVED from it.
+/// Everything that wants segments - frontage, clearance, junctions, lamps - still
+/// gets them, and the one thing that needs to know where a road bends now does.
+#[derive(Clone, Debug)]
+pub struct Way {
+    pub points: Vec<Vec2>,
+    pub wide: f32,
+}
+
+impl Way {
+    /// The straight pieces this road is made of.
+    pub fn segments(&self) -> impl Iterator<Item = Street> + '_ {
+        self.points.windows(2).map(|pair| Street {
+            from: pair[0],
+            to: pair[1],
+            wide: self.wide,
+        })
+    }
+
+    /// The way the ribbon lies across the road at each of its points, and how much
+    /// the cross-section has to stretch there to keep the road's width.
+    ///
+    /// At a bend both pieces use ONE cross-section, bisecting the turn - which is
+    /// what makes their quads share an edge exactly instead of gapping. The stretch
+    /// is `1 / cos(half the turn)`, capped: on a hairpin that factor runs away and
+    /// throws the kerb into the next county, which is exactly how the first attempt
+    /// at this produced spikes.
+    fn across(&self) -> Vec<(Vec2, f32)> {
+        let ways: Vec<Vec2> = self
+            .points
+            .windows(2)
+            .map(|pair| (pair[1] - pair[0]).normalize_or(Vec2::X))
+            .collect();
+        if ways.is_empty() {
+            return Vec::new();
+        }
+        (0..self.points.len())
+            .map(|at| {
+                let before = (at > 0).then(|| ways[at - 1]);
+                let after = ways.get(at).copied();
+                let (bisect, square) = match (before, after) {
+                    (Some(a), Some(b)) => ((a.perp() + b.perp()).normalize_or(a.perp()), b.perp()),
+                    (Some(a), None) => (a.perp(), a.perp()),
+                    (None, Some(b)) => (b.perp(), b.perp()),
+                    (None, None) => (Vec2::Y, Vec2::Y),
+                };
+                let lean = bisect.dot(square).abs();
+                (bisect, if lean > 0.45 { 1.0 / lean } else { 1.0 / 0.45 })
+            })
+            .collect()
+    }
+}
+
 /// A lamp standing at a kerb.
 #[derive(Clone, Copy, Debug)]
 pub struct Lamp {
@@ -804,6 +872,10 @@ pub struct Lamp {
 /// Everything laid out for one settlement.
 #[derive(Clone, Debug, Default)]
 pub struct Layout {
+    /// The roads as they run. What gets DRAWN.
+    pub ways: Vec<Way>,
+    /// The same roads cut into straight pieces, which is what every geometric
+    /// question about them wants. Derived from `ways`, never built beside it.
     pub streets: Vec<Street>,
     pub plots: Vec<Plot>,
     pub lamps: Vec<Lamp>,
@@ -994,7 +1066,7 @@ const A_CURVE_STEPS_EVERY: f32 = 6.0;
 /// paving is built from them - but enough of them, short enough, that the corner
 /// between any two is far shallower than the road is wide.
 fn arc_streets(
-    streets: &mut Vec<Street>,
+    ways: &mut Vec<Way>,
     parcels: &mut Vec<Parcel>,
     middle: Vec2,
     from: Vec2,
@@ -1032,6 +1104,8 @@ fn arc_streets(
     let mut parcel_from = from;
 
     let mut last = from;
+    // ONE road, kept as the line it runs along - see `Way`.
+    let mut line = vec![from];
     for step in 1..=steps {
         let part = step as f32 / steps as f32;
         // The radius eases between the two ends, so a ring that wobbles from one
@@ -1043,13 +1117,14 @@ fn arc_streets(
         } else {
             middle + Vec2::from_angle(turn) * here
         };
-        streets.push(Street { from: last, to: next, wide });
+        line.push(next);
         if step % PIECES_TO_A_PARCEL == 0 || step == steps {
             frontage_parcels(parcels, middle, parcel_from, next, wide, depth, ring);
             parcel_from = next;
         }
         last = next;
     }
+    ways.push(Way { points: line, wide });
 }
 
 /// Where a town's streets actually MEET, whatever plan drew them.
@@ -1218,7 +1293,8 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
     }
     spokes.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-    let mut streets = Vec::new();
+    // The roads as CHAINS. `streets` is derived from these once they are all laid.
+    let mut ways: Vec<Way> = Vec::new();
     let mut parcels = Vec::new();
 
     // # The rings WOBBLE, and the radials do not all reach
@@ -1251,7 +1327,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
         let (a, b) = (spokes[spoke], spokes[(spoke + 1) % spokes.len()]);
         let from = site.at + Vec2::from_angle(a) * square;
         let to = site.at + Vec2::from_angle(b) * square;
-        arc_streets(&mut streets, &mut parcels, site.at, from, to, STREET_WIDE, depth, true);
+        arc_streets(&mut ways, &mut parcels, site.at, from, to, STREET_WIDE, depth, true);
     }
 
     // The radials, each running from the square out through every ring it crosses.
@@ -1265,9 +1341,12 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
         } else {
             LANE_WIDE
         };
-        streets.push(Street {
-            from: site.at + out * square,
-            to: site.at + out * ring_r(index, last),
+        // A radial is a chain of two points, which is what a straight road is.
+        ways.push(Way {
+            points: vec![
+                site.at + out * square,
+                site.at + out * ring_r(index, last),
+            ],
             wide,
         });
         // Cut at each ring it crosses, so a radial's frontage is a block's worth at
@@ -1303,9 +1382,15 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
             if from.distance(site.at) > reach || to.distance(site.at) > reach {
                 continue;
             }
-            arc_streets(&mut streets, &mut parcels, site.at, from, to, LANE_WIDE, depth, false);
+            arc_streets(&mut ways, &mut parcels, site.at, from, to, LANE_WIDE, depth, false);
         }
     }
+
+    // The roads are all laid. Everything from here asks geometric questions of them
+    // - where a lot fronts, what a building clears, where roads meet, where a lamp
+    // stands - and every one of those wants straight pieces, so the pieces are cut
+    // from the chains ONCE, here, rather than being built alongside them.
+    let streets: Vec<Street> = ways.iter().flat_map(|way| way.segments()).collect();
 
     // THE GUILD HALL TAKES THE SQUARE, which is where a guild hall goes: the search
     // below walks the square's edge for a spot clear of every radial mouth.
@@ -1726,6 +1811,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
 
     let lamps = light_the_streets(&streets, &plots, site.city);
     Layout {
+        ways,
         streets,
         plots,
         lamps,
@@ -2092,47 +2178,57 @@ fn stitch(indices: &mut Vec<u32>, run: &[usize]) {
 }
 
 /// Builds one town's streets as a mesh laid on the ground.
-fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2, city: bool) -> Mesh {
+fn pave(ways: &[Way], terrain: &crate::world::terrain::Terrain, low: Vec2, city: bool) -> Mesh {
     let mut places: Vec<[f32; 3]> = Vec::new();
     let mut normals: Vec<[f32; 3]> = Vec::new();
     let mut colours: Vec<[f32; 4]> = Vec::new();
     let mut uvs: Vec<[f32; 2]> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
 
-    // The joints are NOT mitred, and one attempt at it is worth recording.
+    // ------------------------------------------------------------------ MITRED
     //
-    // A ring road is a chain of short straight pieces, each laid as its own rectangle
-    // square across its own direction. On a curve the outer edge of a rectangle is
-    // shorter than the arc it stands for and the inner edge is longer, so consecutive
-    // pieces gap on the outside and overlap on the inside - a row of triangular bites
-    // out of the kerb the whole way round the ring. Widening the ribbon with
-    // shoulders made a fault that was always there impossible to miss, and Codex
-    // called it the strongest remaining settlement defect. It is.
+    // # Drawn from the chain, so a bend is a bend and not a break
     //
-    // The fix is the standard polyline mitre: where two pieces meet, both use one
-    // cross-section bisecting the turn, lengthened by 1/cos(half the turn) so the
-    // road keeps its width. I wrote it and it came out far worse than the sawtooth -
-    // a starburst of spikes at every junction, because the lengthening runs away
-    // where pieces meet near-perpendicular and because a ring meeting a radial has
-    // two neighbours at that point rather than one, so "which chain am I in" is not
-    // the question I was answering.
+    // Each piece of a ring used to be laid as its own rectangle, square across its
+    // own direction. On a curve a rectangle's outer edge is shorter than the arc it
+    // stands for and its inner edge is longer, so consecutive pieces gapped on the
+    // outside and overlapped on the inside - a sawtooth of triangular bites out of
+    // the kerb the whole way round.
     //
-    // Reverted rather than left in. The sawtooth is a fault; the spikes were a
-    // bigger one. Doing it properly means building the CHAINS first - deciding which
-    // pieces are one road before laying any of them - which is a change to how a
-    // layout describes itself, not a change to how it is drawn.
-    for street in streets {
-        let run = street.to - street.from;
-        let length = run.length();
-        if length < 1.0 {
+    // The first attempt at fixing it worked on the pieces and made things far worse:
+    // to mitre you need a piece's neighbour, and once a road has been cut up the only
+    // way to find one is to look for another piece sharing an endpoint - which at the
+    // mouth of a radial finds two. Spikes everywhere.
+    //
+    // A `Way` knows. Both pieces at a bend take ONE cross-section from
+    // `Way::across`, bisecting the turn, so their quads share an edge exactly and
+    // there is nothing left to gap. Where a road ENDS the cross-section is square,
+    // and where roads meet the junction disc covers the joint - which is the right
+    // division of labour, because a junction is a place and a bend is not.
+    for way in ways {
+        if way.points.len() < 2 {
             continue;
         }
-        let along = run / length;
-        let side = along.perp();
-        let steps = (length / ROAD_STEPS_EVERY).ceil().max(1.0) as usize;
+        let across = way.across();
+        for (piece, pair) in way.points.windows(2).enumerate() {
+            let (from, to) = (pair[0], pair[1]);
+            let run = to - from;
+            let length = run.length();
+            if length < 0.05 {
+                continue;
+            }
+            let steps = (length / ROAD_STEPS_EVERY).ceil().max(1.0) as usize;
+            let (side_from, stretch_from) = across[piece];
+            let (side_to, stretch_to) = across[piece + 1];
 
         for step in 0..=steps {
-            let on = street.from + run * (step as f32 / steps as f32);
+            let part = step as f32 / steps as f32;
+            let on = from + run * part;
+            // The cross-section turns through the piece from one end's to the
+            // other's, so a bend eases rather than shearing at one station - and at
+            // each end it is exactly what the neighbouring piece will use.
+            let side = side_from.lerp(side_to, part).normalize_or(side_from)
+                * (stretch_from + (stretch_to - stretch_from) * part);
             // Three across: kerb, middle, kerb, so the edge can be a shade paler
             // and the road has an edge at all.
             // FIVE across, not three.
@@ -2145,7 +2241,7 @@ fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2,
             //
             // Kerbs at the very edge and the surface held flat across the middle.
             let surface = if city { ROAD_STONE } else { ROAD_EARTH };
-            let half = street.wide * 0.5;
+            let half = way.wide * 0.5;
             // A kerb only where there is paving to kerb. A cart track's edge is
             // where the dirt stops and the grass starts, and putting a stone kerb
             // down each side of one is most of why they all read as paved.
@@ -2197,6 +2293,7 @@ fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2,
                 indices.extend_from_slice(&[a, c, b, b, c, d]);
             }
         }
+        }
     }
 
     // # THE JOINTS, and the notches they left
@@ -2214,7 +2311,7 @@ fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2,
     // triangles per joint and it is what makes a junction look like a junction
     // rather than like two roads that happen to touch.
     let mut ends: Vec<(Vec2, f32)> = Vec::new();
-    for street in streets {
+    for street in ways.iter().flat_map(|way| way.segments()) {
         if (street.to - street.from).length() < 1.0 {
             continue;
         }
@@ -2285,7 +2382,7 @@ fn dirt_roads_near(
     plan: &crate::world::settle::Settlements,
     terrain: &crate::world::terrain::Terrain,
     at: Vec2,
-) -> Vec<Street> {
+) -> Vec<Way> {
     country_roads_near(plan, terrain, at, false)
 }
 
@@ -2302,7 +2399,7 @@ fn paved_roads_near(
     plan: &crate::world::settle::Settlements,
     terrain: &crate::world::terrain::Terrain,
     at: Vec2,
-) -> Vec<Street> {
+) -> Vec<Way> {
     country_roads_near(plan, terrain, at, true)
 }
 
@@ -2312,7 +2409,7 @@ fn country_roads_near(
     terrain: &crate::world::terrain::Terrain,
     at: Vec2,
     paved: bool,
-) -> Vec<Street> {
+) -> Vec<Way> {
     plan.ways()
         .iter()
         .filter(|road| {
@@ -2347,9 +2444,12 @@ fn country_roads_near(
                 terrain_core::region::Country::Desert | terrain_core::region::Country::Snow
             )
         })
-        .map(|road| Street {
-            from: road.from,
-            to: road.to,
+        // Each leg as a chain of its own. The legs of one route DO join end to
+        // end, and mitring across them would be better still - but a route is
+        // smoothed into a gentle curve before it is ever laid, so its bends are
+        // shallow and its joints do not saw. A town's rings are the sharp case.
+        .map(|road| Way {
+            points: vec![road.from, road.to],
             wide: crate::config::ROAD_WIDE,
         })
         .collect()
@@ -2462,7 +2562,7 @@ pub fn raise_the_towns(
                 ..default()
             }))
         });
-        let paving = pave(&layout.streets, &terrain.0, site.at, site.city);
+        let paving = pave(&layout.ways, &terrain.0, site.at, site.city);
         commands.spawn((
             FromSite(key),
             Mesh3d(meshes.add(paving)),
@@ -3036,7 +3136,7 @@ mod tests {
         let layout = lay_out(&site, plan.approach(site.at), crate::config::WORLD_SEED);
         assert!(!layout.streets.is_empty(), "the town has no streets");
 
-        let paving = pave(&layout.streets, &terrain, site.at, site.city);
+        let paving = pave(&layout.ways, &terrain, site.at, site.city);
         let count = paving.count_vertices();
         assert!(count > 200, "the paving is {count} vertices, which is nothing");
 
@@ -3188,7 +3288,7 @@ mod tests {
         let site = plan.sites()[0];
         let layout = lay_out(&site, plan.approach(site.at), crate::config::WORLD_SEED);
         println!("{} streets", layout.streets.len());
-        let mesh = pave(&layout.streets, &terrain, site.at, site.city);
+        let mesh = pave(&layout.ways, &terrain, site.at, site.city);
         use bevy::render::mesh::VertexAttributeValues;
         let places = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
             Some(VertexAttributeValues::Float32x3(v)) => v.clone(),
