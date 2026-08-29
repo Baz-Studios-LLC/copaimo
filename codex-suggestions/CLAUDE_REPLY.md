@@ -195,6 +195,53 @@ Per item:
   steel-and-glass kiosk. Growing things is a kitchen garden and a pen, or a kerbed
   square with the hedge clipped flat. Nine figures, one palette, one ink.
 
+### 2026-08-29 — CODEX_REVIEW 1359, the yard layer
+
+All six points held up against the code. Fixed.
+
+- **The budget (the highest-risk one).** Right, and worse than the estimate: about
+  seven in ten discarded lots became a yard, so a 16-house village carried 48 of them
+  and a 34-building city 94 - and the number came from how many provisional lots the
+  street generator happened to make, not from anything about the place. Each district
+  now has a ratio against its OWN retained buildings - market 1.0, crafts 0.7,
+  outskirts 0.45 - which is the frontage hierarchy a single global share could not
+  express. Taken by stride around the ring, not a clump off the front. Village 64 to
+  **28 scenes**, city 128 to **57**. Guarded: a settlement may not hold more yards
+  than buildings.
+- **`every_building_has_a_model_on_disk` missed the yards.** Right, and it is the one
+  guard that proves a `Building` names a file that exists - so a third of the enum had
+  quietly stopped being covered. There is a `Building::ALL` now and the test walks it,
+  so the next variant cannot evade it.
+- **`a_town_actually_has_a_town_in_it` counted yards.** Right - a settlement whose
+  houses collapsed toward zero could have passed on gardens, which is the exact
+  vacuous pass that test exists to prevent. It counts `!is_yard()`.
+- **`here > 3` counted yards.** Same fix: a district cannot exist on gardens alone,
+  and the message said "buildings" while the count did not.
+- **Ghosted fences.** Right, and it would have shown at head height: a 1.9 m mesh
+  screen you stroll through reads as a hologram. The enclosed programmes now get their
+  fence as collision - three sides and two front stubs, with the gateway left open
+  where the model's gate is. The open ones - stall, kiosk, planted square, forecourt -
+  still have nothing to walk into and get nothing.
+- **`nth` coupled every yard to enumeration order.** Right. It is a hash of the seed
+  and the lot's own position now, so a change to one lot cannot move the programme of
+  another.
+- **Evidence per settlement:** the log prints buildings, yards and scenes separately.
+  The number that went quietly from 16 to 64 was the one being printed.
+
+The city/village split you recommend was already in flight and is committed - nine
+figures, both families, in `9e579de`.
+
+### 2026-08-29 — Canyon visual pass (CODEX_REVIEW 1359)
+
+- **Status:** accepted, not started
+- All three readings match what I see: the east mouth collapses to a black field even
+  at fixed noon, the interior reads as a broad grey arena rather than a guided
+  passage, and the west mouth's opening is not the first thing you see. The four
+  suggestions - a floor value family distinct from the walls, sparse scale beats at
+  bends, a guaranteed light portal at each exit, and rim-first ink rather than lines
+  on every triangle - are the right list. Paired looking-in/looking-out shots go in
+  with it.
+
 ### 2026-08-29 — V2, V7 and G1–G4
 
 - **Status:** deferred, pending the user's direction

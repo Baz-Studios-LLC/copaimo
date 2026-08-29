@@ -161,6 +161,20 @@ pub enum District {
 }
 
 impl District {
+    /// How much of its frontage this district occupies, as yards per building.
+    ///
+    /// The hierarchy the research asks for, and the thing a single global share
+    /// cannot say: a market street should be nearly solid, a crafts quarter busy but
+    /// broken by work yards, and the outskirts should give way to gardens and open
+    /// ground. Below one means more buildings than yards.
+    pub fn occupies(self) -> f32 {
+        match self {
+            District::Market => 1.0,
+            District::Crafts => 0.7,
+            District::Outskirts => 0.45,
+        }
+    }
+
     /// The district a place belongs to.
     ///
     /// By RING rather than by a smooth falloff, and that is the legibility lesson
@@ -384,6 +398,58 @@ impl Building {
     ///
     /// A landmark takes no lot and keeps no frontage: it stands in the open where
     /// people gather, which is what makes a node a node.
+    /// Every kind there is.
+    ///
+    /// Written once so a test cannot miss one. `every_building_has_a_model_on_disk`
+    /// used to list the variants by hand, and five yards were added to the enum
+    /// without being added to it - so the one guard that proves a `Building` names a
+    /// file that exists stopped covering a third of them, silently, which is the
+    /// only way that guard can fail.
+    pub const ALL: [Building; 19] = [
+        Building::Cottage,
+        Building::Townhouse,
+        Building::Shop,
+        Building::GuildHall,
+        Building::CityBlock,
+        Building::CityTower,
+        Building::CitySpire,
+        Building::MarketCross,
+        Building::Well,
+        Building::Monument,
+        Building::Garden,
+        Building::WorkYard,
+        Building::Pen,
+        Building::StoreYard,
+        Building::Stall,
+        Building::CityGreen,
+        Building::CityService,
+        Building::CityKiosk,
+        Building::CityForecourt,
+    ];
+
+    /// Whether a yard is enclosed, and how wide the way in is.
+    ///
+    /// # A fence you can walk through is scenery
+    ///
+    /// Yards started with no collision at all, on the grounds that you walk INTO a
+    /// garden. True of the ground and false of the fence around it: a 1.9 m mesh
+    /// screen you stroll through reads as a hologram, and the pen, the work yard and
+    /// the service bay are all defined by being enclosed.
+    ///
+    /// So the fenced programmes get their fence, with the gap at the front left
+    /// open - the same gap the model has, because that is where the gate is. The
+    /// open programmes - a stall, a kiosk, a planted square, a paved forecourt -
+    /// have nothing to walk into and get nothing.
+    pub fn fenced(self) -> Option<f32> {
+        match self {
+            Building::Garden => Some(3.06),
+            Building::WorkYard | Building::StoreYard => Some(3.06),
+            Building::Pen => Some(2.2),
+            Building::CityService => Some(3.4),
+            _ => None,
+        }
+    }
+
     /// Whether this is a yard rather than a building.
     ///
     /// A yard is ground with things standing on it - beds, a bench, a stack of
@@ -429,8 +495,14 @@ impl Building {
     /// programmes per district rather than one, so a run of lots does not repeat -
     /// and only two, because the point is that a garden next to a garden still reads
     /// as a neighbourhood while five unrelated props read as litter.
-    pub fn yard_for(district: District, city: bool, nth: usize) -> Building {
-        let other = nth % 2 == 1;
+    /// What a lot with no building on it is FOR.
+    ///
+    /// `roll` is a hash of the settlement's seed and the LOT's own identity, not its
+    /// position in a list. Taken from enumeration order, inserting or removing one
+    /// eligible lot earlier in the ring flipped the programme of every lot after it,
+    /// so a change anywhere rewrote the whole town.
+    pub fn yard_for(district: District, city: bool, roll: u32) -> Building {
+        let other = roll % 2 == 1;
         match (district, city) {
             // Trade, either way: a canvas stall on a village square, a steel and
             // glass kiosk on a city's.
@@ -1378,19 +1450,54 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
         // they say the thing a wall does not: somebody lives here and does something
         // all day.
         //
-        // Not all of them. Some ground stays open, because a place where every
-        // square metre is used reads as a diagram of a place. `LOTS_LEFT_OPEN` is the
-        // share kept as breathing room, and it is deliberate rather than left over.
-        for (nth, index) in (0..plots.len())
-            .filter(|i| !taken.contains(i) && !keep_always.contains(i))
-            .enumerate()
-        {
-            if unit(seed.wrapping_add(index as u32 * 613), 41) < LOTS_LEFT_OPEN {
+        // TO A BUDGET, and the budget is the buildings.
+        //
+        // The first cut turned about seven in ten of every discarded lot into a yard.
+        // That makes the size of a settlement depend on how many provisional lots the
+        // street generator happened to produce rather than on what the place IS: a
+        // sixteen-house village came out with forty-eight yards and a thirty-four
+        // building city with ninety-four, and a change upstream that yielded more
+        // candidate lots would have multiplied both without anything saying so.
+        //
+        // How much frontage a district occupies is a property OF the district, which
+        // one global share cannot express - a market street is meant to be nearly
+        // solid and an outskirt is meant to break into gardens and air. So each
+        // district gets a ratio against its own retained buildings, and takes that
+        // many by stride around the ring rather than a clump off the front.
+        let built: Vec<Plot> = kept.clone();
+        for district in [District::Market, District::Crafts, District::Outskirts] {
+            let free: Vec<usize> = (0..plots.len())
+                .filter(|i| {
+                    !taken.contains(i)
+                        && !keep_always.contains(i)
+                        && plots[*i].district == district
+                })
+                .collect();
+            if free.is_empty() {
                 continue;
             }
-            let mut yard = plots[index];
-            yard.what = Building::yard_for(yard.district, site.city, nth);
-            kept.push(yard);
+            let houses = built
+                .iter()
+                .filter(|plot| plot.district == district && !plot.what.is_yard())
+                .count();
+            let want = ((houses as f32 * district.occupies()).round() as usize).min(free.len());
+            if want == 0 {
+                continue;
+            }
+            let stride = (free.len() as f32 / want as f32).max(1.0);
+            for step in 0..want {
+                let at = (step as f32 * stride).round() as usize;
+                let Some(index) = free.get(at) else { continue };
+                let mut yard = plots[*index];
+                // Hashed from where the lot IS, so a change to one lot cannot move
+                // the programme of any other.
+                let roll = (unit(
+                    seed.wrapping_add(yard.at.x.to_bits() ^ yard.at.y.to_bits()),
+                    97,
+                ) * 1_000.0) as u32;
+                yard.what = Building::yard_for(yard.district, site.city, roll);
+                kept.push(yard);
+            }
         }
         plots = kept;
     }
@@ -1707,13 +1814,6 @@ fn mix_the_road_surface(mut commands: Commands, mut materials: ResMut<Assets<cra
     }));
     commands.insert_resource(RoadSurface(surface));
 }
-
-/// The share of unbuilt lots left as open ground.
-///
-/// Deliberate breathing room rather than what was left over. A place where every
-/// square metre is in use reads as a diagram of a place, and the gaps are what make
-/// the used ground read as used.
-const LOTS_LEFT_OPEN: f32 = 0.28;
 
 /// How much room the guild hall is given, in metres.
 ///
@@ -2056,12 +2156,20 @@ pub fn raise_the_towns(
         }
 
         let layout = lay_out(site, plan.approach(site.at), WORLD_SEED.wrapping_add(key * 7717));
+        // What this settlement actually cost, per settlement.
+        //
+        // Codex's invariant: adding more provisional lot candidates must not silently
+        // multiply the shipped scene. It cannot be read off "N buildings" - that was
+        // the number that quietly went from sixteen to sixty-four - so the split is
+        // printed and the budget is visible from the log.
+        let yards = layout.plots.iter().filter(|p| p.what.is_yard()).count();
         info!(
-            "raising {} at ({:.0}, {:.0}): {} buildings",
+            "raising {} at ({:.0}, {:.0}): {} buildings, {yards} yards, {} scenes",
             if site.city { "a city" } else { "a town" },
             site.at.x,
             site.at.y,
-            layout.plots.len()
+            layout.plots.len() - yards,
+            layout.plots.len(),
         );
         for plot in &layout.plots {
             // On the GROUND's own height wherever it lands, not on the site's
@@ -2121,9 +2229,35 @@ impl Plot {
     /// The front wall comes in two pieces with the doorway between them, which is
     /// what makes the building enterable. Everything else is one slab a side.
     pub fn walls(&self) -> Vec<(Vec2, Vec2, f32)> {
-        // A yard is walked into, not entered. Nothing here to refuse a step.
+        // A yard's FENCE, if it has one, with the gateway left open.
         if self.what.is_yard() {
-            return Vec::new();
+            let Some(gate) = self.what.fenced() else {
+                return Vec::new();
+            };
+            let half = self.what.footprint() * 0.5;
+            let (sin, cos) = self.facing.sin_cos();
+            let out = |local: Vec2| {
+                self.at + Vec2::new(local.x * cos - local.y * sin, local.x * sin + local.y * cos)
+            };
+            let thick = 0.18;
+            let mut fence = vec![
+                // The back run and both flanks.
+                (out(Vec2::new(0.0, half.y)), Vec2::new(half.x, thick), self.facing),
+                (out(Vec2::new(-half.x, 0.0)), Vec2::new(thick, half.y), self.facing),
+                (out(Vec2::new(half.x, 0.0)), Vec2::new(thick, half.y), self.facing),
+            ];
+            // And the front, in two pieces with the gateway between them.
+            let stub = (half.x - gate * 0.5).max(0.0);
+            if stub > 0.05 {
+                for side in [-1.0_f32, 1.0] {
+                    fence.push((
+                        out(Vec2::new(side * (half.x - stub * 0.5), -half.y)),
+                        Vec2::new(stub * 0.5, thick),
+                        self.facing,
+                    ));
+                }
+            }
+            return fence;
         }
         let half = self.what.footprint() * 0.5;
         let (sin, cos) = self.facing.sin_cos();
@@ -2751,9 +2885,12 @@ mod tests {
 
         // Every district has to exist at all.
         for district in [District::Market, District::Crafts, District::Outskirts] {
+            // Buildings, matching the assertion's own words. Counting yards too
+            // would let a district exist on gardens alone, which is not a district
+            // with buildings in it - and the message would still say it was.
             let here: usize = counts
                 .iter()
-                .filter(|((d, _), _)| *d == district)
+                .filter(|((d, w), _)| *d == district && !w.is_yard())
                 .map(|(_, n)| *n)
                 .sum();
             assert!(here > 3, "{district:?} has {here} buildings in it");
@@ -2960,18 +3097,11 @@ mod tests {
     #[test]
     fn every_building_has_a_model_on_disk() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets");
-        for what in [
-            Building::Cottage,
-            Building::Townhouse,
-            Building::Shop,
-            Building::GuildHall,
-            Building::CityBlock,
-            Building::CityTower,
-            Building::CitySpire,
-            Building::MarketCross,
-            Building::Well,
-            Building::Monument,
-        ] {
+        // EVERY kind, from the one list - see `Building::ALL`. Written out by hand
+        // here once, and five yards were added to the enum without being added to
+        // it, so the guard that proves a `Building` names a file that exists quietly
+        // stopped covering a third of them.
+        for what in Building::ALL {
             let path = root.join(what.model());
             assert!(
                 path.exists(),
@@ -3140,17 +3270,36 @@ mod tests {
         // on a city containing one house.
         for seed in 0..30 {
             let city = lay_out(&a_site(true, 90.0), Vec2::new(0.8, 0.6).normalize(), seed);
+            // BUILDINGS, not everything standing. Yards went into `plots` and
+            // straight into this count, so a settlement whose houses had collapsed
+            // toward zero could still sail through on the strength of its gardens -
+            // which is exactly the vacuous pass this test exists to prevent.
+            let houses = |layout: &Layout| {
+                layout.plots.iter().filter(|p| !p.what.is_yard()).count()
+            };
             assert!(
-                city.plots.len() >= 18,
+                houses(&city) >= 18,
                 "seed {seed}: a city has {} buildings in it",
-                city.plots.len()
+                houses(&city)
             );
             let village = lay_out(&a_site(false, 58.0), Vec2::new(0.3, -0.95).normalize(), seed);
             assert!(
-                village.plots.len() >= 6,
+                houses(&village) >= 6,
                 "seed {seed}: a village has {} buildings in it",
-                village.plots.len()
+                houses(&village)
             );
+
+            // And the yards are BOUNDED by them, which is the whole point of the
+            // budget: the size of a settlement is a property of the settlement, not
+            // of how many provisional lots the street generator happened to make.
+            for (what, layout) in [("city", &city), ("village", &village)] {
+                let yards = layout.plots.iter().filter(|p| p.what.is_yard()).count();
+                let built = houses(layout);
+                assert!(
+                    yards <= built,
+                    "seed {seed}: a {what} has {yards} yards to {built} buildings - the yards are running away with it",
+                );
+            }
         }
     }
 
