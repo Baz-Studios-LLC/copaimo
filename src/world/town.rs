@@ -544,12 +544,30 @@ impl Building {
     /// open - the same gap the model has, because that is where the gate is. The
     /// open programmes - a stall, a kiosk, a planted square, a paved forecourt -
     /// have nothing to walk into and get nothing.
-    pub fn fenced(self) -> Option<f32> {
+    ///
+    /// # A gate is not the only way a front can be open
+    ///
+    /// This returned a gate width and nothing else, so every fenced yard was assumed
+    /// to have four runs. The city's SERVICE BAY has three: `city_service` in
+    /// `dev/art/yard.py` builds both flanks and the back and no front at all, because
+    /// a loading bay is a thing you drive into. The game put collision stubs across
+    /// that open frontage anyway - invisible walls over most of a bay you can see
+    /// straight through.
+    ///
+    /// Naming the two cases makes the service bay impossible to state wrongly: a
+    /// programme has to say which it is rather than leave it to be inferred from a
+    /// number.
+    ///
+    /// Found by Codex. The old-world gates are still two copies of one fact - 3.06 is
+    /// `wide * 0.34` in `yard.py` - and they currently agree; closing that loop wants
+    /// the fence runs measured and written down the way the windows now are.
+    pub fn fenced(self) -> Option<Fenced> {
         match self {
-            Building::Garden => Some(3.06),
-            Building::WorkYard | Building::StoreYard => Some(3.06),
-            Building::Pen => Some(2.2),
-            Building::CityService => Some(3.4),
+            Building::Garden => Some(Fenced::Gated(3.06)),
+            Building::WorkYard | Building::StoreYard => Some(Fenced::Gated(3.06)),
+            Building::Pen => Some(Fenced::Gated(2.2)),
+            // Three runs and an open mouth - see the note above.
+            Building::CityService => Some(Fenced::OpenFronted),
             _ => None,
         }
     }
@@ -2123,6 +2141,18 @@ impl Built {
     }
 }
 
+/// How a yard is closed in, when it is closed in at all.
+///
+/// See `Building::fenced`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Fenced {
+    /// Both flanks and the back, and nothing across the front: a loading bay you
+    /// walk or drive straight into.
+    OpenFronted,
+    /// All four runs, with a gateway this wide in the front one.
+    Gated(f32),
+}
+
 /// One town's worth of buildings, kept so the whole lot can be taken down together.
 ///
 /// Public because `world::lamp` stands its lamps against the same key: the
@@ -2950,7 +2980,7 @@ impl Plot {
     pub fn walls_into(&self, walls: &mut Vec<(Vec2, Vec2, f32)>) {
         // A yard's FENCE, if it has one, with the gateway left open.
         if self.what.is_yard() {
-            let Some(gate) = self.what.fenced() else {
+            let Some(fence) = self.what.fenced() else {
                 return;
             };
             let half = self.what.footprint() * 0.5;
@@ -2963,7 +2993,11 @@ impl Plot {
             walls.push((out(Vec2::new(0.0, half.y)), Vec2::new(half.x, thick), self.facing));
             walls.push((out(Vec2::new(-half.x, 0.0)), Vec2::new(thick, half.y), self.facing));
             walls.push((out(Vec2::new(half.x, 0.0)), Vec2::new(thick, half.y), self.facing));
-            // And the front, in two pieces with the gateway between them.
+            // And the front, in two pieces with the gateway between them - unless
+            // there is no front run to put a gateway in.
+            let Fenced::Gated(gate) = fence else {
+                return;
+            };
             let stub = (half.x - gate * 0.5).max(0.0);
             if stub > 0.05 {
                 for side in [-1.0_f32, 1.0] {
@@ -4545,6 +4579,63 @@ mod doorstep {
                     "{what:?} has a window at {:?}, off the end of a {half:?} footprint",
                     pane.at,
                 );
+            }
+        }
+    }
+
+
+    /// A yard's collision is the fence the model has, and nothing more.
+    ///
+    /// # Invisible walls across an open mouth
+    ///
+    /// `fenced` used to answer with a gate width alone, so every fenced yard was
+    /// taken to have four runs. The city's service bay has three - `city_service`
+    /// builds both flanks and the back and no front - and the game fenced its open
+    /// frontage anyway, leaving the player walking into nothing across most of a bay
+    /// they can see straight through.
+    ///
+    /// # What this can and cannot say
+    ///
+    /// It checks the shape of what comes out against what the programme DECLARES: an
+    /// open-fronted yard must produce no wall across its front, a gated one must
+    /// produce some. Declaring the service bay gated again passes it, because then
+    /// the walls are correct for the declaration.
+    ///
+    /// So this cannot catch a programme declared wrongly - only the model knows, and
+    /// nothing has measured the fence runs the way the windows are now measured. What
+    /// it does buy is that the two cases have to be NAMED, so a yard can no longer
+    /// have four runs assumed of it because it stated a gate width. Closing the rest
+    /// of the loop is a `yard.txt` and its own piece of work.
+    #[test]
+    fn an_open_fronted_yard_has_nothing_across_its_mouth() {
+        for what in Building::ALL {
+            let Some(fence) = what.fenced() else {
+                continue;
+            };
+            let half = what.footprint() * 0.5;
+            let plot = Plot {
+                at: Vec2::ZERO,
+                district: District::Outskirts,
+                // Facing +y, so the yard's own front is the world's -y and the
+                // arithmetic below reads as it does in `walls_into`.
+                facing: 0.0,
+                what,
+            };
+            let across_the_front = plot
+                .walls()
+                .iter()
+                .filter(|(at, _, _)| (at.y + half.y).abs() < 0.1)
+                .count();
+            match fence {
+                Fenced::OpenFronted => assert_eq!(
+                    across_the_front, 0,
+                    "{what:?} is open fronted and the game fences it with \
+                     {across_the_front} slabs",
+                ),
+                Fenced::Gated(gate) => assert!(
+                    across_the_front > 0 || gate >= half.x * 2.0,
+                    "{what:?} has a {gate} m gateway and no front fence either side of it",
+                ),
             }
         }
     }
