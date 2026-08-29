@@ -1691,6 +1691,41 @@ mod tests {
             zs.iter().cloned().fold(f32::MAX, f32::min), zs.iter().cloned().fold(f32::MIN, f32::max));
     }
 
+/// The ranch has the ranch on it and nothing else.
+    ///
+    /// "The ranch should just have the ranch no other buildings." It is a `Site` so
+    /// that no settlement can take its ground, and the layout skips it - but a
+    /// skipped site is invisible in every measurement unless something asks, and
+    /// what went wrong the first time was that nothing did. This walks the whole
+    /// world's settlements and refuses any building standing on the ranch.
+    #[test]
+    fn nothing_is_built_on_the_ranch() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        let ranch = Vec2::new(crate::config::RANCH_AT.0, crate::config::RANCH_AT.1);
+
+        let mut nearest = f32::MAX;
+        for (index, site) in plan.sites().iter().enumerate() {
+            if site.ranch {
+                continue;
+            }
+            let layout = lay_out(
+                site,
+                plan.approach(site.at),
+                crate::config::WORLD_SEED.wrapping_add(index as u32 * 7717),
+            );
+            for plot in &layout.plots {
+                nearest = nearest.min(plot.at.distance(ranch));
+            }
+        }
+        assert!(
+            nearest > crate::config::RANCH_RADIUS,
+            "a town building stands {nearest:.0} m from the ranch, which is levelled              out to {:.0} m - the ranch is not a settlement and nothing else may              stand on it",
+            crate::config::RANCH_RADIUS
+        );
+        println!("the nearest town building is {nearest:.0} m from the ranch");
+    }
+
     #[test]
     fn every_building_faces_a_street() {
         // A door that opens onto the back of the next house is the thing that makes
