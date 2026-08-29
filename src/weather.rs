@@ -38,9 +38,18 @@ use crate::world::terrain::TerrainSource;
 
 /// How many hours one draw of weather lasts before it becomes the next one.
 ///
-/// Five, so a wet morning can clear by the afternoon but the sky is not flickering
-/// between states while you cross a field.
-const HOURS_PER_DRAW: f64 = 5.0;
+/// Nine, up from five.
+///
+/// Rain has to be both RARE and GENTLE, and those pull on different numbers. Rarity
+/// comes from `FALLS_ABOVE` - how high the draw must climb before anything falls -
+/// and raising that to make rain an event narrowed the band above it, which made the
+/// same drift in the draw move the rain five times as fast: a tenth of a shower in
+/// six minutes, which reads as a switch rather than as weather.
+///
+/// Gentleness comes from HERE. A slower draw takes longer to cross the same band, so
+/// a spell arrives over half an hour instead of over five minutes, and lasts long
+/// enough to be worth sheltering from. It does not change how OFTEN it rains at all.
+const HOURS_PER_DRAW: f64 = 9.0;
 
 /// Where the sky starts thickening, well below where it starts raining.
 ///
@@ -54,7 +63,12 @@ const CLOUDS_GATHER_ABOVE: f32 = 0.25;
 ///
 /// Not zero, or it would drizzle permanently: most draws sit in the middle of the
 /// range, so a threshold well up it is what makes clear weather the common case.
-const FALLS_ABOVE: f32 = 0.55;
+// 0.72, up from 0.55. Measured over a year of the real clock, 0.55 left the green
+// world wet 45% of the time - so a player loading the game found rain about as often
+// as not, which was reported as "it's raining every time I load up". Rain wants to be
+// an EVENT: something you notice starting, shelter from, and see the end of. At 0.72
+// it falls about a sixth of the time, which is a wet week in four.
+const FALLS_ABOVE: f32 = 0.80;
 
 /// Above this much cold, what falls is snow rather than rain.
 const FREEZES_ABOVE: f32 = 0.5;
@@ -165,7 +179,20 @@ fn drawn(hours: f64, stream: u64) -> f32 {
 /// too — so there is no step anywhere for rain to stop at.
 pub fn how_dry(country: terrain_core::region::Country, share: f32) -> f32 {
     match country {
-        terrain_core::region::Country::Desert => share.clamp(0.0, 1.0),
+        // SATURATED, not the raw share.
+        //
+        // The share is how strongly a place belongs to its country, and it is a
+        // blend weight: measured across the real map, the median desert sample
+        // reports 0.65 and only the very heart of it reaches 1.0. Used raw, that
+        // made most of the desert only 65% dry - and 65% dry rains 43% of the year,
+        // which is within two points of the green world. The guard said otherwise
+        // because it asked with share = 1.0, the single value where this worked.
+        //
+        // A place that is PREDOMINANTLY desert is desert. The ramp keeps the border
+        // continuous, which is what the share was wanted for in the first place.
+        terrain_core::region::Country::Desert => {
+            crate::util::smoothstep(0.18, 0.62, share.clamp(0.0, 1.0))
+        }
         _ => 0.0,
     }
 }
@@ -219,7 +246,14 @@ pub fn weather_at(
     let cold = how_cold(country, share, season, height);
 
     // The country decides how much of the draw ever reaches the ground.
-    let reaching = (wet - FALLS_ABOVE).max(0.0) / (1.0 - FALLS_ABOVE);
+    // Eased in, not divided in.
+    //
+    // This was a straight ramp from the threshold to 1.0, which was gentle while the
+    // threshold sat at 0.55 and became a cliff when it went to 0.80: the same drift
+    // in `wet` then moves `fall` five times as fast, and the guard caught the sky
+    // gaining a tenth of its rain in six minutes. A smoothstep over the same band
+    // starts and ends flat, so a shower arrives and leaves rather than switching.
+    let reaching = crate::util::smoothstep(FALLS_ABOVE, 1.0, wet);
     let fall = reaching * (1.0 - dry);
 
     let falling = if fall <= 0.0 {
@@ -329,7 +363,14 @@ mod tests {
         for hour in 0..A_LONG_WHILE {
             let hours = hour as f64;
             let green = weather_at(hours, Country::Ordinary, 1.0, Season::Summer, 20.0);
-            let desert = weather_at(hours, Country::Desert, 1.0, Season::Summer, 20.0);
+            // At the share the MAP actually reports, not at 1.0.
+            //
+            // This asked with share = 1.0 - full, unambiguous desert - and passed
+            // for months while the game rained on the desert, because the median
+            // desert sample on the real map reports 0.65 and only its very heart
+            // reaches 1.0. A guard that asks about a value the world does not
+            // produce is not guarding anything.
+            let desert = weather_at(hours, Country::Desert, 0.65, Season::Summer, 20.0);
 
             // It cannot rain out of a clear sky.
             if green.fall > 0.0 {
@@ -357,13 +398,87 @@ mod tests {
         );
     }
 
+#[test]
+    #[ignore = "a measurement of the real desert and the real clock"]
+    fn what_the_desert_actually_reports() {
+        use crate::world::terrain::Terrain;
+        let terrain = Terrain::new();
+        let half = terrain.half();
+
+        // The strongest desert anywhere on the map, and what share it reports.
+        let mut best = (0.0f32, Vec2::ZERO);
+        let mut deserts = 0;
+        let mut shares = Vec::new();
+        for row in 0..90 {
+            for col in 0..90 {
+                let at = Vec2::new(
+                    (col as f32 / 89.0 - 0.5) * half.x * 2.0,
+                    (row as f32 / 89.0 - 0.5) * half.y * 2.0,
+                );
+                let (country, share) = terrain.region(at.x, at.y);
+                if country != Country::Desert {
+                    continue;
+                }
+                deserts += 1;
+                shares.push(share);
+                if share > best.0 {
+                    best = (share, at);
+                }
+            }
+        }
+        shares.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let median = shares.get(shares.len() / 2).copied().unwrap_or(0.0);
+        println!(
+            "{deserts} desert samples: strongest share {:.2}, median {median:.2}",
+            best.0
+        );
+
+        // And how much of a YEAR is wet, in the middle of that desert and in the
+        // green world - because "it rains every time I load up" is a claim about
+        // the clock, not about the map.
+        for (label, country, share) in [
+            ("deep desert", Country::Desert, best.0),
+            ("median desert", Country::Desert, median),
+            ("green world ", Country::Ordinary, 1.0),
+        ] {
+            let mut wet = 0;
+            let steps = 2000;
+            for step in 0..steps {
+                let hours = step as f64 * (24.0 * 112.0 / steps as f64);
+                let sky = weather_at(hours, country, share, Season::Summer, 40.0);
+                if sky.fall > 0.02 {
+                    wet += 1;
+                }
+            }
+            println!(
+                "  {label} (share {share:.2}): wet {:.0}% of the year",
+                100.0 * wet as f32 / steps as f32
+            );
+        }
+    }
+
     #[test]
     fn the_weather_does_not_repeat_itself() {
         // Random, not a cycle. Compared against ITSELF at every offset up to a
         // fortnight: a sequence with a period in it matches at that period.
         let year: Vec<f32> = (0..A_LONG_WHILE)
-            .map(|h| weather_at(h as f64, Country::Ordinary, 1.0, Season::Summer, 20.0).fall)
+            // The OVERCAST, not the fall.
+            //
+            // A period test compares a series against itself shifted, and it can only
+            // see a repeat in a series that VARIES. Once rain became the event it
+            // should be, five hours in six have a fall of exactly zero - so every
+            // period matched on the dry hours and this went red at a period of one
+            // hour, reporting that the weather repeats hourly when what it had found
+            // was that dry equals dry.
+            //
+            // The cloud cover moves continuously whether or not anything is falling,
+            // and it is driven by the same draw, so a loop in the weather would show
+            // here. It is the channel with the signal in it.
+            .map(|hour| {
+                weather_at(hour as f64, Country::Ordinary, 1.0, Season::Summer, 20.0).overcast
+            })
             .collect();
+
         for period in 1..(24 * 14) {
             let pairs = year.len() - period;
             let same = (0..pairs)
