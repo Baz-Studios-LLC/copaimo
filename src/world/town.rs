@@ -364,6 +364,15 @@ impl Building {
 pub struct Plot {
     /// Where its middle stands.
     pub at: Vec2,
+    /// Which part of the town it belongs to.
+    ///
+    /// RECORDED, not re-derived. `District::divisions` splits a town at the
+    /// percentiles of whatever population it is handed, so working the district out
+    /// again later from a different list - the thinned plots rather than the lots -
+    /// gives a different answer, and buildings end up filed under districts they
+    /// were not built for. Towers appeared in the outskirts of a city whose rule
+    /// says the outskirts have none.
+    pub district: District,
     /// Which way its front faces, as a yaw in radians.
     ///
     /// Every building in `town.py` has its door in its own -Y wall, so this is the
@@ -487,6 +496,84 @@ fn frontage_parcels(
     }
 }
 
+/// How long a piece of a curved street is before it takes another bearing.
+///
+/// A ring is drawn as a chain of short straight pieces, and this is how short. Six
+/// metres is under the width of the street itself, so the corner between two pieces
+/// is shallower than the road is wide and the eye reads a curve rather than a bend.
+const A_CURVE_STEPS_EVERY: f32 = 6.0;
+
+/// Lays a ring segment as an ARC rather than as the chord across it.
+///
+/// # A ring of six straight pieces is a hexagon
+///
+/// Which is what these were: each stretch of ring road ran straight from one radial
+/// to the next, so a town's ring roads were polygons and every junction was a
+/// corner. Reported as wanting "curves instead of straight edges", and from above it
+/// is unmistakable.
+///
+/// The arc is still straight pieces - everything downstream wants segments, and the
+/// paving is built from them - but enough of them, short enough, that the corner
+/// between any two is far shallower than the road is wide.
+fn arc_streets(
+    streets: &mut Vec<Street>,
+    parcels: &mut Vec<Parcel>,
+    middle: Vec2,
+    from: Vec2,
+    to: Vec2,
+    wide: f32,
+    depth: f32,
+    ring: bool,
+) {
+    let (a, b) = (from - middle, to - middle);
+    let (start, end) = (a.to_angle(), b.to_angle());
+    // The short way round, always: the long way would draw the rest of the ring.
+    let mut sweep = end - start;
+    while sweep > std::f32::consts::PI {
+        sweep -= std::f32::consts::TAU;
+    }
+    while sweep < -std::f32::consts::PI {
+        sweep += std::f32::consts::TAU;
+    }
+
+    let radius = (a.length() + b.length()) * 0.5;
+    let along = (sweep.abs() * radius).max(1.0);
+    let steps = (along / A_CURVE_STEPS_EVERY).ceil().max(1.0) as usize;
+
+    // The FRONTAGE follows the arc too, in stretches of a few pieces.
+    //
+    // It did not, at first: the parcels were still laid against the chord while the
+    // road bowed away from it, so a building addressed a straight line that was no
+    // longer there and `every_building_faces_a_street` went red immediately. On a
+    // 17 m square ring that gap is 2.3 m - wider than the pavement - so the houses
+    // were standing in the road.
+    //
+    // Grouped rather than one parcel per piece: a six-metre piece has no frontage
+    // worth the name, and three of them is eighteen, which fits a house.
+    const PIECES_TO_A_PARCEL: usize = 3;
+    let mut parcel_from = from;
+
+    let mut last = from;
+    for step in 1..=steps {
+        let part = step as f32 / steps as f32;
+        // The radius eases between the two ends, so a ring that wobbles from one
+        // spoke to the next still wobbles - it just does it along a curve.
+        let here = a.length() + (b.length() - a.length()) * part;
+        let turn = start + sweep * part;
+        let next = if step == steps {
+            to
+        } else {
+            middle + Vec2::from_angle(turn) * here
+        };
+        streets.push(Street { from: last, to: next, wide });
+        if step % PIECES_TO_A_PARCEL == 0 || step == steps {
+            frontage_parcels(parcels, middle, parcel_from, next, wide, depth, ring);
+            parcel_from = next;
+        }
+        last = next;
+    }
+}
+
 /// Lays out one settlement.
 ///
 /// `approach` is the direction the road network arrives from, which the high street
@@ -588,8 +675,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
         let (a, b) = (spokes[spoke], spokes[(spoke + 1) % spokes.len()]);
         let from = site.at + Vec2::from_angle(a) * square;
         let to = site.at + Vec2::from_angle(b) * square;
-        streets.push(Street { from, to, wide: STREET_WIDE });
-        frontage_parcels(&mut parcels, site.at, from, to, STREET_WIDE, depth, true);
+        arc_streets(&mut streets, &mut parcels, site.at, from, to, STREET_WIDE, depth, true);
     }
 
     // The radials, each running from the square out through every ring it crosses.
@@ -641,8 +727,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
             if from.distance(site.at) > reach || to.distance(site.at) > reach {
                 continue;
             }
-            streets.push(Street { from, to, wide: LANE_WIDE });
-            frontage_parcels(&mut parcels, site.at, from, to, LANE_WIDE, depth, false);
+            arc_streets(&mut streets, &mut parcels, site.at, from, to, LANE_WIDE, depth, false);
         }
     }
 
@@ -671,6 +756,8 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
                 at,
                 facing: door.x.atan2(-door.y),
                 what: hall,
+                // On the square, whatever the percentiles would have said.
+                district: District::Market,
             });
             break;
         }
@@ -729,6 +816,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
             at,
             facing: lot.facing,
             what,
+            district: District::of(at.distance(site.at), inner, outer),
         });
     }
 
@@ -744,6 +832,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
         at: site.at,
         facing: approach.y.atan2(approach.x),
         what: on_the_square,
+        district: District::Market,
     });
 
     // And one at a junction, so a hub is visible from the hub before it - which is
@@ -820,6 +909,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
                 at,
                 facing: run.y.atan2(run.x),
                 what: at_a_junction,
+                district: District::Crafts,
             });
         }
     }
@@ -904,7 +994,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
             let here: Vec<usize> = others
                 .iter()
                 .copied()
-                .filter(|i| District::of(plots[*i].at.distance(site.at), inner, outer) == district)
+                .filter(|i| plots[*i].district == district)
                 .collect();
             if here.is_empty() {
                 continue;
@@ -2058,7 +2148,7 @@ mod tests {
             if plot.what.is_landmark() {
                 continue;
             }
-            let district = District::of(plot.at.distance(site.at), inner, outer);
+            let district = plot.district;
             *counts
                 .entry((district, plot.what))
                 .or_insert(0usize) += 1;

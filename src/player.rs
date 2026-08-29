@@ -925,6 +925,7 @@ mod tests {
                 at: Vec2::new(40.0, -15.0),
                 facing: turn,
                 what: Building::Cottage,
+                district: crate::world::town::District::Market,
             };
             let walls = plot.walls();
             let half = plot.what.footprint() * 0.5;
@@ -969,6 +970,7 @@ mod tests {
             at: Vec2::ZERO,
             facing: 0.4,
             what: Building::Shop,
+                district: crate::world::town::District::Market,
         };
         let walls = plot.walls();
         // Standing in the middle of the room, every step outward is allowed - the
