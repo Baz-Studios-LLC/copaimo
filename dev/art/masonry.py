@@ -233,10 +233,23 @@ def weld(parts, palette, tall, name="prop", floor_of=None):
 # 5 cm reads at street level and disappears by the time a building is a shape on the
 # skyline, which is what you want - an outline is there to stop a thing dissolving
 # into what is behind it, not to draw a cartoon.
-# 9 cm. Five was there in the photograph and only just - an outline exists to stop a
-# building dissolving into what is behind it, and one you have to look for is not
-# doing that job.
-OUTLINE_THICK = 0.09
+# 3 cm, and CLAMPED against the thing it wraps.
+#
+# # An outline has to be thin next to the thinnest thing it wraps
+#
+# 9 cm read well on a 10 m building and was a disaster on everything else: a fence
+# rail is 12 cm through, so a 9 cm shell is three quarters as thick again as the rail
+# and stops being a line around it - it becomes a black slab beside it. Photographed,
+# the ranch's fences and the silo's hoops were fringed with black blocks.
+#
+# The shell is pushed out by the SAME distance everywhere on a mesh, so that distance
+# has to suit the mesh's smallest feature rather than its largest. Three centimetres
+# suits a fence rail and still reads on a cottage, and the clamp below keeps anything
+# smaller than that in proportion too.
+OUTLINE_THICK = 0.07
+
+# Never more than this share of the smallest thing in the figure.
+OUTLINE_AT_MOST = 0.16
 
 # What colour it is. Near-black with a little of the world's blue in it, because a
 # pure black line under a blue sky reads as a hole rather than as a shadow.
@@ -267,6 +280,12 @@ def outline(whole, thick=OUTLINE_THICK, ink=OUTLINE_INK):
     """
     import bmesh
 
+    # Held down to a share of the figure's own smallest dimension, so a fence panel
+    # gets a fence panel's outline rather than a building's.
+    span = whole.dimensions
+    smallest = min(v for v in (span.x, span.y, span.z) if v > 1.0e-4)
+    thick = min(thick, smallest * OUTLINE_AT_MOST)
+
     bpy.ops.object.select_all(action="DESELECT")
     whole.select_set(True)
     bpy.context.view_layer.objects.active = whole
@@ -277,10 +296,18 @@ def outline(whole, thick=OUTLINE_THICK, ink=OUTLINE_INK):
     mesh = bmesh.new()
     mesh.from_mesh(shell.data)
     mesh.verts.ensure_lookup_table()
-    # Split first: a welded figure shares vertices between faces that point very
-    # different ways, and pushing a shared vertex along an averaged normal pulls the
-    # shell inside out at every corner.
-    bmesh.ops.split_edges(mesh, edges=mesh.edges)
+
+    # # Along the AVERAGED normal, and the edges are NOT split first
+    #
+    # Splitting them was the first attempt and it is what put black slabs on every
+    # building and every fence: split, each face moves out along its own normal and
+    # the six faces of a box stop meeting at the corners - so the shell is not a
+    # shell at all, it is a loose pile of panels with the gaps between them showing.
+    #
+    # A closed hull needs the shared vertex, pushed along the average of the faces
+    # that meet there. At a box corner that average points diagonally outward, which
+    # inflates the box evenly - exactly what is wanted. `normal_update` computes that
+    # average from the geometry, whatever split normals the shading has put on top.
     mesh.normal_update()
     for vertex in mesh.verts:
         vertex.co += vertex.normal * thick
