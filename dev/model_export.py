@@ -48,8 +48,21 @@ APPLY_MODIFIERS = True
 # mistake this bound exists to catch, and a bound that admits it is decoration.
 # Sixty: a twenty-storey tower, and well clear of the 1.8 m warden times a
 # hundred.
+#
+# NINETY now, and moved on purpose rather than to get something through. The
+# guild hall is the landmark a city is steered by, so it has to beat the tallest
+# thing standing round it - a 57 m spire - by enough that the win is not a matter
+# of opinion. At 80 m it tripped a bound written when the tallest thing in the
+# world was that spire, which is a bound describing what had been built rather
+# than what may be built.
+#
+# It still catches what it was for. The mistake this exists to refuse is a scale
+# error, and those are out by a factor of a hundred: the broken fixture that first
+# defeated it was a 1.8 m figure built in centimetres, so 180 m tall. Ninety leaves
+# that a long way outside, and anything taller than the guild hall now has to say
+# why here before it can ship.
 SMALLEST = 0.02
-LARGEST = 60.0
+LARGEST = 90.0
 
 # How far a model's base may sit off the floor before it counts as floating.
 FOOTING_SLACK = 0.02

@@ -291,6 +291,8 @@ impl Settlements {
         ground: &dyn Fn(Vec2) -> f32,
         shore: &dyn Fn(Vec2) -> f32,
         wet: &dyn Fn(Vec2) -> bool,
+        // What a road pays for crossing a place, on top of the ground itself.
+        avoid: &dyn Fn(Vec2) -> f32,
     ) -> Self {
         let mut sites: Vec<Site> = Vec::new();
 
@@ -327,7 +329,7 @@ impl Settlements {
         // again, but a hand-laid road beats a generated one every time because
         // somebody is looking at the country while they lay it.
         let (roads, bridges) = if LINK_TOWNS_WITH_ROADS {
-            link(&sites, ground, half)
+            link(&sites, ground, half, avoid)
         } else {
             (Vec::new(), Vec::new())
         };
@@ -700,6 +702,7 @@ fn link(
     sites: &[Site],
     ground: &dyn Fn(Vec2) -> f32,
     half: Vec2,
+    avoid: &dyn Fn(Vec2) -> f32,
 ) -> (Vec<Road>, Vec<Bridge>) {
     let mut roads = Vec::new();
     let mut bridges = Vec::new();
@@ -707,7 +710,7 @@ fn link(
         return (roads, bridges);
     }
 
-    let land = crate::world::route::Land::survey(half, ground);
+    let land = crate::world::route::Land::survey(half, ground, avoid);
     let reach: Vec<Option<crate::world::route::Reach>> =
         sites.iter().map(|site| land.walk_from(site.at)).collect();
     let islands: Vec<Option<u16>> = sites.iter().map(|site| land.island_at(site.at)).collect();

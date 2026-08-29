@@ -1149,23 +1149,51 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
         });
     }
 
-    // THE WEENIE. A city's tallest building goes nearest its middle.
+    // THE WEENIE, AND IT IS THE GUILD HALL.
     //
     // Rogers' first hub rule: a place needs one thing tall enough to see from
-    // OUTSIDE it, that pulls you toward the centre. Asked of `lot_that_fits` now
-    // rather than by hunting for a tower by name, so it works on any plan - the
-    // building takes the lot's own facing with it and therefore still addresses the
-    // street that lot was cut against.
-    if site.city {
-        if let Some(index) = lot_that_fits(&plots, site.at, Building::CitySpire) {
-            plots[index].what = Building::CitySpire;
-        }
-    }
-
-    // And the hall, if the plan did not already seat one on a square.
+    // OUTSIDE it that pulls you toward the centre. A city had one - but it was the
+    // office spire, put nearest the middle by exactly this rule, and the guild hall
+    // was left to find a lot like any other building.
+    //
+    // Photographed from a city entrance that read as a row of near-identical slabs,
+    // and the numbers say why: blocks 19.7 m, towers 37.6 m, spire 57.1 m, guild
+    // hall 14.1 m. The shortest thing on the street was the one building the whole
+    // game is named after. The hall is now 80.5 m and takes the middle, and the
+    // spire is moved off to one side where it is a second peak on the skyline rather
+    // than the thing competing to be the first.
     if site.city && !plots.iter().any(|p| p.what == Building::GuildHall) {
         if let Some(index) = lot_that_fits(&plots, site.at, Building::GuildHall) {
             plots[index].what = Building::GuildHall;
+        }
+    }
+
+    if site.city {
+        // The spire ACROSS the middle rather than at it - and to one side of the way
+        // in, so it is not standing directly behind the hall from the entrance road,
+        // which is the one place it would still be competing.
+        let aside = site.at + Vec2::new(-approach.y, approach.x) * reach * 0.72;
+        if let Some(index) = lot_that_fits(&plots, aside, Building::CitySpire) {
+            if plots[index].at.distance(site.at) > square + KEEPS_CLEAR * 0.5 {
+                plots[index].what = Building::CitySpire;
+            }
+        }
+
+        // NEGATIVE SPACE. Rogers' other half, and the half a height contest misses:
+        // a landmark needs room around it or it is a tall thing in a thicket of tall
+        // things. Anything tall standing too close to the hall is built lower, so the
+        // hall is seen against sky from the approach instead of against a neighbour.
+        if let Some(hall) = plots
+            .iter()
+            .position(|plot| plot.what == Building::GuildHall)
+        {
+            let seat = plots[hall].at;
+            for plot in plots.iter_mut() {
+                let tall = matches!(plot.what, Building::CityTower | Building::CitySpire);
+                if tall && plot.at.distance(seat) < KEEPS_CLEAR {
+                    plot.what = Building::CityBlock;
+                }
+            }
         }
     }
 
@@ -1508,6 +1536,13 @@ const STONE_VARIES: f32 = 0.16;
 // surface colour at its edges when there is no city to put a kerb on.
 const ROAD_KERB: [f32; 4] = [0.44, 0.42, 0.39, 1.0];
 
+/// How wide the margin is where a road gives out into the ground, in metres.
+///
+/// Not a kerb and not a verge anybody walks on - it is the distance over which the
+/// surface stops being road and starts being whatever is around it. Wide enough to
+/// read as a blend at walking distance, narrow enough that the road keeps its width.
+const SHOULDER_WIDE: f32 = 1.7;
+
 /// The material a street's paving wears.
 ///
 /// # Why it cannot borrow the ground cover's
@@ -1538,131 +1573,38 @@ fn mix_the_road_surface(mut commands: Commands, mut materials: ResMut<Assets<cra
     commands.insert_resource(RoadSurface(surface));
 }
 
-/// How high a settlement's boundary stands, in metres, and how thick.
+/// How much room the guild hall is given, in metres.
 ///
-/// # Lynch's fifth element, and the one a generated town never has
+/// Nothing taller than a city block stands inside this of the hall, so its tower is
+/// seen against sky rather than against a neighbour - a landmark read against
+/// another building is not read at all.
 ///
-/// Paths, nodes, landmarks and districts can all be produced by laying out ground.
-/// An EDGE cannot: it is the thing that says the town is over. Without one a
-/// settlement fades into countryside - the buildings just get sparser until they
-/// stop - and a player never has the moment of arriving anywhere or of leaving it.
-///
-/// Low on purpose. This is a boundary, not a fortification: you can see over it, it
-/// never encloses the view, and the roads run straight through it. A village wears
-/// a timber palisade and a city a concrete parapet, which is the same two-ages rule
-/// the buildings and the streets already follow.
-const EDGE_STANDS: f32 = 1.35;
-const EDGE_THICK: f32 = 0.34;
+/// A PLAZA, not half the city. At 54 m this cleared towers out of most of the market
+/// district, which broke the thing districts are for: `a_town_has_districts_and_they
+/// _do_not_look_alike` reported the middle of a city holding no more tall buildings
+/// than its outskirts, and it was right. Thirty-four keeps the hall's own square
+/// clear and leaves the business district standing around it, which is the shape a
+/// cathedral square has anyway.
+const KEEPS_CLEAR: f32 = 34.0;
 
-/// How far outside the built ground the boundary runs, as a share of the reach.
-const EDGE_LIES_AT: f32 = 1.06;
+// # THE RING WALL IS GONE
+//
+// A settlement used to be enclosed by a low timber or concrete ring - Lynch's edge,
+// the one of his five elements that does not fall out of laying ground - broken by a
+// gateway wherever a street crossed it.
+//
+// It went because it was a CIRCLE. Every settlement wore the same perfect ring at
+// the same fraction of its radius, and a perfect circle is the one shape that says
+// "generated" from any angle: a real place is bounded by what happens to be there,
+// and no real place is bounded by a compass. Reviewed independently as "another
+// perfect circle" and called by the user, looking at it in game, something to just
+// remove.
+//
+// What it was FOR still stands and is now carried by the ground instead. A
+// settlement's earth or paving reaches past its buildings and fades out over the
+// last of itself - see `Settlements::ground_at` - so arriving still has a moment,
+// and the moment is a change underfoot rather than a fence with a gap in it.
 
-/// How wide a gateway is where a road crosses the boundary, in metres.
-///
-/// Generous. A gate the exact width of its road is a gate you scrape through, and
-/// this is a line on the ground rather than a defence.
-const A_GATE_IS: f32 = 9.0;
-
-const EDGE_TIMBER: [f32; 4] = [0.34, 0.25, 0.17, 1.0];
-const EDGE_CAP: [f32; 4] = [0.26, 0.19, 0.13, 1.0];
-const EDGE_CONCRETE: [f32; 4] = [0.60, 0.60, 0.58, 1.0];
-const EDGE_CONCRETE_CAP: [f32; 4] = [0.48, 0.48, 0.47, 1.0];
-
-/// The wall that says where a settlement ends, with the roads left open through it.
-///
-/// One ring mesh, built the same way the paving is - a ribbon of quads following
-/// the ground - because that is the cheap way to get a continuous thing across
-/// terrain that is not flat. The ring is broken wherever a street crosses it, and
-/// what is left of those breaks is the gateways.
-fn enclose(
-    layout: &Layout,
-    site: &Site,
-    terrain: &crate::world::terrain::Terrain,
-    low: Vec2,
-) -> Mesh {
-    let mut places: Vec<[f32; 3]> = Vec::new();
-    let mut normals: Vec<[f32; 3]> = Vec::new();
-    let mut colours: Vec<[f32; 4]> = Vec::new();
-    let mut uvs: Vec<[f32; 2]> = Vec::new();
-    let mut indices: Vec<u32> = Vec::new();
-
-    let (face, cap) = if site.city {
-        (EDGE_CONCRETE, EDGE_CONCRETE_CAP)
-    } else {
-        (EDGE_TIMBER, EDGE_CAP)
-    };
-    let radius = site.radius * FILLS * EDGE_LIES_AT;
-
-    // Where the roads go out. A gateway is an ANGLE, because the wall is a ring:
-    // measured at the boundary, a 9 m gap subtends more of a small town than a
-    // large one, which is right - a village gate should read as most of one side.
-    let mut gates: Vec<f32> = Vec::new();
-    for street in &layout.streets {
-        for end in [street.from, street.to] {
-            let out = end - site.at;
-            if out.length() < radius * 0.72 {
-                continue;
-            }
-            gates.push(out.y.atan2(out.x));
-        }
-    }
-    let gate_half = (A_GATE_IS * 0.5 / radius.max(1.0)).atan();
-
-    // Around the ring in short steps, skipping the gateways.
-    let steps = 160;
-    let mut run: Vec<usize> = Vec::new();
-    for step in 0..=steps {
-        let turn = step as f32 / steps as f32 * std::f32::consts::TAU;
-        let open = gates.iter().any(|gate| {
-            let mut apart = (turn - gate).abs();
-            if apart > std::f32::consts::PI {
-                apart = std::f32::consts::TAU - apart;
-            }
-            apart < gate_half
-        });
-
-        if open {
-            // The run ends here; the next stretch starts after the gate.
-            stitch(&mut indices, &run);
-            run.clear();
-            continue;
-        }
-
-        let at = site.at + Vec2::new(turn.cos(), turn.sin()) * radius;
-        let ground = terrain.drawn_height(at.x, at.y);
-        let out = Vec2::new(turn.cos(), turn.sin());
-        // Six points: outside foot and top, the cap, and inside top and foot - so
-        // the wall has two faces and a lid rather than being a single sheet.
-        let here = places.len();
-        for (side, up, colour) in [
-            (-EDGE_THICK * 0.5, 0.0, face),
-            (-EDGE_THICK * 0.5, EDGE_STANDS, face),
-            (-EDGE_THICK * 0.5, EDGE_STANDS, cap),
-            (EDGE_THICK * 0.5, EDGE_STANDS, cap),
-            (EDGE_THICK * 0.5, EDGE_STANDS, face),
-            (EDGE_THICK * 0.5, 0.0, face),
-        ] {
-            let on = at + out * side;
-            places.push([on.x - low.x, ground + up, on.y - low.y]);
-            normals.push([out.x, 0.35, out.y]);
-            colours.push(colour);
-            uvs.push([step as f32, up]);
-        }
-        run.push(here);
-    }
-    stitch(&mut indices, &run);
-
-    let mut mesh = Mesh::new(
-        bevy::render::mesh::PrimitiveTopology::TriangleList,
-        bevy::asset::RenderAssetUsages::default(),
-    );
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, places);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colours);
-    mesh.insert_indices(bevy::render::mesh::Indices::U32(indices));
-    mesh
-}
 
 /// Joins one unbroken stretch of boundary into triangles.
 fn stitch(indices: &mut Vec<u32>, run: &[usize]) {
@@ -1713,12 +1655,32 @@ fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2,
             // where the dirt stops and the grass starts, and putting a stone kerb
             // down each side of one is most of why they all read as paved.
             let edge = if city { ROAD_KERB } else { surface };
+
+            // AND A SHOULDER EITHER SIDE.
+            //
+            // # Two separate colours
+            //
+            // The ribbon used to stop dead at its own edge, so a dirt road was a
+            // brown band with a razor line down each side of it against whatever the
+            // ground was - reported as reading like two colours laid next to each
+            // other rather than as a track worn into the earth. A real road has no
+            // edge; it has a margin where the surface gives out and the ground takes
+            // over.
+            //
+            // The shoulder vertices carry the GROUND's own colour, asked of the
+            // terrain at that exact spot, so the ribbon fades into whatever is
+            // actually there - grass, a town's packed earth, sand - and keeps fading
+            // into the right thing when the road crosses from one into another.
+            let shoulder = half + SHOULDER_WIDE;
+            let hem = |out: f32| terrain.ground_colour((on + side * out).x, (on + side * out).y);
             for (across, colour) in [
+                (-shoulder, hem(-shoulder)),
                 (-half, edge),
                 (-half * 0.84, surface),
                 (0.0, surface),
                 (half * 0.84, surface),
                 (half, edge),
+                (shoulder, hem(shoulder)),
             ] {
                 let at = on + side * across;
                 let height = terrain.drawn_height(at.x, at.y) + ROAD_LIES;
@@ -1729,13 +1691,14 @@ fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2,
             }
         }
 
-        let base = (places.len() - (steps + 1) * 5) as u32;
+        const LANES: usize = 7;
+        let base = (places.len() - (steps + 1) * LANES) as u32;
         for step in 0..steps as u32 {
-            for lane in 0..4u32 {
-                let a = base + step * 5 + lane;
+            for lane in 0..(LANES as u32 - 1) {
+                let a = base + step * LANES as u32 + lane;
                 let b = a + 1;
-                let c = a + 5;
-                let d = a + 6;
+                let c = a + LANES as u32;
+                let d = c + 1;
                 indices.extend_from_slice(&[a, c, b, b, c, d]);
             }
         }
@@ -1828,23 +1791,61 @@ fn dirt_roads_near(
     terrain: &crate::world::terrain::Terrain,
     at: Vec2,
 ) -> Vec<Street> {
+    country_roads_near(plan, terrain, at, false)
+}
+
+/// The same roads where they run through a CITY, which are paved.
+///
+/// # A cart track across a plaza
+///
+/// Every country road was drawn as dirt for its whole length, the part inside a
+/// city included - so a modern city with paved streets and a paved square had a
+/// brown earth track driving across the middle of it and out the far side. The road
+/// BETWEEN towns is a dirt road; the same road, once it is inside a city, is that
+/// city's street, and it is surfaced like one.
+fn paved_roads_near(
+    plan: &crate::world::settle::Settlements,
+    terrain: &crate::world::terrain::Terrain,
+    at: Vec2,
+) -> Vec<Street> {
+    country_roads_near(plan, terrain, at, true)
+}
+
+/// The country roads near the player, of one surface or the other.
+fn country_roads_near(
+    plan: &crate::world::settle::Settlements,
+    terrain: &crate::world::terrain::Terrain,
+    at: Vec2,
+    paved: bool,
+) -> Vec<Street> {
     plan.ways()
         .iter()
         .filter(|road| {
             let mid = (road.from + road.to) * 0.5;
             mid.distance(at) < RAISES_WITHIN * 1.6
         })
-        // NOT THROUGH THE DESERT OR THE SNOW.
+        // A leg belongs to a city when its middle stands on that city's own ground.
+        .filter(|road| {
+            let mid = (road.from + road.to) * 0.5;
+            let in_a_city = plan
+                .sites()
+                .iter()
+                .any(|site| site.city && !site.ranch && site.at.distance(mid) < site.radius);
+            in_a_city == paved
+        })
+        // NOT THROUGH THE DESERT OR THE SNOW - but only the dirt.
         //
         // "The desert doesn't need or would even have a dirt path, the snow would
         // also cover it." Both true, and both are the same rule the weather already
         // follows: what a place IS decides what happens on it. A track is worn by
         // feet into ground that holds a mark, and sand and snow do not hold one.
         //
-        // Asked per leg, so a road running out of the green world into the dunes
-        // simply stops being drawn where the dunes start - no border to author, and
-        // the leg is short enough that the end is not abrupt.
+        // A city's paved street is a made surface and holds wherever it is built, so
+        // this does not apply to it.
         .filter(|road| {
+            if paved {
+                return true;
+            }
             let mid = (road.from + road.to) * 0.5;
             !matches!(
                 terrain.region(mid.x, mid.y).0,
@@ -1968,15 +1969,6 @@ pub fn raise_the_towns(
             bevy::pbr::NotShadowCaster,
         ));
 
-        // And the boundary that says where the place ends - Lynch's edge.
-        let boundary = enclose(&layout, site, &terrain.0, site.at);
-        commands.spawn((
-            FromSite(key),
-            Mesh3d(meshes.add(boundary)),
-            MeshMaterial3d(surface.clone()),
-            Transform::from_xyz(site.at.x, 0.0, site.at.y),
-            Visibility::default(),
-        ));
         built.standing.insert(key, layout);
     }
 }
@@ -2095,15 +2087,25 @@ fn lay_the_country_roads(
         })
         .clone();
 
-    let mesh = pave(&roads, &terrain.0, here, false);
-    commands.spawn((
-        CountryRoad,
-        Mesh3d(meshes.add(mesh)),
-        MeshMaterial3d(material),
-        Transform::from_xyz(here.x, 0.0, here.y),
-        Visibility::default(),
-        bevy::pbr::NotShadowCaster,
-    ));
+    // Two surfaces, two meshes: the dirt between the towns and the paving where the
+    // same road crosses a city.
+    for (run, city) in [
+        (roads, false),
+        (paved_roads_near(terrain.plan(), &terrain.0, here), true),
+    ] {
+        if run.is_empty() {
+            continue;
+        }
+        let mesh = pave(&run, &terrain.0, here, city);
+        commands.spawn((
+            CountryRoad,
+            Mesh3d(meshes.add(mesh)),
+            MeshMaterial3d(material.clone()),
+            Transform::from_xyz(here.x, 0.0, here.y),
+            Visibility::default(),
+            bevy::pbr::NotShadowCaster,
+        ));
+    }
 }
 
 pub struct TownPlugin;
@@ -2753,15 +2755,33 @@ mod tests {
                     }
                 }
 
-                // And the tall thing, which is what you see from outside.
+                // AND THE THING YOU SEE FROM OUTSIDE, which is the guild hall.
+                //
+                // This used to ask for a spire, because the spire was the tallest
+                // thing a city had and was placed nearest the middle by Rogers'
+                // rule. The guild hall is that thing now - 80.5 m against the
+                // spire's 57.1 - so the rule is unchanged and what satisfies it is
+                // not. Both halves are asked for: the hall is there, and it has room
+                // around it, because a landmark in a thicket of towers is not one.
                 if city {
-                    let tallest = layout
+                    let Some(hall) = layout
                         .plots
                         .iter()
-                        .any(|p| p.what == Building::CitySpire);
-                    assert!(
-                        tallest,
-                        "seed {seed}: a city with no spire - nothing to see it by                          from the road in"
+                        .find(|p| p.what == Building::GuildHall)
+                    else {
+                        panic!("seed {seed}: a city with no guild hall - nothing to see it by from the road in");
+                    };
+                    let crowding = layout
+                        .plots
+                        .iter()
+                        .filter(|p| {
+                            matches!(p.what, Building::CityTower | Building::CitySpire)
+                                && p.at.distance(hall.at) < KEEPS_CLEAR
+                        })
+                        .count();
+                    assert_eq!(
+                        crowding, 0,
+                        "seed {seed}: {crowding} tower(s) stand inside the guild hall's square, so it is read against a building instead of against sky",
                     );
                 }
             }
@@ -2795,72 +2815,6 @@ mod tests {
                 path.exists(),
                 "{what:?} names {} and nothing is there - it would not appear in the                  world, and every measurement upstream of it would still be right",
                 what.model()
-            );
-        }
-    }
-
-/// A settlement has a boundary, and the roads run THROUGH it.
-    ///
-    /// Lynch's fifth element - the one a generated town never has, because paths,
-    /// nodes, landmarks and districts all fall out of laying ground and an edge does
-    /// not. It is what says the town is over.
-    ///
-    /// Both halves are asserted, because a wall with no gates is a wall that traps
-    /// you in the place it was meant to define.
-    #[test]
-    fn a_settlement_has_an_edge_with_the_roads_left_open_through_it() {
-        use bevy::render::mesh::VertexAttributeValues;
-
-        let terrain = crate::world::terrain::Terrain::new();
-        let plan = terrain.plan();
-        for site in plan.sites().iter().filter(|s| !s.ranch).take(4) {
-            let layout = lay_out(site, plan.approach(site.at), crate::config::WORLD_SEED);
-            let mesh = enclose(&layout, site, &terrain, site.at);
-            let places = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
-                Some(VertexAttributeValues::Float32x3(v)) => v.clone(),
-                _ => Vec::new(),
-            };
-            assert!(
-                places.len() > 300,
-                "the boundary is {} vertices - a town with no edge fades into the                  countryside instead of ending",
-                places.len()
-            );
-
-            // It stands up off the ground.
-            let low = places.iter().map(|p| p[1]).fold(f32::MAX, f32::min);
-            let high = places.iter().map(|p| p[1]).fold(f32::MIN, f32::max);
-            assert!(
-                high - low > EDGE_STANDS * 0.5,
-                "the boundary spans {:.2} m of height and should stand {EDGE_STANDS}",
-                high - low
-            );
-
-            // AND THE GATES. Every street that reaches the boundary has to pass
-            // through a gap in it - measured by asking whether any wall vertex sits
-            // in the way of where the road leaves.
-            let radius = site.radius * FILLS * EDGE_LIES_AT;
-            let mut gated = 0;
-            let mut reaching = 0;
-            for street in &layout.streets {
-                for end in [street.from, street.to] {
-                    let out = end - site.at;
-                    if out.length() < radius * 0.72 {
-                        continue;
-                    }
-                    reaching += 1;
-                    let cross = site.at + out.normalize_or_zero() * radius - site.at;
-                    let blocked = places.iter().any(|p| {
-                        let at = Vec2::new(p[0], p[2]);
-                        at.distance(cross) < A_GATE_IS * 0.28
-                    });
-                    if !blocked {
-                        gated += 1;
-                    }
-                }
-            }
-            assert!(
-                reaching == 0 || gated > 0,
-                "{reaching} roads reach the boundary and none of them has a gateway                  - the wall would pen the player in"
             );
         }
     }

@@ -941,18 +941,118 @@ def guild_hall():
 
     top = roofed(parts, wide, deep, STOREY * 2, "slate", ridge="x", pitch=0.5)
 
-    # The tower, off to one corner and taller than the ridge, with a spire.
-    tower = MODULE * 2
+    # ------------------------------------------------------------- THE CAMPANILE
+    #
+    # # A landmark has to WIN the skyline, not merely be on it
+    #
+    # This tower used to top out at 13 m. Measured against what stands round it in a
+    # city - blocks at 19.7 m, towers at 37.6 and a spire at 57.1 - the guild's own
+    # hall was the shortest thing on the street, and a photograph from the city
+    # entrance showed a row of near-identical slabs with nothing saying which way to
+    # walk. A landmark that loses to the background is not a landmark.
+    #
+    # So it goes to 74 m, clear of the tallest tower by a sixth of its height. Height
+    # alone is not enough either - a taller slab is still a slab - so the shape is
+    # deliberately the one thing in a city of extruded rectangles that TAPERS: a
+    # square shaft in setback stages, an open belfry, an octagonal lantern, and a
+    # spire to a point. Read as a silhouette against the sky, nothing else here is
+    # remotely that shape.
+    # PROPORTION, not just height. At MODULE * 3 square and 80 m this was 1:18 -
+    # photographed from the city entrance it read as a radio mast with a city under
+    # it, not as the guild's hall. A campanile runs about 1:10, so the shaft gets
+    # wider rather than shorter and the building at its foot has something to belong
+    # to.
+    tower = MODULE * 5
     tx, ty = wide * 0.5 - tower * 0.5, deep * 0.5 - tower * 0.5
-    tower_top = STOREY * 2 + 3.4
-    parts.append(box((tower, tower, tower_top), (tx, ty, tower_top * 0.5), "stone"))
-    parts.append(box((tower + 0.3, tower + 0.3, 0.22), (tx, ty, tower_top - 0.11), "stone"))
-    for side in (-1.0, 1.0):
-        parts.append(box((0.5, 0.08, 0.9), (tx + side * 0.55, ty - tower * 0.5 - 0.02, tower_top - 1.3), "glass"))
-    # A spire, not a hip: four faces to a point is the shape a guild puts on a map.
-    parts.append(wedge(tower + 0.5, tower + 0.5, 2.4, (tx, ty, tower_top), "roof2", ridge="y"))
-    parts.append(wedge(tower + 0.5, tower + 0.5, 2.4, (tx, ty, tower_top), "roof2", ridge="x"))
-    parts.append(tube(0.06, 1.0, (tx, ty, tower_top + 2.8), "brass", sides=8))
+
+    # The shaft, in stages. Each steps in a little and wears a string course, which
+    # is what stops sixty metres of masonry reading as an extruded box.
+    stages = 5
+    stage_tall = 10.0
+    at = 0.0
+    for stage in range(stages):
+        span = tower * (1.0 - stage * 0.045)
+        parts.append(box((span, span, stage_tall), (tx, ty, at + stage_tall * 0.5), "stone"))
+        # A string course on top of every stage but the last, which the belfry caps.
+        parts.append(
+            box((span + 0.34, span + 0.34, 0.3), (tx, ty, at + stage_tall - 0.15), "stone2")
+        )
+        # A tall slit down each face, so the stage has a scale you can read from the
+        # ground - without them the shaft is a plain column and reads as nearer and
+        # shorter than it is.
+        if stage > 0:
+            for face, (ox, oy) in enumerate(
+                ((0.0, -1.0), (0.0, 1.0), (-1.0, 0.0), (1.0, 0.0))
+            ):
+                parts.append(
+                    box(
+                        (0.7 if face < 2 else 0.1, 0.1 if face < 2 else 0.7, 4.2),
+                        (
+                            tx + ox * (span * 0.5 + 0.02),
+                            ty + oy * (span * 0.5 + 0.02),
+                            at + stage_tall * 0.52,
+                        ),
+                        "glass",
+                    )
+                )
+        at += stage_tall
+
+    # THE BELFRY: an open stage, which is the moment the tower stops being solid.
+    belfry = tower * 0.94
+    belfry_tall = 8.4
+    for corner_x in (-1.0, 1.0):
+        for corner_y in (-1.0, 1.0):
+            parts.append(
+                box(
+                    (belfry * 0.24, belfry * 0.24, belfry_tall),
+                    (
+                        tx + corner_x * (belfry * 0.38),
+                        ty + corner_y * (belfry * 0.38),
+                        at + belfry_tall * 0.5,
+                    ),
+                    "stone",
+                )
+            )
+    # The guild's own colour, deep inside the belfry where it reads as a lit window
+    # rather than as paint on a wall.
+    parts.append(
+        box((belfry * 0.52, belfry * 0.52, belfry_tall * 0.8), (tx, ty, at + belfry_tall * 0.5), "guild")
+    )
+    parts.append(box((belfry + 0.5, belfry + 0.5, 0.42), (tx, ty, at + belfry_tall + 0.21), "stone2"))
+    at += belfry_tall + 0.42
+
+    # THE LANTERN: two squares at forty-five degrees, which reads as an octagon from
+    # every side and costs eight boxes rather than a lathe.
+    lantern = tower * 0.66
+    for turn in (0.0, math.pi * 0.25):
+        parts.append(
+            box(
+                (lantern, lantern, 6.2),
+                (tx, ty, at + 3.1),
+                "stone",
+                tilt=(0.0, 0.0, turn),
+            )
+        )
+    for turn in (0.0, math.pi * 0.25):
+        parts.append(
+            box(
+                (lantern + 0.4, lantern + 0.4, 0.3),
+                (tx, ty, at + 6.35),
+                "stone2",
+                tilt=(0.0, 0.0, turn),
+            )
+        )
+    at += 6.5
+
+    # THE SPIRE. Four faces to a point, which is the shape a guild puts on a map.
+    spire = 9.4
+    for ridge in ("x", "y"):
+        parts.append(wedge(lantern + 0.5, lantern + 0.5, spire, (tx, ty, at), "guild", ridge=ridge))
+    at += spire
+    # And a beacon on the very top, so it is still a landmark at dusk.
+    parts.append(tube(0.16, 1.6, (tx, ty, at + 0.8), "brass", sides=8))
+    parts.append(box((0.75, 0.75, 0.75), (tx, ty, at + 1.9), "brass"))
+    tower_top = at + 2.3
 
     # The guild's colours over the door, and a banner either side of it.
     parts.append(box((2.4, 0.12, 1.1), (0.0, -deep * 0.5 - 0.12, 3.9), "guild"))
@@ -961,7 +1061,7 @@ def guild_hall():
     )
     for side in (-1.0, 1.0):
         parts.append(box((0.9, 0.07, 2.6), (side * 2.6, -deep * 0.5 - 0.1, 4.3), "guild"))
-    return parts, max(top, tower_top + 3.3)
+    return parts, max(top, tower_top)
 
 
 # # THE CITY IS A DIFFERENT AGE OF THE WORLD

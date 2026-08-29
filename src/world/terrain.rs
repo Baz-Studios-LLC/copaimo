@@ -117,6 +117,13 @@ pub struct Terrain {
     country: RwLock<crate::world::country::Painted>,
 }
 
+/// What a road pays per metre for crossing sand or snow, as a multiplier on the
+/// ground it covers.
+///
+/// Six: a road will go six times as far round rather than cross, which on this world
+/// means it always goes round unless the place it is going is inside one.
+const AVOIDS_SAND_AND_SNOW: f32 = 6.0;
+
 impl Terrain {
     pub fn new() -> Self {
         // The world is grown, not drawn - see `config::GROWS_ITS_OWN_WORLD`. The
@@ -240,6 +247,20 @@ impl Terrain {
                 terrain.rivers.bed_at(at.x, at.y) >= RIVER_EDGE
                     && terrain.rivers.cut_at(at.x, at.y) >= CHANNEL_LEAST
             },
+            // SAND AND SNOW ARE DEAR TO CROSS.
+            //
+            // Not forbidden - a settlement out in either still has to be reachable -
+            // but dear enough that a road takes the long way round rather than
+            // running into them. A dirt track cannot be worn into sand or snow, so
+            // the drawing refuses to draw one there, and a road that was ROUTED
+            // through the dunes simply stopped at the dune line: reported as a path
+            // that "abruptly ends at the desert". The route is what was wrong, not
+            // the drawing.
+            &|at| match terrain.region(at.x, at.y).0 {
+                terrain_core::region::Country::Desert
+                | terrain_core::region::Country::Snow => AVOIDS_SAND_AND_SNOW,
+                terrain_core::region::Country::Ordinary => 0.0,
+            },
         );
         info!(
             "planned {} places and {} roads between them",
@@ -281,6 +302,26 @@ impl Terrain {
     /// How worn to bare earth the ground is at a point, -1 to 1.
     ///
     /// Zero is the biome's own answer, and that is almost the whole world.
+    /// What the open ground here is coloured, before anything is laid on top of it.
+    ///
+    /// The same answer the terrain mesh paints itself with. Wanted by anything that
+    /// has to MEET the ground rather than cover it - a road's shoulder, which has to
+    /// arrive at whatever the ground happens to be doing there rather than at a
+    /// colour chosen once and hoped for.
+    pub fn ground_colour(&self, x: f32, z: f32) -> [f32; 4] {
+        let (country, belonging) = self.region(x, z);
+        crate::world::biome::surface_color(
+            Vec2::new(x, z),
+            self.height(x, z),
+            1.0 - self.normal(x, z, 2.0).y,
+            self.shore_character(x, z),
+            self.worn(x, z),
+            country,
+            belonging,
+            self.settled(x, z),
+        )
+    }
+
     /// How built-up the ground is here - see `Settlements::ground_at`.
     pub fn settled(&self, x: f32, z: f32) -> f32 {
         self.settlements.ground_at(Vec2::new(x, z))

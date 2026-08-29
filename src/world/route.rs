@@ -73,6 +73,14 @@ pub struct Land {
     island: Vec<u16>,
     /// How many cells it is to the nearest water, saturating.
     from_water: Vec<u16>,
+    /// What crossing each cell costs on top of the ground itself.
+    ///
+    /// The country a cell is in, asked once and kept: a dirt road cannot be worn
+    /// into sand or snow, so a road that runs into either is a road that stops being
+    /// drawn - and stopping dead at the dune line is exactly what was reported. A
+    /// route that is charged for going there goes round instead, which is what a
+    /// road actually does.
+    shy: Vec<f32>,
     /// How many separate landmasses were found.
     pub islands: u16,
 }
@@ -87,13 +95,18 @@ pub struct Crossing {
 
 impl Land {
     /// Surveys the world once.
-    pub fn survey(half: Vec2, ground: &dyn Fn(Vec2) -> f32) -> Land {
+    pub fn survey(
+        half: Vec2,
+        ground: &dyn Fn(Vec2) -> f32,
+        avoid: &dyn Fn(Vec2) -> f32,
+    ) -> Land {
         let wide = ((half.x * 2.0) / ROUTE_CELL).ceil() as usize + 1;
         let high = ((half.y * 2.0) / ROUTE_CELL).ceil() as usize + 1;
         let low = -half;
 
         let mut dry = vec![false; wide * high];
         let mut height = vec![0.0f32; wide * high];
+        let mut shy = vec![0.0f32; wide * high];
         for y in 0..high {
             for x in 0..wide {
                 let at = low + Vec2::new(x as f32, y as f32) * ROUTE_CELL;
@@ -116,6 +129,7 @@ impl Land {
                 .map(|corner| ground(at + *corner * ROUTE_CELL))
                 .fold(h, f32::min);
                 dry[y * wide + x] = wettest > SEA_LEVEL + DRY_BY;
+                shy[y * wide + x] = avoid(at);
             }
         }
 
@@ -125,6 +139,7 @@ impl Land {
             high,
             dry,
             height,
+            shy,
             island: vec![OPEN_SEA; wide * high],
             from_water: vec![0; wide * high],
             islands: 0,
@@ -278,7 +293,7 @@ impl Land {
         } else {
             0.0
         };
-        run * (1.0 + SLOPE_COSTS * (rise / run) + shy)
+        run * (1.0 + SLOPE_COSTS * (rise / run) + shy + self.shy[to])
     }
 
     /// Every cost from one place, worked out once.
@@ -465,7 +480,7 @@ mod tests {
     #[test]
     fn a_route_goes_round_the_water_rather_than_through_it() {
         let half = Vec2::new(2_000.0, 2_000.0);
-        let land = Land::survey(half, &split_world);
+        let land = Land::survey(half, &split_world, &|_| 0.0);
         let walk = land
             .route(Vec2::new(-1_000.0, -1_000.0), Vec2::new(-1_000.0, 1_000.0))
             .expect("both ends are on one landmass, joined round the end of the channel");
@@ -490,7 +505,7 @@ mod tests {
         // Water all the way across: no walk exists, and a bridge is the answer.
         let moat = |at: Vec2| if at.y.abs() < 160.0 { -10.0 } else { 30.0 };
         let half = Vec2::new(1_500.0, 1_500.0);
-        let land = Land::survey(half, &moat);
+        let land = Land::survey(half, &moat, &|_| 0.0);
 
         let north = Vec2::new(0.0, 800.0);
         let south = Vec2::new(0.0, -800.0);

@@ -52,6 +52,21 @@ pub const ROADWAY_WIDE: f32 = 6.4;
 /// a bridge you never set out for.
 const RAISES_WITHIN: f32 = 2_400.0;
 
+/// How a crossing of this length is divided up: where the arches start, how many
+/// there are, and how far apart they go.
+///
+/// Pulled out of the spawning so it can be checked. The whole of what can go wrong
+/// here is arithmetic, and the way it goes wrong is a slot of daylight at every
+/// pier - which is invisible in any measurement of one span, because one span is
+/// correct either way.
+pub fn arch_run(length: f32) -> (f32, usize, f32) {
+    let ends = SPAN_LONG * 0.5;
+    let between = (length - ends * 2.0).max(0.0);
+    // CEILING, not floor - see `raise_the_bridges`.
+    let arches = (between / SPAN_LONG).ceil().max(1.0) as usize;
+    (ends, arches, between / arches as f32)
+}
+
 /// A piece of bridge that is standing, so it can be taken down again.
 #[derive(Component)]
 struct Standing;
@@ -111,6 +126,9 @@ fn raise_the_bridges(
         let ahead = run / length;
 
         // An abutment at each shore, then arches filling everything between them.
+        //
+        // The abutment is half a span long, so its middle sits a quarter of a span
+        // in from the shore and the arches begin exactly half a span in.
         let ends = SPAN_LONG * 0.5;
         for shore in [0.0_f32, 1.0] {
             let at = bridge.from + ahead * (length * shore + ends * 0.5 * (1.0 - 2.0 * shore));
@@ -125,13 +143,21 @@ fn raise_the_bridges(
             ));
         }
 
-        let between = (length - ends).max(0.0);
-        let arches = (between / SPAN_LONG).floor().max(1.0) as usize;
-        // Spread across what is actually left, so the last arch meets the far
-        // abutment instead of stopping short of it or running past into the shore.
-        let step = between / arches as f32;
+        // CEILING, not floor - and this is why.
+        //
+        // `floor` gives the largest whole number of arches that FIT, and then shares
+        // the leftover out among them, so the spacing is always a little MORE than an
+        // arch is long and every joint on the bridge opens by that much. On the
+        // 1154 m crossing that is 63 arches each pulled about a quarter of a metre
+        // from its neighbour, which photographs as a slot of daylight running the
+        // full width of the deck at every pier.
+        //
+        // With `ceil` the spacing is always a little LESS, so consecutive spans
+        // overlap instead - inside solid masonry, where the battered pier feet
+        // already meet, and nobody can see it.
+        let (_, arches, step) = arch_run(length);
         for arch in 0..arches {
-            let at = bridge.from + ahead * (ends * 0.5 + (arch as f32 + 0.5) * step);
+            let at = bridge.from + ahead * (ends + (arch as f32 + 0.5) * step);
             commands.spawn((
                 Standing,
                 SceneRoot(
@@ -163,6 +189,30 @@ impl Plugin for BridgePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// No bridge has daylight between its arches.
+    ///
+    /// The fault this catches is arithmetic and shows up only when the spans are laid
+    /// end to end: one span is the right size whichever way the division rounds.
+    #[test]
+    fn the_arches_of_a_bridge_butt_together() {
+        // Every length from a short crossing to a long one, including the awkward
+        // ones just over a whole number of spans.
+        for tenths in 400..14_000 {
+            let length = tenths as f32 * 0.1;
+            let (ends, arches, step) = arch_run(length);
+            assert!(
+                step <= SPAN_LONG + 1.0e-3,
+                "a {length:.1} m bridge lays {arches} arches {step:.3} m apart, and an arch is {SPAN_LONG} m - that is a gap at every pier",
+            );
+            // And it still reaches: the arches plus both abutments span the crossing.
+            let covered = ends * 2.0 + step * arches as f32;
+            assert!(
+                (covered - length).abs() < 1.0e-2,
+                "a {length:.1} m bridge covers {covered:.2} m",
+            );
+        }
+    }
 
     /// The game and Blender agree about how big a bridge is.
     ///

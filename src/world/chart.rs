@@ -130,14 +130,14 @@ fn draw_the_works(terrain: &Terrain, size: UVec2, pixels: &mut [u8]) {
     };
 
     let mut draw = |from: Vec2, to: Vec2, radius: f32, rgb: [u8; 3]| {
-        // Stepped in QUARTER pixels.
+        // Stepped in EIGHTH pixels.
         //
         // Half-pixels are not enough. A thin line blots one pixel per step, so two
         // consecutive steps that straddle a pixel boundary land either side of it
         // and leave the pixel between them unpainted - a road with holes in it, and
         // a hole exactly where a segment's middle happens to fall reads as a road
         // that was never drawn at all.
-        let steps = ((from.distance(to) / metres) * 4.0).ceil().max(1.0) as usize;
+        let steps = ((from.distance(to) / metres) * 8.0).ceil().max(1.0) as usize;
         for step in 0..=steps {
             blot(from.lerp(to, step as f32 / steps as f32), radius, rgb);
         }
@@ -355,12 +355,27 @@ mod tests {
                 hidden += 1;
                 continue;
             }
-            assert_eq!(
-                ink(pixel(middle)),
-                MAP_ROAD,
-                "the road at {:.0}, {:.0} is not on the map and nothing is drawn over it",
+            // Within a pixel of where its middle lands, not exactly on it. The
+            // painter walks a line by marking the nearest pixel to each step, which
+            // promises the line is unbroken - not that any particular point along it
+            // rounds the same way this test rounds. Asking for the exact pixel made
+            // the guard fail on sub-pixel rounding rather than on a missing road.
+            let on = pixel(middle);
+            let drawn = [
+                Vec2::ZERO,
+                Vec2::new(1.0, 0.0),
+                Vec2::new(-1.0, 0.0),
+                Vec2::new(0.0, 1.0),
+                Vec2::new(0.0, -1.0),
+            ]
+            .iter()
+            .any(|step| ink(on + *step) == MAP_ROAD);
+            assert!(
+                drawn,
+                "the road at {:.0}, {:.0} is not on the map and nothing is drawn over it - the map paints {:?} there",
                 middle.x,
                 middle.y,
+                ink(on),
             );
         }
         println!(
