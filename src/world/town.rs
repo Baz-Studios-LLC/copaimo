@@ -587,6 +587,104 @@ fn arc_streets(
     }
 }
 
+/// Where a town's streets actually MEET, whatever plan drew them.
+///
+/// # Placement has to read the network, not the plan that made it
+///
+/// The hall and the landmarks were placed by walking the radial plan's own geometry
+/// - the square's edge, the spokes, "lanes as opposed to the high street". None of
+/// those words mean anything on a grid, where every street runs through, or on a
+/// street village, which has no square at all. Every attempt to add a second plan
+/// therefore broke placement in four different ways at once.
+///
+/// These three helpers ask the STREETS instead. Any plan that produces streets gets
+/// a hall, gets its landmarks, and keeps them out of the road.
+fn junctions_of(streets: &[Street]) -> Vec<(Vec2, f32)> {
+    let mut found: Vec<(Vec2, f32, usize)> = Vec::new();
+    for street in streets {
+        if (street.to - street.from).length() < 1.0 {
+            continue;
+        }
+        for end in [street.from, street.to] {
+            match found.iter_mut().find(|(at, _, _)| at.distance(end) < 1.2) {
+                Some((_, wide, count)) => {
+                    *wide = wide.max(street.wide);
+                    *count += 1;
+                }
+                None => found.push((end, street.wide, 1)),
+            }
+        }
+    }
+    // Three or more ends is a junction. Two is a bend in one road, and one is where
+    // a lane stops - neither is a place anybody gathers.
+    found
+        .into_iter()
+        .filter(|(_, _, count)| *count >= 3)
+        .map(|(at, wide, _)| (at, wide))
+        .collect()
+}
+
+/// The nearest spot to `about` with room for something `half` wide, off every street
+/// and clear of everything already placed. `None` if the town is too full.
+fn open_ground(
+    streets: &[Street],
+    plots: &[Plot],
+    about: Vec2,
+    half: f32,
+    search: f32,
+) -> Option<Vec2> {
+    let clear = |at: Vec2| {
+        !streets
+            .iter()
+            .any(|street| street.nearest(at).0 < street.wide * 0.5 + half + 1.0)
+            && !plots.iter().any(|plot| {
+                plot.at.distance(at) < plot.what.footprint().max_element() * 0.5 + half + 1.5
+            })
+    };
+    if clear(about) {
+        return Some(about);
+    }
+    // Outward in rings, so the answer is always the nearest one there is.
+    for step in 1..=8 {
+        let out = search * step as f32 / 8.0;
+        let around = 8 + step * 2;
+        for turn in 0..around {
+            let at = about
+                + Vec2::from_angle(turn as f32 / around as f32 * std::f32::consts::TAU) * out;
+            if clear(at) {
+                return Some(at);
+            }
+        }
+    }
+    None
+}
+
+/// The lot nearest `about` that can hold something of this size, if there is one.
+///
+/// Returns the INDEX, so the caller can take the lot's own facing with it - which is
+/// the whole point: a building put on a lot inherits the frontage that lot was cut
+/// against, and therefore faces the street it was cut from.
+fn lot_that_fits(plots: &[Plot], about: Vec2, what: Building) -> Option<usize> {
+    let wants = what.wants();
+    let mut best: Option<(usize, f32)> = None;
+    for (index, plot) in plots.iter().enumerate() {
+        if plot.what.is_landmark() {
+            continue;
+        }
+        // The lot it stands on has to be big enough, or the new building overhangs
+        // the street its facing was measured against.
+        let room = plot.what.footprint();
+        if room.x + 5.0 < wants.x || room.y + 5.0 < wants.y {
+            continue;
+        }
+        let out = plot.at.distance(about);
+        if best.is_none_or(|(_, was)| out < was) {
+            best = Some((index, out));
+        }
+    }
+    best.map(|(index, _)| index)
+}
+
 /// Lays out one settlement.
 ///
 /// `approach` is the direction the road network arrives from, which the high street
@@ -841,124 +939,96 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
     // KIND of thing from the buildings around it, so it reads as somewhere to gather
     // rather than as a bigger house. They take no lot and keep no frontage.
     let (on_the_square, at_a_junction) = Building::landmarks(site.city);
-    plots.push(Plot {
-        at: site.at,
-        facing: approach.y.atan2(approach.x),
-        what: on_the_square,
-        district: District::Market,
+
+    // ON the middle, but never in the ROAD.
+    //
+    // Placed at `site.at` outright before, which is safe only because the radial
+    // plan keeps its middle open - that is what a market square IS. Asked of the
+    // network instead, so a plan that runs a street through its middle gets its
+    // landmark beside that street rather than under it.
+    let mark_half = on_the_square.footprint().max_element() * 0.5;
+    if let Some(at) = open_ground(&streets, &plots, site.at, mark_half, square * 1.2) {
+        plots.push(Plot {
+            at,
+            facing: approach.y.atan2(approach.x),
+            what: on_the_square,
+            district: District::Market,
+        });
+    }
+
+    // And one at each of the town's real JUNCTIONS - the places three or more
+    // streets meet, which is Rogers' node whatever plan drew them. Spread out, or
+    // they stop being landmarks and become street furniture.
+    let junction_half = at_a_junction.footprint().max_element() * 0.5;
+    let mut placed: Vec<Vec2> = plots
+        .iter()
+        .filter(|p| p.what.is_landmark())
+        .map(|p| p.at)
+        .collect();
+    let most_marks = if site.city { 5 } else { 3 };
+
+    let mut meeting = junctions_of(&streets);
+    // Furthest from the middle first, so a town's landmarks reach its edges rather
+    // than crowding the one junction nearest the square.
+    meeting.sort_by(|a, b| {
+        b.0.distance(site.at)
+            .partial_cmp(&a.0.distance(site.at))
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    // And one at a junction, so a hub is visible from the hub before it - which is
-    // the other half of Rogers' rule, and the thing that makes a town navigable
-    // rather than merely decorated.
-    //
-    // # Placed by looking for room, not by hoping there is some
-    //
-    // The first cut took every second lane, offset the landmark one fixed distance
-    // into the corner, and dropped it if anything was within the building's own
-    // DIAGONAL plus four metres. On a city block that is a 11.8 m exclusion around
-    // every house, and a junction corner is never that empty - so of seven eligible
-    // lanes, one landmark survived in a city and none at all in a village. Both
-    // halves were wrong: a landmark is small, and what it needs clearance from is
-    // the SIZE OF THE TWO THINGS, not one of them squared off and rounded up.
-    //
-    // So each candidate corner is tried in turn and the first with actual room is
-    // taken. That is the difference between "put it here and hope" and "find where
-    // it goes".
-    let mut placed: Vec<Vec2> = vec![site.at];
-    let most_marks = if site.city { 5 } else { 3 };
-    let mark_half = at_a_junction.footprint().max_element() * 0.5;
-
-    for street in &streets {
+    for (at, wide) in meeting {
         if placed.len() > most_marks {
             break;
         }
-        // Lanes only: the high street runs through, it does not begin at a node.
-        if street.wide >= STREET_WIDE - 0.01 {
+        // Far enough out to be a junction rather than the square itself. The square
+        // RING's own junctions sit at exactly `square`, and excluding anything
+        // inside 1.1 of that threw away every main node a village has - which is
+        // how a village came to have one landmark and nothing to navigate by.
+        if at.distance(site.at) < square * 0.7 {
             continue;
         }
-        let mouth = street.from;
-        if mouth.distance(site.at) < square * 1.3 {
+        if placed.iter().any(|other| other.distance(at) < square * 0.9) {
             continue;
         }
-        let run = (street.to - street.from).normalize_or_zero();
-        let out = (mouth - site.at).normalize_or_zero();
-
-        // The four corners of the junction, nearest first.
-        let mut spot = None;
-        'corners: for along in [1.0_f32, -0.6] {
-            for side in [1.0_f32, -1.0] {
-                let aside = run.perp() * side;
-                let aside = if aside.dot(out) < 0.0 { -aside } else { aside };
-                let at = mouth
-                    + run * (street.wide * 0.6 * along + 1.2)
-                    + aside * (street.wide * 0.5 + mark_half + 1.6);
-
-                // Clear of every building, by the two half-widths and a metre.
-                let crowded = plots.iter().any(|p| {
-                    let want = p.what.footprint().max_element() * 0.5 + mark_half + 1.0;
-                    p.at.distance(at) < want
-                });
-                // And well clear of the other landmarks, or they stop being
-                // landmarks and become street furniture.
-                let huddled = placed.iter().any(|other| other.distance(at) < square * 1.1);
-                // And out of EVERY carriageway, not just the one it belongs to. A
-                // corner beside one lane is very often inside the ring road that
-                // lane leaves - which is how a well ended up 2.3 m from the middle
-                // of a 4.2 m street while clearing its own by a comfortable margin.
-                let paved = streets.iter().any(|other| {
-                    other.nearest(at).0 < other.wide * 0.5 + mark_half + 0.6
-                });
-                if !crowded && !huddled && !paved {
-                    spot = Some((at, run));
-                    break 'corners;
-                }
-            }
+        let Some(spot) = open_ground(
+            &streets,
+            &plots,
+            at + (at - site.at).normalize_or_zero() * (wide * 0.5 + junction_half + 1.2),
+            junction_half,
+            wide * 2.0 + 6.0,
+        ) else {
+            continue;
+        };
+        if placed.iter().any(|other| other.distance(spot) < square * 0.9) {
+            continue;
         }
-
-        if let Some((at, run)) = spot {
-            placed.push(at);
-            plots.push(Plot {
-                at,
-                facing: run.y.atan2(run.x),
-                what: at_a_junction,
-                district: District::Crafts,
-            });
-        }
+        placed.push(spot);
+        let facing = (spot - site.at).normalize_or_zero();
+        plots.push(Plot {
+            at: spot,
+            facing: facing.y.atan2(facing.x),
+            what: at_a_junction,
+            district: District::Crafts,
+        });
     }
 
     // THE WEENIE. A city's tallest building goes nearest its middle.
     //
-    // Rogers' first hub rule and the one the districts alone cannot give you: a
-    // place needs one thing tall enough to see from OUTSIDE it, that pulls you
-    // toward the centre. Without this the spire was built, exported, and never
-    // placed - the tallest thing in a city was whatever tower the dice produced,
-    // and a city whose tallest building is also its second tallest has no middle.
-    //
-    // The nearest lot to the square that can hold it becomes it, so it stands on the
-    // best ground in the city rather than wherever there happened to be room.
-    let weenie = Building::weenie(site.city);
+    // Rogers' first hub rule: a place needs one thing tall enough to see from
+    // OUTSIDE it, that pulls you toward the centre. Asked of `lot_that_fits` now
+    // rather than by hunting for a tower by name, so it works on any plan - the
+    // building takes the lot's own facing with it and therefore still addresses the
+    // street that lot was cut against.
     if site.city {
-        // The most central TOWER becomes it. A tower's lot was already cut for a
-        // 10.8 x 11.3 m building with four metres of air, and a spire is 11.8 x 12.8
-        // - so anywhere a tower stands, a spire stands.
-        //
-        // The first cut compared the spire's `wants` against the BUILDING's
-        // footprint rather than against its lot, which no city building could ever
-        // satisfy: every city came out with no spire in it at all, and the tallest
-        // model in the game was built, exported and never once stood up.
-        let mut nearest: Option<(usize, f32)> = None;
-        for (index, plot) in plots.iter().enumerate() {
-            if plot.what != Building::CityTower {
-                continue;
-            }
-            let out = plot.at.distance(site.at);
-            if nearest.is_none_or(|(_, best)| out < best) {
-                nearest = Some((index, out));
-            }
+        if let Some(index) = lot_that_fits(&plots, site.at, Building::CitySpire) {
+            plots[index].what = Building::CitySpire;
         }
-        if let Some((index, _)) = nearest {
-            plots[index].what = weenie;
+    }
+
+    // And the hall, if the plan did not already seat one on a square.
+    if site.city && !plots.iter().any(|p| p.what == Building::GuildHall) {
+        if let Some(index) = lot_that_fits(&plots, site.at, Building::GuildHall) {
+            plots[index].what = Building::GuildHall;
         }
     }
 
