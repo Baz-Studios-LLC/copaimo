@@ -357,7 +357,9 @@ pub(crate) fn dress(
                 Sprig::Scrub => 0.7,
                 _ => 1.0,
             } * (0.7 + 0.6 * sprigs::chance(slot_x, slot_z, sprigs::SALT_SCALE))
-                * sprigs::stature(patch);
+                * sprigs::stature(patch)
+                // This game's own grass height. See `config::GRASS_STANDS`.
+                * crate::config::GRASS_STANDS;
 
             // The authored pieces where there are any, and the grown shapes
             // where there are not. Same arguments either way — the variation is

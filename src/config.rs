@@ -157,6 +157,29 @@ pub const MAX_PENDING_CHUNKS: usize = 24;
 /// thousand of them. It would also be wasted, since a forty-centimetre blade is
 /// invisible past a hundred metres. Two chunks is about 320 m of dressed ground,
 /// which is further than anyone can tell.
+/// How tall this game's grass stands against the height `terrain_core` grows it at.
+///
+/// # Why it is scaled here and not there
+///
+/// `terrain_core::cover` grows a blade 0.72 m tall and lets a patch core stretch it
+/// to 2.3 times that — 1.66 m, which on a 1.70 m warden is shoulder height. Walking
+/// through it, he does not wade so much as submerge, and the grass that bends around
+/// him cannot be seen doing it because it closes over his head.
+///
+/// The crate is SHARED with Opificium's terrain bench, so its numbers are not this
+/// game's to change on a whim: shortening the grass there would silently shorten it
+/// under somebody else's tool. So it is scaled on the way out instead, where the
+/// game dresses its own chunks, and the bench keeps the grass it was built against.
+///
+/// At 0.6 the tallest patch stands about a metre — waist-high, which is what a
+/// long-grass patch should be — and ordinary meadow comes to about the knee.
+///
+/// It shrinks the blade in every direction rather than only its height, which is
+/// deliberate: a blade's WIDTH is what it costs to draw. Measured on this world's
+/// cover, narrowing the blades put the vertex count up a fifth and the frame cost
+/// down a third, because a meadow of wide blades overdraws itself many times over.
+pub const GRASS_STANDS: f32 = 0.6;
+
 pub const COVER_CHUNKS: i32 = 2;
 
 /// How many chunks may be having their cover built at once.

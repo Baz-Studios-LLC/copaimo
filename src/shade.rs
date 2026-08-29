@@ -285,16 +285,31 @@ fn part_the_grass(
     // the map forever.
     *trailing = here;
 
-    material.extension.bending = Vec4::new(1.0, GRASS_SWING, count as f32, 0.0);
+    material.extension.bending = Vec4::new(1.0, grass_swing(), count as f32, 0.0);
     material.extension.movers = movers;
 }
 
 /// How far the grass leans away from something standing in it, in metres.
 ///
-/// Measured at the tip, and the foot does not move at all — a blade bends from
-/// its root rather than sliding along the ground. Half a metre is enough to open
-/// a path you can see behind you and not so much that the grass lies flat.
-const GRASS_SWING: f32 = 0.9;
+/// Measured at the tip; the foot does not move at all, because a blade bends from
+/// its root rather than sliding along the ground.
+///
+/// # It has to be read against how tall the grass IS
+///
+/// This was 0.9 m, set when a patch core stood 1.66 m — a bit over half the blade,
+/// which is a bend. The same 0.9 against grass that now stands about a metre would
+/// be more than the blade is long: not a bend but a blade lying flat and reaching
+/// past its own root, which is a shear.
+///
+/// So it is written as a SHARE of the tallest grass the world grows, and it follows
+/// `GRASS_STANDS` on its own. Two thirds leans a blade well over without laying it
+/// down, and it is the same fraction that read correctly at the old height.
+const GRASS_SWING: f32 = 0.66;
+
+/// The lean in metres, which is what the shader wants.
+fn grass_swing() -> f32 {
+    terrain_core::cover::tallest() * crate::config::GRASS_STANDS * GRASS_SWING
+}
 
 /// How long the grass takes to give way, and to close again, in seconds.
 ///
@@ -313,6 +328,39 @@ const SUN_STEP: f32 = 0.01;
 
 #[cfg(test)]
 mod tests {
+/// Grass a warden can see over, and a bend that is a bend.
+    ///
+    /// Both halves of one fault: the grass stood 1.66 m against a 1.70 m warden, so
+    /// walking into it he vanished, and the parting that has worked all along could
+    /// not be seen happening because it happened over his head. Numbers this test
+    /// would have caught before anybody had to look.
+    #[test]
+    fn the_grass_comes_up_to_a_warden_and_bends_rather_than_shearing() {
+        let tallest = terrain_core::cover::tallest() * crate::config::GRASS_STANDS;
+        let warden = crate::look::TALL;
+
+        assert!(
+            tallest < warden * 0.72,
+            "the tallest grass stands {tallest:.2} m against a {warden:.2} m warden —              he wades into it and disappears"
+        );
+        assert!(
+            tallest > warden * 0.30,
+            "the tallest grass is {tallest:.2} m, which is a lawn and not long grass"
+        );
+
+        // The lean has to stay inside the blade. Past its own length it is not a
+        // bend at all: the tip reaches beyond the root and the blade shears over.
+        let swing = super::grass_swing();
+        assert!(
+            swing < tallest,
+            "the grass leans {swing:.2} m on a blade {tallest:.2} m long"
+        );
+        assert!(
+            swing > tallest * 0.35,
+            "the grass leans only {swing:.2} m on a {tallest:.2} m blade — nobody              will see that happen"
+        );
+    }
+
     /// The warden's position reaches the grass, and settles rather than snapping.
     ///
     /// Every piece of this existed and none of it was guarded, which is the same shape as
