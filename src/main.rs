@@ -264,6 +264,7 @@ fn main() {
         // above is at Bevy's limit of sixteen.
         .add_plugins((
             world::bridge::BridgePlugin,
+            world::lamp::LampPlugin,
             // The map a player pulls up with M.
             map::MapPlugin,
         ));

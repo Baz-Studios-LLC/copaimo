@@ -86,6 +86,11 @@ pub struct Photo {
     /// `--live` puts the clock and the weather back, for the times when the weather
     /// IS the subject.
     pub live: bool,
+    /// The hour to hold, when something other than noon is the subject.
+    ///
+    /// `--hour 22` for a night shot. Still frozen - a chosen hour is as repeatable
+    /// as the default one, which is the whole point.
+    pub hour: Option<f32>,
 }
 
 impl Photo {
@@ -127,6 +132,7 @@ impl Photo {
         let settle = value("--settle").and_then(|v| v.parse().ok()).unwrap_or(240);
         let map = args.iter().any(|arg| arg == "--map");
         let live = args.iter().any(|arg| arg == "--live");
+        let hour = value("--hour").and_then(|v| v.parse().ok());
 
         // A whole matrix, filled in from the world once it exists.
         if let Some(folder) = value("--matrix") {
@@ -137,6 +143,7 @@ impl Photo {
                 settle,
                 map,
                 live,
+                hour,
             });
         }
 
@@ -160,6 +167,7 @@ impl Photo {
             settle,
             map,
             live,
+            hour,
         })
     }
 }
@@ -465,9 +473,19 @@ pub fn hold_the_world_still(
     if photo.live {
         return;
     }
+    // Held through the clock's OWN offset rather than by writing the hour.
+    //
+    // `read_the_clock` recomputes `hours` from the real time plus `nudge` every
+    // frame, so writing `hours` only works for whatever happens to read it before
+    // the next frame - the sky went dark and the ground stayed lit at noon, because
+    // the sun's own system had already run. Setting the nudge instead means the
+    // clock itself reports the hour asked for, and every consumer agrees without
+    // anybody having to be ordered.
+    let wanted = photo.hour.unwrap_or(EVIDENCE_HOUR);
     clock.follows_clock = false;
-    clock.nudge = 0.0;
-    clock.hours = EVIDENCE_HOUR;
+    let real = (clock.hours - clock.nudge).rem_euclid(24.0);
+    clock.nudge = (wanted - real).rem_euclid(24.0);
+    clock.hours = wanted;
 
     weather.follows_clock = false;
     weather.falling = crate::weather::Falling::Nothing;
@@ -497,7 +515,11 @@ impl Plugin for PhotoPlugin {
             .add_systems(
                 Update,
                 (
-                    hold_the_world_still,
+                    // AFTER the clock reads itself. It rewrites the hour every frame
+                    // from the real time of day, so a hold that runs before it is
+                    // simply overwritten - which is why `--hour 22` came back with a
+                    // blue sky and every lamp out.
+                    hold_the_world_still.after(crate::sky::read_the_clock),
                     fill_the_matrix,
                     open_the_map,
                     stand_the_warden_there,

@@ -185,7 +185,12 @@ fn spawn_sun(mut commands: Commands) {
 }
 
 /// Reads the machine's clock, unless somebody has taken hold of it.
-fn read_the_clock(keys: Res<ButtonInput<KeyCode>>, mut when: ResMut<TimeOfDay>) {
+/// Public so a photograph can be held at a chosen hour AFTER this has run.
+///
+/// It rewrites `hours` from the real clock every frame - even when held, where it
+/// recomputes from `nudge` - so a system that sets the hour and happens to run first
+/// has its answer thrown away. `photo::hold_the_world_still` orders itself behind it.
+pub fn read_the_clock(keys: Res<ButtonInput<KeyCode>>, mut when: ResMut<TimeOfDay>) {
     if keys.just_pressed(KeyCode::F6) {
         when.follows_clock = false;
         when.nudge -= 1.0;

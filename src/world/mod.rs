@@ -10,6 +10,7 @@ pub mod country;
 pub mod cover;
 pub mod edit;
 pub mod heightmap;
+pub mod lamp;
 pub mod litter;
 pub mod town;
 pub mod pass;

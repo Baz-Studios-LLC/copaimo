@@ -160,6 +160,14 @@ pub enum District {
     Outskirts,
 }
 
+/// How near a building has to be for a yard to be ITS yard, in metres.
+///
+/// About two lots. Nearer than this and the two read as one property - a house and
+/// its garden, a shop and its work yard - so the yard takes its programme from the
+/// building. Further and the yard belongs to the street instead, and the district
+/// says what it is.
+const BELONGS_WITHIN: f32 = 26.0;
+
 /// Which way to turn a model so its door lands where the doorway is.
 ///
 /// # The door was on the back of every building in the world
@@ -525,7 +533,57 @@ impl Building {
     /// position in a list. Taken from enumeration order, inserting or removing one
     /// eligible lot earlier in the ring flipped the programme of every lot after it,
     /// so a change anywhere rewrote the whole town.
-    pub fn yard_for(district: District, city: bool, roll: u32) -> Building {
+    pub fn yard_for(
+        district: District,
+        city: bool,
+        beside: Option<Building>,
+        roll: u32,
+    ) -> Building {
+        // WHAT IT BELONGS TO decides what it is.
+        //
+        // The programme used to come from a hash of the lot, which put a work yard
+        // beside a cottage and a kitchen garden behind a shop as readily as the other
+        // way round. That is the difference between props that are placed and props
+        // that are scattered: a yard is somebody's, and whose it is should be
+        // obvious from standing between the two.
+        //
+        // A house has a garden. A shop has the working half of its trade behind it. A
+        // guild hall has the market that gathers at it. The district still decides
+        // when there is no building near enough to belong to.
+        if let Some(neighbour) = beside {
+            return match (neighbour, city) {
+                // Trade draws trade.
+                (Building::Shop, false) => Building::Stall,
+                (Building::GuildHall, false) => Building::Stall,
+                (Building::Shop | Building::GuildHall, true) => Building::CityKiosk,
+
+                // A house has ground it grows things on, or keeps a beast on out at
+                // the edge where there is room for one.
+                (Building::Cottage, false) if district == District::Outskirts => {
+                    Building::Pen
+                }
+                (Building::Cottage | Building::Townhouse, false) => Building::Garden,
+
+                // An office block's back is where its bins and pallets live; its
+                // front is where the paving and the benches are.
+                (Building::CityBlock, true) => Building::CityService,
+                (Building::CityTower | Building::CitySpire, true) => {
+                    Building::CityForecourt
+                }
+                (Building::Cottage | Building::Townhouse, true) => Building::CityGreen,
+
+                // A landmark gets room and an audience, never a work yard.
+                (what, false) if what.is_landmark() => Building::Stall,
+                (what, true) if what.is_landmark() => Building::CityForecourt,
+
+                _ => Self::yard_by_district(district, city, roll),
+            };
+        }
+        Self::yard_by_district(district, city, roll)
+    }
+
+    /// What a lot is for when nothing stands near enough to own it.
+    fn yard_by_district(district: District, city: bool, roll: u32) -> Building {
         let other = roll % 2 == 1;
         match (district, city) {
             // Trade, either way: a canvas stall on a village square, a steel and
@@ -691,11 +749,97 @@ fn door_faces_a_street(streets: &[Street], at: Vec2, facing: f32, what: Building
     nearest(at + door * out) < nearest(at - door * out)
 }
 
+/// A lamp standing at a kerb.
+#[derive(Clone, Copy, Debug)]
+pub struct Lamp {
+    pub at: Vec2,
+    /// Which way it is turned. A city lamp's arm reaches out over the carriageway,
+    /// so this points at the road; a village post is symmetrical and does not care.
+    pub turn: f32,
+    /// How high its light hangs - the two fittings are different, and a point light
+    /// guessed at the wrong height reads as a glow beside the lamp.
+    pub head: f32,
+}
+
 /// Everything laid out for one settlement.
 #[derive(Clone, Debug, Default)]
 pub struct Layout {
     pub streets: Vec<Street>,
     pub plots: Vec<Plot>,
+    pub lamps: Vec<Lamp>,
+}
+
+/// How far apart lamps stand along a street, in metres.
+///
+/// Close enough that the pools of light nearly meet, which is what makes a lit
+/// street read as a street rather than as a row of separate lamps. A city lights
+/// more tightly than a village: a village lamp is somebody's lantern outside their
+/// own door and there are gaps between them on purpose.
+const LAMPS_EVERY_IN_A_CITY: f32 = 26.0;
+const LAMPS_EVERY_IN_A_VILLAGE: f32 = 38.0;
+
+/// How far out from the kerb a lamp stands, in metres.
+const LAMPS_OFF_THE_KERB: f32 = 1.1;
+
+/// Where the light hangs on each fitting, in metres. The contract with
+/// `dev/art/lamp.py` - see `the_lamp_models_hang_their_light_where_the_game_thinks`.
+pub const STREET_HEAD: f32 = 5.6;
+pub const POST_HEAD: f32 = 3.1;
+
+/// Stands lamps along a settlement's streets.
+///
+/// Alternating sides, so a street is lit from both without being lined twice, and
+/// stepped along from the street's own start so two streets meeting at a junction do
+/// not both put a lamp in the same corner.
+fn light_the_streets(streets: &[Street], plots: &[Plot], city: bool) -> Vec<Lamp> {
+    let every = if city {
+        LAMPS_EVERY_IN_A_CITY
+    } else {
+        LAMPS_EVERY_IN_A_VILLAGE
+    };
+    let head = if city { STREET_HEAD } else { POST_HEAD };
+    let mut lamps: Vec<Lamp> = Vec::new();
+
+    for street in streets {
+        let run = street.to - street.from;
+        let length = run.length();
+        if length < every * 0.6 {
+            continue;
+        }
+        let along = run / length;
+        let side = along.perp();
+        let steps = (length / every).floor().max(1.0) as usize;
+        for step in 0..=steps {
+            // Inset from both ends, so nothing stands in a junction.
+            let at_along = (step as f32 + 0.5) * (length / (steps + 1) as f32);
+            if at_along > length - 2.0 {
+                continue;
+            }
+            let hand = if step % 2 == 0 { 1.0 } else { -1.0 };
+            let at = street.from
+                + along * at_along
+                + side * hand * (street.wide * 0.5 + LAMPS_OFF_THE_KERB);
+
+            // Not in a building, and not on top of another lamp.
+            if plots
+                .iter()
+                .any(|plot| plot.at.distance(at) < plot.what.footprint().max_element() * 0.5 + 1.0)
+            {
+                continue;
+            }
+            if lamps.iter().any(|other| other.at.distance(at) < every * 0.5) {
+                continue;
+            }
+            // The arm reaches over the road, which is back the way we stepped out.
+            let toward = -side * hand;
+            lamps.push(Lamp {
+                at,
+                turn: (-toward.y).atan2(toward.x),
+                head,
+            });
+        }
+    }
+    lamps
 }
 
 /// A strip of buildable ground fronting one street, in world coordinates.
@@ -1519,14 +1663,30 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
                     seed.wrapping_add(yard.at.x.to_bits() ^ yard.at.y.to_bits()),
                     97,
                 ) * 1_000.0) as u32;
-                yard.what = Building::yard_for(yard.district, site.city, roll);
+                // Whose yard it is: the nearest building, if one is near enough to
+                // own it. `BELONGS_WITHIN` is about two lots - beyond that a yard is
+                // its own thing standing on the street rather than somebody's back
+                // garden, and the district decides.
+                let beside = built
+                    .iter()
+                    .filter(|plot| !plot.what.is_yard())
+                    .map(|plot| (plot.at.distance(yard.at), plot.what))
+                    .filter(|(away, _)| *away < BELONGS_WITHIN)
+                    .min_by(|a, b| a.0.total_cmp(&b.0))
+                    .map(|(_, what)| what);
+                yard.what = Building::yard_for(yard.district, site.city, beside, roll);
                 kept.push(yard);
             }
         }
         plots = kept;
     }
 
-    Layout { streets, plots }
+    let lamps = light_the_streets(&streets, &plots, site.city);
+    Layout {
+        streets,
+        plots,
+        lamps,
+    }
 }
 
 /// The smaller angle between two bearings.
@@ -1694,7 +1854,7 @@ pub struct Standing {
 /// It is planned when the town is built and kept until the town comes down.
 #[derive(Resource, Default)]
 pub struct Built {
-    standing: std::collections::HashMap<u32, Layout>,
+    pub standing: std::collections::HashMap<u32, Layout>,
 }
 
 impl Built {
@@ -1723,8 +1883,12 @@ impl Built {
 }
 
 /// One town's worth of buildings, kept so the whole lot can be taken down together.
+///
+/// Public because `world::lamp` stands its lamps against the same key: the
+/// settlements own the lifetime, and a second idea of what is standing is a second
+/// thing to get out of step.
 #[derive(Component)]
-struct FromSite(u32);
+pub struct FromSite(pub u32);
 
 /// How far above the ground a street's surface is laid, in metres.
 ///
