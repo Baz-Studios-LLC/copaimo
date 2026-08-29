@@ -24,9 +24,19 @@ a bench under a lean-to with its material stacked beside it. That relationship i
 what reads as authored. A hundred props scattered by a random number read as litter
 however many there are of them.
 
-Five programmes, each a single welded object with the same ink outline every
-building wears, painted out of `masonry.PALETTE` so a garden fence is the same brown
-as the cottage behind it.
+# Two families, because there are two ages of the world
+
+The world's old half is timber, thatch and packed earth; its cities are concrete,
+steel and glass. One kit for both put a post-and-rail fence and a stack of crates in
+the middle of a modern city, which reads as a farmyard somebody left between two
+office towers - the research calls this architectural families, and mixing them is
+the fastest way to make a generated place look assembled rather than built.
+
+So every programme exists twice: the same PURPOSE in the vocabulary of its own age.
+A crafts quarter has a work yard either way - it is a lean-to and stacked timber in a
+village and a service bay with a skip and pallets in a city. Nine figures, each a
+single welded object with the same ink outline every building wears, painted out of
+`masonry.PALETTE` so nothing can drift from the buildings around it.
 """
 
 import math
@@ -226,12 +236,173 @@ def stall():
     return parts, 3.2
 
 
+# ============================================================ THE MODERN CITY
+#
+# The same purposes in the other age's vocabulary: concrete kerbs instead of timber
+# rails, mesh instead of post-and-rail, a skip instead of a woodpile, a steel-framed
+# kiosk instead of a canvas stall. Nothing here is thatched, and nothing is a crate.
+
+
+def _kerb(parts, wide, deep, colour="concrete2", tall=0.34):
+    """A raised kerb round the plot, which is how a city says where ground ends.
+
+    A city does not fence a planted square; it kerbs it. The kerb is low enough to
+    step over and high enough to read as a made edge from across the street.
+    """
+    for side in (-1.0, 1.0):
+        parts.append(box((0.34, deep, tall), (side * wide * 0.5, 0.0, tall * 0.5), colour))
+        parts.append(box((wide, 0.34, tall), (0.0, side * deep * 0.5, tall * 0.5), colour))
+
+
+def _bollard(parts, at, colour="steel", tall=0.95):
+    parts.append(tube(0.11, tall, (at[0], at[1], tall * 0.5), colour, sides=8))
+    parts.append(tube(0.14, 0.09, (at[0], at[1], tall), "parapet", sides=8))
+
+
+def _bench(parts, at, span=1.9, turn=0.0):
+    """A bench: a slab on two steel legs, which is every civic bench ever made."""
+    sin, cos = math.sin(turn), math.cos(turn)
+    out = lambda x, y: (at[0] + x * cos - y * sin, at[1] + x * sin + y * cos)
+    seat = out(0.0, 0.0)
+    parts.append(box((span, 0.5, 0.11), (seat[0], seat[1], 0.46), "timber", tilt=(0.0, 0.0, turn)))
+    parts.append(box((span, 0.12, 0.42), (seat[0], seat[1], 0.75), "timber", tilt=(0.0, 0.0, turn)))
+    for side in (-1.0, 1.0):
+        leg = out(side * span * 0.38, 0.0)
+        parts.append(box((0.09, 0.46, 0.46), (leg[0], leg[1], 0.23), "steel", tilt=(0.0, 0.0, turn)))
+
+
+def city_green():
+    """A planted square: kerbed beds, clipped hedge, a tree in a grate, benches."""
+    parts = []
+    parts.append(box((WIDE, DEEP, 0.06), (0.0, 0.0, 0.03), "concrete"))
+    _kerb(parts, WIDE, DEEP)
+
+    # Two raised beds with hedge clipped flat on top. Flat because a city clips.
+    for side in (-1.0, 1.0):
+        at = (side * WIDE * 0.28, DEEP * 0.14)
+        parts.append(box((WIDE * 0.36, DEEP * 0.4, 0.5), (at[0], at[1], 0.25), "concrete2"))
+        parts.append(box((WIDE * 0.32, DEEP * 0.36, 0.62), (at[0], at[1], 0.81), "leafy"))
+
+    # A tree in a grate, which is the one piece of nature a city admits to planting.
+    parts.append(box((1.5, 1.5, 0.07), (0.0, -DEEP * 0.18, 0.06), "steel"))
+    parts.append(tube(0.15, 2.4, (0.0, -DEEP * 0.18, 1.2), "timber", sides=8))
+    parts.append(box((2.3, 2.3, 1.4), (0.0, -DEEP * 0.18, 3.0), "leafy"))
+
+    _bench(parts, (-WIDE * 0.3, -DEEP * 0.34))
+    _bench(parts, (WIDE * 0.3, -DEEP * 0.34))
+    for side in (-1.0, 1.0):
+        _bollard(parts, (side * WIDE * 0.46, -DEEP * 0.46))
+    return parts, 3.8
+
+
+def city_service():
+    """A service bay: mesh fence, a skip, stacked pallets, plant, bollards."""
+    parts = []
+    parts.append(box((WIDE, DEEP, 0.06), (0.0, 0.0, 0.03), "concrete2"))
+
+    # MESH FENCE round three sides. Posts, a top rail, and a panel thin enough that
+    # it reads as mesh rather than as a wall.
+    tall = 1.9
+    for side in (-1.0, 1.0):
+        for i in range(4):
+            along = (i / 3.0 - 0.5) * DEEP
+            parts.append(box((0.11, 0.11, tall), (side * WIDE * 0.5, along, tall * 0.5), "steel"))
+        parts.append(box((0.05, DEEP, tall * 0.86), (side * WIDE * 0.5, 0.0, tall * 0.5), "mullion"))
+        parts.append(box((0.14, DEEP, 0.1), (side * WIDE * 0.5, 0.0, tall), "steel"))
+    for i in range(5):
+        across = (i / 4.0 - 0.5) * WIDE
+        parts.append(box((0.11, 0.11, tall), (across, DEEP * 0.5, tall * 0.5), "steel"))
+    parts.append(box((WIDE, 0.05, tall * 0.86), (0.0, DEEP * 0.5, tall * 0.5), "mullion"))
+    parts.append(box((WIDE, 0.14, 0.1), (0.0, DEEP * 0.5, tall), "steel"))
+
+    # A skip, tapered the way a skip is, with its lip proud of the body.
+    at = (-WIDE * 0.22, DEEP * 0.2)
+    parts.append(box((3.0, 1.7, 1.15), (at[0], at[1], 0.58), "canopy"))
+    parts.append(box((3.2, 1.9, 0.12), (at[0], at[1], 1.2), "steel"))
+    parts.append(box((2.6, 1.3, 0.4), (at[0], at[1], 1.35), "board"))
+
+    # Pallets, stacked flat, and a plant unit humming against the fence.
+    for course in range(4):
+        parts.append(
+            box((1.5, 1.1, 0.16), (WIDE * 0.26, DEEP * 0.22, 0.08 + course * 0.17), "timber")
+        )
+    parts.append(box((1.6, 1.2, 1.5), (WIDE * 0.24, -DEEP * 0.2, 0.75), "parapet"))
+    parts.append(box((1.3, 0.1, 1.1), (WIDE * 0.24, -DEEP * 0.2 - 0.6, 0.9), "mullion"))
+    for side in (-1.0, 1.0):
+        _bollard(parts, (side * WIDE * 0.3, -DEEP * 0.46))
+    return parts, 2.4
+
+
+def city_kiosk():
+    """A kiosk: a steel frame with a glass front and a flat canopy over it.
+
+    The market stall's opposite number. Same job - somebody selling something to the
+    street - in a vocabulary with no canvas in it.
+    """
+    parts = []
+    span, deep = WIDE * 0.66, DEEP * 0.44
+    parts.append(box((span + 0.8, deep + 0.8, 0.07), (0.0, 0.0, 0.035), "concrete"))
+
+    # The box itself: a low plinth, glazing above it, mullions at the corners.
+    parts.append(box((span, deep, 0.9), (0.0, 0.0, 0.45), "parapet"))
+    parts.append(box((span * 0.94, deep * 0.94, 1.5), (0.0, 0.0, 1.65), "curtain"))
+    for sx in (-1.0, 1.0):
+        for sy in (-1.0, 1.0):
+            parts.append(
+                box((0.13, 0.13, 2.5), (sx * span * 0.5, sy * deep * 0.5, 1.25), "mullion")
+            )
+    # A flat canopy, cantilevered over the front - flat, because a pitched roof would
+    # be the village stall again.
+    parts.append(box((span + 1.0, deep + 1.2, 0.16), (0.0, -0.25, 2.62), "steel"))
+    parts.append(box((span * 0.5, 0.1, 0.42), (0.0, -deep * 0.5 - 0.55, 2.3), "neon"))
+    # A counter shelf out of the front, and the goods behind the glass.
+    parts.append(box((span * 0.8, 0.4, 0.1), (0.0, -deep * 0.5 - 0.2, 1.0), "steel"))
+    parts.append(box((span * 0.6, deep * 0.3, 0.5), (0.0, 0.1, 1.25), "shelf"))
+    for side in (-1.0, 1.0):
+        _bollard(parts, (side * (span * 0.5 + 0.7), -deep * 0.5 - 0.7), tall=0.8)
+    return parts, 2.8
+
+
+def city_forecourt():
+    """Paved breathing space: seating, planters and lamps, and nothing else.
+
+    A city's version of the village's open ground - and it is not empty, it is PAVED,
+    which is the difference between somewhere nobody built and somewhere finished.
+    """
+    parts = []
+    parts.append(box((WIDE, DEEP, 0.06), (0.0, 0.0, 0.03), "concrete"))
+    _kerb(parts, WIDE, DEEP, tall=0.26)
+    # Banding in the paving, which is what stops a slab reading as a slab.
+    for i in range(3):
+        parts.append(
+            box((WIDE * 0.94, 0.22, 0.02), (0.0, (i - 1.0) * DEEP * 0.28, 0.075), "concrete2")
+        )
+    for side in (-1.0, 1.0):
+        _bench(parts, (side * WIDE * 0.26, DEEP * 0.24), turn=math.pi)
+        parts.append(
+            box((1.2, 1.2, 0.62), (side * WIDE * 0.3, -DEEP * 0.26, 0.31), "concrete2")
+        )
+        parts.append(
+            box((1.05, 1.05, 0.5), (side * WIDE * 0.3, -DEEP * 0.26, 0.87), "leafy")
+        )
+        # A lamp: a column with an arm and a head, which reads at any distance.
+        at = (side * WIDE * 0.44, 0.0)
+        parts.append(tube(0.09, 4.2, (at[0], at[1], 2.1), "steel", sides=8))
+        parts.append(box((0.7, 0.16, 0.12), (at[0] - side * 0.3, at[1], 4.2), "steel"))
+        parts.append(box((0.5, 0.3, 0.14), (at[0] - side * 0.55, at[1], 4.12), "parapet"))
+    return parts, 4.3
+
 FIGURES = {
     "garden": garden,
     "work": work_yard,
     "pen": pen,
     "store": store,
     "stall": stall,
+    # The same purposes, in the city's own vocabulary.
+    "city_green": city_green,
+    "city_service": city_service,
+    "city_kiosk": city_kiosk,
+    "city_forecourt": city_forecourt,
 }
 
 

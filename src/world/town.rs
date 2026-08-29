@@ -286,6 +286,18 @@ pub enum Building {
     Pen,
     StoreYard,
     Stall,
+
+    // The same purposes in the OTHER age's vocabulary.
+    //
+    // One kit for both ages put a post-and-rail fence and a stack of crates in the
+    // middle of a modern city, which reads as a farmyard somebody left between two
+    // office towers. A crafts quarter has a work yard either way; it is a lean-to
+    // and stacked timber in a village and a service bay with a skip and pallets in
+    // a city.
+    CityGreen,
+    CityService,
+    CityKiosk,
+    CityForecourt,
     /// A stepped stone cross on a village square.
     MarketCross,
     /// A roofed well, for a village junction.
@@ -308,6 +320,10 @@ impl Building {
             Building::Pen => "models/yard_pen.glb",
             Building::StoreYard => "models/yard_store.glb",
             Building::Stall => "models/yard_stall.glb",
+            Building::CityGreen => "models/yard_city_green.glb",
+            Building::CityService => "models/yard_city_service.glb",
+            Building::CityKiosk => "models/yard_city_kiosk.glb",
+            Building::CityForecourt => "models/yard_city_forecourt.glb",
             Building::MarketCross => "models/town_market_cross.glb",
             Building::Well => "models/town_well.glb",
             Building::Monument => "models/town_monument.glb",
@@ -342,7 +358,11 @@ impl Building {
             Building::Garden
             | Building::WorkYard
             | Building::Pen
-            | Building::StoreYard => Vec2::new(9.0, 7.5),
+            | Building::StoreYard
+            | Building::CityGreen
+            | Building::CityService
+            | Building::CityForecourt => Vec2::new(9.0, 7.5),
+            Building::CityKiosk => Vec2::new(7.5, 4.6),
             // A stall belongs to the street rather than to a plot, so it is smaller
             // and has no fence to put a wall across a square.
             Building::Stall => Vec2::new(7.2, 4.2),
@@ -378,6 +398,10 @@ impl Building {
                 | Building::Pen
                 | Building::StoreYard
                 | Building::Stall
+                | Building::CityGreen
+                | Building::CityService
+                | Building::CityKiosk
+                | Building::CityForecourt
         )
     }
 
@@ -406,32 +430,28 @@ impl Building {
     /// and only two, because the point is that a garden next to a garden still reads
     /// as a neighbourhood while five unrelated props read as litter.
     pub fn yard_for(district: District, city: bool, nth: usize) -> Building {
-        match district {
-            // A city's middle trades under awnings; a village's trades off a stall
-            // on the square just the same.
-            District::Market => {
-                if nth % 2 == 0 {
-                    Building::Stall
-                } else {
-                    Building::StoreYard
-                }
-            }
-            District::Crafts => {
-                if nth % 2 == 0 {
-                    Building::WorkYard
-                } else {
-                    Building::StoreYard
-                }
-            }
-            // Nobody keeps a beast in a city's outskirts, but everybody grows
-            // something.
-            District::Outskirts => {
-                if nth % 2 == 0 || city {
-                    Building::Garden
-                } else {
-                    Building::Pen
-                }
-            }
+        let other = nth % 2 == 1;
+        match (district, city) {
+            // Trade, either way: a canvas stall on a village square, a steel and
+            // glass kiosk on a city's.
+            (District::Market, false) if !other => Building::Stall,
+            (District::Market, false) => Building::StoreYard,
+            (District::Market, true) if !other => Building::CityKiosk,
+            (District::Market, true) => Building::CityForecourt,
+
+            // Work: a lean-to with timber stacked beside it, or a bay with a skip
+            // and pallets behind a mesh fence.
+            (District::Crafts, false) if !other => Building::WorkYard,
+            (District::Crafts, false) => Building::StoreYard,
+            (District::Crafts, true) if !other => Building::CityService,
+            (District::Crafts, true) => Building::CityForecourt,
+
+            // Growing things. A village grows food and keeps a beast; a city plants
+            // a square and clips it flat.
+            (District::Outskirts, false) if !other => Building::Garden,
+            (District::Outskirts, false) => Building::Pen,
+            (District::Outskirts, true) if !other => Building::CityGreen,
+            (District::Outskirts, true) => Building::CityService,
         }
     }
 
@@ -2425,9 +2445,14 @@ mod tests {
                     }
                     // The yards, in a muted green so a plan reads at a glance as
                     // built ground against used ground.
-                    Building::Garden | Building::Pen => [122, 158, 104],
-                    Building::WorkYard | Building::StoreYard => [138, 132, 106],
-                    Building::Stall => [190, 168, 112],
+                    Building::Garden | Building::Pen | Building::CityGreen => {
+                        [122, 158, 104]
+                    }
+                    Building::WorkYard | Building::StoreYard | Building::CityService => {
+                        [138, 132, 106]
+                    }
+                    Building::Stall | Building::CityKiosk => [190, 168, 112],
+                    Building::CityForecourt => [176, 178, 180],
                 };
                 let half = plot.what.footprint() * 0.5;
                 let (sin, cos) = plot.facing.sin_cos();

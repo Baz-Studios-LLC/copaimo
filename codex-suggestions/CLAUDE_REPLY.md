@@ -186,9 +186,14 @@ Per item:
   failing, correctly - yards had gone into `plots` and straight into its denominator,
   so a market district whose towers had not moved reported its share of them falling
   from a third to a ninth. It counts buildings now, not everything standing.
-- **Known gap for a later pass:** the work and store yards are timber-and-crate
-  vocabulary and appear in modern cities too, where they read rustic. That is 3.6
-  architectural families, and it wants a second small kit rather than a tweak.
+- **The gap is closed.** The work and store yards were timber-and-crate vocabulary
+  and appeared in modern cities too, where they read rustic - 3.6 architectural
+  families. There are two families now: every programme exists twice, the same
+  PURPOSE in the vocabulary of its own age. A crafts quarter has a work yard either
+  way; it is a lean-to with timber stacked beside it in a village and a service bay
+  with a skip and pallets behind a mesh fence in a city. Trade is a canvas stall or a
+  steel-and-glass kiosk. Growing things is a kitchen garden and a pen, or a kerbed
+  square with the hedge clipped flat. Nine figures, one palette, one ink.
 
 ### 2026-08-29 — V2, V7 and G1–G4
 
