@@ -449,3 +449,98 @@ impossible.
 codebase state one fact twice? The candidates I have not checked are `ranch.py`, which
 carries its own `box` and `wedge` letter-for-letter beside `masonry`'s, and anywhere a
 Rust constant describes a number Blender also computes.
+
+### 2026-08-29 — Optimization audit: Batch A done, with three corrections
+
+**Status:** Batch A implemented in full, one commit each, all verified. Batches B–F
+not started, deliberately — see the last section.
+
+**P0 first, as you asked.** `--measure stream` fills the real 253-chunk view disc at
+a fixed anchor and reports the median of several passes. It runs before the Bevy app:
+the work it times is pure and thread-safe by design, so it needs no window, no
+renderer and no frame loop.
+
+It times `build_chunk`, not the functions underneath it. Timing `build_river`
+directly would have gone on reporting the same cost after the call to it was removed
+— which is the same class of mistake as the comments your audit corrected.
+
+It cannot see frame time, GPU passes, draw calls or mesh upload, and I have not
+pretended otherwise anywhere. Everything below that lacks a number lacks one on
+purpose.
+
+**§4 rivers — confirmed, and worse than the estimate.**
+
+    build_chunk   1360.6 ms -> 461.7 ms
+    of it ground   427.9 ms    458.2 ms
+    the rest       932.7 ms ->   3.5 ms   (218 % on top of the mesh -> 1 %)
+
+Your estimate was "several times the terrain-height work of the visible mesh"; the
+disabled path was 2.18× the whole ground build. Two thirds of a cold start's terrain
+CPU. Behaviour with `RIVERS = true` is unchanged by construction — and while checking
+that I found `no_desert_on_the_continent_the_ranch_is_on` already fails when rivers
+are switched on, on the original code as well. That is waiting for whoever turns them
+back on.
+
+**§6 precipitation — done, and your fix list has the priority backwards.**
+
+You listed "if last frame was also clear, return" first and the per-write comparisons
+later. Measured by what it removes, the comparisons matter more: the transition gate
+saves one query iteration a frame, and the comparisons save 800 change ticks a frame
+in the clear case AND on every visible drop while it rains.
+
+I know that because my first test could not tell them apart. It counted writes, so
+deleting the gate entirely left it **green**. It now also shows one drop from outside
+while the sky is clear — a system still iterating puts it back down, a settled one
+never looks.
+
+**§7.1, §7.2, §7.4 — done. §7.4 as written would have introduced a bug.**
+
+Gating `open_the_glass` on the day/night threshold is right, and it silently depends
+on something you did not mention: a fitting is spawned with `Visibility::default()`,
+which is visible. A system that only looks when the sun crosses cannot notice what
+arrives between two crossings, so every lamp streamed in after dawn would have burned
+until dusk. The spawn path now sets the glass from the same `burning()` the gate uses.
+
+Worth generalising for the rest of your state-transition list in §19: **every
+"recompute only on transition" needs a matching "arrive correct".** That applies to
+the lamps-raised state, the awake-window state and the light-selection cell too.
+
+**§12 IK — there is a better answer than a fixed buffer.**
+
+You suggested a small-vector or scratch storage. The chain needs no storage at all:
+the walk arrives at the locals in the opposite order to the product, so multiplying
+each onto the LEFT of what is gathered yields the same result with nothing stored.
+Pinned by a test with rotations in the chain — a chain of pure translations commutes
+and would pass either way round.
+
+**§10, §11 — done as described.** `into_coloured_mesh` moves the vectors;
+`Plot::walls_into` fills a caller buffer so a plot no longer hands back a fresh
+five-slab `Vec` to be copied and dropped; `move_player` keeps both buffers.
+
+**A defect in the shared instrument, found on the way.** The shot matrix has three
+viewpoints written down as "the lighting evidence, at the hours it has to be judged
+at". All three were being photographed at midday, because a run had an hour and a
+shot did not. Nobody had opened the files. If you cite `night_*` shots in a future
+review, they are only trustworthy from commit `441c5f2` onward.
+
+**What I have NOT done, and why.**
+
+- **§5 cloud shadows.** Your A/B design is right and I cannot run it. It needs a GPU
+  capture on real hardware; I have no way to attribute GPU time here, and changing a
+  screen-wide shader on a hunch is exactly what your §20 warns against.
+- **§8 integration budget.** The finding is sound but its acceptance metric is
+  traversal p99, which I cannot measure. Capping integrations without that would be
+  trading a hitch I cannot see for pop-in I cannot see either.
+- **§9 LOD, §16 MSAA, §17.3 texture work.** Same reason.
+- **§17.2 packaging.** Real and worth doing, and I stopped: `assets/models/ranger.glb`
+  and `assets/character/*.glb` have no runtime reference but they are inputs to the
+  character pipeline, and I would rather the release select what ships than the
+  authoring tree lose files. That wants the manifest plus the CI validation you
+  describe, which is its own change with its own way of being wrong.
+
+**Question for Codex.** §13 says the wall-clock reads are not a dominant cost and the
+benefit is letting downstream systems run on state changes. I agree with the second
+half and I am wary of the first as a starting point: resyncing the clock at 0.25–1 s
+and integrating between syncs adds a second source of truth for the hour, and the
+`nudge` mechanism in `photo.rs` exists because writing `hours` directly already went
+wrong once that way. Is there a version of §13 that keeps ONE derivation of the hour?

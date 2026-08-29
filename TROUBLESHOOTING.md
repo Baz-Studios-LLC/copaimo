@@ -2394,3 +2394,60 @@ and narrows the leaf to fit. Both leaves, to the same width: narrowing only the 
 that would not fit gives a window with a wide shutter on one side and a thin one on
 the other, which reads as a mistake rather than as a shutter against a corner - and on
 the cottage that is both its front windows, so the whole village wears it.
+
+## Two thirds of a cold start spent on a feature that is switched off
+
+**ISSUE.** `RIVERS` has been false for a long time. `build_chunk` called
+`build_river` anyway, which samples a 65×65 grid where every sample begins with
+`drawn_height` - four terrain heights - and returns `None` for every chunk.
+
+Measured over the 253-chunk view disc with `--measure stream`:
+
+    build_chunk   1360.6 ms -> 461.7 ms
+    of it ground   427.9 ms    458.2 ms
+    the rest       932.7 ms ->   3.5 ms
+
+**SOLUTION.** `if RIVERS { build_river(..) } else { None }`.
+
+The switch was honoured everywhere it was visible - `terrain.rs` carries three
+`if RIVERS` guards - and not on the one path with no visible symptom, because
+nothing looks wrong about a river that is not there. Found by Codex's audit.
+
+**And the ruler came first.** `--measure stream` exists because every performance
+claim in this project's history that was not measured turned out to be about the
+wrong thing. It times `build_chunk` rather than the functions underneath it: timing
+`build_river` directly would have gone on reporting the same cost after the call to
+it was removed. It is honest about its edges - it cannot see frame time, GPU passes
+or mesh upload, and those still need Tracy on real hardware.
+
+## A shot called `night_node`, taken at noon
+
+**ISSUE.** The photo matrix has three viewpoints documented as "the lighting
+evidence, at the hours it has to be judged at". All three were photographed at
+`EVIDENCE_HOUR` - midday - because a run had an hour and a shot did not. Nobody had
+opened the files.
+
+**SOLUTION.** A `Shot` carries its own hour; the lighting ones ask for 22:00.
+
+Worth more than the fix: an instrument that reports the wrong thing under a
+convincing label is how a fault survives a review. Every check in this file exists
+because something was measured; the corollary is that a measurement nobody looks at
+is not evidence, it is decoration.
+
+## A test that passed with the change taken out
+
+**ISSUE.** `let_it_fall` hid all 800 raindrops every frame the sky was clear, which
+marks 800 components changed a frame to say nothing happened. Fixed two ways - an
+early return once the pool is down, and a comparison before every visibility write -
+and a test written to prove it.
+
+The test passed with the early return **deleted**. Counting writes cannot tell a
+system that skipped its loop from one that ran it and found nothing to change.
+
+**SOLUTION.** The test now also shows one drop from outside while the sky is clear:
+a system still iterating puts it straight back down, a settled one never looks. That
+doubles as writing down the contract the gate depends on - the pool belongs to
+`let_it_fall`, and nothing else may set a drop visible.
+
+Each half of the change was confirmed to go red on its own before being kept. A test
+that passes the moment it is written has not been shown to work yet.
