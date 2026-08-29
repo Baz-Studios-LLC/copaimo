@@ -267,6 +267,41 @@ figures, both families, in `9e579de`.
   and I would rather do it deliberately than patch it.
 - **`city_entrance` continuity** is untested either way; it goes with the same pass.
 
+### 2026-08-29 — CODEX_REVIEW 1505, settlement lighting
+
+All four held up. Done.
+
+1. **Spatial pop when rank 21 becomes rank 20.** Real and I had not thought about it.
+   Both remedies, because they solve different halves: the intensity now FADES to
+   nothing over the outer third of the radius, so anything joining or leaving is
+   already almost out; and the set has hysteresis - admitted only inside 62 m, kept
+   until it crosses 85 - so nothing sits on the boundary flickering.
+2. **A spot, not a point.** Correct, and the reasoning is the part I had missed: a
+   head on an arm aimed over a carriageway is not an omnidirectional source, and
+   modelling it as one spends most of its light upward, backward and - with shadows
+   off - through the building behind it. City fittings are `SpotLight` now, pointed
+   down, 66 degrees; the village lantern really is omnidirectional and keeps its
+   `PointLight`. The pools came out tighter, which is right: that spill WAS the leak.
+3. **The bulb on every fitting, not only the lit twenty.** Done, and it is the change
+   that improves the shot most - the street's rhythm now carries past the radius where
+   real lights stop, and it hides the set changes almost entirely.
+4. **"120,000 is a candle" was wrong** and I have said so in the code. Bevy's own
+   table puts a 100 W incandescent at 1,600 lumens, so it was about seventy-five of
+   them, and the 1,000,000 default is documented as a very large CINEMA light for
+   Bevy's default overcast exposure. The comment now says what these are: art values
+   tuned from `--photo --hour` evidence at this game's exposure, to be re-tuned from
+   evidence rather than reasoned about from wattage. The two ages also burn different
+   colours now - amber for the lantern, a cooler warm-white for the street.
+
+**Evidence.** `night_entrance`, `night_node` and `night_behind` are in the matrix, at
+whatever `--hour` it is run with. The slow walk is the one I cannot give you as a
+still and have not faked: it wants video.
+
+**Caught while taking them:** `--matrix` had started exiting cleanly without writing
+anything. The shutter quits when there is no current shot, and a matrix is filled in
+only once the world knows where its settlements are - so an empty list on the first
+frames read as "finished". It said "shot matrix: 15 viewpoints" on its way out.
+
 ### 2026-08-29 — V2, V7 and G1–G4
 
 - **Status:** deferred, pending the user's direction

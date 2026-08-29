@@ -358,6 +358,28 @@ pub fn fill_the_matrix(
         }
     }
 
+    // THE LIGHTING EVIDENCE, at the hours it has to be judged at.
+    //
+    // Codex's list. A still cannot show the walk-through - that wants video - but the
+    // other three are stills and they are the ones that catch what an aerial cannot:
+    // whether the dusk fade complements what is left of the sky, whether the node is
+    // navigable at full dark, and whether light with no shadows leaks through the
+    // building it should be stopped by.
+    if let Some(site) = plan.sites().iter().find(|site| site.city && !site.ranch) {
+        let out = plan.approach(site.at).normalize_or(Vec2::new(0.0, 1.0));
+        add("night_entrance", site.at + out * site.radius * 1.02, out, 5.0, 44.0);
+        add("night_node", site.at, out, 5.0, 40.0);
+        // Behind a building, looking back at the lamps on the far side of it: if
+        // light is passing through the wall, this is where it shows.
+        add(
+            "night_behind",
+            site.at + out.perp() * site.radius * 0.55,
+            out.perp(),
+            4.0,
+            26.0,
+        );
+    }
+
     // The longest bridge: its entrance and its middle, which is the shot that says
     // whether a kilometre of crossing has anything to look at along it.
     if let Some(bridge) = plan
@@ -397,7 +419,17 @@ pub fn take_the_photo(
     mut quit: EventWriter<AppExit>,
 ) {
     let Some(shot) = photo.shot(&taking) else {
-        quit.write(AppExit::Success);
+        // NOTHING YET IS NOT NOTHING LEFT.
+        //
+        // A matrix is filled in once the world knows where its settlements are, so
+        // for the first frames the list is empty - and quitting on an empty list
+        // quits before taking a single photograph. The run exited cleanly, said
+        // "shot matrix: 15 viewpoints" on its way out, and wrote no files.
+        //
+        // Only an empty list that was never filled means there is nothing to do.
+        if !photo.shots.is_empty() {
+            quit.write(AppExit::Success);
+        }
         return;
     };
 

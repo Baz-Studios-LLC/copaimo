@@ -43,12 +43,18 @@ const LIT_WITHIN: f32 = 85.0;
 /// street lamp is a made thing on a pole meant to light a carriageway; a village
 /// lantern is somebody's lamp outside their door and is meant to be the smaller of
 /// the two, so they no longer share a number.
-// Halved once the road was wound the right way up, then put back up and past where
-// they started once the GROUND was darkened. The blown-white square was never the
-// lamps: it was a mid-grey paving that the near-cel banding stepped to nearly white,
-// and dimming the lamps to compensate was treating the symptom. With the ground at a
-// value that stays in its own band, a street lamp can be as bright as one.
-const STREET_BURNS: f32 = 1_150_000.0;
+// # These are art values, not lamp output
+//
+// I wrote that 120,000 was "a candle". It is not, and Codex was right to correct it:
+// Bevy's own table puts a 100 W incandescent at 1,600 lumens, so 120,000 is about
+// seventy-five of them. Its 1,000,000 default is documented as a very large CINEMA
+// light, chosen to register at Bevy's default very-overcast-day exposure.
+//
+// So these are not what a street lamp emits. They are what makes a lit pool read at
+// THIS game's exposure against a night this bright, tuned from repeatable evidence -
+// `--photo --hour 22` - and they should be re-tuned from evidence if the exposure or
+// the night ambient ever moves, not reasoned about from wattage.
+const STREET_BURNS: f32 = 1_600_000.0;
 const POST_BURNS: f32 = 460_000.0;
 const STREET_CARRIES: f32 = 42.0;
 const POST_CARRIES: f32 = 20.0;
@@ -145,77 +151,159 @@ const PROUD: f32 = 0.02;
 const PANE: Vec2 = Vec2::new(0.9, 1.15);
 const PANE_UP: f32 = 1.7;
 
+/// What the two ages burn.
+///
+/// A village lantern is amber - something with a flame in it, or a filament pretending
+/// to be one. A city's is a cooler warm-white: a made light with a specification,
+/// still warm enough not to read as clinical. The fittings already tell the two apart
+/// by day; this keeps them apart after dark.
+const STREETLIGHT: Color = Color::srgb(1.0, 0.93, 0.80);
+
+/// How wide the city fitting's cone opens.
+// Sixty-six degrees. A cone puts its lumens where the fitting points instead of
+// spraying them, so the pools came out tighter than the omni light's - which is
+// correct, that spill was the leakage - but a street wants its pools to nearly meet.
+const STREET_SPREAD: f32 = 1.15;
+
+/// How near a lamp has to be to be ADMITTED to the lit set, as against kept in it.
+/// The gap between this and `LIT_WITHIN` is the hysteresis.
+const ADMIT_WITHIN: f32 = 62.0;
+
 /// What a lit window is coloured. Warmer and paler than a street lamp: it is a room
 /// with a lamp in it seen through glass, not the lamp itself.
 const INDOORS: Color = Color::srgb(1.0, 0.90, 0.68);
 const WINDOW_GLOWS: f32 = 2.6;
 
 /// Stands every lamp near the warden, and takes down the ones left behind.
+///
+/// The FITTING and its glass, always. Only the handful nearest actually cast light -
+/// see `light_them_at_night` - but every one of them shows a lit head, which is what
+/// keeps a street's rhythm going past the radius where real lights stop and makes
+/// the change in that set very hard to notice.
 pub fn stand_the_lamps(
     mut commands: Commands,
     assets: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut paints: ResMut<Assets<StandardMaterial>>,
+    mut bulbs: Local<Option<(Handle<Mesh>, Handle<StandardMaterial>, Handle<StandardMaterial>)>>,
     terrain: Res<TerrainSource>,
     built: Res<crate::world::town::Built>,
     standing: Query<(Entity, &crate::world::town::FromSite), With<Lamp>>,
 ) {
-    // One lamp entity per lamp in every settlement that is currently raised, and
-    // none for one that is not - the settlements own the lifetime, so this follows
-    // them rather than keeping a second idea of what is standing.
+    let (bulb, street_glass, post_glass) = bulbs
+        .get_or_insert_with(|| {
+            let glow = |tint: Color| StandardMaterial {
+                base_color: tint,
+                emissive: LinearRgba::from(tint) * GLASS_GLOWS,
+                unlit: true,
+                ..default()
+            };
+            (
+                meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
+                paints.add(glow(STREETLIGHT)),
+                paints.add(glow(LAMPLIGHT)),
+            )
+        })
+        .clone();
+
     for (key, layout) in built.standing.iter() {
         if standing.iter().any(|(_, from)| from.0 == *key) {
             continue;
         }
         for lamp in &layout.lamps {
-            // A lamp's base is small but it still has one, and a post half-buried
-            // at the kerb reads worse than a post standing a centimetre proud.
-            let ground = crate::world::town::stands_at(
-                &terrain.0,
-                lamp.at,
-                Vec2::splat(0.6),
-                lamp.turn,
-            );
             let street = lamp.head > crate::world::town::POST_HEAD + 0.5;
-            commands.spawn((
-                Lamp {
-                    head: lamp.head,
-                    arm: if street { crate::world::town::STREET_ARM } else { 0.0 },
-                },
-                crate::world::town::FromSite(*key),
-                SceneRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(if street {
-                    "models/lamp_street.glb"
-                } else {
-                    "models/lamp_post.glb"
-                }))),
-                Transform::from_xyz(lamp.at.x, ground, lamp.at.y)
-                    .with_rotation(Quat::from_rotation_y(lamp.turn)),
-                Visibility::default(),
-            ));
+            let arm = if street { crate::world::town::STREET_ARM } else { 0.0 };
+            let ground =
+                crate::world::town::stands_at(&terrain.0, lamp.at, Vec2::splat(0.6), lamp.turn);
+            commands
+                .spawn((
+                    Lamp { head: lamp.head, arm },
+                    crate::world::town::FromSite(*key),
+                    SceneRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(if street {
+                        "models/lamp_street.glb"
+                    } else {
+                        "models/lamp_post.glb"
+                    }))),
+                    Transform::from_xyz(lamp.at.x, ground, lamp.at.y)
+                        .with_rotation(Quat::from_rotation_y(lamp.turn)),
+                    Visibility::default(),
+                ))
+                .with_children(|on| {
+                    // The glass, on every fitting whether or not it lights anything.
+                    let (size, drop) = if street {
+                        (Vec3::new(0.78, 0.24, 0.38), -0.10)
+                    } else {
+                        (Vec3::new(0.40, 0.50, 0.40), 0.0)
+                    };
+                    on.spawn((
+                        Glass,
+                        Mesh3d(bulb.clone()),
+                        MeshMaterial3d(if street {
+                            street_glass.clone()
+                        } else {
+                            post_glass.clone()
+                        }),
+                        Transform::from_xyz(arm, lamp.head + drop, 0.0).with_scale(size),
+                        Visibility::default(),
+                        bevy::pbr::NotShadowCaster,
+                    ));
+                });
+        }
+    }
+}
+
+/// Shows and hides the glass with the sun.
+///
+/// Separate from the lights because there are hundreds of these and twenty of those.
+/// Hiding costs nothing and keeps the fitting's own geometry standing by day.
+pub fn open_the_glass(
+    clock: Res<crate::sky::TimeOfDay>,
+    mut glass: Query<&mut Visibility, With<Glass>>,
+) {
+    let lit = crate::util::smoothstep(LIT_BELOW, FULLY_LIT_AT, clock.sun_height()) > 0.0;
+    for mut show in &mut glass {
+        let want = if lit { Visibility::Inherited } else { Visibility::Hidden };
+        if *show != want {
+            *show = want;
         }
     }
 }
 
 /// Lights the nearest lamps, and puts out the rest.
+///
+/// # Hiding the moment a lamp joins the set
+///
+/// Only `MOST_LIT` fittings cast real light, and that set follows the warden - so
+/// when rank 21 becomes rank 20 one light appears and another goes. Done bluntly
+/// that is a lamp switching on ahead of you for no reason, which is worse than a
+/// dark lamp.
+///
+/// Two things hide it. The intensity FADES to nothing over the outer part of the
+/// radius, so anything joining or leaving is already almost out; and the set has
+/// HYSTERESIS - a lamp is admitted only well inside, and kept until it crosses the
+/// outer edge - so nothing sits on the boundary flickering in and out.
 pub fn light_them_at_night(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut paints: ResMut<Assets<StandardMaterial>>,
-    mut glow: Local<Option<Handle<StandardMaterial>>>,
-    mut bulb: Local<Option<Handle<Mesh>>>,
     clock: Res<crate::sky::TimeOfDay>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
     lamps: Query<(Entity, &GlobalTransform, &Lamp)>,
-    mut lit: Query<(Entity, &ChildOf, &mut PointLight), With<Lit>>,
-    glass: Query<(Entity, &ChildOf), With<Glass>>,
+    mut points: Query<(Entity, &ChildOf, &mut PointLight), With<Lit>>,
+    mut spots: Query<(Entity, &ChildOf, &mut SpotLight), With<Lit>>,
 ) {
     let Some(anchor) = anchors.iter().next() else {
         return;
     };
     let here = anchor.translation();
-
-    // How far up the lamps are, nought by day and one after dusk.
     let up = crate::util::smoothstep(LIT_BELOW, FULLY_LIT_AT, clock.sun_height());
 
-    // The nearest few, which are the ones anybody is going to look at.
+    let already: Vec<Entity> = points
+        .iter()
+        .map(|(_, of, _)| of.parent())
+        .chain(spots.iter().map(|(_, of, _)| of.parent()))
+        .collect();
+
+    // Everything in reach, nearest first, with what is already lit given the first
+    // refusal - that is the hysteresis.
     let mut near: Vec<(f32, Entity, f32, f32)> = lamps
         .iter()
         .map(|(entity, at, lamp)| {
@@ -223,78 +311,77 @@ pub fn light_them_at_night(
         })
         .filter(|(away, ..)| *away < LIT_WITHIN)
         .collect();
-    near.sort_by(|a, b| a.0.total_cmp(&b.0));
+    near.sort_by(|a, b| {
+        let keep = |e: Entity| u8::from(!already.contains(&e));
+        (keep(a.1), a.0)
+            .partial_cmp(&(keep(b.1), b.0))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    near.retain(|(away, lamp, ..)| already.contains(lamp) || *away < ADMIT_WITHIN);
     near.truncate(MOST_LIT);
 
-    // Put out anything that is no longer in that list, and dim everything by day
-    // rather than tearing the lights down and building them again at dusk.
-    for (entity, of, mut light) in &mut lit {
-        if let Some((_, _, _, arm)) = near.iter().find(|(_, lamp, ..)| *lamp == of.parent()) {
-            light.intensity = if *arm > 0.0 { STREET_BURNS } else { POST_BURNS } * up;
-        } else {
-            commands.entity(entity).despawn();
+    // How bright one is at its distance: full up close, nothing at the edge.
+    let carries = |away: f32| crate::util::smoothstep(LIT_WITHIN, LIT_WITHIN * 0.7, away);
+
+    for (entity, of, mut light) in &mut points {
+        match near.iter().find(|(_, lamp, ..)| *lamp == of.parent()) {
+            Some((away, ..)) => light.intensity = POST_BURNS * up * carries(*away),
+            None => commands.entity(entity).despawn(),
         }
     }
-    // The glass belongs to the light: when one goes, so does the other.
-    for (entity, of) in &glass {
-        if !near.iter().any(|(_, lamp, ..)| *lamp == of.parent()) {
-            commands.entity(entity).despawn();
+    for (entity, of, mut light) in &mut spots {
+        match near.iter().find(|(_, lamp, ..)| *lamp == of.parent()) {
+            Some((away, ..)) => light.intensity = STREET_BURNS * up * carries(*away),
+            None => commands.entity(entity).despawn(),
         }
     }
 
     if up <= 0.0 {
         return;
     }
-    let glow = glow
-        .get_or_insert_with(|| {
-            paints.add(StandardMaterial {
-                base_color: LAMPLIGHT,
-                // Unlit AND emissive: unlit so the sun cannot shade it, emissive so
-                // it reads as a source rather than as a pale box.
-                emissive: LinearRgba::from(LAMPLIGHT) * GLASS_GLOWS,
-                unlit: true,
-                ..default()
-            })
-        })
-        .clone();
-    let bulb = bulb
-        .get_or_insert_with(|| meshes.add(Cuboid::new(1.0, 1.0, 1.0)))
-        .clone();
-
-    for (_, lamp, head, arm) in near {
-        if lit.iter().any(|(_, of, _)| of.parent() == lamp) {
+    for (away, lamp, head, arm) in near {
+        if already.contains(&lamp) {
             continue;
         }
         let street = arm > 0.0;
         commands.entity(lamp).with_children(|on| {
-            on.spawn((
-                Lit,
-                PointLight {
-                    color: LAMPLIGHT,
-                    intensity: if street { STREET_BURNS } else { POST_BURNS } * up,
-                    range: if street { STREET_CARRIES } else { POST_CARRIES },
-                    // A hundred and change of these and shadows are the whole frame
-                    // budget. The fitting casts none; what it lights does.
-                    shadows_enabled: false,
-                    ..default()
-                },
-                // OUT ON THE ARM, which is where the head is.
-                Transform::from_xyz(arm, head, 0.0),
-            ));
-            // And the glass it comes out of, sat over the model's own.
-            let (size, drop) = if street {
-                (Vec3::new(0.78, 0.24, 0.38), -0.10)
+            if street {
+                // A SPOT, because the fitting is one.
+                //
+                // A head on an arm aimed over the carriageway is not an
+                // omnidirectional source, and modelling it as one spends most of its
+                // light upward, backward, and - with shadows off - straight through
+                // the building behind it. A cone pointed down gives the
+                // carriageway-shaped pool the fitting is shaped to make, and stops
+                // the leak without paying for shadows.
+                on.spawn((
+                    Lit,
+                    SpotLight {
+                        color: STREETLIGHT,
+                        intensity: STREET_BURNS * up * carries(away),
+                        range: STREET_CARRIES,
+                        outer_angle: STREET_SPREAD,
+                        inner_angle: STREET_SPREAD * 0.45,
+                        shadows_enabled: false,
+                        ..default()
+                    },
+                    Transform::from_xyz(arm, head, 0.0)
+                        .looking_to(Vec3::NEG_Y, Vec3::X),
+                ));
             } else {
-                (Vec3::new(0.40, 0.50, 0.40), 0.0)
-            };
-            on.spawn((
-                Glass,
-                Mesh3d(bulb.clone()),
-                MeshMaterial3d(glow.clone()),
-                Transform::from_xyz(arm, head + drop, 0.0).with_scale(size),
-                Visibility::default(),
-                bevy::pbr::NotShadowCaster,
-            ));
+                // A lantern on a post really is omnidirectional, and reads as one.
+                on.spawn((
+                    Lit,
+                    PointLight {
+                        color: LAMPLIGHT,
+                        intensity: POST_BURNS * up * carries(away),
+                        range: POST_CARRIES,
+                        shadows_enabled: false,
+                        ..default()
+                    },
+                    Transform::from_xyz(arm, head, 0.0),
+                ));
+            }
         });
     }
 }
@@ -470,7 +557,12 @@ impl Plugin for LampPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (stand_the_lamps, light_them_at_night, light_the_windows)
+            (
+                stand_the_lamps,
+                open_the_glass,
+                light_them_at_night,
+                light_the_windows,
+            )
                 .chain()
                 .run_if(crate::build::a_world_is_up),
         );
