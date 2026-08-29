@@ -661,6 +661,94 @@ impl Built {
 #[derive(Component)]
 struct FromSite(u32);
 
+/// How far above the ground a street's surface is laid, in metres.
+///
+/// Four centimetres. Flat on the terrain z-fights with it - two surfaces at the
+/// same height flicker against each other wherever they meet - and any higher is a
+/// kerb you can see the edge of from across the square.
+const ROAD_LIES: f32 = 0.04;
+
+/// How long a piece of road is before it takes another height sample.
+///
+/// The lanes flatten what they run over, so a street is nearly level along its
+/// length - but only nearly, and a street laid as one long quad bridges whatever
+/// is left and floats at one end.
+const ROAD_STEPS_EVERY: f32 = 2.5;
+
+/// The colour of packed earth, worn darker than the ground it is worn into.
+///
+/// # Why the surface is drawn and not painted
+///
+/// The obvious answer was to let `Biome::Settled` do it: a lane levels the ground,
+/// levelled ground is settled ground, and settled ground is already bare earth. It
+/// works and it is invisible, because a TOWN is levelled ground too - so the street
+/// and the garden either side of it come out exactly the same colour, and the test
+/// that asked whether anything beside a street looked different said no.
+///
+/// A road has to be a different SURFACE from the ground it crosses, so it is one.
+const ROAD_EARTH: [f32; 4] = [0.42, 0.36, 0.29, 1.0];
+const ROAD_KERB: [f32; 4] = [0.52, 0.50, 0.46, 1.0];
+
+/// Builds one town's streets as a mesh laid on the ground.
+fn pave(streets: &[Street], terrain: &crate::world::terrain::Terrain, low: Vec2) -> Mesh {
+    let mut places: Vec<[f32; 3]> = Vec::new();
+    let mut normals: Vec<[f32; 3]> = Vec::new();
+    let mut colours: Vec<[f32; 4]> = Vec::new();
+    let mut uvs: Vec<[f32; 2]> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+
+    for street in streets {
+        let run = street.to - street.from;
+        let length = run.length();
+        if length < 1.0 {
+            continue;
+        }
+        let along = run / length;
+        let side = along.perp();
+        let steps = (length / ROAD_STEPS_EVERY).ceil().max(1.0) as usize;
+
+        for step in 0..=steps {
+            let on = street.from + run * (step as f32 / steps as f32);
+            // Three across: kerb, middle, kerb, so the edge can be a shade paler
+            // and the road has an edge at all.
+            for (across, colour) in [
+                (-street.wide * 0.5, ROAD_KERB),
+                (0.0, ROAD_EARTH),
+                (street.wide * 0.5, ROAD_KERB),
+            ] {
+                let at = on + side * across;
+                let height = terrain.drawn_height(at.x, at.y) + ROAD_LIES;
+                places.push([at.x - low.x, height, at.y - low.y]);
+                normals.push([0.0, 1.0, 0.0]);
+                colours.push(colour);
+                uvs.push([step as f32, across]);
+            }
+        }
+
+        let base = (places.len() - (steps + 1) * 3) as u32;
+        for step in 0..steps as u32 {
+            for lane in 0..2u32 {
+                let a = base + step * 3 + lane;
+                let b = a + 1;
+                let c = a + 3;
+                let d = a + 4;
+                indices.extend_from_slice(&[a, c, b, b, c, d]);
+            }
+        }
+    }
+
+    let mut mesh = Mesh::new(
+        bevy::render::mesh::PrimitiveTopology::TriangleList,
+        bevy::asset::RenderAssetUsages::default(),
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, places);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colours);
+    mesh.insert_indices(bevy::render::mesh::Indices::U32(indices));
+    mesh
+}
+
 /// Builds the settlements near the player, and takes down the ones left behind.
 ///
 /// # Why it is keyed on the site and not on chunks
@@ -672,6 +760,8 @@ struct FromSite(u32);
 pub fn raise_the_towns(
     mut commands: Commands,
     assets: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    surface: Option<Res<crate::world::cover::CoverMaterial>>,
     terrain: Res<TerrainSource>,
     mut built: ResMut<Built>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
@@ -721,6 +811,18 @@ pub fn raise_the_towns(
                 Transform::from_xyz(plot.at.x, stands, plot.at.y)
                     .with_rotation(Quat::from_rotation_y(-plot.facing)),
                 Visibility::default(),
+            ));
+        }
+        // The streets themselves, as one mesh for the town.
+        if let Some(surface) = &surface {
+            let paving = pave(&layout.streets, &terrain.0, site.at);
+            commands.spawn((
+                FromSite(key),
+                Mesh3d(meshes.add(paving)),
+                MeshMaterial3d(surface.0.clone()),
+                Transform::from_xyz(site.at.x, 0.0, site.at.y),
+                Visibility::default(),
+                bevy::pbr::NotShadowCaster,
             ));
         }
         built.standing.insert(key, layout);
@@ -1041,6 +1143,7 @@ mod tests {
         app.init_state::<crate::states::AppState>();
         app.insert_state(crate::states::AppState::Playing);
         app.init_asset::<Scene>();
+        app.init_asset::<Mesh>();
         app.init_asset::<bevy::gltf::Gltf>();
         app.add_plugins(TownPlugin);
 
@@ -1075,6 +1178,48 @@ mod tests {
         // And its walls are there to be walked into.
         let walls = built.walls_near(site.at, 60.0);
         assert!(!walls.is_empty(), "the town it raised has no walls in it");
+    }
+
+    /// A town's streets are paved, and the paving lies on the ground.
+    ///
+    /// # What this catches, and what the first version asked instead
+    ///
+    /// The fault that shipped: streets were laid out, buildings were placed against
+    /// them, and NOTHING appeared on the ground. A plan that exists only in the
+    /// layout is not a road.
+    ///
+    /// The first attempt at this test asked whether a street reads as `Settled`
+    /// while the ground beside it does not - and it failed, correctly, for a reason
+    /// worth keeping: a TOWN is levelled ground, so the whole of it is already
+    /// settled, and a street painted the same way is invisible against its own
+    /// verge. A road has to be a different SURFACE from the ground it crosses.
+    #[test]
+    fn the_streets_are_paved_and_the_paving_lies_on_the_ground() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        let site = plan.sites()[0];
+        let layout = lay_out(&site, plan.approach(site.at), crate::config::WORLD_SEED);
+        assert!(!layout.streets.is_empty(), "the town has no streets");
+
+        let paving = pave(&layout.streets, &terrain, site.at);
+        let count = paving.count_vertices();
+        assert!(count > 200, "the paving is {count} vertices, which is nothing");
+
+        let Some(bevy::render::mesh::VertexAttributeValues::Float32x3(places)) =
+            paving.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("the paving has no positions");
+        };
+        let mut worst: f32 = 0.0;
+        for place in places {
+            let at = Vec2::new(place[0] + site.at.x, place[2] + site.at.y);
+            let ground = terrain.drawn_height(at.x, at.y);
+            worst = worst.max((place[1] - ground - ROAD_LIES).abs());
+        }
+        assert!(
+            worst < 0.01,
+            "the paving stands {worst:.2} m off the ground it is laid on"
+        );
     }
 
     #[test]

@@ -162,11 +162,35 @@ def tube(radius, deep, at, colour, sides=12, tilt=None):
 
 
 def _from_points(name, places, faces, at, colour):
+    """Builds one piece from points and faces, with its normals pointing OUT.
+
+    # Every hand-wound face in this file was wrong
+
+    `from_pydata` takes the winding it is given, and the winding decides which way a
+    face looks. A face wound the wrong way is not merely lit oddly - it is CULLED,
+    so you see straight through it, and a roof made of them is a building with no
+    roof on it. That is exactly what shipped: audited afterwards, `wedge` had two of
+    its five faces inside out on one ridge axis and three on the other, `gable_wall`
+    three and two, and `lean` three of six.
+
+    Getting each list right by hand is possible and it is not worth doing: it has to
+    be got right again every time a shape is added, the mistake is invisible in a
+    wireframe, and nothing about the code says which order is correct. Blender can
+    work it out from the geometry, so it does - and a piece cannot be built wrong.
+    """
     mesh = bpy.data.meshes.new(name)
     mesh.from_pydata([(x + at[0], y + at[1], z + at[2]) for x, y, z in places], [], faces)
     mesh.update()
     obj = bpy.data.objects.new(name, mesh)
     bpy.context.collection.objects.link(obj)
+
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.normals_make_consistent(inside=False)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    obj.select_set(False)
     return (obj, colour)
 
 

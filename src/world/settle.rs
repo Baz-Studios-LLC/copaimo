@@ -37,6 +37,49 @@ pub struct Site {
     pub city: bool,
 }
 
+/// A street inside a town, as a claim on the ground it runs over.
+///
+/// # Why a street is a levelling claim and not a thing that is drawn
+///
+/// The town streets were laid out, the buildings were placed against them, and
+/// nothing whatever appeared on the ground - the plan existed only in the layout.
+/// Drawing them would mean a mesh, a material and a decision about where the mesh
+/// sits relative to terrain that moves under it.
+///
+/// They are ground, so they are told to the GROUND. A lane levels what it runs
+/// over, exactly as a road between towns does, and levelled ground is what
+/// `Biome::Settled` already means - bare packed earth. So a street flattens itself,
+/// paints itself, stops grass and cover growing on itself, and keeps props and
+/// trees off itself, all through machinery that was already there.
+///
+/// Narrow and strong, where a site is wide and gentle: a site's claim fades over
+/// its whole radius, which is why the middle of a town is grass. A lane has to be
+/// unmistakably a lane at its edge and nothing a metre beyond it.
+#[derive(Clone, Copy)]
+pub struct Lane {
+    pub from: Vec2,
+    pub to: Vec2,
+    /// The height it holds, which is its town's.
+    pub height: f32,
+    /// Kerb to kerb.
+    pub wide: f32,
+}
+
+impl Lane {
+    /// How far a point is from the middle of this lane.
+    fn off(&self, at: Vec2) -> f32 {
+        let run = self.to - self.from;
+        let length2 = run.length_squared().max(1.0e-4);
+        let along = ((at - self.from).dot(run) / length2).clamp(0.0, 1.0);
+        at.distance(self.from + run * along)
+    }
+}
+
+/// How far past its kerb a lane keeps levelling, in metres.
+///
+/// Short. A street with a wide skirt is a clearing with a path in it.
+const LANE_SKIRT: f32 = 2.4;
+
 /// A graded run of ground between two sites.
 ///
 /// Public because `Settlements::ways` hands them out to a test probe; nothing
@@ -74,6 +117,7 @@ pub struct Road {
 pub struct Settlements {
     sites: Vec<Site>,
     roads: Vec<Road>,
+    lanes: Vec<Lane>,
     /// One list of feature indices per cell. Sites are stored as `Some(i)`,
     /// roads as the index offset past the end of `sites`.
     cells: Vec<Vec<u16>>,
@@ -92,6 +136,7 @@ impl Settlements {
         Settlements {
             sites: Vec::new(),
             roads: Vec::new(),
+            lanes: Vec::new(),
             cells: Vec::new(),
             cells_across: 0,
             cells_down: 0,
@@ -254,13 +299,44 @@ impl Settlements {
         let mut settlements = Settlements {
             sites,
             roads,
+            lanes: Vec::new(),
             cells: Vec::new(),
             cells_across: 0,
             cells_down: 0,
             half,
         };
         settlements.index();
+        // The streets inside each town, once there are sites and roads for the
+        // layout to be built from. Filed as claims like everything else, so from
+        // here on the ground itself knows where a street is.
+        settlements.lanes = settlements.lay_the_streets();
+        settlements.index();
         settlements
+    }
+
+    /// Every town's streets, as claims on the ground.
+    fn lay_the_streets(&self) -> Vec<Lane> {
+        let mut lanes = Vec::new();
+        for (index, site) in self.sites.iter().enumerate() {
+            let layout = crate::world::town::lay_out(
+                site,
+                self.approach(site.at),
+                WORLD_SEED.wrapping_add(index as u32 * 7717),
+            );
+            for street in &layout.streets {
+                lanes.push(Lane {
+                    from: street.from,
+                    to: street.to,
+                    height: site.height,
+                    wide: street.wide,
+                });
+            }
+        }
+        lanes
+    }
+
+    pub fn lanes(&self) -> &[Lane] {
+        &self.lanes
     }
 
     /// Files every feature into the cells its reach touches.
@@ -284,6 +360,13 @@ impl Settlements {
             let low = road.from.min(road.to) - road_reach;
             let high = road.from.max(road.to) + road_reach;
             filings.push((offset + i as u16, low, high));
+        }
+        let lane_offset = offset + self.roads.len() as u16;
+        for (i, lane) in self.lanes.iter().enumerate() {
+            let reach = lane.wide * 0.5 + LANE_SKIRT;
+            let low = lane.from.min(lane.to) - reach;
+            let high = lane.from.max(lane.to) + reach;
+            filings.push((lane_offset + i as u16, low, high));
         }
         for (what, low, high) in filings {
             self.file(what, low, high);
@@ -349,8 +432,22 @@ impl Settlements {
         let mut weight = 0.0f32;
         let sites = self.sites.len() as u16;
 
+        let roads = sites + self.roads.len() as u16;
+
         for &what in cell {
-            let (height, pull) = if what < sites {
+            let (height, pull) = if what >= roads {
+                // A town's own street. Narrow and firm: flat across its width and
+                // done a couple of metres past the kerb, where a site's claim
+                // fades over a hundred metres and a road's over its whole batter.
+                // That is what makes a street read as a street through the grass
+                // rather than as one more patch of levelled ground.
+                let lane = &self.lanes[(what - roads) as usize];
+                let away = lane.off(at);
+                (
+                    lane.height,
+                    smoothstep(lane.wide * 0.5 + LANE_SKIRT, lane.wide * 0.5, away),
+                )
+            } else if what < sites {
                 let site = &self.sites[what as usize];
                 let away = site.at.distance(at);
                 // Flat out to the radius, then easing back to the land over the

@@ -483,6 +483,39 @@ def guild_hall_inside(parts, wide, deep):
     )
 
 
+def doorstep(parts, deep, rises: float, wide: float = 2.4):
+    """Steps up to the door, from the ground to the floor inside.
+
+    # Why every building was sealed
+
+    A building stands on a plinth - 42 cm for a cottage, 70 for the guild hall -
+    which is what keeps its walls out of the mud and is right. What was missing is
+    the obvious consequence: the floor inside is 42 cm above the ground OUTSIDE,
+    and a warden walks, he does not vault. Every doorway in the world opened onto a
+    wall the height of his knee.
+
+    Nothing about the doorway said so. It was a proper 1.4 m opening with a lintel
+    and a surround, and from the street it read as a door you could walk through -
+    which is the worst kind of fault, because it looks finished.
+
+    Three shallow treads rather than one tall one: a single 42 cm step is a climb,
+    and the game's own walking rule refuses anything steeper than 1.4 up per 1
+    along, which a knee-high face onto flat ground fails outright.
+    """
+    treads = 3
+    rise = rises / treads
+    run = 0.34
+    for step in range(treads):
+        # The bottom tread reaches furthest out; each one above is set back.
+        out = (treads - step) * run
+        parts.append(
+            box(
+                (wide, run * (treads - step), rise),
+                (0.0, -deep * 0.5 - out * 0.5, rise * (step + 0.5)),
+                "stone",
+            )
+        )
+
 # -------------------------------------------------------------------- figures
 #
 # # Three tiers of shape, which is what the first attempt was missing
@@ -539,6 +572,7 @@ def cottage():
     wide, deep = MODULE * 4, MODULE * 3
     parts = []
     parts.append(box((wide + 0.34, deep + 0.34, 0.42), (0.0, 0.0, 0.21), "stone"))
+    doorstep(parts, deep, 0.42)
     shell(parts, wide, deep, 1, "plaster", doors=True, windows=True)
     room(parts, wide, deep, 1)
     hearth(parts, wide, deep)
@@ -562,6 +596,7 @@ def townhouse():
     jetty = 0.28
     parts = []
     parts.append(box((wide + 0.34, deep + 0.34, 0.46), (0.0, 0.0, 0.23), "stone"))
+    doorstep(parts, deep, 0.46)
     shell(parts, wide, deep, 2, "plaster", doors=True, windows=True)
     room(parts, wide, deep, 2)
     stairs(parts, wide, deep, 2)
@@ -594,6 +629,7 @@ def shop():
     wide, deep = MODULE * 5, MODULE * 4
     parts = []
     parts.append(box((wide + 0.34, deep + 0.34, 0.46), (0.0, 0.0, 0.23), "stone"))
+    doorstep(parts, deep, 0.46, wide=3.0)
     shell(parts, wide, deep, 1, "plaster", doors=True, windows=True)
     room(parts, wide, deep, 1)
     counter(parts, wide, deep)
@@ -635,9 +671,16 @@ def guild_hall():
     wide, deep = MODULE * 7, MODULE * 5
     parts = []
     # Steps up to the door: a hall you climb to is a hall that matters.
-    for step in range(3):
+    # The ceremonial flight, which climbs the plinth's full 70 cm rather than
+    # stopping partway up it - they used to reach 54 and leave a 16 cm lip at the
+    # top, which is a trip rather than a step.
+    for step in range(4):
         parts.append(
-            box((3.4 - step * 0.3, 1.5 - step * 0.35, 0.18), (0.0, -deep * 0.5 - 1.0 + step * 0.35, 0.09 + step * 0.18), "stone")
+            box(
+                (3.6 - step * 0.25, 1.7 - step * 0.36, 0.175),
+                (0.0, -deep * 0.5 - 1.3 + step * 0.36, 0.0875 + step * 0.175),
+                "stone",
+            )
         )
     parts.append(box((wide + 0.6, deep + 0.6, 0.7), (0.0, 0.0, 0.35), "stone"))
     shell(parts, wide, deep, 2, "stone", doors=True, windows=True)
