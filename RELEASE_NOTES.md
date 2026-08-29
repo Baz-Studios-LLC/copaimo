@@ -1,53 +1,51 @@
 ## Copaimo: The Wardens Guild
 
-The warden landed last release. This one is about **the world he walks**: it has a
-new continent on it, and it is more than twice the size it was.
+The world grew a continent last release. This one **puts people on it**: every city,
+town and village on the map is now built, walkable, and enterable.
 
-### There is a fifth landmass
+### Towns are laid out, not scattered
 
-The map has always been the drawn one — a fantasy sheet whose coastlines the game
-reads for land and sea. It still is. **Sorrel** was added *to* it rather than by
-replacing it with something generated, because the map was already right and only
-needed more of itself.
+A settlement is generated the way one is actually planned — **streets first**, then
+the ground between them, then the plots that ground divides into. Buildings face the
+street because they were placed against one, not because they were turned to face it
+afterwards. That is the whole difference between a town and a campsite.
 
-There was no room inside it. The widest stretch of open water anywhere on the sheet
-measures 1.5 km across, which is an island and not a continent, so the sheet itself
-grew — equally north and south, which is what keeps every existing coastline on the
-world coordinates it already had. Nothing you could already walk on moved.
+Each place is built around a square with a road through it, ring roads, and lanes
+branching off — and it has **districts** you can tell apart standing in them: trade
+at the middle, workshops behind, homes at the edge.
 
-Sorrel is generated rather than drawn, and it took three attempts to stop looking
-like it. A coastline is not an ellipse with noise on the rim: the shape has to
-wander at a wavelength close to the size of the landmass itself, or the fine detail
-just frets the edge of an obvious oval. It also has two inlets that pinch its waist,
-and those are structural rather than decorative — ground here rises with its
-distance from the coast, so a round continent grows exactly one round ice cap in the
-middle of itself, and the first one did.
+### Two ages of the world
 
-### The world is 12.3 × 15.3 km
+**Villages and towns are old-school fantasy.** Half-timbered walls, thatch and
+slate, flower boxes under the windows, a market cross on the square and a well at
+the corner. The lanes are packed earth.
 
-Up from 8.2 × 4.3, with **45 km² of land** — room for the towns, the cities, and the
-250 Copaimo the design calls for.
+**Cities are modern.** Curtain wall and concrete, a fifty-seven-metre spire at the
+heart of each one, and paved stone streets. The skyline falls away from the middle,
+so a city reads as a city from a long way off.
 
-Everything pinned to the old world came along: the ranch, the canyon, the frame the
-regions are laid on, and the distance over which land climbs away from its coast.
-That last one is why the ranch still stands at **22.9 m**, the height Opificium's
-terrain bench measured for it before any of this — scale the world but not the
-relief and the same ground reads 28.3 m instead.
+That contrast is not decoration — it is how you know what kind of place you are
+walking into before you can read a sign.
 
-### A world map you can print
+### You can go inside
 
-`dev/art/map/copaimo-world-map.pdf` — A3, 300 dpi, drawn at 4 m a pixel from the
-same terrain the game builds, with every city, town, biome and the ranch on it.
+Every building has a door you can walk through and a room on the other side.
+Cottages have hearths and beds, shops have counters and shelves, the guild hall has
+its own floor, and a tower has a lobby with a desk and a bank of lifts. Interiors
+are sized for the **camera** rather than the warden — it follows a few metres
+behind, so the rooms are generous enough that walking in does not put the view
+through a wall.
 
-### Fixed
+### And you can find your way
 
-- **An island that was a scale bar.** The source map is a screenshot and carries a
-  scale bar, a help button and an install box. They sit in the margin the world
-  drowns, so they never mattered — until the sheet grew, moved that margin inland,
-  and 12,928 pixels of scale bar sailed into the sea off the east coast as a long
-  thin island.
-- **The desert walking off its own continent.** Regions were positioned as a
-  fraction of the map image, so making the image taller moved them. They are pinned
-  to the world now, and measured in km² and metres rather than as a share of the
-  land — a share moves when a continent is added, and a desert that has not changed
-  should not read as having shrunk.
+Every settlement has landmarks — a market cross, a well, a monument — standing in
+the open where the roads meet, so there is always something to steer by that is not
+just another house. Each city has one building taller than all the others, on
+purpose, at its centre.
+
+### Also in this release
+
+- Trees change with the season, and rain, snow and wind fall on the country that
+  should have them — never on the desert.
+- Trees, boulders, stumps, logs and buildings are solid; you walk around them.
+- The ranch is protected: nothing else is ever built on it.
