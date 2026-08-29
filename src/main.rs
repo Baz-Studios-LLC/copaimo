@@ -243,6 +243,8 @@ fn main() {
             photo::PhotoPlugin,
             season::SeasonPlugin,
             weather::WeatherPlugin,
+            // A tuple takes sixteen, and this one is full - see the bridges
+            // added on their own below.
             world::town::TownPlugin,
             fall::FallPlugin,
             // After the world: buildings stand on ground it decides the height
@@ -256,7 +258,10 @@ fn main() {
             menu::MenuPlugin,
             save::SavePlugin,
 
-        ));
+        ))
+        // The bridges that carry a road over water. On their own because the tuple
+        // above is at Bevy's limit of sixteen.
+        .add_plugins(world::bridge::BridgePlugin);
 
     // The maker's tools, and only in a maker's build.
     //

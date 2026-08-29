@@ -2,6 +2,7 @@
 
 pub mod authored;
 pub mod biome;
+pub mod bridge;
 pub mod forest;
 pub mod chunk;
 pub mod country;

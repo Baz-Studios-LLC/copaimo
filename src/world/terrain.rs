@@ -433,6 +433,23 @@ impl Terrain {
     /// included. Below `SEA_LEVEL` is sea floor.
     ///
     /// This is the answer for anything that cares where the ground actually is.
+    /// The height something WALKING here stands at.
+    ///
+    /// The same as `height` everywhere except on a bridge, where it is the deck.
+    /// Kept separate on purpose: `height` is what the world is made of - it draws
+    /// the terrain, decides where water is, and plants every tree - and a bridge
+    /// must not move any of that. What a bridge changes is where a warden's feet
+    /// are, and nothing else.
+    pub fn walk_height(&self, x: f32, z: f32) -> f32 {
+        let ground = self.height(x, z);
+        match self.settlements.deck_at(Vec2::new(x, z)) {
+            // The higher of the two, so walking onto a bridge from the shore steps
+            // up onto the deck and walking under one on dry land does not.
+            Some(deck) if deck > ground => deck,
+            _ => ground,
+        }
+    }
+
     pub fn height(&self, x: f32, z: f32) -> f32 {
         let generated = self.base_height(x, z);
         match self.edits.read() {

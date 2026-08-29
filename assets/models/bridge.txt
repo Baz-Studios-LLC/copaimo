@@ -1,0 +1,4 @@
+# Written by dev/art/bridge.py. Read by world::bridge's tests.
+SPAN_LONG 18.0
+DECK_ABOVE_FOOT 24.0
+ROADWAY_WIDE 6.4

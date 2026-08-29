@@ -165,6 +165,24 @@ impl Settlements {
         &self.bridges
     }
 
+    /// The height of a bridge deck over this point, if a bridge carries it.
+    ///
+    /// This is what makes a bridge walkable. Collision in this game is upright
+    /// walls and there is no floor in it anywhere, because until bridges the floor
+    /// was always the terrain - so rather than grow a second collision system for
+    /// one case, the GROUND answers differently where a bridge is. The terrain is
+    /// not touched: the water still renders as water and nothing grows on the deck.
+    /// Only what the warden stands on changes, which is all a bridge has to change.
+    pub fn deck_at(&self, at: Vec2) -> Option<f32> {
+        self.bridges.iter().find_map(|bridge| {
+            let run = bridge.to - bridge.from;
+            let length2 = run.length_squared().max(1.0e-4);
+            let along = ((at - bridge.from).dot(run) / length2).clamp(0.0, 1.0);
+            let on = bridge.from + run * along;
+            (at.distance(on) < crate::world::bridge::ROADWAY_WIDE * 0.5).then_some(bridge.deck)
+        })
+    }
+
     pub fn ways(&self) -> &[Road] {
         &self.roads
     }

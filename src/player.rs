@@ -252,8 +252,12 @@ fn may_step(
     from: Vec3,
     to: Vec3,
 ) -> bool {
-    let here = terrain.height(from.x, from.z);
-    let there = terrain.height(to.x, to.z);
+    // WALKING height, not ground height. They are the same everywhere except on a
+    // bridge, where the deck is the surface underfoot - and asking the ground there
+    // reports the lake bed, which is under the wade limit, so every step onto a
+    // bridge was refused as a step into deep water.
+    let here = terrain.walk_height(from.x, from.z);
+    let there = terrain.walk_height(to.x, to.z);
 
     let depth = SEA_LEVEL - there;
     if depth > WADE_DEPTH && depth >= SEA_LEVEL - here {
@@ -766,7 +770,7 @@ pub fn move_player(
 
     // Plant the feet on the ground every frame, including when standing still,
     // so the warden settles correctly the moment the world finishes loading.
-    let ground = terrain.height(transform.translation.x, transform.translation.z);
+    let ground = terrain.walk_height(transform.translation.x, transform.translation.z);
     transform.translation.y = ground.max(SEA_LEVEL - WADE_DEPTH);
 }
 
