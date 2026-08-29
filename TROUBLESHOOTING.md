@@ -2117,6 +2117,82 @@ correction, which is the thing this whole entry is about.
 or that holds steady across a whole clip, measure the BIND. A constant belongs in the rest pose.
 
 
+## Four town bugs, and the one shape they share
+
+**2026-08-29.** All four were reported by a player looking at the screen while every
+measurement I had said the thing was fine. That is the tell.
+
+### ISSUE: "Still no roads" — three times, against a paving mesh that measured
+
+Every time it was doubted, the paving was asked to measure itself and answered 1,929
+vertices, correct normals, correct height above the ground. So I concluded, three
+times, that it was fine.
+
+It was fine. The question was wrong. The paving spawned behind
+
+```rust
+if let Some(surface) = &road_surface { ... }
+```
+
+whose material came from a resource a `Startup` system filled in. That branch has
+exactly one failure mode and it is **silent**: the buildings go up and the streets
+do not.
+
+**SOLUTION:** make the material where it is used, so there is no ordering to get
+wrong and no branch that can skip a street. And a test that stands an app in a real
+settlement and counts what actually spawned — `a_settlement_lays_its_streets_in_the_world`.
+**A mesh that measures correctly in a function and never reaches the world is
+exactly as useful as no mesh.**
+
+### ISSUE: a beam through every doorway
+
+`framing` laid its studs one per module and both its rails straight across the wall.
+It had no idea where the openings were, so a stud landed dead centre in every
+doorway and the bottom rail ran across the threshold at shin height.
+
+**SOLUTION:** framing reads the SAME bay list the wall was built from. One
+description of where the holes are, used by both — two would drift the first time
+anybody moved a bay. Verified by measuring: 0 vertices inside the doorway of any
+building, where before there was a post through the middle of each.
+
+### ISSUE: windows and planters "not lined up" — on exactly half of each building
+
+`_out`, the helper that pushes a dressing clear of the wall it belongs to, pushed in
+the **negative** direction always. That is outward for the south wall and the west
+flank, and *inward* for the other two — so every frame, sill, mullion, shutter and
+flowerbox on the north wall and east flank was built a hand's width inside the room.
+From the street: a window with no frame, and a flowerbox that is not there.
+
+**SOLUTION:** a wall knows which way it faces; `facing` is threaded from `shell`
+through `wall_run` into every dresser. And the check that finds this has to be a
+render **lit from the camera** — the first attempt lit from a fixed sun, left the
+north wall in pure shadow, and told me nothing.
+
+### ISSUE: the buildings in the game were not the buildings in the .blend files
+
+The `.blend` files measured 9.9 m across; the `.glb` files the game loads were the
+6.9 m ones from before. `dev/model_export.sh` refuses a model that would import
+half-buried **and stops**, and an untracked scratch file sorting alphabetically
+before `town_` refused every run. Every town model had been silently stale for days.
+
+**SOLUTION:** the stray moved aside, and the viewer's own scratch file now writes
+outside `dev/art` — that folder is the asset folder, and a 260 m viewing shelf is
+not an asset. Worth knowing: **a refusal that aborts the batch protects one model
+and silently staleness every model after it.**
+
+### The shape
+
+Four bugs; one shape. Each time, the thing I measured agreed with me and the thing
+the player saw did not — because I was asking the arithmetic instead of asking the
+artefact. The paving's vertex count, the framing's own extents, the dressing's
+offset, the `.blend`'s dimensions: all correct, all beside the point.
+
+**Ask the thing itself.** Render it, spawn it, walk into it, open the file the game
+actually loads. See also *Validate the ruler first* — this is its twin: there, the
+instrument was wrong; here, the instrument was right and pointed at the wrong
+object.
+
+
 ## Keeping this honest
 
 Add an entry when a bug took **more than one attempt** to fix, or when the symptom
