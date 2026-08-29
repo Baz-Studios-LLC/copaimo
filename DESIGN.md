@@ -1243,7 +1243,120 @@ What the replacement still has to satisfy is unchanged, and is worth stating bef
 * Constants in `src/motion.rs` and `src/player.rs` carry a banner saying they were measured off
   the deleted character. They show the shape of what has to be re-derived, not an answer.
 
+## Settlements: two ages, five elements, and a size the genre chooses
+
+A town is generated the way the industry generates one — streets, then the ground
+between them, then the lots that ground cuts into — and it is populated the way a
+*game* town is populated, which is not the same question and took a while to
+separate.
+
+### Roads, then parcels, then lots
+
+Every step exists for a reason the one before cannot supply. **Streets** are laid
+first, because everything else is defined against them: a plot is not a piece of
+ground, it is a piece of ground *with frontage*. The ground between streets is a
+**parcel**, and a parcel is cut into **lots** along its frontage until a rule stops
+it — too narrow, too shallow, or no longer touching a street. Buildings face the
+street because they were placed against one, not because they were turned to face
+one afterwards.
+
+The alternative — scattering buildings on a disc and drawing paths between them —
+is what makes a procedural town read as a campsite.
+
+### Kevin Lynch's five, which is what every game city is built on
+
+Konstantinos Dimopoulos, who designs cities for games professionally, and the
+level-design reading on *Breath of the Wild* both come back to the same five
+elements. A settlement missing any of them is one players get lost in:
+
+* **Paths** — routes that lead somewhere on purpose. A high street along the road
+  that made the town exist, ring roads, and radial lanes.
+* **Nodes** — where people gather. The square, and the junctions.
+* **Landmarks** — beside a node, so the two reinforce each other.
+* **Districts** — market, crafts, outskirts. Internally consistent, different from
+  their neighbours.
+* **Edges** — *still missing*. A town fades into countryside rather than ending.
+
+**Legibility beats realism**, and that is a decision rather than a shortcut.
+*Breath of the Wild*'s districts are more sharply bounded than any real geography
+on purpose, because a player who can read the world at a glance is worth more than
+one who could survey it. So districts here are rings, not a gradient — and they are
+**shares of the town** rather than fixed distances, because a fixed distance stops
+meaning anything the moment the town changes size.
+
+### A landmark is a different KIND of thing
+
+Scott Rogers' hub-town rules, from the Disneyland model, name the two parts that
+took longest to get right:
+
+* a **"weenie"** — something tall enough to see from *outside*, that pulls you
+  toward the middle. A city's is its spire; a village's, its guild hall. A city
+  whose tallest building is also its second tallest has no middle.
+* a landmark must be a **different kind of thing** from what surrounds it, not a
+  bigger one. A tall house is a house.
+
+So a landmark takes no lot, keeps no frontage, and stands in the open **on** a node
+— which is what makes a node a node. It is also solid: a monument you can walk into
+is a monument with a hole in it.
+
+### How many buildings a town HAS
+
+Not how many fit. Every attempt to thin these towns went at the geometry — wider
+frontages, fewer rings, more air — and every one answered *"how many can stand
+here"* when the question is *"how many should"*. That is not a number the ground
+produces; it is one the genre has. A Pokémon town is five to ten buildings, a Zelda
+village about fifteen, and Novigrad is written as a capital of thirty thousand and
+built at the size of a real small town.
+
+**A village has eleven and a city twenty-eight.** The layout still works out every
+lot the ground offers and keeps a spread of them, thinned *within* each district so
+all three survive; the rest stays yards and gardens.
+
+### Two ages of the world
+
+Villages and towns are old-school fantasy — half-timber, thatch, slate, a lane of
+packed earth. Cities are modern — curtain wall, concrete, paved stone, and a
+skyline whose height falls off from the middle. That is not two art styles stapled
+together: it is the setting's own history showing on the ground, and it is the
+strongest district tool there is, because you know what kind of place you are
+standing in from the silhouette before you can read a sign.
+
+### Sized for the camera, not for the warden
+
+He is 1.7 m and a 3 m ceiling was generous for him. He is not what has to fit: the
+camera follows three or four metres behind, so a room he is comfortable in is one
+the view clips out of the moment he steps inside. Storeys are 3.6 m, doors 1.9 ×
+2.45 m, and a cottage is 9.9 m across. For the same reason a building sits on a
+12 cm threshold rather than a 42 cm plinth — a warden walks on the *terrain*, not on
+a building's floor, so a floor 42 cm up is a floor he arrives at shin-first.
+
+### What broke, and the one shape it kept
+
+Four faults in this area, and every one was a measurement that agreed with itself:
+
+* the paving measured 1,929 vertices every time it was asked, and never reached the
+  world — it spawned behind an `if let Some(material)` whose only failure is silent.
+* `framing` laid studs and rails across the whole wall because nothing told it where
+  the openings were, so a post stood in every doorway.
+* `_out` pushed dressings in the negative direction always — outward on two walls
+  and *into the room* on the other two.
+* the desert's reach was measured in twenty-fourths of a world that had since grown.
+
+The rule that catches all four: **ask the thing itself, not the arithmetic about
+it.** A mesh that measures correctly in a function and never reaches the world is
+exactly as useful as no mesh.
+
+
 ## Change log
+
+**2026-08-29** — **Towns, cities and villages.** Generated from streets outward
+(`src/world/town.rs`), built from ten figures in `dev/art/town.py`, and populated to
+a size the genre chooses rather than one the ground allows: a village of eleven, a
+city of twenty-eight. Two ages — fantasy villages on packed earth, modern cities on
+paved stone with a 57 m spire for a skyline. Lynch's districts and Rogers' landmarks
+both applied, with guards for each. Buildings are enterable, sized for the camera
+that follows the player in, and the ranch is marked as not-a-settlement so nothing
+is ever built on it again.
 
 **2026-08-21** — **The woods can be authored.** Five tree species built in
 Blender (`dev/art/trees.py`) take over the grown pool as their files load, by
