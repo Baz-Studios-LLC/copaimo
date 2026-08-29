@@ -30,7 +30,7 @@ use terrain_core::Geometry;
 use crate::config::{CHUNK_SIZE, COVER_CHUNKS, MAX_PENDING_COVER};
 use crate::shade::{shaded, Shaded};
 use crate::world::chunk::{chunk_at, chunk_origin, Chunk};
-use crate::world::stream::{as_coloured_mesh, ChunkMap};
+use crate::world::stream::{into_coloured_mesh, ChunkMap};
 use crate::world::terrain::{Biome, Terrain, TerrainSource};
 use crate::world::StreamAnchor;
 
@@ -220,7 +220,7 @@ pub fn collect_cover(
         commands.entity(entity).with_children(|chunk| {
             chunk.spawn((
                 Cover,
-                Mesh3d(meshes.add(as_coloured_mesh(&cover))),
+                Mesh3d(meshes.add(into_coloured_mesh(cover))),
                 MeshMaterial3d(material.0.clone()),
                 // Chunk-local, like the ground's own vertices.
                 Transform::IDENTITY,

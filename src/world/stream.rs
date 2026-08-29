@@ -610,6 +610,41 @@ pub fn as_coloured_mesh(geometry: &terrain_core::Geometry) -> Mesh {
     mesh.with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, geometry.colours.clone())
 }
 
+/// The same again, taking the geometry rather than borrowing it.
+///
+/// # Two versions, because there are two situations
+///
+/// A finished cover or prop mesh is owned by the system integrating it and dropped
+/// the moment it has been converted, so cloning five vectors out of it and then
+/// throwing the originals away doubles the memory traffic of the one part of chunk
+/// streaming that happens ON THE FRAME. A welded meadow is the heaviest mesh in the
+/// world by vertex count, and that copy lands in the same frame as the asset upload.
+///
+/// The borrowing version stays for the callers that need their geometry afterwards.
+///
+/// Found by Codex's audit.
+pub fn into_coloured_mesh(geometry: terrain_core::Geometry) -> Mesh {
+    let terrain_core::Geometry {
+        places,
+        normals,
+        uvs,
+        colours,
+        indices,
+    } = geometry;
+    let mesh = Mesh::new(
+        bevy::render::mesh::PrimitiveTopology::TriangleList,
+        bevy::asset::RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, places)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+    .with_inserted_indices(bevy::render::mesh::Indices::U32(indices));
+    if colours.is_empty() {
+        return mesh;
+    }
+    mesh.with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colours)
+}
+
 /// Marks a river's surface, so a re-meshed chunk can clear its old one.
 #[derive(Component)]
 pub struct RiverSurface;

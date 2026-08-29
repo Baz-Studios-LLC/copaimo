@@ -38,7 +38,7 @@ use terrain_core::Geometry;
 use crate::config::{CHUNK_SIZE, MAX_PENDING_PROPS, PROP_CHUNKS, PROP_SCALE, PROP_SPACING};
 use crate::shade::{shaded, Shaded};
 use crate::world::chunk::{chunk_at, chunk_origin, Chunk};
-use crate::world::stream::{as_coloured_mesh, ChunkMap};
+use crate::world::stream::{into_coloured_mesh, ChunkMap};
 use crate::world::terrain::{Biome, Terrain, TerrainSource};
 use crate::world::StreamAnchor;
 
@@ -189,7 +189,7 @@ pub fn collect_props(
         commands.entity(entity).with_children(|chunk| {
             chunk.spawn((
                 Props,
-                Mesh3d(meshes.add(as_coloured_mesh(&litter))),
+                Mesh3d(meshes.add(into_coloured_mesh(litter))),
                 MeshMaterial3d(material.0.clone()),
                 // Chunk-local, like the ground's own vertices.
                 Transform::IDENTITY,
