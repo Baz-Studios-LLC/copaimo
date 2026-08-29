@@ -1,51 +1,70 @@
 ## Copaimo: The Wardens Guild
 
-The world grew a continent last release. This one **puts people on it**: every city,
-town and village on the map is now built, walkable, and enterable.
+The last release put towns on the map. This one **connects them, and turns the
+lights on**.
 
-### Towns are laid out, not scattered
+### Thirteen places, and the roads between them
 
-A settlement is generated the way one is actually planned — **streets first**, then
-the ground between them, then the plots that ground divides into. Buildings face the
-street because they were placed against one, not because they were turned to face it
-afterwards. That is the whole difference between a town and a campsite.
+The settlements are no longer scattered by a generator. There are thirteen, each
+one placed by hand where it belongs, and the roads are routed **over land** —
+around the lakes rather than through them, and the long way round when the long way
+round is the way. A road that takes a while to walk is doing its job.
 
-Each place is built around a square with a road through it, ring roads, and lanes
-branching off — and it has **districts** you can tell apart standing in them: trade
-at the middle, workshops behind, homes at the edge.
+Where a road has to cross water it crosses on a **stone bridge**, built arch by arch
+to the length of the gap. The longest is over a kilometre, and you can walk every
+metre of it.
 
-### Two ages of the world
+### A map you can pull up
 
-**Villages and towns are old-school fantasy.** Half-timbered walls, thatch and
-slate, flower boxes under the windows, a market cross on the square and a well at
-the corner. The lanes are packed earth.
+Press **M** for the world: coastlines, mountains, the canyon, every town and city,
+the roads between them and the bridges that carry them. Your warden is on it, facing
+the way you are facing. The minimap shows the same country in the corner.
 
-**Cities are modern.** Curtain wall and concrete, a fifty-seven-metre spire at the
-heart of each one, and paved stone streets. The skyline falls away from the middle,
-so a city reads as a city from a long way off.
+### Night
 
-That contrast is not decoration — it is how you know what kind of place you are
-walking into before you can read a sign.
+Cities have **street lamps** on posts with the light thrown down over the
+carriageway; villages have modest lanterns. All of them come on at dusk and go out
+at dawn, and the glass is lit on every fitting you can see, not just the near ones.
 
-### You can go inside
+Buildings light up too. Some windows are on and most are not — which is what says
+*people live here* from a distance far better than the street lighting does — and
+**a different set is lit every night**, so a place you pass through twice is not
+wearing the same face.
 
-Every building has a door you can walk through and a room on the other side.
-Cottages have hearths and beds, shops have counters and shelves, the guild hall has
-its own floor, and a tower has a lobby with a desk and a bank of lifts. Interiors
-are sized for the **camera** rather than the warden — it follows a few metres
-behind, so the rooms are generous enough that walking in does not put the view
-through a wall.
+### The ground you walk on
 
-### And you can find your way
+Country roads read as **walked paths** now: the width wanders, the surface wears
+where the traffic goes, and the edges blend into the grass instead of stopping at a
+line. City streets are **cobbled**, and a dirt road coming in becomes a street over
+the last thirty metres of the approach rather than at a step.
 
-Every settlement has landmarks — a market cross, a well, a monument — standing in
-the open where the roads meet, so there is always something to steer by that is not
-just another house. Each city has one building taller than all the others, on
-purpose, at its centre.
+Settlements sit on ground of their own, and every junction is paved through.
+
+### Somewhere to walk into
+
+Every building's **entrance faces the street**, and the doorway is the size the game
+says it is — you walk in from the front, at a stride, without hunting round the
+back. Empty lots are gardens, work yards, pens, stores and stalls, laid out for the
+kind of place they are, with a second set built for the cities so a modern block
+does not stand in front of a rustic vegetable patch.
+
+Cottages have a **floor plan**: a common room with the fire at its end, the way in
+from the door to the hearth kept clear, and a sleeping alcove behind a partition
+with a window of its own.
+
+### The canyon
+
+The gash through the eastern massif is a real gate now — narrow enough on the floor
+that the walls close over you, and solid enough that going round is going round.
 
 ### Also in this release
 
-- Trees change with the season, and rain, snow and wind fall on the country that
-  should have them — never on the desert.
-- Trees, boulders, stumps, logs and buildings are solid; you walk around them.
-- The ranch is protected: nothing else is ever built on it.
+- Every solid thing in the world wears an **ink outline**, so the game reads as one
+  drawn picture rather than a lit one.
+- Dirt roads are the colour of dirt. They were being drawn twice as bright as their
+  own number said, everywhere, for months.
+- Each village is known by its **guild hall**, standing at the meeting of the roads
+  where you can see it on the way in.
+- Windows on the taller buildings are framed in ink and squared off, which is what
+  keeps a facade from reading as a spreadsheet.
+- Props sit on the ground rather than in it.
