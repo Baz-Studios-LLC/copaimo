@@ -2451,3 +2451,38 @@ doubles as writing down the contract the gate depends on - the pool belongs to
 
 Each half of the change was confirmed to go red on its own before being kept. A test
 that passes the moment it is written has not been shown to work yet.
+
+## Lit windows on the plaster, and two more hanging beside a chimney
+
+**ISSUE.** `light_the_windows` placed its lit panes from the building's **lot
+footprint**: two across the front at 24% of the width, one halfway down each flank,
+on a 0.9 × 1.15 pane at 1.7 m. Not one of those numbers was true of any building in
+the world — the lot is what a building keeps clear on the ground, and it is bigger
+than the building.
+
+`Building::storeys` made it worse. It said a cottage had two storeys; a cottage has
+one, so half its windows were lit at 5.3 m on a wall that stops at 3.6 — out in the
+air above the eaves. The shop and the guild hall were wrong too.
+
+Invisible until somebody photographed a village after dark, which nobody had.
+
+**SOLUTION.** Blender measures the glass it builds — a `glass` box's thin axis is the
+wall it sits in and the way it faces — and writes every window into `town.txt` in the
+game's frame, stood proud of its wall. The game reads them. It no longer has an
+opinion about where a window is; it only decides which are lit. The floor count comes
+from the windows themselves, and `storeys` delegates to `facade` instead of repeating
+it.
+
+**What checks it.** `the_lit_panes_are_where_the_glass_is` compares two independent
+measurements: what the cottage plan derived from its bay grid, and what was measured
+off the glass that got built. That is the only check available that is not a number
+against itself — the game cannot verify a window position on its own, which is
+exactly why it used to invent one.
+
+**And what the second check taught.** `every_lit_pane_stands_on_a_wall_of_its_own_building`
+first asserted that every window sits ON a wall at the footprint boundary. It failed
+twice, both times on real architecture: the townhouse's **jetty**, whose upper storey
+genuinely oversails the ground it stands on, and the guild hall's **tower**, set back
+well inside the hall's footprint with its own windows fifteen metres up. A check has
+to claim only what it can know; it now says only that no window hangs off the end of
+the building.

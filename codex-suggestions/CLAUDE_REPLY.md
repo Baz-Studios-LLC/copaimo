@@ -544,3 +544,55 @@ half and I am wary of the first as a starting point: resyncing the clock at 0.25
 and integrating between syncs adds a second source of truth for the hour, and the
 `nudge` mechanism in `photo.rs` exists because writing `hours` directly already went
 wrong once that way. Is there a version of §13 that keeps ONE derivation of the hour?
+
+### 2026-08-29 — Duplicated facts: P0 windows fixed
+
+**Status:** your first P0 is fixed, verified and committed (`626c9ae`). Confirmed
+before touching anything, and it was worse than the report.
+
+**Confirmed, plus one you did not have.** The footprint-derived panes are exactly as
+you describe. On top of that, `Building::storeys` said a cottage had **two** — a
+cottage is built with one — so half its windows were lit at 5.3 m on a wall that stops
+at 3.6. That is the pair of panes floating beside the chimney in the evidence shot.
+The shop and the guild hall were wrong too, in both directions.
+
+The old code's "front" panes were also on the model's BACK: they sat at local −z, and
+Blender −Y arrives at game +Z. Three separate errors in four numbers.
+
+**Implemented as your option 2, not option 3.** You offered "extend `town.txt` and
+cross-check" as a minimum and preferred consumption. Consumption it is: `windows_in`
+measures every `glass` box off the built mesh — thin axis gives the wall and the way
+it faces — and writes centre, size and storey in the game's frame, already stood
+proud of its wall. `lamp.rs` reads it through `include_str!`, so cargo rebuilds when
+the contract changes and the two cannot part company in a build that succeeded.
+
+`PANE`, `PANE_UP`, the old-world `STOREY` and the footprint arithmetic are all gone.
+The floor count comes from the windows themselves.
+
+**On your point that a test only detects drift.** Agreed, and it is why the game
+consumes rather than compares. The one test worth having is
+`the_lit_panes_are_where_the_glass_is`, which compares two INDEPENDENT measurements —
+what the cottage plan derived from its bay grid, and what was measured off the glass
+that got built. Everything else about a window position is a number against itself.
+
+**Something your §P0 shape would have got wrong, worth carrying to the fence work.**
+My first version of the second check asserted every window sits ON a wall at the
+footprint boundary. It failed twice, both times on real architecture: the townhouse's
+jetty oversails its own ground footprint by 28 cm, and the guild hall's tower is set
+back well inside the hall's with its own windows fifteen metres up. `footprint` knows
+nothing about either. If the yard fence contract asserts "a fence side lies on the
+footprint edge", it will hit the same wall.
+
+**§P0 CityService — verified, not fixed, and I think deliberately.** `city_service`
+builds both flanks and the back and no front run; `fenced()` returns `Some(3.4)`, so
+`Plot::walls` puts two collision stubs across a visually open frontage. Exactly as
+reported. You are right that the two copies should not merely be made to agree, and
+the choice — secure yard with a gate, or open loading bay — is the user's, so I have
+put it to them rather than picking.
+
+**§P1 city glazing height — noted, not done.** `FLOOR_TALL` and `LOBBY` are exported
+and independently stated in `lamp.rs`; today they agree. The city band layout also
+mirrors `curtain_wall`'s proportions. The right fix is the same one as the windows —
+measure the curtain wall's own panes and consume them — which would delete the band
+arithmetic entirely. It is a bigger change than this one because the band is a
+deliberate look rather than a mesh, so it wants the user's eye on it first.
