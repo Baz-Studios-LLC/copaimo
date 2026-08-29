@@ -553,6 +553,37 @@ impl Building {
         }
     }
 
+    /// How many floors this has, and how tall one is.
+    ///
+    /// Measured off the exported models, like the footprints, and kept in step with
+    /// `FLOOR_TALL` in `dev/art/town.py`. Only the city knows: the old world's
+    /// buildings have windows placed one at a time rather than a band a storey.
+    pub fn storeys(self) -> Option<usize> {
+        match self {
+            // 19.7 m, 37.6 m and 57.1 m over a 3.4 m floor, less their crowns.
+            Building::CityBlock => Some(5),
+            Building::CityTower => Some(10),
+            Building::CitySpire => Some(15),
+            // The old world, on its own 3.6 m storey. Two floors each, which is what
+            // these are built with - see `shell` in `dev/art/town.py`.
+            Building::Cottage | Building::Townhouse | Building::Shop => Some(2),
+            Building::GuildHall => Some(2),
+            _ => None,
+        }
+    }
+
+    /// Whether its windows come as a band of glass a storey or as separate panes.
+    ///
+    /// A tower's facade is a curtain wall and a lit floor is a lit BAND. A cottage
+    /// has windows in a wall, and lighting the whole wall of one would read as a
+    /// building on fire.
+    pub fn glazed_in_bands(self) -> bool {
+        matches!(
+            self,
+            Building::CityBlock | Building::CityTower | Building::CitySpire
+        )
+    }
+
     /// Whether this is a yard rather than a building.
     ///
     /// A yard is ground with things standing on it - beds, a bench, a stack of
@@ -1970,7 +2001,7 @@ pub fn name_of(site: &Site, country: terrain_core::region::Country, index: usize
     Some(list[index % list.len()])
 }
 
-fn unit(seed: u32, salt: u32) -> f32 {
+pub fn unit(seed: u32, salt: u32) -> f32 {
     let mut x = seed
         .wrapping_mul(0x9E37_79B9)
         .wrapping_add(salt.wrapping_mul(0x85EB_CA6B));

@@ -103,6 +103,45 @@ struct Glass;
 /// How much brighter than its colour the glass burns.
 const GLASS_GLOWS: f32 = 6.0;
 
+/// A storey of a city building with somebody still in it.
+///
+/// # A city with nobody home
+///
+/// Lamps light the street and leave the towers as black slabs against a black sky,
+/// which is the opposite of what a city looks like at night: what says "people live
+/// here" from a distance is not the street lighting, it is that some of the windows
+/// are on and most are not.
+///
+/// A band of glass per lit storey, sat just proud of the facade and emissive, so it
+/// reads at any distance and costs one box. Which storeys are lit comes from a hash
+/// of the building's own position, so a tower's pattern is its own and does not
+/// change as you walk toward it.
+#[derive(Component)]
+struct Awake;
+
+/// How far away a city's windows are still worth lighting, in metres.
+///
+/// Much further than the lamps: a lit tower is what you SEE a city by, and the
+/// whole point is that it reads from outside.
+const AWAKE_WITHIN: f32 = 900.0;
+
+/// What share of a city's storeys have somebody in at night.
+const AWAKE_SHARE: f32 = 0.34;
+
+/// A storey, floor to floor, in each age of the world - `FLOOR_TALL` and `STOREY`
+/// in `dev/art/town.py`.
+const FLOOR_TALL: f32 = 3.4;
+const STOREY: f32 = 3.6;
+
+/// How wide and tall a cottage's window is, in metres, and how far up its storey.
+const PANE: Vec2 = Vec2::new(0.9, 1.15);
+const PANE_UP: f32 = 1.7;
+
+/// What a lit window is coloured. Warmer and paler than a street lamp: it is a room
+/// with a lamp in it seen through glass, not the lamp itself.
+const INDOORS: Color = Color::srgb(1.0, 0.90, 0.68);
+const WINDOW_GLOWS: f32 = 2.6;
+
 /// Stands every lamp near the warden, and takes down the ones left behind.
 pub fn stand_the_lamps(
     mut commands: Commands,
@@ -252,13 +291,127 @@ pub fn light_them_at_night(
     }
 }
 
+/// Turns the lights on in the towers.
+pub fn light_the_windows(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut paints: ResMut<Assets<StandardMaterial>>,
+    mut pane: Local<Option<(Handle<Mesh>, Handle<StandardMaterial>)>>,
+    clock: Res<crate::sky::TimeOfDay>,
+    anchors: Query<&GlobalTransform, With<StreamAnchor>>,
+    towers: Query<(Entity, &GlobalTransform, &crate::world::town::Standing)>,
+    awake: Query<(Entity, &ChildOf), With<Awake>>,
+) {
+    let Some(anchor) = anchors.iter().next() else {
+        return;
+    };
+    let here = anchor.translation();
+    let up = crate::util::smoothstep(LIT_BELOW, FULLY_LIT_AT, clock.sun_height());
+
+    // By day every window is off, and the panes come down rather than being left
+    // black - a dark quad over the glass is worse than no quad at all.
+    if up <= 0.0 {
+        for (entity, _) in &awake {
+            commands.entity(entity).despawn();
+        }
+        return;
+    }
+
+    let (mesh, paint) = pane
+        .get_or_insert_with(|| {
+            (
+                meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
+                paints.add(StandardMaterial {
+                    base_color: INDOORS,
+                    emissive: LinearRgba::from(INDOORS) * WINDOW_GLOWS,
+                    unlit: true,
+                    ..default()
+                }),
+            )
+        })
+        .clone();
+
+    for (entity, at, standing) in &towers {
+        let Some(storeys) = standing.what.storeys() else {
+            continue;
+        };
+        if at.translation().distance(here) > AWAKE_WITHIN {
+            continue;
+        }
+        if awake.iter().any(|(_, of)| of.parent() == entity) {
+            continue;
+        }
+
+        let foot = at.translation();
+        let footprint = standing.what.footprint();
+        // Which storeys are in, from where the building STANDS - so a tower keeps
+        // its own pattern however often it is streamed in and out.
+        let seed = foot.x.to_bits() ^ foot.z.to_bits();
+        commands.entity(entity).with_children(|on| {
+            for storey in 0..storeys {
+                let roll = crate::world::town::unit(seed, storey as u32 * 31 + 7);
+                if roll > AWAKE_SHARE {
+                    continue;
+                }
+                // Where the light shows, which depends on what the wall is made of.
+                //
+                // A tower's facade is a curtain wall and a lit floor is a lit BAND
+                // the width of it. A cottage has windows in a wall: lighting the
+                // whole face of one would read as a building on fire, so it gets
+                // panes the size of the windows that are actually there.
+                let panes: Vec<(Vec3, Vec3)> = if standing.what.glazed_in_bands() {
+                    let z = storey as f32 * FLOOR_TALL + FLOOR_TALL * 0.67;
+                    // On the two long faces only. A pane a face is four times the
+                    // cost for a building you can see two sides of.
+                    vec![
+                        (
+                            Vec3::new(footprint.x * 0.88, FLOOR_TALL * 0.5, 0.06),
+                            Vec3::new(0.0, z, footprint.y * 0.5 + 0.04),
+                        ),
+                        (
+                            Vec3::new(0.06, FLOOR_TALL * 0.5, footprint.y * 0.88),
+                            Vec3::new(footprint.x * 0.5 + 0.04, z, 0.0),
+                        ),
+                    ]
+                } else {
+                    let z = storey as f32 * STOREY + PANE_UP;
+                    // Two panes across the front and one down each flank - a lit
+                    // room shows at whichever window somebody is standing near.
+                    let mut panes = Vec::new();
+                    for side in [-1.0_f32, 1.0] {
+                        panes.push((
+                            Vec3::new(PANE.x, PANE.y, 0.06),
+                            Vec3::new(side * footprint.x * 0.24, z, -footprint.y * 0.5 - 0.04),
+                        ));
+                        panes.push((
+                            Vec3::new(0.06, PANE.y, PANE.x),
+                            Vec3::new(side * (footprint.x * 0.5 + 0.04), z, 0.0),
+                        ));
+                    }
+                    panes
+                };
+                for (size, at) in panes {
+                    on.spawn((
+                        Awake,
+                        Mesh3d(mesh.clone()),
+                        MeshMaterial3d(paint.clone()),
+                        Transform::from_translation(at).with_scale(size),
+                        Visibility::default(),
+                        bevy::pbr::NotShadowCaster,
+                    ));
+                }
+            }
+        });
+    }
+}
+
 pub struct LampPlugin;
 
 impl Plugin for LampPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (stand_the_lamps, light_them_at_night)
+            (stand_the_lamps, light_them_at_night, light_the_windows)
                 .chain()
                 .run_if(crate::build::a_world_is_up),
         );
