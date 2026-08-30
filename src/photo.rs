@@ -536,6 +536,22 @@ pub fn fill_the_matrix(
             if city { 46.0 } else { 38.0 },
             Lighting::Noon
         );
+        // AND THE STREET AT EYE LEVEL, which is where a kerb lives.
+        //
+        // Every settlement shot in this matrix was taken from five to ten metres up
+        // and forty back, which is the right height to judge a plan and the wrong one
+        // to judge a surface: a footway's kerb is 14 cm, and from up there it is less
+        // than a pixel. Footways went in and the evidence could not have shown them
+        // either way.
+        add(
+            &format!("{label}_street"),
+            site.at + out * (site.radius * 0.45),
+            -out,
+            1.7,
+            14.0,
+            Lighting::Noon,
+        );
+
         // And the country outside it, which is where the arrival ought to begin.
         add(
             &format!("{label}_approach"),

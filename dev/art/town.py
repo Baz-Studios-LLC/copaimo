@@ -1346,19 +1346,39 @@ def compass(parts, at, span, face, colour="brass"):
     x, z = at
     for index in range(8):
         turn = index * math.pi * 0.25
-        # The cardinals long, the diagonals short. That difference IS the rose.
-        reach = span * (0.30 if index % 2 else 0.50)
-        for step in range(3):
-            part = (step + 0.5) / 3.0
+        cardinal = index % 2 == 0
+        # THE CARDINALS ARE LONG AND THIN AND THE DIAGONALS ARE NOT.
+        #
+        # The first pair of numbers was 0.50 against 0.30 on a base a tenth of the
+        # span wide, and eight stubby spikes of nearly one length is a starburst. A
+        # rose is read from its NEEDLES: north and south run nearly to the rim and are
+        # slender enough to be needles, and the diagonals are half that.
+        reach = span * (0.52 if cardinal else 0.26)
+        root = span * (0.075 if cardinal else 0.055)
+        steps = 4
+        for step in range(steps):
+            part = (step + 0.5) / steps
             along = reach * part
-            parts.append(
-                box(
-                    (span * 0.115 * (1.0 - part * 0.76), 0.14, reach / 3.0 * 1.04),
-                    (x + math.sin(turn) * along, face, z + math.cos(turn) * along),
-                    colour,
-                    tilt=(0.0, turn, 0.0),
+            wide_here = root * (1.0 - part * 0.88)
+            # AND EACH POINT IS TWO FACETS, one lit and one shaded.
+            #
+            # This is the whole signature of a compass rose and the reason it reads as
+            # a solid pointing at something rather than as a painted star: every point
+            # is a little pyramid seen from the side, so one flank catches the light
+            # and the other does not. Two halves in two tones is that, in boxes.
+            for hand, tone in ((-1.0, colour), (1.0, "guild")):
+                parts.append(
+                    box(
+                        (wide_here * 0.5, 0.14, reach / steps * 1.05),
+                        (
+                            x + math.sin(turn) * along + math.cos(turn) * hand * wide_here * 0.25,
+                            face,
+                            z + math.cos(turn) * along - math.sin(turn) * hand * wide_here * 0.25,
+                        ),
+                        tone,
+                        tilt=(0.0, turn, 0.0),
+                    )
                 )
-            )
 
 
 def emblem(parts, at, span, face):
@@ -1569,14 +1589,23 @@ def guild_hall():
     # the gable projects over it on posts, sheltering the way in rather than sealing
     # it. The doorway is already there - it is the bay the hall was placed around.
     porch_wide = 5.0
+    # How wide the name board is. Declared with the porch because the POSTS are set
+    # from it - they hold the roof up outside the sign rather than across it.
+    sign_wide = 6.2
     porch_top = ridge + 0.7
     gable_rise = porch_top - eave
     reach = -hy + WALL * 0.5
+    # CLEAR OF THE SIGN AND THE DOOR.
+    #
+    # At 0.42 of the porch's width the two posts stood at the sign board's own ends,
+    # so from the street the name of the building had a timber down each side of it
+    # and the doorway was framed close enough to read as barred. They go outside the
+    # board: the porch is what the roof spans, and the posts hold up its corners.
     for side in (-1.0, 1.0):
-        parts.append(box((0.28, 0.28, eave), (door_x + side * porch_wide * 0.42, reach + 0.2, eave * 0.5), "timber"))
+        parts.append(box((0.28, 0.28, eave), (door_x + side * (sign_wide * 0.5 + 0.4), reach + 0.2, eave * 0.5), "timber"))
         # A brace back to the hall, which is what stops two posts reading as sticks.
         parts.append(
-            box((0.2, 1.3, 0.2), (door_x + side * porch_wide * 0.42, reach + 0.9, eave - 0.55), "timber",
+            box((0.2, 1.3, 0.2), (door_x + side * (sign_wide * 0.5 + 0.4), reach + 0.9, eave - 0.55), "timber",
                 tilt=(0.7, 0.0, 0.0))
         )
     parts.append(box((porch_wide + 0.6, veranda + 0.4, 0.24), (door_x, reach + veranda * 0.5, eave + 0.1), "timber"))
@@ -1594,9 +1623,19 @@ def guild_hall():
     # from the flank it read as a tall thin slab of shingle stood up on the roof with
     # nothing behind it. A projecting entrance gable is deep: it reaches back to the
     # main ridge and cuts into it, which is what makes it part of the roof.
+    # BEHIND THE GABLE'S FACE, not level with it.
+    #
+    # The wedge's front face was at `reach - 0.05` and the gable wall's front face
+    # was at `reach - 0.05` - the same plane, so the depth buffer had two surfaces to
+    # choose between over the whole triangle and chose differently per pixel and per
+    # frame. Reported as a shimmer on the gable, and measured: `y=-8.940, 2 faces ->
+    # guildroof 5.90x5.98, plaster2 5.00x5.98`.
+    #
+    # The roof now starts INSIDE the gable wall's own thickness, so the two
+    # interpenetrate and the gable is the only thing at the front.
     porch_back = hall_y
-    porch_deep = porch_back - (reach - 0.05)
-    porch_roof = (door_x, (reach - 0.05 + porch_back) * 0.5)
+    porch_deep = porch_back - (reach + 0.05)
+    porch_roof = (door_x, (reach + 0.05 + porch_back) * 0.5)
     parts.append(wedge(porch_wide + 0.9, porch_deep, gable_rise, (porch_roof[0], porch_roof[1], eave), "guildroof", ridge="y"))
     shingles(parts, porch_wide + 0.2, porch_deep - 0.2, eave, gable_rise, ridge="y", colour="guildroof", at=porch_roof)
     # The barge boards down both slopes, which is the overhang and the trim at once.
@@ -1629,12 +1668,24 @@ def guild_hall():
     # A sign with nothing on it is a plank, and that is what this was: a brown
     # rectangle that meant "sign" without being one. The concept letters it, and the
     # letters are most of what a sign IS - see `masonry.lettering`.
-    sign_z = eave - 0.62
-    parts.append(box((5.0, 0.16, 1.15), (door_x, reach - 0.14, sign_z), "sign"))
-    for up in (-0.64, 0.64):
-        parts.append(box((5.3, 0.12, 0.15), (door_x, reach - 0.18, sign_z + up), "timber"))
-    lettering(parts, "WARDENS GUILD", (door_x, reach - 0.30, sign_z + 0.17), 0.46, "brass", spread=0.25)
-    lettering(parts, "EXPLORE  PROTECT  COEXIST", (door_x, reach - 0.30, sign_z - 0.33), 0.19, "timber", spread=0.2)
+    # BIG ENOUGH TO SURVIVE ITS OWN OUTLINE.
+    #
+    # Every figure is wrapped in an inverted hull `OUTLINE_THICK` deep - 7 cm - which
+    # pushes each vertex out along its normal. That is an edge on a wall and it is a
+    # flood on a letter: at 46 mm of stroke the counters of the O and the D filled in,
+    # and the 19 mm tagline underneath went to a smear. Reported as the text being
+    # unclear, and it was not the font.
+    #
+    # A letter survives if its counters are wider than twice the hull, so the cap
+    # height has to be about 0.6 m. The title gets that. The TAGLINE DOES NOT EXIST
+    # any more: at a size that would survive it is nearly as big as the name above it,
+    # and a guild hall with two lines of equal shouting is a shopfront. The concept's
+    # words are on the concept; the building carries its name.
+    sign_z = eave - 0.72
+    parts.append(box((sign_wide, 0.16, 1.05), (door_x, reach - 0.14, sign_z), "sign"))
+    for up in (-0.60, 0.60):
+        parts.append(box((sign_wide + 0.3, 0.12, 0.15), (door_x, reach - 0.18, sign_z + up), "timber"))
+    lettering(parts, "WARDENS GUILD", (door_x, reach - 0.32, sign_z), 0.60, "brass", spread=0.22)
 
     # The steps up to it. `deep` is doubled from the HALL's front rather than the
     # figure's, because that is the wall the door is in.

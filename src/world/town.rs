@@ -67,6 +67,26 @@ use crate::world::settle::Site;
 /// you cannot see both sides of at once is a road.
 pub const STREET_WIDE: f32 = 6.0;
 
+/// And what a CITY's are.
+///
+/// A village lane is a worn track the width of the carts that made it. A city street
+/// is a made thing with a footway down each side, and the footways are extra: giving
+/// a 6 m street two pavements would leave a metre of carriageway, which is an alley.
+/// So the carriageway keeps the width it already had and the street grows by exactly
+/// the two footways it gained: a 10 m high street is the old 6 m of road with 2 m of
+/// pavement each side, and an 8 m lane is the old 4.2 m rounded to 4.
+///
+/// Sized by what a city can afford as much as by what a street wants. At 12 m and 9 m
+/// - a 2.4 m footway - `a_town_actually_has_a_town_in_it` dropped a city to fifteen
+/// buildings against a floor of eighteen, because every metre of street is a metre of
+/// lot nobody builds on. The guard is right and the first numbers were greedy.
+///
+/// Buildings follow automatically: `clear_of_streets` measures from the ribbon's own
+/// half-width, so a wider street sets its frontages back by exactly the footway it
+/// gained rather than by a second number that could disagree.
+pub const CITY_STREET_WIDE: f32 = 10.0;
+pub const CITY_LANE_WIDE: f32 = 8.0;
+
 /// How far a building stands back from the kerb.
 pub const SETBACK: f32 = 1.6;
 
@@ -995,6 +1015,12 @@ fn door_faces_a_street(streets: &[Street], at: Vec2, facing: f32, what: Building
 pub struct Way {
     pub points: Vec<Vec2>,
     pub wide: f32,
+    /// The width this road converges to where it becomes a city street.
+    ///
+    /// A city's own ways join themselves and never change. A country road joins the
+    /// high street it arrives on - see `RoadSection`, and the note there about why a
+    /// road cannot simply divide its existing width into footways.
+    pub joins: f32,
 }
 
 impl Way {
@@ -1308,7 +1334,7 @@ fn arc_streets(
         }
         last = next;
     }
-    ways.push(Way { points: line, wide });
+    ways.push(Way { points: line, wide, joins: wide });
 }
 
 /// Where a town's streets actually MEET, whatever plan drew them.
@@ -1491,6 +1517,18 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
     }
     spokes.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
+    // HOW WIDE THIS PLACE'S STREETS ARE.
+    //
+    // A city's are wider than a village's by exactly the two footways they carry -
+    // see `CITY_STREET_WIDE`. Decided once, here, and handed to everything that lays
+    // a road, so the width a street is drawn at, the width the warden walks, and the
+    // width the buildings are set back from are one number.
+    let (high_street, lane) = if site.city {
+        (CITY_STREET_WIDE, CITY_LANE_WIDE)
+    } else {
+        (STREET_WIDE, LANE_WIDE)
+    };
+
     // The roads as CHAINS. `streets` is derived from these once they are all laid.
     let mut ways: Vec<Way> = Vec::new();
     let mut parcels = Vec::new();
@@ -1525,7 +1563,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
         let (a, b) = (spokes[spoke], spokes[(spoke + 1) % spokes.len()]);
         let from = site.at + Vec2::from_angle(a) * square;
         let to = site.at + Vec2::from_angle(b) * square;
-        arc_streets(&mut ways, &mut parcels, site.at, from, to, STREET_WIDE, depth, true);
+        arc_streets(&mut ways, &mut parcels, site.at, from, to, high_street, depth, true);
     }
 
     // The radials, each running from the square out through every ring it crosses.
@@ -1535,9 +1573,9 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
         let wide = if angle_between(*spoke, through) < 0.1
             || angle_between(*spoke, through + std::f32::consts::PI) < 0.1
         {
-            STREET_WIDE
+            high_street
         } else {
-            LANE_WIDE
+            lane
         };
         // A radial is a chain of two points, which is what a straight road is.
         ways.push(Way {
@@ -1546,6 +1584,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
                 site.at + out * ring_r(index, last),
             ],
             wide,
+            joins: wide,
         });
         // Cut at each ring it crosses, so a radial's frontage is a block's worth at
         // a time rather than one strip running the whole way out.
@@ -1580,7 +1619,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
             if from.distance(site.at) > reach || to.distance(site.at) > reach {
                 continue;
             }
-            arc_streets(&mut ways, &mut parcels, site.at, from, to, LANE_WIDE, depth, false);
+            arc_streets(&mut ways, &mut parcels, site.at, from, to, lane, depth, false);
         }
     }
 
@@ -2372,16 +2411,39 @@ pub fn stands_on(
     built: &Built,
     at: Vec2,
 ) -> f32 {
+    // ONE GROUND, for the whole function.
+    //
+    // This started from `walk_height` - which is built on `Terrain::height` - and then
+    // measured every road from `drawn_height`, which is the height the MESH is built
+    // at. The two are the same on a settlement's levelled ground and they are not the
+    // same in the wild: at the canyon's foot they differ by 53 cm.
+    //
+    // That did not matter while only town streets were in here, because towns stand on
+    // flat ground by construction. It mattered the moment the country roads came in:
+    // a stretch of road beside a canyon wall raised the floor half a metre, and half a
+    // metre off a two-and-a-half metre climb is the difference between a wall that
+    // gates and a wall you stroll up. `a_canyon_wall_refuses_the_step_up` caught it in
+    // one run.
+    //
+    // So a road adds its own LIFT to the ground the rest of the rule is judged on,
+    // rather than substituting a different ground underneath it.
     let mut on = terrain.walk_height(at.x, at.y);
-    let drawn = terrain.drawn_height(at.x, at.y);
+    let ground = on;
     for layout in built.standing.values() {
         for street in &layout.streets {
             let across = at.distance(street.nearest_point(at));
-            let shoulder = street.wide * 0.5 + SHOULDER_WIDE;
+            let half = street.wide * 0.5;
+            let shoulder = half + SHOULDER_WIDE;
             if across > shoulder {
                 continue;
             }
-            on = on.max(drawn + road_lift(across / shoulder.max(0.01)));
+            // The same profile the mesh is built from, asked the same question - see
+            // `road_surface`. A footway the player sinks into is worse than no footway.
+            on = on.max(
+                ground
+                    + RoadSection::new(street.wide, street.wide, paved_here(terrain.plan(), at))
+                        .lift(across),
+            );
         }
         for plot in &layout.plots {
             if let Some(floor) = plot.floor_at(terrain, at) {
@@ -2389,8 +2451,49 @@ pub fn stands_on(
             }
         }
     }
+
+    // AND THE ROADS BETWEEN TOWNS, which belong to no layout.
+    //
+    // `Built` holds what a settlement raised. The country roads are streamed as their
+    // own mesh straight from the settlement plan, so they were never in this loop -
+    // and for as long as it has existed the warden has walked the whole road network
+    // between towns at terrain height, under a crown nine centimetres over their
+    // head. It did not show because nine centimetres is a shoe.
+    //
+    // It shows now: the last thirty metres of every approach raises a footway with a
+    // kerb on it, and feet in the middle of that is not a shoe. Found by Codex while
+    // the footways were going in.
+    let plan = terrain.plan();
+    let paved = paved_here(plan, at);
+    for road in plan.ways() {
+        // The cheap reject first - there are hundreds of these and this runs several
+        // times a frame.
+        let middle = (road.from + road.to) * 0.5;
+        let span = road.from.distance(road.to) * 0.5 + ROAD_REACHES;
+        if middle.distance_squared(at) > span * span {
+            continue;
+        }
+        let run = road.to - road.from;
+        let along = run.length_squared();
+        let part = if along > 1.0e-6 {
+            ((at - road.from).dot(run) / along).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let cut = RoadSection::new(crate::config::ROAD_WIDE, CITY_STREET_WIDE, paved);
+        let across = at.distance(road.from + run * part);
+        if across <= cut.shoulder {
+            on = on.max(ground + cut.lift(across));
+        }
+    }
     on
 }
+
+/// How far from a country road's middle line its made surface can possibly reach.
+///
+/// The widest it ever gets is the city street it joins, plus its shoulder. Used only
+/// to throw away the roads that are nowhere near before measuring the ones that are.
+const ROAD_REACHES: f32 = CITY_STREET_WIDE * 0.5 + SHOULDER_WIDE;
 
 /// One town's worth of buildings, kept so the whole lot can be taken down together.
 ///
@@ -2414,6 +2517,149 @@ pub fn road_lift(out: f32) -> f32 {
     let out = out.clamp(0.0, 1.0);
     ROAD_LIES * (1.0 - out * out) + ROAD_HEM
 }
+
+/// How wide a footway is, in metres, and how high its kerb stands.
+///
+/// A kerb is 100-150 mm in the world and there is no reason to exaggerate it: what
+/// makes a footway read is the LINE down each side of the carriageway and the change
+/// of surface across it, not the height of the step.
+pub const FOOTWAY_WIDE: f32 = 2.0;
+
+/// The narrowest the outer band of a road is ever drawn, in metres.
+///
+/// # Zero-width bands are triangles that cost and draw nothing
+///
+/// The footway's stations were placed at `half - FOOTWAY_WIDE * paved`, so on a
+/// country lane - where `paved` is nought - six of the thirteen stations landed
+/// exactly on the road's edge with the ones beside them. `the_paving_faces_the_sky`
+/// caught it immediately and correctly: 3,156 of a village's 6,982 paving triangles
+/// had no area, so no normal, so nothing to say they faced up.
+///
+/// A road's station count cannot vary along its length - `paved` is a gradient and
+/// the strip below has to weave a constant number of vertices - so the answer is for
+/// the band never to close completely. At nought it is a hand's width of ordinary
+/// road surface at the edge, which is invisible; as the paving arrives it opens out
+/// into the footway.
+const VERGE_LEAST: f32 = 0.35;
+
+/// How far apart the two stations at the top of a kerb sit, in metres.
+///
+/// There are two because the kerb's colour has to STOP there and the footway's
+/// start, and one station carries one colour - so the change from stone to flag is
+/// a hard line rather than a two-metre fade across the pavement. Put at exactly the
+/// same place they were a zero-area quad the whole length of every road, which is
+/// the second thing `the_paving_faces_the_sky` caught. Two centimetres apart the
+/// line still reads as hard and the triangles have area.
+const SEAM: f32 = 0.02;
+const KERB_RISE: f32 = 0.14;
+
+/// How far the kerb face leans back, in metres.
+///
+/// # Derived from the rule that has to accept it, not chosen
+///
+/// A vertical kerb is a WALL. `may_step` refuses any rise steeper than
+/// `CLIMB_LIMIT` per metre travelled, and a warden covers a few centimetres in a
+/// frame - so a 14 cm face drawn vertical is an invisible barrier down both sides of
+/// every city street, and the player walks in the gutter for the length of the city
+/// wondering why. Nothing would have failed; the street would just have been subtly
+/// wrong to be in.
+///
+/// So the batter is the rise divided by the steepest climb allowed, with a margin.
+/// Change `KERB_RISE` or `CLIMB_LIMIT` and this follows, and
+/// `a_kerb_is_a_step_and_not_a_wall` checks the whole profile against the same rule
+/// rather than trusting the arithmetic here.
+const KERB_RUN: f32 = KERB_RISE / crate::player::CLIMB_LIMIT * 1.3;
+
+/// A road's whole cross-section at one point along it.
+///
+/// # Add the urban right-of-way; do not subtract it from the country road
+///
+/// The first cut of the footways took them out of the width a road already had. A
+/// country lane is 4.6 m, so at full paving it gave up 2 m to each side and clamped
+/// what was left - leaving a 1.38 m carriageway, narrower than one cart, which then
+/// snapped to the 10 m city street it was joining. Codex's research put the rule
+/// plainly: a road transition is not a material fade, it is a gradual change in the
+/// whole right-of-way, and the carriageway has to stay usable the whole way through.
+///
+/// So the TOTAL width eases from what the road is to what it joins, and the footways
+/// are added around a carriageway that keeps its own size. At the end of a country
+/// approach the section is exactly the high street's: 6 m of road between two 2 m
+/// pavements, which is what it is about to become.
+///
+/// Every consumer asks this one function - the mesh's stations, their colours, and
+/// what the warden's feet stand on. That is the same contract the windows and the
+/// fences already have: one fact, calculated once.
+#[derive(Clone, Copy)]
+pub struct RoadSection {
+    /// How much of a city street this is, nought to one.
+    pub paved: f32,
+    /// Half the whole right-of-way, kerb to kerb to verge.
+    pub half: f32,
+    /// Half the carriageway - where the carts go.
+    pub carriage: f32,
+    /// How high the kerb stands, and how far it leans back.
+    pub kerb: f32,
+    pub batter: f32,
+    /// Where the made surface gives out into the ground.
+    pub shoulder: f32,
+}
+
+impl RoadSection {
+    /// The section of a road `wide` metres across that joins a `joins` metre street.
+    pub fn new(wide: f32, joins: f32, paved: f32) -> Self {
+        let paved = paved.clamp(0.0, 1.0);
+        let half = (wide + (joins - wide) * paved) * 0.5;
+        let footway = VERGE_LEAST + (FOOTWAY_WIDE - VERGE_LEAST) * paved;
+        Self {
+            paved,
+            half,
+            carriage: (half - footway).max(0.8),
+            kerb: KERB_RISE * paved,
+            batter: VERGE_LEAST * 0.3 + KERB_RUN * paved,
+            shoulder: half + SHOULDER_WIDE,
+        }
+    }
+
+    /// How high its surface stands at `across` metres from the middle.
+    pub fn lift(&self, across: f32) -> f32 {
+        let across = across.abs();
+        let shoulder = self.shoulder.max(0.01);
+        if self.kerb <= 0.0 {
+            // A COUNTRY ROAD IS UNCHANGED. Written as an early return rather than as
+            // a profile that happens to collapse, so a village lane cannot drift by a
+            // millimetre when the footway's numbers are tuned.
+            return road_lift(across / shoulder);
+        }
+        if across <= self.carriage {
+            road_lift(across / shoulder)
+        } else if across <= self.carriage + self.batter {
+            let up = (across - self.carriage) / self.batter.max(0.001);
+            road_lift(self.carriage / shoulder) + self.kerb * up
+        } else if across <= self.half {
+            road_lift(self.carriage / shoulder) + self.kerb
+        } else {
+            let out = ((across - self.half) / SHOULDER_WIDE).clamp(0.0, 1.0);
+            let top = road_lift(self.carriage / shoulder) + self.kerb;
+            top + (ROAD_HEM - top) * out
+        }
+    }
+}
+
+/// How high a street's surface stands at a given distance from its middle.
+///
+/// # One cross-section, drawn and walked
+///
+/// `pave` builds the road's vertices and `stands_on` decides what the warden's feet
+/// rest on, and both of them need to agree about the shape of a street to the
+/// centimetre. They used to share `road_lift`, which was fine while a road was a
+/// crown and nothing else. A kerb is the moment that stops being enough: put a step
+/// in the mesh and not in the walk surface and the player wades through the footway;
+/// put it in the walk surface and not the mesh and they walk on air beside the road.
+///
+/// So the profile is one function and they both ask it. `across` is the distance from
+/// the centreline, `half` the road's own half-width, `shoulder` where it gives out
+/// into the ground, and `paved` how much of a city street this is - nought in a
+/// village, where there is no footway and this returns exactly what `road_lift` did.
 
 /// How far above the ground a street's surface is laid, in metres.
 ///
@@ -2519,6 +2765,16 @@ fn srgb(r: f32, g: f32, b: f32) -> [f32; 4] {
 }
 
 static ROAD_STONE: LazyLock<[f32; 4]> = LazyLock::new(|| srgb(0.42, 0.41, 0.40));
+
+/// The footway's own stone, and how big a flag is.
+///
+/// Paler and warmer than the carriageway, because a footway is laid rather than
+/// driven on: what tells the two apart at a glance is that one is made of small dark
+/// stones and the other of big pale ones. The size does most of that work - a flag is
+/// twice a cobble, so the two surfaces have visibly different grain even where the
+/// colours are close.
+static ROAD_FLAG: LazyLock<[f32; 4]> = LazyLock::new(|| srgb(0.60, 0.585, 0.55));
+const FLAG_IS: f32 = 1.15;
 
 /// How big a cobble is, in metres, and how much one differs from the next.
 ///
@@ -2810,7 +3066,8 @@ fn pave(
                 + (terrain_core::forest::field(on / ROAD_WANDERS_OVER, 733) - 0.5)
                     * ROAD_WANDERS_BY
                     * (1.0 - paved);
-            let half = way.wide * 0.5 * wander;
+            let cut = RoadSection::new(way.wide, way.joins, paved);
+            let half = cut.half * wander;
             // A kerb only where there is paving to kerb. A cart track's edge is
             // where the dirt stops and the grass starts, and putting a stone kerb
             // down each side of one is most of why they all read as paved.
@@ -2835,14 +3092,43 @@ fn pave(
             // into the right thing when the road crosses from one into another.
             let shoulder = half + SHOULDER_WIDE * wander;
             let hem = |out: f32| terrain.ground_colour((on + side * out).x, (on + side * out).y);
-            for (across, colour) in [
-                (-shoulder, hem(-shoulder)),
-                (-half, edge),
-                (-half * 0.84, surface),
-                (0.0, surface),
-                (half * 0.84, surface),
-                (half, edge),
-                (shoulder, hem(shoulder)),
+
+            // A FOOTWAY DOWN EACH SIDE, where the street is a city's.
+            //
+            // The carriageway gives up `FOOTWAY_WIDE` to each side and the kerb
+            // between them is a real step - see `road_surface`, which is also what
+            // the warden's feet stand on.
+            //
+            // Thirteen stations across rather than seven, and the extra six are what
+            // a kerb costs: the top and the foot of each face, and a repeat of the
+            // top carrying the footway's colour instead of the kerb's, so the line
+            // between stone and flag is a hard edge rather than a two-metre fade.
+            //
+            // In a village the outer bands narrow to `VERGE_LEAST` and carry the
+            // road's own colour flat, so they cost a few vertices and show nothing.
+            // They do not close: the station COUNT has to be the same at every point
+            // along a road, because `paved` is a gradient - a lane becomes a street
+            // over the last thirty metres of its approach - so there is no line
+            // anywhere to change the count at, and a band that shuts completely is a
+            // triangle with no area and no normal. Half a village's paving was that
+            // for one build.
+            let walk = cut.carriage * wander;
+            let batter = cut.batter;
+            let flag = mix(surface, *ROAD_FLAG, paved);
+            for (across, colour, grain) in [
+                (-shoulder, hem(-shoulder), 0.0),
+                (-half, flag, FLAG_IS),
+                (-(walk + batter + SEAM), flag, FLAG_IS),
+                (-(walk + batter), edge, 0.0),
+                (-walk, edge, 0.0),
+                (-walk * 0.62, surface, COBBLE_IS),
+                (0.0, surface, COBBLE_IS),
+                (walk * 0.62, surface, COBBLE_IS),
+                (walk, edge, 0.0),
+                (walk + batter, edge, 0.0),
+                (walk + batter + SEAM, flag, FLAG_IS),
+                (half, flag, FLAG_IS),
+                (shoulder, hem(shoulder), 0.0),
             ] {
                 let at = on + side * across;
 
@@ -2862,7 +3148,7 @@ fn pave(
                 // its edge and there is no step to see. What is left is a CROWN -
                 // higher down the centre than at the sides - which is how a road is
                 // actually built, and which reads as worn in rather than put down.
-                let lift = road_lift(across.abs() / shoulder.max(0.01));
+                let lift = cut.lift(across / wander.max(0.01));
 
                 // AND BRUSHED, not painted.
                 //
@@ -2889,8 +3175,11 @@ fn pave(
                 // than a poured one. Only where there is paving to cobble: a dirt
                 // track has no stones in it, and giving it some would read as
                 // gravel.
-                if paved > 0.0 {
-                    let stone = terrain_core::forest::field(at / COBBLE_IS, 941);
+                // Each surface at the size of its own stone - `grain` - so the
+                // carriageway is cobbled and the footway is flagged, and the two read
+                // as different materials rather than as one in two colours.
+                if paved > 0.0 && grain > 0.0 {
+                    let stone = terrain_core::forest::field(at / grain, 941);
                     worn *= 1.0 + (stone - 0.5) * COBBLES_VARY * paved;
                 }
                 let colour = [
@@ -2908,7 +3197,7 @@ fn pave(
             }
         }
 
-        const LANES: usize = 7;
+        const LANES: usize = 13;
         let base = (places.len() - (steps + 1) * LANES) as u32;
         for step in 0..steps as u32 {
             for lane in 0..(LANES as u32 - 1) {
@@ -3097,6 +3386,10 @@ fn country_roads_near(
         .map(|road| Way {
             points: vec![road.from, road.to],
             wide: crate::config::ROAD_WIDE,
+            // What it is about to become. The approach eases its whole width to this
+            // over `PAVING_ARRIVES` so the section it hands over is the section it
+            // hands over to - see `RoadSection`.
+            joins: CITY_STREET_WIDE,
         })
         .collect()
 }
@@ -3560,12 +3853,81 @@ mod tests {
     /// So this asks the WORLD. It builds the real terrain, walks the real settlement
     /// plan with each site's real approach and the seed the game gives it, and names
     /// any that come out without a hall.
+    /// A kerb is a step you can take, not a wall.
+    ///
+    /// # The rule that has to accept the geometry is the rule the geometry is checked
+    /// against
+    ///
+    /// `KERB_RUN` is derived from `CLIMB_LIMIT` so that a 14 cm kerb leans back far
+    /// enough to be walkable. Deriving it is not the same as checking it: the profile
+    /// has four pieces and a hand-derived constant only governs one of them. This
+    /// walks the whole section in two-centimetre steps and asks the same question
+    /// `may_step` asks - because a kerb that refuses the player is an invisible wall
+    /// down both sides of every street in every city, and nothing else would fail.
+    #[test]
+    fn a_kerb_is_a_step_and_not_a_wall() {
+        for wide in [CITY_STREET_WIDE, CITY_LANE_WIDE] {
+            let cut = RoadSection::new(wide, wide, 1.0);
+            assert!(cut.kerb > 0.05, "a {wide} m city street has no kerb at all");
+            let step = 0.02;
+            let mut across = 0.0;
+            while across < cut.shoulder {
+                let rise = cut.lift(across + step) - cut.lift(across);
+                assert!(
+                    rise <= step * crate::player::CLIMB_LIMIT + 1.0e-4,
+                    "a {wide} m street climbs {rise:.3} m in {step} m at {across:.2} out from \
+                     its middle, and `may_step` refuses anything past {:.1} per metre",
+                    crate::player::CLIMB_LIMIT,
+                );
+                across += step;
+            }
+        }
+    }
+
+    /// A country road grows into the street it joins, and its carriageway survives.
+    ///
+    /// The first footways were SUBTRACTED from the country road's existing 4.6 m, so
+    /// at full paving the approach had two 2 m pavements around a 1.38 m carriageway -
+    /// narrower than one cart - and then snapped to a 10 m street. Codex's research
+    /// named the rule: add the urban right-of-way, do not carve it out of the rural
+    /// one. This is that rule, as an assertion.
+    #[test]
+    fn a_country_road_widens_into_the_street_it_joins() {
+        let mut widest = 0.0_f32;
+        for tenth in 0..=10 {
+            let paved = tenth as f32 / 10.0;
+            let cut = RoadSection::new(crate::config::ROAD_WIDE, CITY_STREET_WIDE, paved);
+            assert!(
+                cut.half >= widest - 1.0e-4,
+                "the road NARROWS as it is paved: {:.2} m at {paved}",
+                cut.half * 2.0,
+            );
+            widest = cut.half;
+            assert!(
+                cut.carriage * 2.0 >= 3.4,
+                "at {paved} paved the carriageway pinches to {:.2} m, which is under one cart",
+                cut.carriage * 2.0,
+            );
+        }
+        // And it arrives as exactly the section it is joining.
+        let arriving = RoadSection::new(crate::config::ROAD_WIDE, CITY_STREET_WIDE, 1.0);
+        let street = RoadSection::new(CITY_STREET_WIDE, CITY_STREET_WIDE, 1.0);
+        assert!(
+            (arriving.half - street.half).abs() < 1.0e-4
+                && (arriving.carriage - street.carriage).abs() < 1.0e-4,
+            "an approach ends {:.2} m wide and the street it joins is {:.2} m",
+            arriving.half * 2.0,
+            street.half * 2.0,
+        );
+    }
+
     #[test]
     fn every_settlement_in_the_world_has_a_guild_hall() {
         let terrain = crate::world::terrain::Terrain::new();
         let plan = terrain.plan();
         let mut missing = Vec::new();
         let mut halls = 0;
+        let mut counts: Vec<(bool, usize)> = Vec::new();
         for (key, site) in plan.sites().iter().enumerate() {
             if site.ranch {
                 continue;
@@ -3581,6 +3943,7 @@ mod tests {
                 .filter(|p| p.what == Building::GuildHall)
                 .count();
             halls += here;
+            counts.push((site.city, laid.plots.iter().filter(|p| !p.what.is_yard()).count()));
             if here != 1 {
                 missing.push(format!(
                     "{} at {:.0},{:.0} radius {:.0} laid {here} halls",
@@ -3598,6 +3961,24 @@ mod tests {
             missing.join("\n  "),
         );
         assert!(halls > 8, "only {halls} guild halls in the whole world");
+
+        // AND NONE OF THEM IS SPARSE.
+        //
+        // Widening a city's streets for footways takes ground from its lots, and the
+        // only honest way to know whether that thinned the world is to count the
+        // world. It did not: cities come out at 34 and 35 against a budget of 34,
+        // villages at 15 and 16 against 16 - every settlement is still filling its
+        // programme, because a real city is 232 m across and has the room.
+        //
+        // Floors rather than exact numbers, so a seed's roll can move a building
+        // without anybody having to edit a test.
+        for (city, count) in counts {
+            let (kind, least) = if city { ("city", 30) } else { ("village", 13) };
+            assert!(
+                count >= least,
+                "a {kind} came out with {count} buildings, which is sparse -                  something has taken its ground away",
+            );
+        }
     }
 
     #[test]
@@ -4501,8 +4882,20 @@ mod tests {
         // every settlement in the world: the others all say "no building does X",
         // which is vacuously true of a town with no buildings. Six of them passed
         // on a city containing one house.
+        // AT THE SIZE THE GAME'S OWN SETTLEMENTS ARE.
+        //
+        // This laid a city out at radius 90 and a village at 58. The world's are 232
+        // and 116 - so for the life of this test the "city" it defended was a quarter
+        // the area of any city the game has, and its floor of eighteen buildings was
+        // calibrated against that. Widening the streets for footways pushed the toy
+        // city under the floor while every real one was still comfortably over it,
+        // which is a test failing for a shape of city nobody will ever walk through.
         for seed in 0..30 {
-            let city = lay_out(&a_site(true, 90.0), Vec2::new(0.8, 0.6).normalize(), seed);
+            let city = lay_out(
+                &a_site(true, crate::config::CITY_RADIUS),
+                Vec2::new(0.8, 0.6).normalize(),
+                seed,
+            );
             // BUILDINGS, not everything standing. Yards went into `plots` and
             // straight into this count, so a settlement whose houses had collapsed
             // toward zero could still sail through on the strength of its gardens -
@@ -4515,7 +4908,11 @@ mod tests {
                 "seed {seed}: a city has {} buildings in it",
                 houses(&city)
             );
-            let village = lay_out(&a_site(false, 58.0), Vec2::new(0.3, -0.95).normalize(), seed);
+            let village = lay_out(
+                &a_site(false, crate::config::TOWN_RADIUS),
+                Vec2::new(0.3, -0.95).normalize(),
+                seed,
+            );
             assert!(
                 houses(&village) >= 6,
                 "seed {seed}: a village has {} buildings in it",

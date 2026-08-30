@@ -78,6 +78,16 @@ done
 
 blender=$(find_blender) || { echo "Blender not found." >&2; exit 1; }
 
+# A MARK IN TIME, so the export can be told what this build actually wrote.
+#
+# `model_export.sh <folder>` sweeps every .blend in it, and this folder holds local
+# authoring artefacts as well as figures - `ranger.blend` among them, which is
+# gitignored and which nothing loads, and which the sweep therefore turned into 18 MB
+# of `assets/models/ranger.glb` on every single build. Gitignoring the OUTPUT stopped
+# it being committed again and did nothing about it being made; Codex was right that
+# the ignore rule was carrying a correctness burden it should not.
+stamp="$(mktemp)"
+
 for name in "${figures[@]}"; do
   script="$here/$name.py"
   [ -f "$script" ] || { echo "dev/art/build.sh lists ${name}.py, which is not here." >&2; exit 1; }
@@ -88,4 +98,10 @@ for name in "${figures[@]}"; do
   "$blender" --background --python-exit-code 1 --python "$script" >/dev/null
 done
 
-"$root/dev/model_export.sh" "$here"
+# ONLY WHAT THIS BUILD WROTE. Every figure re-saves its .blend, so everything the
+# loop above produced is newer than the mark and every stale local blend is older.
+# No list to keep in step: the build's own output decides.
+mapfile -t made < <(find "$here" -maxdepth 1 -name '*.blend' -newer "$stamp" | sort)
+rm -f "$stamp"
+[ ${#made[@]} -gt 0 ] || { echo "the build produced no .blend files" >&2; exit 1; }
+"$root/dev/model_export.sh" "${made[@]}"

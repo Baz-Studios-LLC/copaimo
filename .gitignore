@@ -40,4 +40,13 @@ __pycache__/
 # Concept art and other authoring references live in dev/art/source/, NOT in assets/.
 # The release workflows copy the whole asset tree, so anything left in there ships -
 # two concept sheets at 4.3 MB were doing exactly that.
-/assets/buildings/*.png
+# EVERYTHING that is not a building the game loads. The rule was `*.png` and the
+# next sheet to arrive was called `City Hall` with no extension at all, so it walked
+# straight back into the shipped tree - the same 2.2 MB regression, one file later.
+# A pattern that lists what to EXCLUDE has to guess what people will name things.
+/assets/buildings/*
+!/assets/buildings/*.json
+
+# Where a capture run leaves its evidence. Fifteen PNGs and a report were landing in
+# the repository root, one `git add -A` away from being committed as source.
+/dev/evidence/
