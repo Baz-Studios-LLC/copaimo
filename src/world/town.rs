@@ -6955,13 +6955,34 @@ mod facing {
             panic!("the paving has no normals");
         };
 
-        // The steepest normal anywhere on the street, and how much of the street
-        // carries one. A kerb face is two of the nineteen lanes on each side.
+        // THE GEOMETRY IS A WALL, asked of the profile rather than of the shading.
+        //
+        // These are two facts and the guard used to measure their product. The mesh
+        // normal is the section's own slope AND the deliberate lean toward the sky
+        // that stops a vertical face rendering black - see `FACE_TAKES_LIGHT` - so
+        // asserting one number caught the stylisation as though it were the fault the
+        // guard was written for, which was every normal pointing straight up.
+        let cut = RoadSection::at(CITY_STREET_WIDE, CITY_STREET_WIDE, 1.0, Vec2::ZERO);
+        let foot = cut.carriage;
+        let rise = cut.lift(foot + cut.batter) - cut.lift(foot);
+        assert!(
+            rise / cut.batter > 3.0,
+            "the kerb face climbs {rise:.2} m over {:.2} m — that is a ramp, not a kerb",
+            cut.batter
+        );
+
+        // AND THE SHADING SAYS SO. Not vertical, on purpose, and not flat either:
+        // a cel shader can only band a surface whose normal differs from its
+        // neighbours', and a surface that differs by nothing is the original fault.
         let steepest = facing.iter().map(|n| n[1]).fold(f32::MAX, f32::min);
         let faces = facing.iter().filter(|n| n[1] < 0.8).count();
         assert!(
-            steepest < 0.45,
-            "the steepest thing on a city street faces {steepest:.2} up — a kerb face              is a wall and nothing here is telling the shader so"
+            steepest < 0.85,
+            "the steepest thing on a city street faces {steepest:.2} up — nothing here              is telling the shader there is a face at all"
+        );
+        assert!(
+            steepest > 0.35,
+            "the kerb face faces {steepest:.2} up — that is nearly vertical, which              takes no light from a sun overhead and renders as a black gap"
         );
         assert!(
             faces * 6 > facing.len() && faces * 3 < facing.len(),
