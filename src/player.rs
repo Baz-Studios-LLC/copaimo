@@ -297,7 +297,7 @@ const STEP_SAMPLES: usize = 4;
 /// A step is small and a trunk is not wide, so the box only has to cover the step
 /// plus the widest thing that could reach into it. Kept tight because this runs
 /// every frame: a wide box asks about far more of the wood than a step can reach.
-const LOOKS_AHEAD: f32 = 4.0;
+pub(crate) const LOOKS_AHEAD: f32 = 4.0;
 
 /// Whether one step of a walk is allowed: not into deep water, not up a cliff.
 ///
@@ -418,7 +418,7 @@ fn into_a_trunk(standing: &[Trunk], from: Vec3, to: Vec3) -> bool {
 /// Trees and litter come from the same two functions the RENDERER uses to decide
 /// where to draw them — `trees_in` and `litter_in` — so there is no second opinion
 /// anywhere about where the world's furniture stands.
-fn standing_near(
+pub(crate) fn standing_near(
     terrain: &crate::world::terrain::Terrain,
     grove: Option<&crate::world::stream::Grove>,
     props: Option<&crate::world::prop::PropPool>,

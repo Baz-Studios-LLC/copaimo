@@ -274,11 +274,7 @@ fn a_city_kerb(terrain: &crate::world::terrain::Terrain) -> Option<(Vec2, Vec2)>
         if !site.city {
             continue;
         }
-        let layout = crate::world::town::lay_out(
-            site,
-            plan.approach(site.at),
-            crate::config::WORLD_SEED.wrapping_add(key as u32 * 7717),
-        );
+        let layout = crate::world::town::lay_the_site_out(plan, key, site);
         let street = layout
             .streets
             .iter()

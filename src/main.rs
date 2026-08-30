@@ -62,6 +62,7 @@ mod motion;
 // chunk's worth of them is welded into one mesh on a background thread with no
 // access to Bevy's assets, the moment the chunk streams in.
 mod models;
+mod audit;
 mod drive;
 mod photo;
 mod player;
@@ -255,7 +256,7 @@ fn main() {
             // needs to ask how high the ground is.
             world::WorldPlugin,
             sky::SkyPlugin,
-            (photo::PhotoPlugin, drive::DrivePlugin),
+            (photo::PhotoPlugin, drive::DrivePlugin, audit::AuditPlugin),
             season::SeasonPlugin,
             weather::WeatherPlugin,
             // A tuple takes sixteen, and this one is full - see the bridges

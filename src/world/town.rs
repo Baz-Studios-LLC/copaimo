@@ -941,15 +941,42 @@ fn reach_toward(what: Building, facing: f32, toward: Vec2) -> f32 {
 
 /// Whether a building of this size, standing here and facing this way, is off every
 /// street - measured against the part of it that actually faces each one.
-fn clear_of_streets(streets: &[Street], at: Vec2, facing: f32, what: Building) -> bool {
-    streets.iter().all(|street| {
-        let on = street.nearest_point(at);
-        let away = at.distance(on);
-        if away < 1.0e-3 {
-            return false;
-        }
-        away > street.wide * 0.5 + reach_toward(what, facing, (on - at) / away) + KERB_CLEAR
-    })
+pub(crate) fn clear_of_streets(
+    streets: &[Street],
+    at: Vec2,
+    facing: f32,
+    what: Building,
+    paved: f32,
+) -> bool {
+    streets
+        .iter()
+        .all(|street| off_this_street(street, at, facing, what, paved))
+}
+
+/// Whether a building of this size, standing here and facing this way, is off ONE
+/// street.
+///
+/// Split out so the street audit can ask exactly the question placement asks. An
+/// audit with its own idea of "on the street" tests its own arithmetic; this way
+/// anything it finds is something that never went through the rule at all, which is
+/// a far more useful thing to be told.
+pub(crate) fn off_this_street(
+    street: &Street,
+    at: Vec2,
+    facing: f32,
+    what: Building,
+    paved: f32,
+) -> bool {
+    let on = street.nearest_point(at);
+    let away = at.distance(on);
+    if away < 1.0e-3 {
+        return false;
+    }
+    // THE ROAD AS DRAWN, not its nominal width. See `RoadSection::widest_half`.
+    away
+        > RoadSection::widest_half(street.wide, street.wide, paved)
+            + reach_toward(what, facing, (on - at) / away)
+            + KERB_CLEAR
 }
 
 /// How much air is left between two buildings, in metres.
@@ -958,6 +985,25 @@ fn clear_of_streets(streets: &[Street], at: Vec2, facing: f32, what: Building) -
 /// ROOF is bigger - eaves overhang by a third of a metre and a porch further - so
 /// two buildings whose footprints merely touch have their gutters through each
 /// other.
+///
+/// # Why not a grid cell, which is what the ground can actually draw
+///
+/// Two buildings closer together than the terrain mesh's own 2 m grid cannot have
+/// different levels drawn between them: the mesh is bilinear between its vertices,
+/// so a neighbour a metre and a half away puts a vertex of its own pad inside the
+/// same cell as this building's corner, and the drawn ground sags between the two.
+/// Raising this to a grid cell and a quarter does flatten that - measured, it takes
+/// the worst sag in the world from 19 cm to nothing.
+///
+/// It also thins every settlement, and a village at one seed came out with a single
+/// landmark in it. Cost four buildings in five hundred and fifty across the world,
+/// which is nothing, and a village with one node to navigate by, which is not.
+/// Asked for explicitly: settlements should not be sparse.
+///
+/// So the elbow stays at a metre and the remaining sag is named where it belongs -
+/// see `no_building_stands_on_uneven_ground`. It is a limit of the terrain mesh's
+/// resolution, not of the pads, and calling it a pad fault sent two constants on a
+/// four-value sweep apiece before anybody measured the ground instead.
 const ELBOW: f32 = 1.0;
 
 /// Whether a building standing here would stand in one already standing.
@@ -978,6 +1024,24 @@ const ELBOW: f32 = 1.0;
 /// separated along - the four face normals - reusing `reach_toward` as the support
 /// function, which is the same one the road test measures with.
 fn clear_of_buildings(plots: &[Plot], at: Vec2, facing: f32, what: Building) -> bool {
+    clear_of_buildings_by(plots, at, facing, what, ELBOW)
+}
+
+/// The same question with the air between them named.
+///
+/// `ELBOW` is what a building needs when it is CHOOSING somewhere to stand: room for
+/// its eaves, and room for the ground to step between its level and its neighbour's.
+/// A building being swapped for a slightly larger one on ground it already occupies
+/// is a different question - the ground under it does not move - and holding that to
+/// the full elbow means a city that happens to be tightly packed gets no spire at
+/// all, which is a worse answer than a spire with a metre less air round it.
+fn clear_of_buildings_by(
+    plots: &[Plot],
+    at: Vec2,
+    facing: f32,
+    what: Building,
+    elbow: f32,
+) -> bool {
     let (sin, cos) = facing.sin_cos();
     plots.iter().all(|plot| {
         let between = plot.at - at;
@@ -993,7 +1057,7 @@ fn clear_of_buildings(plots: &[Plot], at: Vec2, facing: f32, what: Building) -> 
             between.dot(*axis).abs()
                 > reach_toward(what, facing, *axis)
                     + reach_toward(plot.what, plot.facing, *axis)
-                    + ELBOW
+                    + elbow
         })
     })
 }
@@ -1406,6 +1470,7 @@ fn open_ground(
     about: Vec2,
     what: Building,
     search: f32,
+    made: f32,
 ) -> Option<Vec2> {
     let clear = |at: Vec2| {
         // THE ROADS, MEASURED THE SAME WAY AS THE BUILDINGS.
@@ -1417,7 +1482,7 @@ fn open_ground(
         // through here is square or nearly so, which is why nothing has shown it, but
         // there is no reason for this one call to keep the approximation when the
         // exact test is one line away and is what every other placement uses.
-        clear_of_streets(streets, at, 0.0, what)
+        clear_of_streets(streets, at, 0.0, what, made)
             // A THIRD CIRCLE ROUND A RECTANGLE, now gone the same way as the other
             // two. This one measured the standing building at `max_element * 0.5`,
             // which for the guild hall is 13 m - and the hall's own corner reaches
@@ -1473,11 +1538,65 @@ fn lot_that_fits(plots: &[Plot], about: Vec2, what: Building) -> Option<usize> {
     best.map(|(index, _)| index)
 }
 
+/// The layout of one settlement in the world, from the plan it belongs to.
+///
+/// # Three facts a caller had to know, and get right, every time
+///
+/// `lay_out` needs a site's approach bearing, its seed, and the roads that cross it.
+/// All three come from the settlement plan by rules that live nowhere in particular:
+/// the seed is `WORLD_SEED.wrapping_add(key * 7717)`, written out at six call sites,
+/// and the roads that cross it were not passed at all - which is how twenty-nine
+/// buildings came to be standing in one.
+///
+/// One entry point, so a caller supplies the settlement and nothing else.
+pub fn lay_the_site_out(
+    plan: &crate::world::settle::Settlements,
+    key: usize,
+    site: &crate::world::settle::Site,
+) -> Layout {
+    lay_out(site, plan.approach(site.at),
+        &roads_through(plan, site),
+        crate::config::WORLD_SEED.wrapping_add(key as u32 * 7717),
+    )
+}
+
+/// The country roads that cross a settlement's ground.
+///
+/// They run from one town's middle to the next and do not stop at anybody's edge, so
+/// a settlement is nearly always built across at least one. Only the parts within
+/// reach of the site matter: a road passing a kilometre away cannot be built in.
+pub fn roads_through(
+    plan: &crate::world::settle::Settlements,
+    site: &crate::world::settle::Site,
+) -> Vec<Street> {
+    // The site, plus the stretch where the paving is arriving - a building may not
+    // stand in the road just outside the gate either.
+    let reach = site.radius + PAVING_ARRIVES;
+    plan.ways()
+        .iter()
+        .filter(|way| {
+            let along = way.to - way.from;
+            let run = along.length_squared();
+            let part = if run > 1.0e-6 {
+                ((site.at - way.from).dot(along) / run).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            way.from.lerp(way.to, part).distance(site.at) < reach
+        })
+        .map(|way| Street {
+            from: way.from,
+            to: way.to,
+            wide: crate::config::ROAD_WIDE,
+        })
+        .collect()
+}
+
 /// Lays out one settlement.
 ///
 /// `approach` is the direction the road network arrives from, which the high street
 /// is built along. `seed` separates one town's dice from another's.
-pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
+pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> Layout {
     let reach = site.radius * FILLS;
     if reach < 24.0 {
         return Layout::default();
@@ -1651,7 +1770,32 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
     // - where a lot fronts, what a building clears, where roads meet, where a lamp
     // stands - and every one of those wants straight pieces, so the pieces are cut
     // from the chains ONCE, here, rather than being built alongside them.
-    let streets: Vec<Street> = ways.iter().flat_map(|way| way.segments()).collect();
+    // HOW MADE THIS SETTLEMENT'S STREETS ARE. A city's are paved and so do not
+    // wander; a village's are dirt and do. It only reaches the clearance rules, which
+    // need to know how wide a street can possibly be drawn - see `widest_half`.
+    let made = f32::from(u8::from(site.city));
+    let laid: Vec<Street> = ways.iter().flat_map(|way| way.segments()).collect();
+
+    // EVERY ROAD ON THIS GROUND, not only the ones the town laid.
+    //
+    // # Twenty-nine buildings standing in a road nothing checked
+    //
+    // A settlement plans its own streets and it does not plan the roads BETWEEN
+    // settlements - those are laid in `settle`, from one town's middle to the next,
+    // and they do not stop at a town's edge. They run right through it. So every
+    // clearance rule in this file was handed `layout.streets`, tested carefully
+    // against the roads the town drew, and had no idea about the one already
+    // crossing the ground it was building on.
+    //
+    // Found by auditing the assembled world rather than by reading: twenty-nine
+    // buildings, including monuments and market crosses sitting at 0.00 m - dead on
+    // the centreline - and city towers within a metre of it. Reported as props and
+    // buildings standing in city roads, which is exactly what they were.
+    //
+    // `crossing` is DRAWN BY SOMEBODY ELSE, so it is kept out of `layout.streets`.
+    // Adding it there would have the town pave its own copy of a road that already
+    // exists, which is the same fault wearing the opposite coat.
+    let streets: Vec<Street> = laid.iter().chain(crossing).cloned().collect();
 
     // THE GUILD HALL TAKES THE SQUARE, which is where a guild hall goes: the search
     // below walks the square's edge for a spot clear of every radial mouth.
@@ -1710,7 +1854,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
                 continue;
             }
             let facing = door.x.atan2(-door.y);
-            if !clear_of_streets(&streets, at, facing, hall)
+            if !clear_of_streets(&streets, at, facing, hall, made)
                 || !door_faces_a_street(&streets, at, facing, hall)
             {
                 continue;
@@ -1780,7 +1924,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
             for side in [1.0_f32, -1.0] {
                 let shift = side * room * step as f32 / 8.0;
                 let try_at = at + across * shift;
-                if clear_of_streets(&streets, try_at, lot.facing, what)
+                if clear_of_streets(&streets, try_at, lot.facing, what, made)
                     && door_faces_a_street(&streets, try_at, lot.facing, what)
                     && clear_of_buildings(&plots, try_at, lot.facing, what)
                 {
@@ -1818,6 +1962,61 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
         });
     }
 
+    // A CITY ALWAYS HAS SOMETHING TALL IN IT.
+    //
+    // The spire is chosen by district like every other building, so whether a city
+    // gets one depends on whether a lot of the right size fell in the right ring -
+    // and on some plans none does. A city with nothing above the roofline is a city
+    // you cannot see from the road in, which is the whole job the spire has.
+    //
+    // So if the districts did not produce one, the tallest thing already standing
+    // nearest the middle becomes one, and only if the bigger footprint still fits.
+    // Preferred over relaxing the guard that caught it: "a city with nothing tall in
+    // it" is a real fault whether or not a test happens to be looking.
+    if site.city && !plots.iter().any(|plot| plot.what == Building::CitySpire) {
+        // A tower first, because a taller thing becoming taller is the smallest
+        // change to the skyline; then a block, because a city with no tower at all
+        // still needs something above the roofline.
+        let mut by_middle: Vec<usize> = (0..plots.len())
+            .filter(|&at| matches!(plots[at].what, Building::CityTower | Building::CityBlock))
+            .collect();
+        by_middle.sort_by_key(|&at| u8::from(plots[at].what == Building::CityBlock));
+        let towers = by_middle
+            .iter()
+            .filter(|&&at| plots[at].what == Building::CityTower)
+            .count();
+        // Within each kind, nearest the middle: a spire belongs to the skyline over
+        // the centre, not to the edge of town.
+        by_middle.sort_by(|&a, &b| {
+            let kind = u8::from(plots[a].what == Building::CityBlock)
+                .cmp(&u8::from(plots[b].what == Building::CityBlock));
+            kind.then_with(|| {
+                plots[a]
+                    .at
+                    .distance(site.at)
+                    .total_cmp(&plots[b].at.distance(site.at))
+            })
+        });
+        let _ = towers;
+        for at in by_middle {
+            let (place, facing) = (plots[at].at, plots[at].facing);
+            let others: Vec<Plot> = plots
+                .iter()
+                .enumerate()
+                .filter(|(which, _)| *which != at)
+                .map(|(_, plot)| plot.clone())
+                .collect();
+            // The STREET at full strength, because a spire in the road is a spire in
+            // the road; its neighbours only have to not be inside it.
+            if clear_of_streets(&streets, place, facing, Building::CitySpire, made)
+                && clear_of_buildings_by(&others, place, facing, Building::CitySpire, 0.0)
+            {
+                plots[at].what = Building::CitySpire;
+                break;
+            }
+        }
+    }
+
     // LANDMARKS, before the thinning, because they are not houses and must not be
     // thinned away.
     //
@@ -1833,7 +2032,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
     // plan keeps its middle open - that is what a market square IS. Asked of the
     // network instead, so a plan that runs a street through its middle gets its
     // landmark beside that street rather than under it.
-    if let Some(at) = open_ground(&streets, &plots, site.at, on_the_square, square * 1.2) {
+    if let Some(at) = open_ground(&streets, &plots, site.at, on_the_square, square * 1.2, made) {
         plots.push(Plot {
             at,
             facing: approach.y.atan2(approach.x),
@@ -1882,6 +2081,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
             at + (at - site.at).normalize_or_zero() * (wide * 0.5 + junction_half + 1.2),
             at_a_junction,
             wide * 2.0 + 6.0,
+            made,
         ) else {
             continue;
         };
@@ -2110,7 +2310,9 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
     let lamps = light_the_streets(&streets, &plots, site.city);
     Layout {
         ways,
-        streets,
+        // THE TOWN'S OWN, because these are what it draws. The roads crossing it
+        // belong to `settle` and are already drawn there - see the note on `streets`.
+        streets: laid,
         plots,
         lamps,
     }
@@ -2426,11 +2628,7 @@ pub fn a_paved_street(terrain: &crate::world::terrain::Terrain) -> (Built, Vec2,
         if !site.city {
             continue;
         }
-        let layout = lay_out(
-            site,
-            plan.approach(site.at),
-            crate::config::WORLD_SEED.wrapping_add(key as u32 * 7717),
-        );
+        let layout = lay_the_site_out(plan, key, site);
         let street = layout
             .streets
             .iter()
@@ -2492,9 +2690,12 @@ pub fn stands_on(
             if across > RoadSection::most_it_reaches(street.wide, street.wide) {
                 continue;
             }
-            let paved = paved_here(terrain.plan(), centre);
-            let cut =
-                RoadSection::new(street.wide, street.wide, paved, wander_at(centre, paved));
+            let cut = RoadSection::at(
+                street.wide,
+                street.wide,
+                paved_here(terrain.plan(), centre),
+                centre,
+            );
             if across <= cut.shoulder {
                 on = on.max(ground + cut.lift(across));
             }
@@ -2541,12 +2742,11 @@ pub fn stands_on(
             continue;
         };
         let centre = road.from + run * part;
-        let paved = made.max(paved_here(plan, centre));
-        let cut = RoadSection::new(
+        let cut = RoadSection::at(
             crate::config::ROAD_WIDE,
             CITY_STREET_WIDE,
-            paved,
-            wander_at(centre, paved),
+            made.max(paved_here(plan, centre)),
+            centre,
         );
         let across = at.distance(centre);
         if across <= cut.shoulder {
@@ -2681,10 +2881,101 @@ const KERB_RUN: f32 = 0.05;
 /// Every consumer asks this one function - the mesh's stations, their colours, and
 /// what the warden's feet stand on. That is the same contract the windows and the
 /// fences already have: one fact, calculated once.
+/// What has arrived at a point on a road, as the settlement takes hold of it.
+///
+/// # A construction sequence, not one number in eleven places
+///
+/// There was one `paved` scalar, nought in the country and one in the city over
+/// `PAVING_ARRIVES` metres, and it drove the carriageway width, the footway width,
+/// the kerb height, the chamfer, the shoulder, three colours, the wear, the stone
+/// contrast and the width wander. Eleven unrelated things on one curve, which means
+/// every one of them starts at exactly the same distance out and takes exactly the
+/// same time, which is what makes an approach read as a numerical blend rather than
+/// as a road being built.
+///
+/// The worst of it is the kerb: `KERB_RISE * paved` grows a kerb by millimetres over
+/// thirty-four metres. Nothing in the world does that. A kerb starts at a terminal
+/// stone and reaches its height over a couple of metres, and until it does the road
+/// simply has no kerb - which is why `RoadSection::lift` has an early return for a
+/// road with none rather than a profile that happens to collapse.
+///
+/// So `paved` survives as the one thing that knows how urban a place is, and every
+/// consequence of it is a named channel with its own curve. From Codex's roads and
+/// sidewalks production specification, section 6.
+#[derive(Clone, Copy, Debug)]
+pub struct Arriving {
+    /// How made the carriageway surface is: dirt, then rough setts, then paving.
+    pub surface_made: f32,
+    /// How far the carriageway has converged on the width of the street it joins.
+    pub carriageway: f32,
+    /// How much of its kerb this road has. Nought is a road with no kerb at all.
+    pub kerb_stands: f32,
+    /// How much of its footway width this road has.
+    pub footway: f32,
+    /// How much the footway looks like laid stone rather than packed earth.
+    pub footway_made: f32,
+    /// How much of the wide soft country verge is still here.
+    pub outer_tie: f32,
+    /// How strongly the stones of the paving show.
+    pub stone_contrast: f32,
+    /// How much the width still wanders. A made edge is a straight one.
+    pub wanders: f32,
+}
+
+/// One channel's arrival, as a share of the whole approach.
+///
+/// `from` and `to` are both in `paved`, so 0.6 to 0.7 is a tenth of `PAVING_ARRIVES`
+/// - about three metres - which is the "short, visible piece" a kerb is meant to come
+/// up over.
+fn arrives_over(paved: f32, from: f32, to: f32) -> f32 {
+    crate::util::smoothstep(from, to, paved)
+}
+
+impl Arriving {
+    /// The channels at a point, from how urban that point is.
+    ///
+    /// The bands follow the sequence in the specification, scaled to `paved`: the
+    /// last stretch of country stays country, then the road's edge is defined, then
+    /// the pedestrian infrastructure arrives, then the full urban section. Each one
+    /// overlaps the next, so nothing snaps, and no two of them start together.
+    pub fn at(paved: f32) -> Self {
+        let paved = paved.clamp(0.0, 1.0);
+        Self {
+            // The surface hardens first: gravel and rough setts well before a kerb.
+            surface_made: arrives_over(paved, 0.25, 0.85),
+            // Then the carriageway gathers itself to the width it will join at.
+            carriageway: arrives_over(paved, 0.29, 0.70),
+            // And stops wandering while it does, because what comes next is an edge.
+            wanders: 1.0 - arrives_over(paved, 0.20, 0.55),
+            // The soft country verge closes over the same stretch.
+            outer_tie: 1.0 - arrives_over(paved, 0.30, 0.75),
+            // Pedestrians arrive next: a flush path first, in packed earth.
+            //
+            // Nearly with the width, and that is a constraint rather than a choice:
+            // a footway is carved OUT of the right-of-way, so a footway that arrives
+            // faster than the width converges takes its room from the carriageway
+            // and the road narrows as it reaches the city. Set to 0.45 it did, by
+            // 3 cm, and `a_gateway_junction_uses_what_each_arm_becomes` caught it in
+            // one run. What actually stages here is the footway's MATERIAL and its
+            // kerb, both of which come later and neither of which costs width.
+            footway: arrives_over(paved, 0.31, 0.71),
+            // Which is only later laid in stone.
+            footway_made: arrives_over(paved, 0.55, 0.90),
+            // THE KERB, over a tenth of the approach - three metres and change - and
+            // not a millimetre before. This is the one the specification names.
+            kerb_stands: arrives_over(paved, 0.62, 0.72),
+            // The stones show last of all, once there is a made surface to show them
+            // on. Their SIZE never changes; see the note in `pave` on the alpha.
+            stone_contrast: arrives_over(paved, 0.35, 0.90),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct RoadSection {
     /// How much of a city street this is, nought to one.
-    pub paved: f32,
+    /// What has arrived here, channel by channel. See `Arriving`.
+    pub arriving: Arriving,
     /// Half the whole right-of-way, kerb to kerb to verge.
     pub half: f32,
     /// Half the carriageway - where the carts go.
@@ -2718,19 +3009,57 @@ impl RoadSection {
     ///
     /// So the bound belongs to the section too. Conservative by construction: every
     /// term of `new` is at most this one, at every paving amount.
+    /// The widest a road of this nominal width can have its RIGHT-OF-WAY - kerb to
+    /// kerb to verge - whatever the paving and however the width wanders.
+    ///
+    /// # What a building has to stand clear of
+    ///
+    /// `clear_of_streets` measured against `street.wide * 0.5`, which is the road's
+    /// nominal half-width and not the road. A street's right-of-way is `half`, which
+    /// is that scaled by the width wander - up to +17% on anything not fully paved -
+    /// so a village lane could be drawn a metre wider than the rule that kept the
+    /// houses off it believed, and the houses stood in it.
+    ///
+    /// The same shape as every other road fault of the last week: one fact with two
+    /// derivations. Placement cannot ask `RoadSection::at` because it has no
+    /// settlement plan to ask `paved_here` with, so what it gets is the bound - which
+    /// is exact for a city street, where nothing wanders at all.
+    /// `paved` is how made the road is - a city's streets do not wander at all, so
+    /// the bound is exact there rather than 17% too generous, which is the
+    /// difference between a spire fitting beside one and not.
+    pub fn widest_half(wide: f32, joins: f32, paved: f32) -> f32 {
+        let wanders = Arriving::at(paved).wanders;
+        wide.max(joins) * 0.5 * (1.0 + ROAD_WANDERS_BY * 0.5 * wanders)
+    }
+
     pub fn most_it_reaches(wide: f32, joins: f32) -> f32 {
         (wide.max(joins) * 0.5 + SHOULDER_WIDE) * (1.0 + ROAD_WANDERS_BY * 0.5)
     }
 
-    pub fn new(wide: f32, joins: f32, paved: f32, wander: f32) -> Self {
-        let paved = paved.clamp(0.0, 1.0);
-        let half = (wide + (joins - wide) * paved) * 0.5 * wander;
-        let footway = (VERGE_LEAST + (FOOTWAY_WIDE - VERGE_LEAST) * paved) * wander;
+    /// The section at a point on a road's middle line.
+    ///
+    /// # One place that knows how the two of them go together
+    ///
+    /// A section needs how urban the point is AND how the width wanders there, and
+    /// the wander itself fades as the paving arrives - so the two are not
+    /// independent, and five different places were pairing them by hand. That is the
+    /// shape of every road fault of the last week: one fact with several derivations.
+    ///
+    /// Ask here instead, with a point on the middle line.
+    pub fn at(wide: f32, joins: f32, paved: f32, on: Vec2) -> Self {
+        let arriving = Arriving::at(paved);
+        Self::new(wide, joins, arriving, wander_at(on, arriving.wanders))
+    }
+
+    pub fn new(wide: f32, joins: f32, arriving: Arriving, wander: f32) -> Self {
+        let half = (wide + (joins - wide) * arriving.carriageway) * 0.5 * wander;
+        let footway = (VERGE_LEAST + (FOOTWAY_WIDE - VERGE_LEAST) * arriving.footway) * wander;
         Self {
-            paved,
+            arriving,
             half,
             carriage: (half - footway).max(0.8),
-            kerb: KERB_RISE * paved,
+            // ON ITS OWN CURVE, and a short one. See `Arriving`.
+            kerb: KERB_RISE * arriving.kerb_stands,
             // THE CHAMFER CLOSES AS THE KERB ARRIVES.
             //
             // The verge term is here so an unpaved road's stations cannot collapse
@@ -2741,7 +3070,9 @@ impl RoadSection {
             // is very nearly a wall. Found while working out what normal the face
             // should carry, which is a question nobody had had to ask while every
             // normal pointed at the sky.
-            batter: (VERGE_LEAST * 0.3 * (1.0 - paved) + KERB_RUN * paved) * wander,
+            batter: (VERGE_LEAST * 0.3 * (1.0 - arriving.kerb_stands)
+                + KERB_RUN * arriving.kerb_stands)
+                * wander,
             // THE SHOULDER CLOSES AS THE PAVING ARRIVES.
             //
             // A shoulder is the margin where a dirt track gives out into whatever
@@ -2753,7 +3084,9 @@ impl RoadSection {
             // immediately outside every footway, so the pavement had a brushed
             // fringe down its far side and the eye read the fringe as part of the
             // street. Reported as "the brushlike affect next to the sidewalk".
-            shoulder: half + (SHOULDER_WIDE * (1.0 - paved) + 0.35 * paved) * wander,
+            shoulder: half
+                + (SHOULDER_WIDE * arriving.outer_tie + 0.35 * (1.0 - arriving.outer_tie))
+                    * wander,
         }
     }
 
@@ -2810,10 +3143,8 @@ impl RoadSection {
 ///
 /// A dirt track wanders and a city street does not: a kerb is a made edge, and a
 /// straight one.
-fn wander_at(on: Vec2, paved: f32) -> f32 {
-    1.0 + (terrain_core::forest::field(on / ROAD_WANDERS_OVER, 733) - 0.5)
-        * ROAD_WANDERS_BY
-        * (1.0 - paved)
+fn wander_at(on: Vec2, wanders: f32) -> f32 {
+    1.0 + (terrain_core::forest::field(on / ROAD_WANDERS_OVER, 733) - 0.5) * ROAD_WANDERS_BY * wanders
 }
 
 /// How high a street's surface stands at a given distance from its middle.
@@ -3115,7 +3446,7 @@ fn mix(a: [f32; 4], b: [f32; 4], part: f32) -> [f32; 4] {
 /// One where it is well inside a city and nought out in the country, easing over
 /// `PAVING_ARRIVES` at the edge - so a dirt road coming in becomes a street over the
 /// last stretch of its approach instead of at a line.
-fn paved_here(plan: &crate::world::settle::Settlements, at: Vec2) -> f32 {
+pub(crate) fn paved_here(plan: &crate::world::settle::Settlements, at: Vec2) -> f32 {
     plan.sites()
         .iter()
         .filter(|site| site.city && !site.ranch)
@@ -3240,7 +3571,9 @@ impl Meeting {
     pub fn fills(&self, paved: f32) -> f32 {
         self.arms
             .iter()
-            .map(|(wide, joins)| RoadSection::new(*wide, *joins, paved, 1.0).carriage)
+            .map(|(wide, joins)| {
+                RoadSection::new(*wide, *joins, Arriving::at(paved), 1.0).carriage
+            })
             .fold(f32::MAX, f32::min)
     }
 }
@@ -3403,7 +3736,12 @@ fn pave(
             // last thirty metres of the approach. `paved` is that, and every colour
             // below is mixed by it.
             let paved = city.max(paved_here(at_plan, on));
-            let surface = mix(*ROAD_EARTH, *ROAD_STONE, paved);
+            let cut = RoadSection::at(way.wide, way.joins, paved, on);
+            let arriving = cut.arriving;
+            // EACH COLOUR ON ITS OWN CHANNEL. The carriageway hardens well before
+            // there is a kerb to mix toward, and the footway is packed earth for a
+            // stretch before it is laid in stone. See `Arriving`.
+            let surface = mix(*ROAD_EARTH, *ROAD_STONE, arriving.surface_made);
 
             // A WALKED PATH WANDERS IN WIDTH.
             //
@@ -3418,15 +3756,13 @@ fn pave(
             // one, and wandering it would read as a mistake rather than as wear.
             // A kerb is a made edge and a straight one, so the wander fades out as
             // the paving comes in rather than stopping with it.
-            let wander = wander_at(on, paved);
-            let cut = RoadSection::new(way.wide, way.joins, paved, wander);
             let half = cut.half;
             // A kerb only where there is paving to kerb. A cart track's edge is
             // where the dirt stops and the grass starts, and putting a stone kerb
             // down each side of one is most of why they all read as paved.
             // A kerb only where there is paving to kerb, and it arrives with the
             // paving rather than all at once.
-            let edge = mix(surface, *ROAD_KERB, paved);
+            let edge = mix(surface, *ROAD_KERB, arriving.kerb_stands);
 
             // AND A SHOULDER EITHER SIDE.
             //
@@ -3479,7 +3815,7 @@ fn pave(
             // for one build.
             let walk = cut.carriage;
             let batter = cut.batter;
-            let flag = mix(surface, *ROAD_FLAG, paved);
+            let flag = mix(surface, *ROAD_FLAG, arriving.footway_made);
             // A FOOTWAY IS ONE PLAIN SURFACE.
             //
             // It was flagged, with its own stone size and its own wear - and beside a
@@ -3555,7 +3891,7 @@ fn pave(
                 // fades out with the paving, and what a paved surface gets instead is
                 // its stones - which the carriageway has and the footway, asked for
                 // plain, does not.
-                let wears = ROAD_WEARS * (1.0 - paved * 0.8);
+                let wears = ROAD_WEARS * (1.0 - arriving.surface_made * 0.8);
                 let mut worn = 1.0
                     + (broad - 0.5) * wears
                     + (fine - 0.5) * wears * 0.5
@@ -3605,7 +3941,7 @@ fn pave(
                 colours.push(colour);
                 // x is the station along the road, kept for anything that wants it.
                 // y is HOW PAVED this point is - see the note on the colour above.
-                uvs.push([step as f32, paved]);
+                uvs.push([step as f32, arriving.stone_contrast]);
             }
         }
 
@@ -3679,7 +4015,7 @@ fn pave(
         let crown = node
             .arms
             .iter()
-            .map(|(wide, joins)| RoadSection::new(*wide, *joins, paved, 1.0))
+            .map(|(wide, joins)| RoadSection::new(*wide, *joins, Arriving::at(paved), 1.0))
             .max_by(|a, b| a.half.partial_cmp(&b.half).unwrap_or(std::cmp::Ordering::Equal))
             .map(|cut| (cut.lift(0.0), cut.lift(reach)))
             .unwrap_or((ROAD_LIES, ROAD_LIES));
@@ -3873,7 +4209,7 @@ pub fn raise_the_towns(
             continue;
         }
 
-        let layout = lay_out(site, plan.approach(site.at), WORLD_SEED.wrapping_add(key * 7717));
+        let layout = lay_the_site_out(plan, key as usize, site);
         // What this settlement actually cost, per settlement.
         //
         // Codex's invariant: adding more provisional lot candidates must not silently
@@ -4275,7 +4611,7 @@ mod tests {
         // happens to put the guild hall where a lot was going to be.
         for seed in 0..40u32 {
         for (city, radius) in [(true, 120.0_f32), (false, 70.0)] {
-            let laid = lay_out(&a_site(city, radius), Vec2::new(0.6, -0.8).normalize(), seed);
+            let laid = lay_out(&a_site(city, radius), Vec2::new(0.6, -0.8).normalize(), &[], seed);
             let solid: Vec<&Plot> = laid.plots.iter().filter(|p| !p.what.is_yard()).collect();
 
             let corners = |plot: &Plot| {
@@ -4429,7 +4765,7 @@ mod tests {
         for paved in [0.0_f32, 0.5, 1.0] {
             let reach = mixed.fills(paved);
             for (wide, joins) in &mixed.arms {
-                let arm = RoadSection::new(*wide, *joins, paved, 1.0);
+                let arm = RoadSection::new(*wide, *joins, Arriving::at(paved), 1.0);
                 assert!(
                     reach <= arm.carriage + 1.0e-4,
                     "at {paved} paved a patch of {reach:.2} m reaches past a {wide} m arm's \
@@ -4460,7 +4796,7 @@ mod tests {
         // Fully paved, the country arm has BECOME the high street, so the patch is
         // the high street's carriageway and nothing is pinched.
         let full = gateway.fills(1.0);
-        let street = RoadSection::new(CITY_STREET_WIDE, CITY_STREET_WIDE, 1.0, 1.0);
+        let street = RoadSection::new(CITY_STREET_WIDE, CITY_STREET_WIDE, Arriving::at(1.0), 1.0);
         assert!(
             (full - street.carriage).abs() < 1.0e-4,
             "at the gateway the patch is {full:.2} m and the street's carriageway is {:.2} m",
@@ -4469,7 +4805,7 @@ mod tests {
         // And halfway in it is between the two, never narrower than the country road
         // it started as.
         let half = gateway.fills(0.5);
-        let country = RoadSection::new(crate::config::ROAD_WIDE, CITY_STREET_WIDE, 0.0, 1.0);
+        let country = RoadSection::new(crate::config::ROAD_WIDE, CITY_STREET_WIDE, Arriving::at(0.0), 1.0);
         assert!(
             half >= country.carriage - 1.0e-4 && half <= full + 1.0e-4,
             "halfway through the gateway the patch is {half:.2} m, outside {:.2}..{full:.2}",
@@ -4480,7 +4816,7 @@ mod tests {
     #[test]
     fn a_kerb_is_a_step_and_not_a_wall() {
         for wide in [CITY_STREET_WIDE, CITY_LANE_WIDE] {
-            let cut = RoadSection::new(wide, wide, 1.0, 1.0);
+            let cut = RoadSection::new(wide, wide, Arriving::at(1.0), 1.0);
             assert!(cut.kerb > 0.05, "a {wide} m city street has no kerb at all");
             // THE WHOLE RISE OF THE KERB, against the rule that governs a step.
             //
@@ -4524,7 +4860,7 @@ mod tests {
         let mut widest = 0.0_f32;
         for tenth in 0..=10 {
             let paved = tenth as f32 / 10.0;
-            let cut = RoadSection::new(crate::config::ROAD_WIDE, CITY_STREET_WIDE, paved, 1.0);
+            let cut = RoadSection::new(crate::config::ROAD_WIDE, CITY_STREET_WIDE, Arriving::at(paved), 1.0);
             assert!(
                 cut.half >= widest - 1.0e-4,
                 "the road NARROWS as it is paved: {:.2} m at {paved}",
@@ -4538,8 +4874,8 @@ mod tests {
             );
         }
         // And it arrives as exactly the section it is joining.
-        let arriving = RoadSection::new(crate::config::ROAD_WIDE, CITY_STREET_WIDE, 1.0, 1.0);
-        let street = RoadSection::new(CITY_STREET_WIDE, CITY_STREET_WIDE, 1.0, 1.0);
+        let arriving = RoadSection::new(crate::config::ROAD_WIDE, CITY_STREET_WIDE, Arriving::at(1.0), 1.0);
+        let street = RoadSection::new(CITY_STREET_WIDE, CITY_STREET_WIDE, Arriving::at(1.0), 1.0);
         assert!(
             (arriving.half - street.half).abs() < 1.0e-4
                 && (arriving.carriage - street.carriage).abs() < 1.0e-4,
@@ -4584,11 +4920,7 @@ mod tests {
             if site.ranch {
                 continue;
             }
-            let laid = lay_out(
-                site,
-                plan.approach(site.at),
-                crate::config::WORLD_SEED.wrapping_add(key as u32 * 7717),
-            );
+            let laid = lay_the_site_out(plan, key, site);
             let built: Vec<_> = laid.plots.iter().filter(|plot| !plot.what.is_yard()).collect();
 
             // THE PAIR WHOSE GROUND DIFFERS MOST, not the closest pair.
@@ -4657,15 +4989,13 @@ mod tests {
         let terrain = crate::world::terrain::Terrain::new();
         let plan = terrain.plan();
         let mut worst = (0.0_f32, String::new());
+        // The pad's OWN answer, kept apart from the mesh's. See the two assertions.
+        let mut worst_pad = (0.0_f32, String::new());
         for (key, site) in plan.sites().iter().enumerate() {
             if site.ranch {
                 continue;
             }
-            let laid = lay_out(
-                site,
-                plan.approach(site.at),
-                crate::config::WORLD_SEED.wrapping_add(key as u32 * 7717),
-            );
+            let laid = lay_the_site_out(plan, key, site);
             for plot in &laid.plots {
                 // A YARD IS A FENCE, not a building. Its posts follow the ground and
                 // should: a garden fence stepping down a slope is what a garden fence
@@ -4674,6 +5004,38 @@ mod tests {
                 if plot.what.is_yard() {
                     continue;
                 }
+                // WHAT THE PAD DECIDED, before the mesh had to draw it. `under` reads
+                // `drawn_height`, which is the analytical ground sampled at the terrain
+                // grid's vertices and interpolated between them - so it carries the
+                // pad's answer AND the mesh's resolution, and blaming the pad for the
+                // sum sent two constants on a four-value sweep apiece before anybody
+                // thought to separate them.
+                let half = plot.what.footprint() * 0.5;
+                let (sin, cos) = plot.facing.sin_cos();
+                let (mut pad_low, mut pad_high) = (f32::MAX, f32::MIN);
+                for sx in [-1.0_f32, 1.0] {
+                    for sy in [-1.0_f32, 1.0] {
+                        let local = Vec2::new(sx * half.x, sy * half.y);
+                        let corner = plot.at
+                            + Vec2::new(
+                                local.x * cos - local.y * sin,
+                                local.x * sin + local.y * cos,
+                            );
+                        let on = terrain.height(corner.x, corner.y);
+                        pad_low = pad_low.min(on);
+                        pad_high = pad_high.max(on);
+                    }
+                }
+                if pad_high - pad_low > worst_pad.0 {
+                    worst_pad = (
+                        pad_high - pad_low,
+                        format!(
+                            "a {:?} at {:.0},{:.0} — the ground its pad decides on falls                              {:.3} m across its own footprint",
+                            plot.what, plot.at.x, plot.at.y, pad_high - pad_low,
+                        ),
+                    );
+                }
+
                 let (low, high) = under(&terrain, plot.at, plot.what.footprint(), plot.facing);
                 if high - low > worst.0 {
                     worst = (
@@ -4690,9 +5052,42 @@ mod tests {
         // and a pad is a smoothstep over it, so the corners land wherever the grid
         // put its vertices. What matters is that nothing is left hanging by an amount
         // a player can see, and half a metre was visible from across a village.
+        // THE PAD'S OWN JOB, to the millimetre, because this is the number the pad
+        // actually controls and there is no excuse for it being anything but flat.
+        // It was not: two pads whose saturated bands overlapped tied at a pull of
+        // exactly 1 and averaged their two ground levels, and no amount of sharpening
+        // the weight could fix a tie - the epsilon cancels out of it, which is why
+        // sweeping it over five orders of magnitude moved nothing at all. Weighted by
+        // DISTANCE instead: `off` is nought only ON a footprint, and two footprints
+        // never overlap.
+        //
+        // It reads 0.0000 across every building in the world.
         assert!(
-            worst.0 < 0.12,
-            "{} - the pad under it is not doing its job",
+            worst_pad.0 < 0.005,
+            "{} - the pads are not agreeing about it",
+            worst_pad.1,
+        );
+
+        // AND WHAT THE GROUND CAN DRAW OF IT, which is a different fact and was
+        // being blamed on the pads for most of an afternoon.
+        //
+        // `drawn_height` interpolates the analytical ground across the terrain mesh's
+        // 2 m grid. Where two buildings a metre and a half apart want different
+        // levels there is nowhere inside one cell to put the step, so the drawn
+        // ground sags between them however exact the pad underneath is.
+        //
+        // Raising `ELBOW` past a grid cell removes it completely - measured - and
+        // thins every settlement doing so: a village came out with a single landmark
+        // in it, and settlements were asked not to be sparse. The trade is a fifth of
+        // a metre that is already covered, because `FOOTING_SHOWS` is 6 cm and every
+        // one of these has masonry drawn down to meet the ground.
+        //
+        // Half a metre was visible from across a village. This is half of that, and
+        // the honest fix is a denser terrain mesh under settlements rather than a
+        // number here.
+        assert!(
+            worst.0 < 0.30,
+            "{} - more than the terrain grid can account for",
             worst.1,
         );
     }
@@ -4708,11 +5103,7 @@ mod tests {
             if site.ranch {
                 continue;
             }
-            let laid = lay_out(
-                site,
-                plan.approach(site.at),
-                crate::config::WORLD_SEED.wrapping_add(key as u32 * 7717),
-            );
+            let laid = lay_the_site_out(plan, key, site);
             let here = laid
                 .plots
                 .iter()
@@ -4767,7 +5158,7 @@ mod tests {
         // make it again; the name is the tell, because nobody would write that one
         // down as a design goal.
         for (city, radius) in [(true, 90.0_f32), (false, 55.0)] {
-            let laid = lay_out(&a_site(city, radius), Vec2::X, 7);
+            let laid = lay_out(&a_site(city, radius), Vec2::X, &[], 7);
             let halls = laid
                 .plots
                 .iter()
@@ -4785,7 +5176,7 @@ mod tests {
         let mut home = a_site(false, 55.0);
         home.ranch = true;
         assert!(
-            !lay_out(&home, Vec2::X, 7)
+            !lay_out(&home, Vec2::X, &[], 7)
                 .plots
                 .iter()
                 .any(|p| p.what == Building::GuildHall),
@@ -4800,7 +5191,7 @@ mod tests {
         // through them.
         for seed in 0..40 {
             let site = a_site(seed % 2 == 0, 70.0 + (seed % 5) as f32 * 12.0);
-            let layout = lay_out(&site, Vec2::new(1.0, 0.4).normalize(), seed);
+            let layout = lay_out(&site, Vec2::new(1.0, 0.4).normalize(), &[], seed);
             for plot in &layout.plots {
                 let half = plot.what.footprint().max_element() * 0.5;
                 for street in &layout.streets {
@@ -4821,7 +5212,7 @@ mod tests {
     fn no_two_buildings_stand_in_each_other() {
         for seed in 0..40 {
             let site = a_site(seed % 3 == 0, 60.0 + (seed % 7) as f32 * 10.0);
-            let layout = lay_out(&site, Vec2::Y, seed);
+            let layout = lay_out(&site, Vec2::Y, &[], seed);
             for (index, one) in layout.plots.iter().enumerate() {
                 for other in &layout.plots[index + 1..] {
                     let want = (one.what.footprint().max_element()
@@ -4844,7 +5235,7 @@ mod tests {
     fn a_town_keeps_inside_the_ground_that_was_levelled_for_it() {
         for seed in 0..30 {
             let site = a_site(seed % 2 == 0, 80.0);
-            let layout = lay_out(&site, Vec2::X, seed);
+            let layout = lay_out(&site, Vec2::X, &[], seed);
             for plot in &layout.plots {
                 let out = plot.at.distance(site.at);
                 assert!(
@@ -4880,7 +5271,7 @@ mod tests {
         {
             let site = a_site(*city, *radius);
             let approach = Vec2::new(0.82, 0.57).normalize();
-            let layout = lay_out(&site, approach, *seed);
+            let layout = lay_out(&site, approach, &[], *seed);
             let origin = (PAD + panel as u32 * 620 + 310, 320_u32);
             let to_px = |at: Vec2| {
                 let off = (at - site.at) * SCALE;
@@ -4981,11 +5372,7 @@ mod tests {
         println!("{} sites", plan.sites().len());
         let mut total = 0;
         for (index, site) in plan.sites().iter().enumerate() {
-            let layout = lay_out(
-                site,
-                plan.approach(site.at),
-                crate::config::WORLD_SEED.wrapping_add(index as u32 * 7717),
-            );
+            let layout = lay_the_site_out(plan, index, site);
             total += layout.plots.len();
             if index < 12 {
                 println!(
@@ -5135,7 +5522,7 @@ mod tests {
         let terrain = crate::world::terrain::Terrain::new();
         let plan = terrain.plan();
         let site = plan.sites()[0];
-        let layout = lay_out(&site, plan.approach(site.at), crate::config::WORLD_SEED);
+        let layout = lay_out(&site, plan.approach(site.at), &[], crate::config::WORLD_SEED);
         assert!(!layout.streets.is_empty(), "the town has no streets");
 
         let paving = pave(&layout.ways, &terrain, site.at, f32::from(u8::from(site.city)));
@@ -5191,7 +5578,7 @@ mod tests {
         let plan = terrain.plan();
         let climate = terrain.climate();
         let site = plan.sites()[0];
-        let layout = lay_out(&site, plan.approach(site.at), crate::config::WORLD_SEED);
+        let layout = lay_out(&site, plan.approach(site.at), &[], crate::config::WORLD_SEED);
         println!("site at ({:.0},{:.0}) r={:.0}, {} buildings, {} streets",
             site.at.x, site.at.y, site.radius, layout.plots.len(), layout.streets.len());
 
@@ -5228,7 +5615,7 @@ mod tests {
     #[test]
     fn a_town_has_districts_and_they_do_not_look_alike() {
         let site = a_site(true, 190.0);
-        let layout = lay_out(&site, Vec2::X, 9);
+        let layout = lay_out(&site, Vec2::X, &[], 9);
 
         let (inner, outer) = {
             let mut out: Vec<f32> = layout.plots.iter().map(|p| p.at.distance(site.at)).collect();
@@ -5312,7 +5699,7 @@ mod tests {
         let terrain = crate::world::terrain::Terrain::new();
         let plan = terrain.plan();
         let site = plan.sites()[0];
-        let layout = lay_out(&site, plan.approach(site.at), crate::config::WORLD_SEED);
+        let layout = lay_out(&site, plan.approach(site.at), &[], crate::config::WORLD_SEED);
         println!("{} streets", layout.streets.len());
         let mesh = pave(&layout.ways, &terrain, site.at, f32::from(u8::from(site.city)));
         use bevy::render::mesh::VertexAttributeValues;
@@ -5354,11 +5741,7 @@ mod tests {
             if site.ranch {
                 continue;
             }
-            let layout = lay_out(
-                site,
-                plan.approach(site.at),
-                crate::config::WORLD_SEED.wrapping_add(index as u32 * 7717),
-            );
+            let layout = lay_the_site_out(plan, index, site);
             for plot in &layout.plots {
                 nearest = nearest.min(plot.at.distance(ranch));
             }
@@ -5376,7 +5759,7 @@ mod tests {
     fn why_the_junction_landmarks_vanish() {
         for city in [true, false] {
             let site = a_site(city, if city { 190.0 } else { 95.0 });
-            let layout = lay_out(&site, Vec2::X, 5);
+            let layout = lay_out(&site, Vec2::X, &[], 5);
             let marks = layout.plots.iter().filter(|p| p.what.is_landmark()).count();
             let radials = layout
                 .streets
@@ -5412,7 +5795,7 @@ mod tests {
         for seed in 0..12 {
             for city in [true, false] {
                 let site = a_site(city, if city { 190.0 } else { 95.0 });
-                let layout = lay_out(&site, Vec2::new(0.6, -0.8).normalize(), seed);
+                let layout = lay_out(&site, Vec2::new(0.6, -0.8).normalize(), &[], seed);
 
                 let marks: Vec<&Plot> =
                     layout.plots.iter().filter(|p| p.what.is_landmark()).collect();
@@ -5563,7 +5946,7 @@ mod tests {
         // building. A guard that reruns the rule it is guarding cannot fail.
         for seed in 0..30 {
             let site = a_site(seed % 2 == 0, 85.0);
-            let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), seed);
+            let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), &[], seed);
             for plot in &layout.plots {
                 let half = plot.what.footprint() * 0.5;
                 let (sin, cos) = plot.facing.sin_cos();
@@ -5601,7 +5984,7 @@ mod tests {
         for seed in 0..30 {
             let site = a_site(seed % 2 == 0, 85.0);
             let approach = Vec2::new(0.7, -0.7).normalize();
-            let layout = lay_out(&site, approach, seed);
+            let layout = lay_out(&site, approach, &[], seed);
             for plot in &layout.plots {
                 // A landmark stands in the open ON a node - it has no frontage and
                 // faces nothing, which is exactly what makes it a landmark rather
@@ -5667,11 +6050,7 @@ mod tests {
         // city under the floor while every real one was still comfortably over it,
         // which is a test failing for a shape of city nobody will ever walk through.
         for seed in 0..30 {
-            let city = lay_out(
-                &a_site(true, crate::config::CITY_RADIUS),
-                Vec2::new(0.8, 0.6).normalize(),
-                seed,
-            );
+            let city = lay_out(&a_site(true, crate::config::CITY_RADIUS), Vec2::new(0.8, 0.6).normalize(), &[], seed);
             // BUILDINGS, not everything standing. Yards went into `plots` and
             // straight into this count, so a settlement whose houses had collapsed
             // toward zero could still sail through on the strength of its gardens -
@@ -5684,11 +6063,7 @@ mod tests {
                 "seed {seed}: a city has {} buildings in it",
                 houses(&city)
             );
-            let village = lay_out(
-                &a_site(false, crate::config::TOWN_RADIUS),
-                Vec2::new(0.3, -0.95).normalize(),
-                seed,
-            );
+            let village = lay_out(&a_site(false, crate::config::TOWN_RADIUS), Vec2::new(0.3, -0.95).normalize(), &[], seed);
             assert!(
                 houses(&village) >= 6,
                 "seed {seed}: a village has {} buildings in it",
@@ -5712,8 +6087,8 @@ mod tests {
     #[test]
     fn a_town_is_the_same_town_every_time_it_is_asked() {
         let site = a_site(true, 90.0);
-        let once = lay_out(&site, Vec2::X, 21);
-        let twice = lay_out(&site, Vec2::X, 21);
+        let once = lay_out(&site, Vec2::X, &[], 21);
+        let twice = lay_out(&site, Vec2::X, &[], 21);
         assert_eq!(once.plots.len(), twice.plots.len());
         for (a, b) in once.plots.iter().zip(&twice.plots) {
             assert_eq!(a.what, b.what);
@@ -6326,7 +6701,7 @@ mod facing {
     fn a_road_that_wanders_wider_is_walked_as_wide_as_it_is_drawn() {
         let terrain = crate::world::terrain::Terrain::new();
         let site = a_site(false, 70.0);
-        let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), 3);
+        let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), &[], 3);
         let mut built = Built::default();
         built.standing.insert(0, layout);
 
@@ -6342,7 +6717,7 @@ mod facing {
                 for step in 0..=40 {
                     let on = street.from + (street.to - street.from) * step as f32 / 40.0;
                     let paved = paved_here(terrain.plan(), on);
-                    let wander = wander_at(on, paved);
+                    let wander = wander_at(on, Arriving::at(paved).wanders);
                     if widest.is_none_or(|(_, _, had, _)| wander > had) {
                         widest = Some((on, aside, wander, street.wide));
                     }
@@ -6362,7 +6737,7 @@ mod facing {
         );
 
         let section = |on: Vec2, wander: f32, wide: f32| {
-            RoadSection::new(wide, wide, paved_here(terrain.plan(), on), wander)
+            RoadSection::new(wide, wide, Arriving::at(paved_here(terrain.plan(), on)), wander)
         };
 
         // Just INSIDE the widest section's own edge: the road is there, so the
@@ -6395,12 +6770,7 @@ mod facing {
                 let mut envelope = 0.0_f32;
                 for street in &built.standing[&0].streets {
                     let on = street.nearest_point(at);
-                    let cut = RoadSection::new(
-                        street.wide,
-                        street.wide,
-                        paved_here(terrain.plan(), on),
-                        wander_at(on, paved_here(terrain.plan(), on)),
-                    );
+                    let cut = RoadSection::at(street.wide, street.wide, paved_here(terrain.plan(), on), on);
                     let across = at.distance(on);
                     if across <= cut.shoulder {
                         envelope = envelope.max(cut.lift(across));
@@ -6416,6 +6786,102 @@ mod facing {
             lifted, 0,
             "{lifted} places in the village stand higher than any street's own              section reaches — the reject has been loosened into a lift"
         );
+    }
+
+    /// A road never gets narrower on its way into a city, and its parts do not all
+    /// arrive at once.
+    ///
+    /// # The two things a construction sequence has to be
+    ///
+    /// One `paved` scalar used to drive eleven unrelated things, so every one of them
+    /// started at the same distance out and took the same time - which is what makes
+    /// an approach read as a numerical blend rather than as a road being built. Named
+    /// channels fix that and introduce a fault of their own: the footway is carved
+    /// OUT of the right-of-way, so one that arrives faster than the width converges
+    /// takes its room from the carriageway and the road narrows as it reaches the
+    /// city. The first bands did exactly that, by 3 cm.
+    ///
+    /// So both properties are asserted together, because each is the other's failure
+    /// mode: everything that grows grows, and no two of them grow on the same curve.
+    #[test]
+    fn the_street_arrives_in_stages_and_never_narrows() {
+        let sample = |paved: f32| {
+            RoadSection::new(
+                crate::config::ROAD_WIDE,
+                CITY_STREET_WIDE,
+                Arriving::at(paved),
+                1.0,
+            )
+        };
+
+        // NOTHING NARROWS. A millimetre of tolerance for the smoothsteps crossing.
+        let mut was = sample(0.0);
+        for step in 1..=400 {
+            let paved = step as f32 / 400.0;
+            let now = sample(paved);
+            for (what, before, after) in [
+                ("carriageway", was.carriage, now.carriage),
+                ("right-of-way", was.half, now.half),
+                ("kerb", was.kerb, now.kerb),
+            ] {
+                assert!(
+                    after > before - 0.002,
+                    "the {what} shrinks from {before:.3} m to {after:.3} m at                      paved {paved:.3} — the road gets narrower as it reaches the city"
+                );
+            }
+            was = now;
+        }
+
+        // AND THE KERB IS BUILT, NOT BLENDED. `PAVING_ARRIVES` is 34 m, so a kerb
+        // spread over the whole curve rises by six millimetres a metre, which is not
+        // a kerb arriving - it is a number changing. It should stand up over a few
+        // metres at a deliberate place.
+        let over = (0..=1000)
+            .map(|step| step as f32 / 1000.0)
+            .filter(|&paved| {
+                let kerb = Arriving::at(paved).kerb_stands;
+                kerb > 0.02 && kerb < 0.98
+            })
+            .count() as f32
+            / 1000.0
+            * PAVING_ARRIVES;
+        assert!(
+            (1.0..6.0).contains(&over),
+            "the kerb comes up over {over:.1} m — a kerb is built at a terminal in a              metre or three, not grown across a whole approach"
+        );
+
+        // AND NO TWO CHANNELS SHARE A CURVE. Two that do are one channel with two
+        // names, which is what this was before.
+        let channels = |paved: f32| {
+            let a = Arriving::at(paved);
+            [
+                ("surface", a.surface_made),
+                ("carriageway", a.carriageway),
+                ("kerb", a.kerb_stands),
+                ("footway", a.footway),
+                ("footway stone", a.footway_made),
+                ("stones", a.stone_contrast),
+                ("wander", 1.0 - a.wanders),
+                ("tie", 1.0 - a.outer_tie),
+            ]
+        };
+        let names = channels(0.5).map(|(name, _)| name);
+        for one in 0..names.len() {
+            for other in (one + 1)..names.len() {
+                let apart = (0..=100)
+                    .map(|step| {
+                        let at = channels(step as f32 / 100.0);
+                        (at[one].1 - at[other].1).abs()
+                    })
+                    .fold(0.0_f32, f32::max);
+                assert!(
+                    apart > 0.05,
+                    "{} and {} are the same curve to within {apart:.3} — that is one                      channel with two names",
+                    names[one],
+                    names[other]
+                );
+            }
+        }
     }
 
     /// The kerb face tells the shader it is a face.
@@ -6509,14 +6975,7 @@ mod facing {
                 .iter()
                 .map(|place| place[2].abs())
                 .fold(0.0_f32, f32::max);
-            let cut = |at: Vec2| {
-                RoadSection::new(
-                    CITY_STREET_WIDE,
-                    CITY_STREET_WIDE,
-                    paved,
-                    wander_at(at, paved),
-                )
-            };
+            let cut = |at: Vec2| RoadSection::at(CITY_STREET_WIDE, CITY_STREET_WIDE, paved, at);
             let widest = (-60..=60)
                 .map(|x| cut(Vec2::new(x as f32, 0.0)).shoulder)
                 .fold(0.0_f32, f32::max);
@@ -6557,7 +7016,7 @@ mod facing {
         let terrain = crate::world::terrain::Terrain::new();
         for city in [false, true] {
             let site = a_site(city, if city { 120.0 } else { 70.0 });
-            let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), 3);
+            let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), &[], 3);
             let mesh = pave(&layout.ways, &terrain, site.at, f32::from(u8::from(city)));
             let Some(VertexAttributeValues::Float32x3(places)) =
                 mesh.attribute(Mesh::ATTRIBUTE_POSITION)
@@ -6586,4 +7045,9 @@ mod facing {
         }
     }
 }
+
+
+
+
+
 

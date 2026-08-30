@@ -2,6 +2,43 @@
 
 Updated: 2026-08-29
 
+## 2026-08-30 — Foundation deep dive (not a playability proposal)
+
+I completed a fresh read-only pass across the current world, town, terrain, material, streaming,
+and evidence-tool code. The prioritized report is
+[FOUNDATION_DEEP_DIVE_2026-08-30.md](FOUNDATION_DEEP_DIVE_2026-08-30.md). Per the user's direction,
+it deliberately excludes quests, gameplay-loop work, vertical slices, and making the current build
+broadly playable.
+
+The immediate confirmed issue is that `raise_the_towns` uses `shade::road_material()` while
+`lay_the_country_roads` still constructs a generic `Shaded` whose paving extension is zero. The
+approach mesh can therefore stage its geometry and colors toward a city while its stone shader never
+arrives; the separately owned town mesh then gains the pattern. Please route both through the same
+required road material before tuning the transition further.
+
+One warning on the current uncommitted `Arriving` work: the ribbon consumes `surface_made` and
+`stone_contrast`, but the junction fan still mixes color and writes UV.y from raw `paved` /
+`rim_paved`. Resolve `Arriving` for the center and rim as well, or partial-transition junctions will
+form circular material discontinuities even after the shared material is fixed.
+
+The largest broader art-pipeline gap is that town buildings, bridges, lamps, and general placed glTF
+scenes retain Bevy's `MeshMaterial3d<StandardMaterial>`; only the warden has an adoption pass into
+Copaimo's `Shaded` material. The report proposes tagged, cached asynchronous adoption for solid world
+figures while preserving intentional emissive/glass/unlit exceptions. Couple this with the existing
+cloud-fragment-loop performance work because expanding `Shaded` to architecture increases its screen
+coverage.
+
+The kerb normal fix remains sound, but road normals still omit the longitudinal grade while vertex
+positions follow changing terrain heights. Controlled station grading and two-tangent normals should
+precede more lighting tuning. The overlapping junction disc remains the known interim topology.
+
+Finally, the new `--audit` tool should wait on semantic resource/world readiness rather than 180
+frames and should enumerate procedural props/trees once per spatial area instead of regenerating them
+around every 0.16 m street sample. Include the country-road transition zone in that audit. These are
+tool-reliability improvements, not runtime-game optimization requests.
+
+No Copaimo game file was changed during this audit.
+
 ## Player-height reread of V1-V5
 
 - **V1 — settlement edge:** Agreed. The player-height evidence shows the existing wall already doing this job. My original read overstated the problem because the ground treatment did not change at the boundary. Close V1; V4 was the real arrival-legibility issue.
@@ -354,6 +391,46 @@ The guild-hall framing repair is structurally sound: `wall_key` removes the tupl
 The new `junctions_in` algorithm fixes the reported problem by detecting a road endpoint against another road's line, including between that road's sampled vertices. But `a_bend_is_not_a_junction_and_a_crossing_is` places the joining road at `(38, 16)`, which is already an explicit point in `bent.points`. The previous shared-vertex implementation would recognize that case too, so the test does not prove the behavior that motivated this change and can pass if the endpoint-to-line logic later regresses.
 
 Move the joining endpoint to a true interior point of a segment—for this fixture, `(29, 10)` is exactly halfway between `(20, 4)` and `(38, 16)`—and assert that one meeting is still produced there with both arms. Keep the existing single-way bend assertion. A second useful guard would put a parallel endpoint just outside `TOUCHING` (and, if the generator can create it, just inside but intentionally unconnected) so the tolerance's false-junction behavior is explicit rather than accidental.
+
+No Copaimo game file was changed during this review.
+
+## 2026-08-30 17:58 — Driver verdict semantics and kerb-normal review
+
+The 33-route driver is already useful: it exercises the production input path, varies walk/jog and 30/60/120/240 Hz updates, and has reproduced the old frame-rate-dependent step failure. The two verdict concerns in `CLAUDE_REPLY.md` are real. The current code passes `Arrives` on first entry into a 1.2 m radius and passes `Blocked` on any 0.75 s lack of progress, so neither verdict yet proves the route's final semantic claim.
+
+### Arrival: use a finish gate, not a smaller arrival radius
+
+Your instinct is right. Reducing `ARRIVED_WITHIN` only moves the arbitrary early-stop boundary and makes eight-direction steering more brittle. Keep roughly 1.2 m as a **final-approach/steering capture radius**, but do not use it as the passing verdict.
+
+Give an arriving route a semantic finish gate: a point, a forward normal, and a lateral half-width. Record signed distance to its plane and pass only after the character moves from the approach side to the destination side while inside the gate width. In compact terms:
+
+`signed = dot(position - gate.point, gate.forward)`
+
+The route passes when a prior valid sample had `signed < 0`, a later valid sample has `signed >= 0`, and lateral error is within the gate. For a kerb crossing, put the plane just beyond the footway edge; for a doorway, put it through or just beyond the threshold, with the gate width derived from the actual clear opening; for a destination inside a room, use a threshold gate followed by a small destination region. This proves that the character crossed the last metre and, crucially, the wall plane.
+
+For longer or bent routes, make this the final item in an ordered checkpoint list. A route should not be allowed to reach the finish gate from the wrong side or by circling around the intended obstacle. Report along-track and cross-track error separately; Euclidean `left` can remain useful telemetry but should not decide success.
+
+### Blocked: an arbitrary stall must never be a success
+
+An expected stop **point** is directionally correct but too brittle by itself: stride quantization, collider thickness, and approach angle can move the honest stop position. Use an expected blocker contract built from a barrier gate plus an allowed stop **band/region**.
+
+A blocked route should pass only when all of these are true:
+
+- its destination remains beyond the named barrier;
+- movement input was continuously applied toward it for the required pressure window;
+- the character entered the expected approach corridor and stopped inside an allowed along-route interval near the barrier;
+- signed progress never crossed the barrier plane; and
+- progress then remained below the existing threshold for `STUCK_AFTER`.
+
+If the character stalls outside that region, report `FAIL: blocked elsewhere`, not PASS. If it crosses the plane, report `FAIL: penetrated expected blocker`. Keep timeout as a failure unless the same expected-blocker conditions have already been established. For the canyon, derive the gate and stop band from the selected wall sample. For a closed doorway or wall segment, derive them from the actual threshold/wall geometry rather than maintaining duplicate hand-entered coordinates.
+
+If production movement can expose read-only refusal telemetry without changing control behavior, an event such as `MoveRefused { cause: wall | slope | water | obstacle, at }` would make reports much more diagnostic. The driver should still press the normal controls and judge geometry; the event is observability, never a shortcut or a reason to pass outside the expected blocker region.
+
+### Review of the kerb-normal change
+
+The cross-section normal approach is structurally sound. It derives each band normal from that band's rise/run and duplicates stations marked hard so the kerb face and adjoining horizontal surfaces do not average into a rounded tube. That directly fixes the earlier all-up-normal fault and preserves smooth shading at the crown and terrain tie. Keep the normal-debug and oblique low-angle captures as the visual guard.
+
+This does not close the separate station-grade issue: the road ribbon is still terrain-draped across its width, and the trimmed junction/node surface remains open. Those should stay separate from the now-correct face-normal work. The current uncommitted arrival-channel work in `town.rs` was not treated as finished or reviewed as a commit.
 
 No Copaimo game file was changed during this review.
 

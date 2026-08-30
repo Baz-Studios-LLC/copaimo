@@ -450,11 +450,7 @@ impl Settlements {
         let mut lanes = Vec::new();
         let mut pads = Vec::new();
         for (index, site) in self.sites.iter().enumerate() {
-            let layout = crate::world::town::lay_out(
-                site,
-                self.approach(site.at),
-                WORLD_SEED.wrapping_add(index as u32 * 7717),
-            );
+            let layout = crate::world::town::lay_the_site_out(self, index, site);
             for street in &layout.streets {
                 lanes.push(Lane {
                     from: street.from,
@@ -524,12 +520,13 @@ impl Settlements {
             }
             let pad = &self.pads[(what - first) as usize];
             let skirt = PAD_SKIRT + pad.half.length() * PAD_SPREADS;
-            let pull = smoothstep(PAD_HOLDS + skirt, PAD_HOLDS, pad.off(at));
+            let off = pad.off(at);
+            let pull = smoothstep(PAD_HOLDS + skirt, PAD_HOLDS, off);
             if pull <= 0.0 {
                 continue;
             }
             governs = governs.max(pull);
-            // WEIGHTED SO A PAD AT FULL PULL IS THE ONLY CLAIM THAT COUNTS.
+            // WEIGHTED BY DISTANCE, so a pad wins outright on its own footprint.
             //
             // Sharing by `pull` alone is continuous and flattens nothing: inside a
             // shop's own footprint its neighbour still gets a vote, and the ground
@@ -537,13 +534,19 @@ impl Settlements {
             // exists for exactly that. Sharing by the strongest alone is flat and
             // jumps where the winner changes, which is the seam Codex found.
             //
-            // So the weight rises to infinity as a pad saturates, the way inverse
-            // distance weighting does. A point on a building's own pad has that
-            // pad's pull at 1 and every other claim vanishes beside it; a point out
-            // in the skirt has no saturated claim and they all share smoothly; and
-            // the approach from one to the other is continuous, which is the whole
-            // reason not to just pick a winner.
-            let share = pull / (1.0 - pull).max(1.0e-4);
+            // Inverse distance weighting gives both, but it has to be weighted by
+            // the DISTANCE and not by the pull. Pull saturates over a whole band -
+            // everything within `PAD_HOLDS` of a footprint sits at exactly 1 - so
+            // two pads whose bands overlap TIE, and a tie averages their two ground
+            // levels however sharp the weighting is. That is worth stating because
+            // it was measured the hard way: the epsilon was swept over five orders
+            // of magnitude with no effect at all, which is the tell that the term it
+            // guards was cancelling.
+            //
+            // `off` is nought only ON a footprint, and two footprints never overlap
+            // - `clear_of_buildings` keeps a metre between them - so exactly one pad
+            // can ever run away with the vote, and it does so continuously.
+            let share = pull / off.max(1.0e-4);
             target += level_at(pad.at) * share;
             shares += share;
         }
@@ -1347,3 +1350,65 @@ mod levelling {
     }
 }
 
+
+impl Settlements {
+    /// Every pad claiming a point, for a probe. Test-only.
+    #[cfg(test)]
+    pub fn pads_claiming(&self, at: Vec2) -> Vec<(Vec2, f32, f32, f32)> {
+        let (x, y) = self.cell_of(at);
+        let Some(cell) = self.cells.get((y * self.cells_across + x) as usize) else {
+            return Vec::new();
+        };
+        let first = self.sites.len() as u16 + self.roads.len() as u16 + self.lanes.len() as u16;
+        let mut out = Vec::new();
+        for &what in cell {
+            if what < first {
+                continue;
+            }
+            let pad = &self.pads[(what - first) as usize];
+            let off = pad.off(at);
+            let skirt = PAD_SKIRT + pad.half.length() * PAD_SPREADS;
+            let pull = smoothstep(PAD_HOLDS + skirt, PAD_HOLDS, off);
+            if pull > 0.0 {
+                out.push((pad.at, off, pull, pull / off.max(1.0e-4)));
+            }
+        }
+        out
+    }
+}
+
+#[cfg(test)]
+mod pad_probe {
+    use super::*;
+    #[test]
+    #[ignore]
+    fn what_holds_this_ground() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        let at = Vec2::new(156.0, -723.0);
+        let pad = plan
+            .pads
+            .iter()
+            .min_by(|a, b| a.at.distance(at).total_cmp(&b.at.distance(at)))
+            .unwrap();
+        let (sin, cos) = pad.facing.sin_cos();
+        for (sx, sy) in [(-1.0_f32, -1.0_f32), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+            let local = Vec2::new(pad.half.x * sx, pad.half.y * sy);
+            let corner = pad.at
+                + Vec2::new(local.x * cos - local.y * sin, local.x * sin + local.y * cos);
+            println!(
+                "CORNER ({:.1},{:.1}) height {:.3} drawn {:.3}",
+                corner.x,
+                corner.y,
+                terrain.height(corner.x, corner.y),
+                terrain.drawn_height(corner.x, corner.y)
+            );
+            for (mid, off, pull, share) in plan.pads_claiming(corner) {
+                println!(
+                    "    pad ({:.1},{:.1}) off {off:+.3} pull {pull:.4} share {share:.1} base {:.3}",
+                    mid.x, mid.y, terrain.base_height(mid.x, mid.y)
+                );
+            }
+        }
+    }
+}

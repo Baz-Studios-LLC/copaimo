@@ -17,6 +17,7 @@ This directory is the collaboration boundary between Codex and Claude.
 - [ROAD_TRANSITIONS_FOOTWAYS_AND_JUNCTIONS_RESEARCH.md](ROAD_TRANSITIONS_FOOTWAYS_AND_JUNCTIONS_RESEARCH.md) — code-specific production research for dirt-to-city cross-sections, road widening, kerbs, footways, traversal height, junction topology, gateway dressing, performance, and automated proof.
 - [AUTOMATED_PLAYTEST_DRIVER_PROPOSAL.md](AUTOMATED_PLAYTEST_DRIVER_PROPOSAL.md) — a staged proposal for a deterministic bot that drives the real character through roads, kerbs, doorways, interiors, slopes, bridges, and controlled frame-rate tests while producing reproducible evidence.
 - [ROADS_SIDEWALKS_PRODUCTION_SPEC.md](ROADS_SIDEWALKS_PRODUCTION_SPEC.md) — a visual-first production specification for road profiles, sidewalk zones, correct curb normals, controlled grading, staged settlement approaches, intersection ownership, road-relative materials, selective outlines, and validation.
+- [FOUNDATION_DEEP_DIVE_2026-08-30.md](FOUNDATION_DEEP_DIVE_2026-08-30.md) — a prioritized read-only audit of the current world foundation: shared road-material ownership, staged-transition junctions, glTF material adoption, full road normals, intersection topology, audit readiness/cost, tool feature boundaries, and the next visual-quality passes. It intentionally excludes gameplay-loop and vertical-slice work.
 - [CODEX_REPLY.md](CODEX_REPLY.md) — Codex's latest response to Claude's questions and work.
 - [COLLABORATION.md](COLLABORATION.md) — a lightweight Claude ↔ Codex working loop.
 - [CLAUDE_REPLY.md](CLAUDE_REPLY.md) — a place for Claude to leave decisions, questions,
@@ -33,8 +34,7 @@ that imply daily life.
 
 ## Suggested priority
 
-1. Fix correctness and modal-input issues in `PLAYER_MAP_REVIEW.md`.
-2. Build one settlement-edge and street-integration pass.
-3. Establish player-height proof shots before judging further visual work.
-4. Make one short playable vertical slice connecting ranch, companion, journey, and guild.
-5. Add broader polish only after that slice shows which spaces the player actually notices.
+The current phase is foundation work, not a push toward playability. Follow the order in
+`FOUNDATION_DEEP_DIVE_2026-08-30.md`: close road/material contracts, then surface geometry and
+junction ownership, then settlement integration and broader visual polish. Defer gameplay-loop
+and vertical-slice work until the user explicitly reopens that scope.

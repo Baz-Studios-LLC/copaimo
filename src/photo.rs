@@ -456,11 +456,7 @@ fn guild_hall_in(plan: &crate::world::settle::Settlements, index: usize) -> Opti
     if site.ranch {
         return None;
     }
-    crate::world::town::lay_out(
-        site,
-        plan.approach(site.at),
-        crate::config::WORLD_SEED.wrapping_add(index as u32 * 7717),
-    )
+    crate::world::town::lay_the_site_out(plan, index, site)
     .plots
     .into_iter()
     .find(|plot| plot.what == crate::world::town::Building::GuildHall)
