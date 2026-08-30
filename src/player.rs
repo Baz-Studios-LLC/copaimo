@@ -259,6 +259,24 @@ const WADE_DEPTH: f32 = 1.4;
 /// rather than as clipping into it.
 pub const WARDEN_IS_WIDE: f32 = 0.33;
 
+/// How far ahead the landing at the top of a step is looked for, in metres.
+///
+/// # A frame is not a distance
+///
+/// The step allowance was written as `rise <= STEP_UP`, with the rise measured
+/// across ONE FRAME'S movement. That reads as a rule about kerbs and it is really a
+/// rule about frame rate: a jog covers about 9 cm in a 60 Hz frame, so a 26 cm
+/// allowance admits a slope of nearly 3:1 against a `CLIMB_LIMIT` of 1.4 - and about
+/// 11:1 at 240 Hz, where a frame is 2.3 cm. The canyon walls are climbable on a fast
+/// machine and not on a slow one. Codex found it by reading the units; the canyon
+/// test could not, because it takes a single 1.5 m sample rather than a real stride.
+///
+/// So the question is asked over a distance the frame cannot change. A step is a
+/// rise with somewhere to STAND on the other side of it, and 0.6 m is about one
+/// stride: far enough past a kerb or a doorstep to be on top of it, short enough
+/// that a staircase is still measured as the slope it is.
+const STEP_LANDS: f32 = 0.6;
+
 /// How far to look for things to walk into, in metres.
 ///
 /// A step is small and a trunk is not wide, so the box only has to cover the step
@@ -301,10 +319,22 @@ fn may_step(
         return false;
     }
 
-    let run = Vec2::new(to.x - from.x, to.z - from.z).length();
-    let rise = there - here;
-    // Walkable as a SLOPE, or short enough to be a STEP. See `STEP_UP`.
-    run <= f32::EPSILON || rise <= run * CLIMB_LIMIT || rise <= STEP_UP
+    let step = Vec2::new(to.x - from.x, to.z - from.z);
+    let run = step.length();
+    if run <= f32::EPSILON {
+        return true;
+    }
+
+    // THE GROUND OVER A STRIDE, not over this frame. See `STEP_LANDS` - measuring
+    // either rule across one frame's movement makes both of them frame-rate rules.
+    let ahead = Vec2::new(from.x, from.z) + step / run * STEP_LANDS;
+    let climb = crate::world::town::stands_on(terrain, built, ahead) - here;
+
+    // Walkable as a SLOPE - the whole stride rises no faster than a warden climbs -
+    // or short enough to be a STEP, which is a rise with a landing behind it and so
+    // is still within `STEP_UP` a stride later. A kerb is 22 cm and then level; a
+    // canyon wall is 1.8 m and then more canyon wall.
+    climb <= STEP_LANDS * CLIMB_LIMIT || climb <= STEP_UP
 }
 
 /// One thing standing in the world that a warden cannot walk through.
@@ -1253,6 +1283,117 @@ mod tests {
         );
     }
 
+    /// What a warden may climb does not depend on how fast the game is drawing.
+    ///
+    /// # The rule that was really a frame-rate rule
+    ///
+    /// The step allowance was measured across one frame's movement, so it granted a
+    /// slope of 3:1 at 60 Hz and 11:1 at 240 Hz: the canyon walls gated the world on
+    /// a slow machine and not on a fast one, and no test could see it because every
+    /// test took one sample of a comfortable size. Codex found it by reading the
+    /// units rather than the behaviour.
+    ///
+    /// So this walks each fixture at the stride each speed actually takes at each of
+    /// four frame rates - sixteen strides an approach, the shortest 6 mm - and the
+    /// answer has to come out the same every time. See `STEP_LANDS`.
+    #[test]
+    fn what_may_be_climbed_does_not_change_with_the_frame_rate() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let built = crate::world::town::Built::default();
+        let stand = |flat: Vec2| Vec3::new(flat.x, terrain.height(flat.x, flat.y), flat.y);
+
+        // The canyon wall, found the same way the step-up test finds it.
+        let middle = crate::world::pass::way_through(40.0);
+        let (sin, cos) = crate::world::pass::HEADING.sin_cos();
+        let out = -Vec2::new(-sin, cos);
+        let floor = terrain.height(middle.x, middle.y);
+        let mut foot = middle;
+        for step in 1..200 {
+            let at = middle + out * step as f32;
+            if terrain.height(at.x, at.y) > floor + 2.0 {
+                break;
+            }
+            foot = at;
+        }
+
+        // A REAL KERB, on a real city street, found by walking out from the crown
+        // until the ground lifts. A closure shaped like a kerb would only prove the
+        // rule agrees with itself; this is the thing the warden actually walks on.
+        let (built, crown, aside) = a_city_street(&terrain);
+        let on = |at: Vec2| crate::world::town::stands_on(&terrain, &built, at);
+        let road = on(crown);
+        let mut kerb = crown;
+        for out in 1..80 {
+            let at = crown + aside * out as f32 * 0.1;
+            if on(at) > road + 0.05 {
+                kerb = at - aside * 0.1;
+                break;
+            }
+        }
+        assert!(
+            on(kerb + aside * 1.0) > road + 0.1,
+            "no kerb found beside the city street to test with"
+        );
+
+        // How far UP the wall each frame rate gets the warden. Walking, not sampling:
+        // the old rule's fault was invisible to any single sample of a comfortable
+        // size, and only a real stride taken over and over can show it.
+        let mut climbed = Vec::new();
+        for &hertz in &[30.0_f32, 60.0, 120.0, 240.0] {
+            for &speed in &[WALK_SPEED, JOG_SPEED] {
+                let stride = speed / hertz;
+                let mut at = foot;
+                // Bounded by DISTANCE, so every rate is given the same chance: five
+                // metres of wall is more than enough to be up it.
+                while at.distance(foot) < 5.0 {
+                    let to = at + out * stride;
+                    if !may_step(&terrain, &built, &[], &[], stand(at), stand(to)) {
+                        break;
+                    }
+                    at = to;
+                }
+                climbed.push((hertz, speed, terrain.height(at.x, at.y) - floor));
+
+                // And the kerb, stepped up onto at this rate: a real step must
+                // still be climbable however short the stride is.
+                let up = kerb + aside * stride;
+                assert!(
+                    may_step(
+                        &terrain,
+                        &built,
+                        &[],
+                        &[],
+                        Vec3::new(kerb.x, on(kerb), kerb.y),
+                        Vec3::new(up.x, on(up), up.y),
+                    ),
+                    "the kerb is refused at {hertz} Hz with a {stride:.3} m stride"
+                );
+            }
+        }
+
+        let least = climbed.iter().map(|got| got.2).fold(f32::MAX, f32::min);
+        let most = climbed.iter().map(|got| got.2).fold(f32::MIN, f32::max);
+        assert!(
+            most - least < 0.5,
+            "the canyon wall gives way at some frame rates and not others: {climbed:?}"
+        );
+        // And it is a WALL at all of them. The wall rises past twenty metres; a
+        // warden who is still in the first metre and a half of it has been stopped.
+        assert!(
+            most < 1.5,
+            "the wall was climbed {most:.1} m — the canyon gates nothing: {climbed:?}"
+        );
+    }
+
+    /// One real city street, as somewhere to stand on a crown and a kerb.
+    fn a_city_street(
+        terrain: &crate::world::terrain::Terrain,
+    ) -> (crate::world::town::Built, Vec2, Vec2) {
+        let (built, from, to) = crate::world::town::a_paved_street(terrain);
+        let along = (to - from).normalize_or_zero();
+        ((built), (from + to) * 0.5, Vec2::new(-along.y, along.x))
+    }
+
     #[test]
     fn a_canyon_wall_refuses_the_step_up_but_never_the_step_down() {
         let terrain = crate::world::terrain::Terrain::new();
@@ -1275,7 +1416,13 @@ mod tests {
             }
             foot = at;
         }
-        let into_wall = foot + out * 1.5;
+        // ON the wall, not at its toe. A canyon wall starts gently - the first 60 cm
+        // out of `foot` rise at 1.24 m/m, which is under `CLIMB_LIMIT` and genuinely
+        // walkable - and steepens fast. The step under test is one taken where the
+        // wall is a wall; how far the warden gets up the gentle part before being
+        // stopped is `what_may_be_climbed_does_not_change_with_the_frame_rate`.
+        let on_wall = foot + out * 1.5;
+        let into_wall = foot + out * 3.0;
         assert!(
             (terrain.height(foot.x, foot.y) - floor).abs() < 2.5,
             "the scan never found the canyon floor"
@@ -1285,11 +1432,11 @@ mod tests {
             "walking along the canyon floor is refused"
         );
         assert!(
-            !may_step(&terrain, &crate::world::town::Built::default(), &[], &[], stand(foot), stand(into_wall)),
+            !may_step(&terrain, &crate::world::town::Built::default(), &[], &[], stand(on_wall), stand(into_wall)),
             "the wall let the warden walk up it — the canyon gates nothing"
         );
         assert!(
-            may_step(&terrain, &crate::world::town::Built::default(), &[], &[], stand(into_wall), stand(foot)),
+            may_step(&terrain, &crate::world::town::Built::default(), &[], &[], stand(into_wall), stand(on_wall)),
             "the way back DOWN the wall is refused — a slope became a trap"
         );
     }

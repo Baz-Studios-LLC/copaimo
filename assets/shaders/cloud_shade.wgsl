@@ -370,11 +370,17 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // material, which is zero on everything that is not a road. See `PAVING_STONE`.
 #ifdef VERTEX_COLORS
     let stone = in.color.a * 2.0;
-    if paving.x > 0.0 && stone > 0.02 {
+    // HOW PAVED this point is, which is a separate fact from how big the stones are.
+    // The pattern fades in with it; the stones keep their size the whole way. Fading
+    // by shrinking - which is what multiplying the size by this did - turns a city's
+    // whole approach into a band of ever-finer crawling gravel.
+    let made = clamp(in.uv.y, 0.0, 1.0);
+    if paving.x > 0.0 && stone > 0.02 && made > 0.01 {
         let laid = laid_in(in.world_position.xz, stone);
         // Each stone its own tone, and a line of shadow where they meet.
         let joint = smoothstep(0.0, paving.y, laid.y);
-        let tone = (1.0 + (laid.x - 0.5) * paving.x) * mix(1.0 - paving.z, 1.0, joint);
+        let tone = (1.0 + (laid.x - 0.5) * paving.x * made)
+            * mix(1.0 - paving.z * made, 1.0, joint);
         pbr_input.material.base_color = vec4<f32>(
             pbr_input.material.base_color.rgb * tone,
             pbr_input.material.base_color.a,

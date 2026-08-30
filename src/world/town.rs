@@ -2414,6 +2414,37 @@ pub enum Fenced {
     Gated(f32),
 }
 
+/// One real city street, for tests that need a kerb the warden actually walks on.
+///
+/// Returns everything standing in the first real city the world generates, and the
+/// two ends of one of its paved streets. A test that builds its own step out of a
+/// closure can only discover that the rule agrees with itself.
+#[cfg(test)]
+pub fn a_paved_street(terrain: &crate::world::terrain::Terrain) -> (Built, Vec2, Vec2) {
+    let plan = terrain.plan();
+    for (key, site) in plan.sites().iter().enumerate() {
+        if !site.city {
+            continue;
+        }
+        let layout = lay_out(
+            site,
+            plan.approach(site.at),
+            crate::config::WORLD_SEED.wrapping_add(key as u32 * 7717),
+        );
+        let street = layout
+            .streets
+            .iter()
+            .max_by(|a, b| a.wide.total_cmp(&b.wide))
+            .map(|street| (street.from, street.to));
+        if let Some((from, to)) = street {
+            let mut built = Built::default();
+            built.standing.insert(key as u32, layout);
+            return (built, from, to);
+        }
+    }
+    panic!("the world generated no city with a street on it");
+}
+
 /// How high a warden stands here: the ground, or whatever has been laid over it.
 ///
 /// # Everything you walk on is drawn above the ground
@@ -3308,7 +3339,19 @@ fn pave(
             // terrain at that exact spot, so the ribbon fades into whatever is
             // actually there - grass, a town's packed earth, sand - and keeps fading
             // into the right thing when the road crosses from one into another.
-            let shoulder = half + SHOULDER_WIDE * wander;
+            // THE SECTION'S OWN SHOULDER, not a second opinion.
+            //
+            // `RoadSection` closes the shoulder as the paving arrives - a made street
+            // ends at its kerb - and this went on computing the full 5.4 m for the
+            // MESH. So the fringe the collapse was meant to remove was still drawn,
+            // while `stands_on` stopped at the narrow analytical edge inside it: the
+            // brushed band was still there and the ground under its outer half was
+            // not walkable. Reported as "still that gradient next to them", and
+            // Codex found the cause in review before I found it in a photograph.
+            //
+            // This is exactly the duplicated section fact `RoadSection` was written to
+            // remove, reintroduced two commits after it was written.
+            let shoulder = cut.shoulder;
             let hem = |out: f32| terrain.ground_colour((on + side * out).x, (on + side * out).y);
 
             // A FOOTWAY DOWN EACH SIDE, where the street is a city's.
@@ -3428,19 +3471,31 @@ fn pave(
                 // `paving`. What a vertex CAN carry is which stone is laid here, and
                 // that is the one thing that has to vary along the ribbon: a
                 // carriageway is cobbled and a footway is flagged.
-                let laid = if paved > 0.0 { grain * paved } else { 0.0 };
+                // THE STONE KEEPS ITS SIZE, and the pattern fades instead.
+                //
+                // This was `grain * paved`, and the shader reads alpha as a size - so
+                // through the 34 m of a city's approach a 0.55 m cobble became a 5 cm
+                // one and then finer still, which is a band of crawling gravel exactly
+                // where the road is meant to arrive gracefully. Codex caught it.
+                //
+                // Two facts are needed and alpha is one channel, so the second rides
+                // in the UV, which nothing on a road reads: `uv.y` is how paved this
+                // point is, and the shader fades the stones' contrast with it while
+                // their size stays put.
                 let colour = [
                     colour[0] * worn,
                     colour[1] * worn,
                     colour[2] * worn,
-                    laid / crate::shade::PAVING_STONE,
+                    grain / crate::shade::PAVING_STONE,
                 ];
 
                 let height = terrain.drawn_height(at.x, at.y) + lift;
                 places.push([at.x - low.x, height, at.y - low.y]);
                 normals.push([0.0, 1.0, 0.0]);
                 colours.push(colour);
-                uvs.push([step as f32, across]);
+                // x is the station along the road, kept for anything that wants it.
+                // y is HOW PAVED this point is - see the note on the colour above.
+                uvs.push([step as f32, paved]);
             }
         }
 
@@ -3515,11 +3570,11 @@ fn pave(
         let height = terrain.drawn_height(at.x, at.y) + crown.0;
         places.push([at.x - low.x, height, at.y - low.y]);
         normals.push([0.0, 1.0, 0.0]);
-        let cobbled = COBBLE_IS * paved / crate::shade::PAVING_STONE;
+        let cobbled = COBBLE_IS / crate::shade::PAVING_STONE;
         let mut middle_colour = mix(*ROAD_EARTH, *ROAD_STONE, paved);
         middle_colour[3] = cobbled;
         colours.push(middle_colour);
-        uvs.push([0.0, 0.0]);
+        uvs.push([0.0, paved]);
 
         for step in 0..=AROUND_A_JOINT {
             let turn = step as f32 / AROUND_A_JOINT as f32 * std::f32::consts::TAU;
@@ -3534,10 +3589,11 @@ fn pave(
             // from six-metre arc pieces looks like when each joint wears a rim. The
             // disc is there to fill a notch, and a patch that fills a hole should
             // not announce itself.
-            let mut rim_colour = mix(*ROAD_EARTH, *ROAD_STONE, city.max(paved_here(at_plan, rim)));
+            let rim_paved = city.max(paved_here(at_plan, rim));
+            let mut rim_colour = mix(*ROAD_EARTH, *ROAD_STONE, rim_paved);
             rim_colour[3] = cobbled;
             colours.push(rim_colour);
-            uvs.push([turn, 1.0]);
+            uvs.push([turn, rim_paved]);
         }
         for step in 0..AROUND_A_JOINT as u32 {
             // Face up, like the ribbon - see the note on the ribbon's winding. The
@@ -4202,15 +4258,22 @@ mod tests {
         );
 
         // A second road ending on the first one's middle. That IS a junction.
+        //
+        // BETWEEN two of the bent road's samples, not on one of them. The first
+        // version of this joined at (38, 16), which is a point in `bent.points` - so
+        // the shared-vertex clustering this change replaced would have found it too,
+        // and the test proved nothing about the behaviour that motivated the change.
+        // Codex caught that the regression guard could not catch the regression.
+        // (29, 10) is exactly halfway along the segment from (20, 4) to (38, 16).
         let joining = Way {
-            points: vec![Vec2::new(38.0, 16.0), Vec2::new(38.0, -20.0)],
+            points: vec![Vec2::new(29.0, 10.0), Vec2::new(29.0, -20.0)],
             wide: CITY_LANE_WIDE,
             joins: CITY_LANE_WIDE,
         };
         let met = junctions_in(&[bent, joining]);
         assert_eq!(met.len(), 1, "a crossroads got {} patches", met.len());
         assert!(
-            met[0].at.distance(Vec2::new(38.0, 16.0)) < 0.6,
+            met[0].at.distance(Vec2::new(29.0, 10.0)) < 0.6,
             "the patch landed at {:?} rather than where the roads meet",
             met[0].at,
         );
@@ -6037,6 +6100,83 @@ mod facing {
     /// about nothing else, so the night the lamps went in, every one of them lit the
     /// ground beside the road and left the road itself black.
     ///
+    /// The road that is DRAWN is exactly as wide as the road that is WALKED.
+    ///
+    /// # The gradient beside the street
+    ///
+    /// `RoadSection` exists so a road's cross-section is decided once. Two commits
+    /// after it was written, `pave` was still computing its own shoulder - the full
+    /// 5.4 m of a country verge - while `stands_on` had moved to the section's, which
+    /// closes to 35 cm as the paving arrives. So a made street was drawn with a five
+    /// metre brushed fringe that the warden could not stand on, which is exactly what
+    /// was reported twice: "there's still that gradient next to them".
+    ///
+    /// Codex found it in review before a photograph did. This measures the shipped
+    /// mesh: the widest vertex on a cross-section against the section's own shoulder.
+    #[test]
+    fn the_drawn_road_is_as_wide_as_the_walked_one() {
+        use bevy::render::mesh::VertexAttributeValues;
+        let terrain = crate::world::terrain::Terrain::new();
+        for paved in [0.0_f32, 0.5, 1.0] {
+            // A straight way, so "across" is a plain distance from the middle line.
+            let ways = vec![Way {
+                points: vec![Vec2::new(-60.0, 0.0), Vec2::new(60.0, 0.0)],
+                wide: CITY_STREET_WIDE,
+                joins: CITY_STREET_WIDE,
+            }];
+            let mesh = pave(&ways, &terrain, Vec2::ZERO, paved);
+            let Some(VertexAttributeValues::Float32x3(places)) =
+                mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+            else {
+                panic!("the paving has no positions");
+            };
+
+            // The widest vertex anywhere on the ribbon, and the section that made it.
+            // `wander_at` varies the width a little along the road, so the mesh is
+            // compared against the widest section rather than one sample of it.
+            let drawn = places
+                .iter()
+                .map(|place| place[2].abs())
+                .fold(0.0_f32, f32::max);
+            let cut = |at: Vec2| {
+                RoadSection::new(
+                    CITY_STREET_WIDE,
+                    CITY_STREET_WIDE,
+                    paved,
+                    wander_at(at, paved),
+                )
+            };
+            let widest = (-60..=60)
+                .map(|x| cut(Vec2::new(x as f32, 0.0)).shoulder)
+                .fold(0.0_f32, f32::max);
+            assert!(
+                (drawn - widest).abs() < 0.35,
+                "at paved {paved} the road is drawn {drawn:.2} m wide and walked                  {widest:.2} m — the difference is a fringe nobody can stand on"
+            );
+
+            // And the height fades to the ground BY that edge rather than being cut
+            // off part-way down it: the outer blend has to be normalised by the
+            // section's own width, not by a constant verge.
+            let section = cut(Vec2::ZERO);
+            assert!(
+                (section.lift(section.shoulder) - ROAD_HEM).abs() < 0.005,
+                "at paved {paved} the road is {:.3} m up at its own edge rather than                  easing to the {ROAD_HEM} m hem",
+                section.lift(section.shoulder)
+            );
+            let mut last = f32::MAX;
+            for step in 0..=10 {
+                let across =
+                    section.half + (section.shoulder - section.half) * step as f32 / 10.0;
+                let lift = section.lift(across);
+                assert!(
+                    lift <= last + 1e-4,
+                    "at paved {paved} the shoulder rises again {across:.2} m out"
+                );
+                last = lift;
+            }
+        }
+    }
+
     /// Measured, not argued: this takes the cross product of each triangle's own
     /// edges. It has caught two separate windings - the ribbon and the junction
     /// discs, which were 670 triangles still facing down after the ribbon was fixed.
@@ -6075,3 +6215,4 @@ mod facing {
         }
     }
 }
+
