@@ -2435,7 +2435,18 @@ static ROAD_KERB: LazyLock<[f32; 4]> = LazyLock::new(|| srgb(0.34, 0.33, 0.32));
 /// read as a blend at walking distance, narrow enough that the road keeps its width.
 // Widened from 1.7. The margin is where a path stops being a path, and a long one
 // reads as ground that has been walked less rather than as an edge.
-const SHOULDER_WIDE: f32 = 2.5;
+//
+// 5.4 now. At walking distance 2.5 m read as a blend, and from any height above the
+// roofs it did not: the ribbon's own fade is a couple of metres while the settled
+// GROUND under it browns off over tens, so a crisp shape sat inside a soft halo of
+// the same colour and the eye read the mismatch as a hard edge. Reported as "the
+// ground blends oddly".
+//
+// The fade's far lane already carries the terrain's own colour - `hem` asks
+// `ground_colour` for it - so widening this is widening a gradient that already ends
+// in exactly the ground beside it. The road keeps its width; only the dissolve gets
+// longer.
+const SHOULDER_WIDE: f32 = 5.4;
 
 /// The material a street's paving wears.
 ///

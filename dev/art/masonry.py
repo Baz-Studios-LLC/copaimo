@@ -365,6 +365,21 @@ def outline(whole, thick=OUTLINE_THICK, ink=OUTLINE_INK):
     # that meet there. At a box corner that average points diagonally outward, which
     # inflates the box evenly - exactly what is wanted. `normal_update` computes that
     # average from the geometry, whatever split normals the shading has put on top.
+    # ONE SHELL, not one per box.
+    #
+    # `weld` joins the parts and leaves their vertices alone, so two wall slabs that
+    # abut at a bay boundary keep two sets of corners in the same place. Each box then
+    # inflated on its own and pushed its shell a centimetre INTO its neighbour, where
+    # the neighbour's surface is coplanar - so a black line came through the wall at
+    # every join, and inside a room, where the surfaces face you, it was a mess of
+    # them. Reported as "clipping outlines and material on the walls".
+    #
+    # Merging the coincident corners first gives one closed surface. At a join the
+    # average of the two touching faces cancels - they point opposite ways - and what
+    # is left is the direction the wall actually faces, which is where the shell
+    # belongs.
+    bmesh.ops.remove_doubles(mesh, verts=mesh.verts, dist=1.0e-4)
+    mesh.verts.ensure_lookup_table()
     mesh.normal_update()
     for vertex in mesh.verts:
         vertex.co += vertex.normal * thick

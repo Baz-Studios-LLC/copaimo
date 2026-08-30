@@ -185,13 +185,26 @@ def _one_bay(parts, along, at, wide, height, colour, kind, floor, facing=-1.0, r
         # The leaf, hung open flat against the wall BESIDE the opening rather than
         # standing in it - so the doorway's clear width is the doorway's width. See
         # DOOR_WIDE for what happens otherwise.
+        # THE DOOR SWINGS IN.
+        #
+        # It stood flat against the wall OUTSIDE, beside its own opening - and a
+        # facade has windows beside its door. On the shop the leaf spans 0.98 to 2.60
+        # left of the doorway and the next window spans 1.47 to 2.42, so the open door
+        # was parked squarely on the glass: reported as "a window behind the door".
+        #
+        # A door that swings outward is also the wrong door. Nothing in this town has
+        # a porch deep enough to swing into, and a leaf on the street side is a leaf
+        # somebody walks into. Inward it goes, which is where a real one goes, and
+        # then it cannot cover anything on the facade whatever the bays either side
+        # turn out to be.
         leaf = hole_wide * 0.85
         size = (leaf, 0.07, hole_tall) if along == "x" else (0.07, leaf, hole_tall)
         off = (hole_wide + leaf) * 0.5 + 0.03
+        inward = -facing * (WALL * 0.5 + 0.06)
         centre = (
-            (at[0] - off, at[1] + facing * (WALL * 0.5 + 0.04), floor + hole_tall * 0.5)
+            (at[0] - off, at[1] + inward, floor + hole_tall * 0.5)
             if along == "x"
-            else (at[0] + facing * (WALL * 0.5 + 0.04), at[1] - off, floor + hole_tall * 0.5)
+            else (at[0] + inward, at[1] - off, floor + hole_tall * 0.5)
         )
         parts.append(box(size, centre, "door"))
         # And a threshold, so the gap reads as a doorway rather than as damage.

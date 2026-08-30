@@ -369,6 +369,94 @@ pub fn stand_the_lamps(
     }
 }
 
+/// A light in a room, so a doorway is a warm hole rather than a black one.
+#[derive(Component)]
+struct Indoors;
+
+/// How many rooms are lit from inside at once, how near, and how hard.
+///
+/// Far fewer than the street lamps and much shorter-ranged, because this is not
+/// street lighting: it is the light that says a shop is open. It only has to reach
+/// its own doorway and the ground just outside it.
+const MOST_INSIDE: usize = 8;
+const INSIDE_WITHIN: f32 = 48.0;
+const INSIDE_BURNS: f32 = 240_000.0;
+const INSIDE_CARRIES: f32 = 11.0;
+
+/// What a lit room burns. Warmer and softer than a street lamp: a hearth and a lamp
+/// on a counter rather than something with a specification.
+const INDOORS_GLOW: Color = Color::srgb(1.0, 0.82, 0.58);
+
+/// Lights the rooms nearest the warden after dark.
+///
+/// # A shop you can see into
+///
+/// Every building in this town opens, and at night every one of them was a black
+/// rectangle behind a doorway - which reads as a hole in a wall rather than as a
+/// room somebody is in. The lit windows say a building is occupied from a distance;
+/// this is what says it from the doorstep.
+///
+/// Asked for directly: "add lights inside shops too for the nighttime".
+///
+/// Only the nearest handful, because a real light is expensive and you can only be
+/// at one door at a time. No shadows, like everything else here.
+pub fn light_the_insides(
+    mut commands: Commands,
+    clock: Res<crate::sky::TimeOfDay>,
+    anchors: Query<&GlobalTransform, With<StreamAnchor>>,
+    rooms: Query<(Entity, &GlobalTransform, &crate::world::town::Standing)>,
+    mut lit: Query<(Entity, &ChildOf, &mut PointLight), With<Indoors>>,
+) {
+    let Some(anchor) = anchors.iter().next() else {
+        return;
+    };
+    let here = anchor.translation();
+    let up = crate::util::smoothstep(LIT_BELOW, FULLY_LIT_AT, clock.sun_height());
+
+    // The nearest rooms that HAVE a floor - a well and a market cross have no inside
+    // to light.
+    let mut near: Vec<(f32, Entity, f32)> = rooms
+        .iter()
+        .filter_map(|(entity, at, standing)| {
+            let floor = crate::world::town::FLOORS.get(standing.what.figure())?;
+            let away = at.translation().distance_squared(here);
+            (away < INSIDE_WITHIN * INSIDE_WITHIN).then_some((away, entity, floor.top))
+        })
+        .collect();
+    near.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    near.truncate(MOST_INSIDE);
+
+    for (entity, of, mut light) in &mut lit {
+        match near.iter().find(|(_, room, _)| *room == of.parent()) {
+            Some(_) if up > 0.0 => light.intensity = INSIDE_BURNS * up,
+            _ => commands.entity(entity).despawn(),
+        }
+    }
+    if up <= 0.0 {
+        return;
+    }
+    let already: Vec<Entity> = lit.iter().map(|(_, of, _)| of.parent()).collect();
+    for (_, room, floor) in near {
+        if already.contains(&room) {
+            continue;
+        }
+        commands.entity(room).with_children(|inside| {
+            inside.spawn((
+                Indoors,
+                PointLight {
+                    color: INDOORS_GLOW,
+                    intensity: INSIDE_BURNS * up,
+                    range: INSIDE_CARRIES,
+                    shadows_enabled: false,
+                    ..default()
+                },
+                // Head height in the room it lights.
+                Transform::from_xyz(0.0, floor + 1.9, 0.0),
+            ));
+        });
+    }
+}
+
 /// Shows and hides the glass with the sun, at the moment the sun crosses.
 ///
 /// Separate from the lights because there are hundreds of these and twenty of those.
@@ -691,6 +779,7 @@ impl Plugin for LampPlugin {
                 stand_the_lamps,
                 open_the_glass,
                 light_them_at_night,
+                light_the_insides,
                 light_the_windows,
             )
                 .chain()
