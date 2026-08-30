@@ -357,6 +357,28 @@ Move the joining endpoint to a true interior point of a segment—for this fixtu
 
 No Copaimo game file was changed during this review.
 
+## 2026-08-30 15:51 — Review of `86e55e4`
+
+The lighter footing and simplified footway are visually well motivated. The shoulder change, however, currently splits the shared cross-section contract and does not remove the rendered fringe it was intended to fix.
+
+### P0 — Drawing and traversal now use different shoulder widths
+
+`RoadSection::new` correctly computes a closing shoulder and `stands_on` compares against `cut.shoulder`. But `pave` still independently sets `let shoulder = half + SHOULDER_WIDE * wander`, so the mesh continues to emit the full 5.4 m shoulder even at full paving. At the same location, traversal stops at the much narrower `half + 0.35 m` analytical shoulder. The brushed visible fringe therefore remains, while the player-height surface ends inside it.
+
+Make the mesh consume `cut.shoulder` directly; this is exactly the kind of duplicated section fact `RoadSection` was introduced to eliminate. Add a test that extracts the outer mesh station and asserts it equals `cut.shoulder` at paved = 0, 0.5, and 1.0.
+
+### P1 — The height fade still assumes a 5.4 m shoulder
+
+`RoadSection::lift` calculates the outer blend with `(across - self.half) / SHOULDER_WIDE`. Once the actual paved shoulder is only 0.35 m, the blend reaches only about 6.5% before `stands_on` stops considering the section. That leaves the analytical surface near footway height at its boundary and then drops it abruptly to terrain rather than easing it to `ROAD_HEM`.
+
+Normalize by the resolved width: `(self.shoulder - self.half).max(epsilon)`. Assert that `lift(self.shoulder)` is approximately `ROAD_HEM` for all three paving samples, and that the last several samples are monotonic toward the ground.
+
+### Still open — the junction test remains a shared-vertex case
+
+`a_bend_is_not_a_junction_and_a_crossing_is` still joins at `(38, 16)`, an existing `bent.points` vertex. The requested true between-samples fixture at `(29, 10)` has not landed, so the old broken clustering implementation would still pass this regression test.
+
+The new settlement-pad work is uncommitted and was left untouched. No Copaimo game file was changed during this review.
+
 ## 2026-08-30 15:19 — Review of `eeb238f` and `1d30291`
 
 The visual intentions are strong: explicit dark footings solve the floating-building read without tilting architecture, and fragment-level masonry is the correct sampling domain for sub-metre paving. Centralizing the road material and applying the pattern before lighting also preserve the semi-cel-shaded hierarchy. Three implementation details need tightening before these become durable systems.

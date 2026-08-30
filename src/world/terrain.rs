@@ -498,12 +498,37 @@ impl Terrain {
 
     pub fn height(&self, x: f32, z: f32) -> f32 {
         let generated = self.base_height(x, z);
-        match self.edits.read() {
+        let sculpted = match self.edits.read() {
             Ok(edits) => generated + edits.at(x, z),
             // A poisoned lock means a sculpting operation panicked. The
             // generated world is still perfectly valid, so keep drawing it
             // rather than taking the game down with it.
             Err(_) => generated,
+        };
+
+        // AND A BUILDING'S OWN GROUND HAS THE LAST WORD.
+        //
+        // Levelling a town and grading a road happen to the GENERATED ground, and
+        // the sculpted layer is laid over the result - which is the right order for
+        // both: somebody brushing a hillside is entitled to reshape the land a road
+        // crosses. It is the wrong order for the few square metres under a building,
+        // which is seated on its highest corner and hangs by whatever the ground
+        // falls across the rest of it.
+        //
+        // So a pad is applied here, after everything, and it levels to whatever the
+        // ground at the building's own middle turns out to be - sculpting included -
+        // rather than to a generated height the brush may have moved a long way from.
+        // `pad_under` says no almost everywhere, which is what keeps this off the
+        // hot path.
+        match self.settlements.pad_under(Vec2::new(x, z)) {
+            Some((middle, pull)) if pull > 0.0 => {
+                let level = match self.edits.read() {
+                    Ok(edits) => self.base_height(middle.x, middle.y) + edits.at(middle.x, middle.y),
+                    Err(_) => self.base_height(middle.x, middle.y),
+                };
+                sculpted + (level - sculpted) * pull
+            }
+            _ => sculpted,
         }
     }
 

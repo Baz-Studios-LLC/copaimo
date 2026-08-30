@@ -4346,6 +4346,64 @@ mod tests {
         );
     }
 
+    /// Every building in the world stands on ground that is level under it.
+    ///
+    /// # The assertion the footing was standing in for
+    ///
+    /// `stands_at` seats a building on the HIGHEST of its footprint corners, so the
+    /// gap between that and the lowest corner IS the float - a building hanging over
+    /// its own site by exactly that much. A stone footing fills it and is the right
+    /// thing to have; it is not a reason for the ground to be uneven.
+    ///
+    /// So this measures the thing directly: the spread of the four corners plus the
+    /// middle, for every building in every settlement the game ships. Asked of the
+    /// real terrain, because a pad that levels a synthetic site proves nothing about
+    /// a town on a real hillside.
+    #[test]
+    fn no_building_stands_on_uneven_ground() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        let mut worst = (0.0_f32, String::new());
+        for (key, site) in plan.sites().iter().enumerate() {
+            if site.ranch {
+                continue;
+            }
+            let laid = lay_out(
+                site,
+                plan.approach(site.at),
+                crate::config::WORLD_SEED.wrapping_add(key as u32 * 7717),
+            );
+            for plot in &laid.plots {
+                // A YARD IS A FENCE, not a building. Its posts follow the ground and
+                // should: a garden fence stepping down a slope is what a garden fence
+                // does, and holding one to a building's tolerance would flatten a
+                // terrace round every vegetable patch in the world.
+                if plot.what.is_yard() {
+                    continue;
+                }
+                let (low, high) = under(&terrain, plot.at, plot.what.footprint(), plot.facing);
+                if high - low > worst.0 {
+                    worst = (
+                        high - low,
+                        format!(
+                            "a {:?} at {:.0},{:.0} stands on ground that falls {:.2} m across                              its own footprint",
+                            plot.what, plot.at.x, plot.at.y, high - low,
+                        ),
+                    );
+                }
+            }
+        }
+        // A FINGER'S WIDTH. Not nought: the terrain mesh is a grid of flat triangles
+        // and a pad is a smoothstep over it, so the corners land wherever the grid
+        // put its vertices. What matters is that nothing is left hanging by an amount
+        // a player can see, and half a metre was visible from across a village.
+        assert!(
+            worst.0 < 0.12,
+            "{} - the pad under it is not doing its job",
+            worst.1,
+        );
+    }
+
     #[test]
     fn every_settlement_in_the_world_has_a_guild_hall() {
         let terrain = crate::world::terrain::Terrain::new();

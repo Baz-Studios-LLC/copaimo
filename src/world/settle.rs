@@ -132,12 +132,80 @@ pub struct Road {
 /// This matters more than it looks: the height field is asked millions of times
 /// to mesh a world, and a linear scan over every site and road at each sample
 /// would dominate the whole generator.
+/// A flat pad of ground under one building.
+///
+/// # A building is seated on its highest corner, so the ground has to be level
+///
+/// `world::town::stands_at` puts a building on the HIGHEST of its footprint corners,
+/// because one seated on the average is one you walk into the roof of at the high
+/// end. The cost lands at the other end: on any slope the low corner hangs, and the
+/// wider the footprint the further. A guild hall is 26 m across and hung visibly.
+///
+/// It was filled with a footing - a stone skirt from the floor down to the ground -
+/// which is what a real building on a slope has and which is still there for the
+/// last centimetres. What it could not do is stop the ground being uneven in the
+/// first place, and a building that needs half a metre of masonry to meet its own
+/// site is a building standing on the wrong ground.
+///
+/// So the ground is levelled under each one, the same way it is already levelled
+/// under a town and along its streets. Nothing new was needed to work out where the
+/// buildings are: `lay_the_streets` has been calling `town::lay_out` all along, with
+/// the seed the game itself uses, and walking `layout.streets` while `layout.plots`
+/// sat beside it untouched.
+pub struct Pad {
+    at: Vec2,
+    half: Vec2,
+    facing: f32,
+    height: f32,
+}
+
+impl Pad {
+    /// How far outside the pad a point lies, nought anywhere on it.
+    ///
+    /// The box distance, in the pad's own frame - a building is a rectangle and a
+    /// circle round it would level a disc, which on a street of them reads as a row
+    /// of saucers.
+    fn off(&self, at: Vec2) -> f32 {
+        let away = at - self.at;
+        let (sin, cos) = self.facing.sin_cos();
+        // Into the pad's frame: the inverse of the turn `Plot::walls` builds with.
+        let local = Vec2::new(away.x * cos + away.y * sin, -away.x * sin + away.y * cos);
+        let out = local.abs() - self.half;
+        out.max(Vec2::ZERO).length() + out.x.max(out.y).min(0.0)
+    }
+}
+
+/// How far a building's pad eases back into the ground around it, in metres.
+///
+/// Short. A pad is a terrace cut for one building, not a second town square: at ten
+/// metres the pads of neighbouring houses merge into one plateau and the street
+/// between them stops reading as ground at all.
+const PAD_SKIRT: f32 = 2.5;
+
+/// How far past the footprint the pad stays perfectly flat, in metres.
+///
+/// # The ground is sampled more coarsely than the pad is drawn
+///
+/// `drawn_height` reads the terrain at grid vertices two metres apart and
+/// interpolates between them, so the height AT a building's corner is a blend of
+/// vertices that may be up to two metres outside the footprint. With the pad ending
+/// exactly at the footprint, those outer vertices were on the slope, and the corner
+/// inherited a share of it: measured at 0.39 m of fall on a shop, down from 2.01 but
+/// not down to nothing.
+///
+/// So the flat reaches a grid step and a half past the building. Wider than needed,
+/// because the cost is a metre of extra terrace nobody will notice and the failure is
+/// a building on a tilt.
+const PAD_HOLDS: f32 = 2.5;
+
 pub struct Settlements {
     sites: Vec<Site>,
     roads: Vec<Road>,
     /// Every water crossing the network needs, as structures to be built.
     bridges: Vec<Bridge>,
     lanes: Vec<Lane>,
+    /// Level ground under every building. See `Pad`.
+    pads: Vec<Pad>,
     /// One list of feature indices per cell. Sites are stored as `Some(i)`,
     /// roads as the index offset past the end of `sites`.
     cells: Vec<Vec<u16>>,
@@ -158,6 +226,7 @@ impl Settlements {
             roads: Vec::new(),
             bridges: Vec::new(),
             lanes: Vec::new(),
+            pads: Vec::new(),
             cells: Vec::new(),
             cells_across: 0,
             cells_down: 0,
@@ -338,6 +407,7 @@ impl Settlements {
             roads,
             bridges,
             lanes: Vec::new(),
+            pads: Vec::new(),
             cells: Vec::new(),
             cells_across: 0,
             cells_down: 0,
@@ -347,14 +417,22 @@ impl Settlements {
         // The streets inside each town, once there are sites and roads for the
         // layout to be built from. Filed as claims like everything else, so from
         // here on the ground itself knows where a street is.
-        settlements.lanes = settlements.lay_the_streets();
+        let (lanes, pads) = settlements.lay_the_town_out();
+        settlements.lanes = lanes;
+        settlements.pads = pads;
         settlements.index();
         settlements
     }
 
-    /// Every town's streets, as claims on the ground.
-    fn lay_the_streets(&self) -> Vec<Lane> {
+    /// Every town's streets and every building's pad, as claims on the ground.
+    ///
+    /// One walk of the layouts for both, because they come from the same one: this
+    /// used to take the streets and leave `layout.plots` sitting beside them, so the
+    /// ground was levelled along every road in a town and left uneven under every
+    /// house on it.
+    fn lay_the_town_out(&self) -> (Vec<Lane>, Vec<Pad>) {
         let mut lanes = Vec::new();
+        let mut pads = Vec::new();
         for (index, site) in self.sites.iter().enumerate() {
             let layout = crate::world::town::lay_out(
                 site,
@@ -369,8 +447,56 @@ impl Settlements {
                     wide: street.wide,
                 });
             }
+            for plot in &layout.plots {
+                pads.push(Pad {
+                    at: plot.at,
+                    // The footprint exactly. It is what the building keeps clear on
+                    // the ground and what `stands_at` reads its corners from, so
+                    // levelling anything else would level the wrong rectangle.
+                    half: plot.what.footprint() * 0.5,
+                    facing: plot.facing,
+                    // The town's own level, which is what the streets outside the
+                    // door are already at.
+                    height: site.height,
+                });
+            }
         }
-        lanes
+        (lanes, pads)
+    }
+
+    /// The pad a point stands on, as its middle and how firmly it holds.
+    ///
+    /// # Why this is asked separately, and last
+    ///
+    /// `level` is applied to the GENERATED ground, and `Terrain::height` adds the
+    /// sculpted edit layer on top of the result. That order is right for a town and
+    /// a road - somebody brushing the terrain is entitled to reshape a hillside a
+    /// road crosses - and it is wrong for the ground directly under a building,
+    /// which cannot be uneven whatever anybody has brushed onto it.
+    ///
+    /// Measured before it was believed: with pads in `level`, a guild hall in the
+    /// world still stood on ground falling 2.01 m across its own footprint, because
+    /// it sits on sculpted terrain and the sculpting lands afterwards.
+    ///
+    /// This returns the pad's MIDDLE rather than a height, so the caller can level to
+    /// whatever the ground at that middle actually is - edits and all - instead of to
+    /// a generated height the sculpting may have moved a long way from.
+    pub fn pad_under(&self, at: Vec2) -> Option<(Vec2, f32)> {
+        let (x, y) = self.cell_of(at);
+        let cell = self.cells.get((y * self.cells_across + x) as usize)?;
+        let first = self.sites.len() as u16 + self.roads.len() as u16 + self.lanes.len() as u16;
+        let mut held: Option<(Vec2, f32)> = None;
+        for &what in cell {
+            if what < first {
+                continue;
+            }
+            let pad = &self.pads[(what - first) as usize];
+            let pull = smoothstep(PAD_HOLDS + PAD_SKIRT, PAD_HOLDS, pad.off(at));
+            if pull > 0.0 && held.is_none_or(|(_, had)| pull > had) {
+                held = Some((pad.at, pull));
+            }
+        }
+        held
     }
 
     pub fn lanes(&self) -> &[Lane] {
@@ -410,6 +536,13 @@ impl Settlements {
             let low = lane.from.min(lane.to) - reach;
             let high = lane.from.max(lane.to) + reach;
             filings.push((lane_offset + i as u16, low, high));
+        }
+        let pad_offset = lane_offset + self.lanes.len() as u16;
+        for (i, pad) in self.pads.iter().enumerate() {
+            // The half-diagonal, because a pad may be turned any way and the box it
+            // needs filing under is the one that contains it however it lies.
+            let reach = pad.half.length() + PAD_HOLDS + PAD_SKIRT;
+            filings.push((pad_offset + i as u16, pad.at - reach, pad.at + reach));
         }
         for (what, low, high) in filings {
             self.file(what, low, high);
@@ -476,9 +609,16 @@ impl Settlements {
         let sites = self.sites.len() as u16;
 
         let roads = sites + self.roads.len() as u16;
+        let pads = roads + self.lanes.len() as u16;
 
         for &what in cell {
-            let (height, pull) = if what >= roads {
+            let (height, pull) = if what >= pads {
+                // NOT HERE. A building's pad has the last word instead - see
+                // `pad_under` and `Terrain::height` - because this levelling happens
+                // BEFORE the sculpted edit layer, and a pad that flattens the
+                // generated ground and is then brushed into a slope has done nothing.
+                continue;
+            } else if what >= roads {
                 // A town's own street. Narrow and firm: flat across its width and
                 // done a couple of metres past the kerb, where a site's claim
                 // fades over a hundred metres and a road's over its whole batter.
