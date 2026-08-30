@@ -344,3 +344,15 @@ The section-owned lift now agrees, but the two consumers intentionally start fro
 The current uncommitted kerb, paving-mottle, guild-hall framing, and junction-detection work was left untouched and is not reviewed as finished code here.
 
 No Copaimo game file was changed during this verification.
+
+## 2026-08-30 14:47 — Review of `357047c`
+
+The guild-hall framing repair is structurally sound: `wall_key` removes the tuple-shape drift, the framing origin now follows the offset hall mass, and clearance tests the whole timber rather than only its centre. The reduced made-surface mottling and darker, taller kerb are also coherent stylized-readability changes. The active footing and player-step work remains uncommitted and was not reviewed as finished code.
+
+### P1 — The junction regression fixture still joins at a vertex
+
+The new `junctions_in` algorithm fixes the reported problem by detecting a road endpoint against another road's line, including between that road's sampled vertices. But `a_bend_is_not_a_junction_and_a_crossing_is` places the joining road at `(38, 16)`, which is already an explicit point in `bent.points`. The previous shared-vertex implementation would recognize that case too, so the test does not prove the behavior that motivated this change and can pass if the endpoint-to-line logic later regresses.
+
+Move the joining endpoint to a true interior point of a segment—for this fixture, `(29, 10)` is exactly halfway between `(20, 4)` and `(38, 16)`—and assert that one meeting is still produced there with both arms. Keep the existing single-way bend assertion. A second useful guard would put a parallel endpoint just outside `TOUCHING` (and, if the generator can create it, just inside but intentionally unconnected) so the tolerance's false-junction behavior is explicit rather than accidental.
+
+No Copaimo game file was changed during this review.

@@ -207,18 +207,42 @@ pub fn stands_at(
     footprint: Vec2,
     facing: f32,
 ) -> f32 {
+    under(terrain, at, footprint, facing).1
+}
+
+/// The lowest and highest ground under a building's footprint.
+///
+/// Two answers from one walk of the corners, because a building needs both: it is
+/// SEATED on the highest, so it is never sunk into a rise, and it is FOOTED down to
+/// the lowest, so the far end does not hang in the air. Taking only the highest is
+/// what made a 26 m guild hall float.
+pub fn under(
+    terrain: &crate::world::terrain::Terrain,
+    at: Vec2,
+    footprint: Vec2,
+    facing: f32,
+) -> (f32, f32) {
     let half = footprint * 0.5;
     let (sin, cos) = facing.sin_cos();
-    let mut highest = terrain.drawn_height(at.x, at.y);
+    let middle = terrain.drawn_height(at.x, at.y);
+    let (mut lowest, mut highest) = (middle, middle);
     for sx in [-1.0_f32, 1.0] {
         for sy in [-1.0_f32, 1.0] {
             let local = Vec2::new(sx * half.x, sy * half.y);
             let corner = at + Vec2::new(local.x * cos - local.y * sin, local.x * sin + local.y * cos);
-            highest = highest.max(terrain.drawn_height(corner.x, corner.y));
+            let ground = terrain.drawn_height(corner.x, corner.y);
+            lowest = lowest.min(ground);
+            highest = highest.max(ground);
         }
     }
-    highest
+    (lowest, highest)
 }
+
+/// How far the ground has to fall under a building before it is given a footing.
+///
+/// Below this the model's own plinth covers it and a second slab would only
+/// z-fight with the first.
+const FOOTING_SHOWS: f32 = 0.06;
 
 /// Which way to turn a model so its door lands where the doorway is.
 ///
@@ -2579,22 +2603,18 @@ const SEAM: f32 = 0.02;
 /// batter follows it, so it stays a step the warden can take.
 const KERB_RISE: f32 = 0.22;
 
-/// How far the kerb face leans back, in metres.
+/// How far the kerb's face leans back, in metres. A CHAMFER, not a ramp.
 ///
-/// # Derived from the rule that has to accept it, not chosen
+/// This was `KERB_RISE / CLIMB_LIMIT`, derived so the climb rule would accept it -
+/// which made the face 20 cm wide for a 22 cm rise, a 35 degree slope. From a
+/// third-person camera that is not a kerb, it is a damp patch at the edge of the
+/// road, and it was reported as one.
 ///
-/// A vertical kerb is a WALL. `may_step` refuses any rise steeper than
-/// `CLIMB_LIMIT` per metre travelled, and a warden covers a few centimetres in a
-/// frame - so a 14 cm face drawn vertical is an invisible barrier down both sides of
-/// every city street, and the player walks in the gutter for the length of the city
-/// wondering why. Nothing would have failed; the street would just have been subtly
-/// wrong to be in.
-///
-/// So the batter is the rise divided by the steepest climb allowed, with a margin.
-/// Change `KERB_RISE` or `CLIMB_LIMIT` and this follows, and
-/// `a_kerb_is_a_step_and_not_a_wall` checks the whole profile against the same rule
-/// rather than trusting the arithmetic here.
-const KERB_RUN: f32 = KERB_RISE / crate::player::CLIMB_LIMIT * 1.3;
+/// The climb rule no longer has to accept it: `player::STEP_UP` does, because a step
+/// and a slope are different things. So the face is nearly vertical with the small
+/// bevel a cut stone actually has, and `a_kerb_is_a_step_and_not_a_wall` checks it
+/// against the rule that now governs it.
+const KERB_RUN: f32 = 0.05;
 
 /// A road's whole cross-section at one point along it.
 ///
@@ -3584,6 +3604,7 @@ pub fn raise_the_towns(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<crate::shade::Shaded>>,
     mut road_surface: Local<Option<Handle<crate::shade::Shaded>>>,
+    mut footing: Local<Option<(Handle<Mesh>, Handle<crate::shade::Shaded>)>>,
     terrain: Res<TerrainSource>,
     mut built: ResMut<Built>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
@@ -3644,7 +3665,61 @@ pub fn raise_the_towns(
             // levelled height: a town is allowed to spill past the rim of the
             // ground that was flattened for it, and a house out on the fade has to
             // sit into the slope rather than float over it.
-            let stands = stands_at(&terrain.0, plot.at, plot.what.footprint(), plot.facing);
+            let (sits, stands) = under(&terrain.0, plot.at, plot.what.footprint(), plot.facing);
+
+            // A FOOTING WHERE THE GROUND FALLS AWAY.
+            //
+            // A building is seated on the HIGHEST of its corners, because one sunk
+            // into a rise is one you walk into the roof of. The cost is the other
+            // end: on any slope the low corner hangs, and the wider the footprint the
+            // further it hangs. A cottage's 9 m span hid it. The guild hall's 26 m
+            // did not, and it was reported as floating - then as every building
+            // floating, which is the same fault at every size at once.
+            //
+            // The gap is filled rather than argued with, because that is what a
+            // building on a slope actually has: a footing, holding the floor level
+            // while the ground drops away under it. Sized to the fall, so on level
+            // ground none is built.
+            let drop = stands - sits;
+            if drop > FOOTING_SHOWS {
+                let footing = footing.get_or_insert_with(|| {
+                    (
+                        meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
+                        materials.add(crate::shade::shaded(StandardMaterial {
+                            // Darker than the stone above it: a footing is the part
+                            // in the building's own shadow, and a pale slab under a
+                            // house reads as the house sitting on a plate.
+                            base_color: Color::srgb(0.28, 0.27, 0.25),
+                            perceptual_roughness: 0.95,
+                            reflectance: 0.02,
+                            ..default()
+                        })),
+                    )
+                });
+                let span = plot.what.footprint();
+                commands.spawn((
+                    FromSite(key),
+                    Mesh3d(footing.0.clone()),
+                    MeshMaterial3d(footing.1.clone()),
+                    // Down from the floor to below the lowest corner, so it meets the
+                    // ground rather than stopping just above it.
+                    // TURNED THE WAY THE FOOTPRINT IS, which is NEGATIVE facing.
+                    //
+                    // `Plot::walls` lays its box out with `(x cos - y sin, x sin +
+                    // y cos)`, and a Bevy turn about +Y maps a local point the other
+                    // way round - so `facing` reflects the box instead of rotating
+                    // it, and the footing came out skewed across the front of the
+                    // building like a spilled plinth. Derived rather than guessed:
+                    // matching the two expressions gives theta = -facing.
+                    Transform::from_xyz(plot.at.x, stands - drop * 0.5 - 0.05, plot.at.y)
+                        .with_rotation(Quat::from_rotation_y(-plot.facing))
+                        // Just inside the walls, so a footing is something the
+                        // building stands ON rather than a ledge around it.
+                        .with_scale(Vec3::new(span.x * 0.97, drop + 0.1, span.y * 0.97)),
+                    Visibility::default(),
+                ));
+            }
+
             commands.spawn((
                 Standing { what: plot.what },
                 FromSite(key),
@@ -4171,15 +4246,30 @@ mod tests {
         for wide in [CITY_STREET_WIDE, CITY_LANE_WIDE] {
             let cut = RoadSection::new(wide, wide, 1.0, 1.0);
             assert!(cut.kerb > 0.05, "a {wide} m city street has no kerb at all");
+            // THE WHOLE RISE OF THE KERB, against the rule that governs a step.
+            //
+            // This used to walk the profile in 2 cm steps and check each against
+            // `CLIMB_LIMIT`, which is a gradient - and the only way a kerb passes a
+            // gradient test is by not being a kerb. What has to be true is that the
+            // warden can get UP it, and `may_step` allows that when the whole rise is
+            // within `STEP_UP`.
+            assert!(
+                cut.kerb <= crate::player::STEP_UP,
+                "a {wide} m street's kerb is {:.2} m and the warden can only step {:.2} - \
+                 it is a wall down both sides of the road",
+                cut.kerb,
+                crate::player::STEP_UP,
+            );
+            // And nothing ELSE in the section is a climb: the crown and the shoulder
+            // are ground, and they still have to be walkable as slopes.
             let step = 0.02;
-            let mut across = 0.0;
+            let mut across = cut.carriage + cut.batter + 0.01;
             while across < cut.shoulder {
                 let rise = cut.lift(across + step) - cut.lift(across);
                 assert!(
                     rise <= step * crate::player::CLIMB_LIMIT + 1.0e-4,
                     "a {wide} m street climbs {rise:.3} m in {step} m at {across:.2} out from \
-                     its middle, and `may_step` refuses anything past {:.1} per metre",
-                    crate::player::CLIMB_LIMIT,
+                     its middle, past the kerb, where it should be flat footway",
                 );
                 across += step;
             }

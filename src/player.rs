@@ -221,6 +221,28 @@ const BLOCKED_STILL_RUNS: f32 = 0.2;
 /// so nowhere is a trap.
 pub const CLIMB_LIMIT: f32 = 1.4;
 
+/// How high a STEP the warden can take, in metres, however sheer it is.
+///
+/// # A step and a slope are different things, and one rule was doing both
+///
+/// `CLIMB_LIMIT` is a gradient, and a gradient cannot describe a kerb: a kerb is
+/// 22 cm of vertical, which is infinite metres climbed per metre travelled, so the
+/// climb rule refuses it outright. The only way to get a kerb past a pure gradient
+/// rule is to lean its face back until it is a ramp - and a ramp is what it looked
+/// like. Reported as "not a real curb, looks more like it just rained".
+///
+/// So the two are separated. A gradient still governs ground you WALK up, and this
+/// governs ground you STEP onto: a kerb, a doorstep, a low ledge. Every character
+/// controller worth the name has both, and this one had been making its kerbs
+/// climbable by flattening them.
+///
+/// Sized against what must still be refused rather than what should be allowed. A
+/// canyon wall rises three to five metres per metre and the warden covers about a
+/// tenth of a metre in a frame, so its smallest single-step rise is around 0.3 m -
+/// and `a_canyon_wall_refuses_the_step_up_but_never_the_step_down` is what actually
+/// decides this number, not the arithmetic in this paragraph.
+pub const STEP_UP: f32 = 0.26;
+
 /// How deep the warden may wade, in metres below sea level.
 ///
 /// The sea is not walkable in the base game — it is for boats. This is both how
@@ -280,7 +302,9 @@ fn may_step(
     }
 
     let run = Vec2::new(to.x - from.x, to.z - from.z).length();
-    run <= f32::EPSILON || there - here <= run * CLIMB_LIMIT
+    let rise = there - here;
+    // Walkable as a SLOPE, or short enough to be a STEP. See `STEP_UP`.
+    run <= f32::EPSILON || rise <= run * CLIMB_LIMIT || rise <= STEP_UP
 }
 
 /// One thing standing in the world that a warden cannot walk through.
