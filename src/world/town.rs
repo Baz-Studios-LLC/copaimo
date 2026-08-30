@@ -2950,13 +2950,7 @@ const SHOULDER_WIDE: f32 = 5.4;
 pub struct RoadSurface(pub Handle<crate::shade::Shaded>);
 
 fn mix_the_road_surface(mut commands: Commands, mut materials: ResMut<Assets<crate::shade::Shaded>>) {
-    let surface = materials.add(crate::shade::shaded(StandardMaterial {
-        base_color: Color::WHITE,
-        perceptual_roughness: 0.96,
-        reflectance: 0.02,
-        ..default()
-    }));
-    commands.insert_resource(RoadSurface(surface));
+    commands.insert_resource(RoadSurface(materials.add(crate::shade::road_material())));
 }
 
 /// How much room the guild hall is given, in metres.
@@ -3359,18 +3353,25 @@ fn pave(
                 // than a poured one. Only where there is paving to cobble: a dirt
                 // track has no stones in it, and giving it some would read as
                 // gravel.
-                // Each surface at the size of its own stone - `grain` - so the
-                // carriageway is cobbled and the footway is flagged, and the two read
-                // as different materials rather than as one in two colours.
-                if paved > 0.0 && grain > 0.0 {
-                    let stone = terrain_core::forest::field(at / grain, 941);
-                    worn *= 1.0 + (stone - 0.5) * COBBLES_VARY * paved;
-                }
+                // THE STONE SIZE, handed to the shader in the alpha nothing reads.
+                //
+                // This used to sample a cobble field per VERTEX and multiply the
+                // colour by it. The ribbon is sampled every 2.5 m along its length
+                // and has thirteen stations across a ten-metre street, so it carried
+                // about one colour per four and a half cobbles: the stones were
+                // invisible for as long as they existed, and were tuned twice before
+                // anybody measured the sampling against the thing being sampled.
+                //
+                // The pattern is drawn per FRAGMENT now - see `shade::CloudShade`'s
+                // `paving`. What a vertex CAN carry is which stone is laid here, and
+                // that is the one thing that has to vary along the ribbon: a
+                // carriageway is cobbled and a footway is flagged.
+                let laid = if paved > 0.0 { grain * paved } else { 0.0 };
                 let colour = [
                     colour[0] * worn,
                     colour[1] * worn,
                     colour[2] * worn,
-                    colour[3],
+                    laid / crate::shade::PAVING_STONE,
                 ];
 
                 let height = terrain.drawn_height(at.x, at.y) + lift;
@@ -3452,7 +3453,10 @@ fn pave(
         let height = terrain.drawn_height(at.x, at.y) + crown.0;
         places.push([at.x - low.x, height, at.y - low.y]);
         normals.push([0.0, 1.0, 0.0]);
-        colours.push(mix(*ROAD_EARTH, *ROAD_STONE, paved));
+        let cobbled = COBBLE_IS * paved / crate::shade::PAVING_STONE;
+        let mut middle_colour = mix(*ROAD_EARTH, *ROAD_STONE, paved);
+        middle_colour[3] = cobbled;
+        colours.push(middle_colour);
         uvs.push([0.0, 0.0]);
 
         for step in 0..=AROUND_A_JOINT {
@@ -3468,7 +3472,9 @@ fn pave(
             // from six-metre arc pieces looks like when each joint wears a rim. The
             // disc is there to fill a notch, and a patch that fills a hole should
             // not announce itself.
-            colours.push(mix(*ROAD_EARTH, *ROAD_STONE, city.max(paved_here(at_plan, rim))));
+            let mut rim_colour = mix(*ROAD_EARTH, *ROAD_STONE, city.max(paved_here(at_plan, rim)));
+            rim_colour[3] = cobbled;
+            colours.push(rim_colour);
             uvs.push([turn, 1.0]);
         }
         for step in 0..AROUND_A_JOINT as u32 {
@@ -3738,20 +3744,14 @@ pub fn raise_the_towns(
         // shape of "still no roads" reported three times against a paving mesh that
         // measured correctly every time it was asked. A road that cannot be skipped
         // cannot be skipped for a reason nobody can see.
-        let surface = road_surface.get_or_insert_with(|| {
-            materials.add(crate::shade::shaded(StandardMaterial {
-                base_color: Color::WHITE,
-                perceptual_roughness: 0.96,
-                reflectance: 0.02,
-                // Both sides. A road is a single-sided ribbon, and a ribbon wound the
-                // wrong way is not dim or dark - it is INVISIBLE, which is what
-                // "still no roads" looked like through three rounds of measuring a
-                // mesh that was entirely correct.
-                double_sided: true,
-                cull_mode: None,
-                ..default()
-            }))
-        });
+        // ONE DESCRIPTION OF A ROAD, shared with the country roads - see
+        // `shade::road_material`. The material is made HERE, on demand, rather than
+        // looked up from a resource a startup system was supposed to have filled in.
+        // That lookup was an `if let Some(..)`, which means the one failure it can
+        // have is silent: the buildings go up and the streets simply do not, which is
+        // precisely the shape of "still no roads" reported three times against a
+        // paving mesh that measured correctly every time it was asked.
+        let surface = road_surface.get_or_insert_with(|| materials.add(crate::shade::road_material()));
         let paving = pave(&layout.ways, &terrain.0, site.at, f32::from(u8::from(site.city)));
         commands.spawn((
             FromSite(key),

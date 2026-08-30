@@ -43,6 +43,45 @@ const _: () = assert!(
 /// Every material in the game goes through here rather than being built by hand
 /// at each spawn, so there is exactly one answer to "does this catch cloud
 /// shadow" and it is yes.
+/// The material a road is drawn with, wherever it is drawn.
+///
+/// # Two of these exist and they have to agree
+///
+/// One is made for a town's streets and one for the roads between them, and the
+/// paving arrives across the boundary between them as a gradient - so if their
+/// stones differed, a country lane would change surface at the exact line the whole
+/// `PAVING_ARRIVES` fade exists to hide. Built here so there is one description of
+/// what a road looks like rather than two that happen to match today.
+pub fn road_material() -> Shaded {
+    let mut road = shaded(StandardMaterial {
+        base_color: Color::WHITE,
+        perceptual_roughness: 0.96,
+        reflectance: 0.02,
+        // Both sides. A road is a single-sided ribbon, and a ribbon wound the wrong
+        // way is not dim or dark - it is INVISIBLE, which is what "still no roads"
+        // looked like through three rounds of measuring a mesh that was correct.
+        double_sided: true,
+        cull_mode: None,
+        // OPAQUE, stated. A road's vertex alpha carries the size of the stone laid
+        // there rather than a transparency, and `alpha_discard` throws it away
+        // before it can mean anything else - but only in this mode, so the mode is
+        // written down rather than left to a default.
+        alpha_mode: AlphaMode::Opaque,
+        ..default()
+    });
+    road.extension.paving = Vec4::new(STONE_VARIES, STONE_JOINT, JOINT_DARKENS, 0.0);
+    road
+}
+
+/// How much one paving stone differs in tone from the next, how wide the joint
+/// between them is as a share of a stone, and how far the joint darkens.
+///
+/// The joint does most of the work. A field of slightly different greys reads as
+/// noise; what says STONES is the line of shadow where they meet.
+const STONE_VARIES: f32 = 0.26;
+const STONE_JOINT: f32 = 0.07;
+const JOINT_DARKENS: f32 = 0.34;
+
 pub fn shaded(base: StandardMaterial) -> Shaded {
     Shaded {
         base,
@@ -65,7 +104,39 @@ pub struct CloudShade {
     /// Where each mover stands, and how far out it parts what it stands in.
     #[uniform(103)]
     pub movers: [Vec4; MOST_MOVERS],
+    /// How a paved surface is laid: stone tone, joint width, joint depth.
+    ///
+    /// # Why the stones cannot be vertex colours
+    ///
+    /// A city street was given a cobble field in `world::town::pave`, sampled per
+    /// VERTEX. The road ribbon is sampled every 2.5 m along its length and has
+    /// thirteen stations across a ten-metre street, so it carries roughly one colour
+    /// per four and a half cobbles - it could not represent them, and no tuning of
+    /// the constant ever could. The stones were invisible for as long as they
+    /// existed, and were tuned twice.
+    ///
+    /// A fragment shader has no such limit: the pattern is computed in WORLD space
+    /// from the position already on hand for the cloud shadows, so it is the same
+    /// size wherever a road runs, crosses a junction unbroken, and costs nothing per
+    /// vertex.
+    ///
+    /// Zero on every other material, which is also what says "this surface is not
+    /// paved" - the terrain, the buildings and the sea never enter the branch.
+    #[uniform(104)]
+    pub paving: Vec4,
 }
+
+/// What a vertex's alpha means on a paved surface: the size of the stone laid there,
+/// in metres, over this.
+///
+/// # One channel that was doing nothing
+///
+/// The size has to vary WITHIN a road - a carriageway is cobbled and a footway is
+/// flagged, and they differ by more than colour - so it cannot be a uniform. The
+/// ribbon's vertex colours already carry an alpha nothing reads: the material is
+/// opaque, so `alpha_discard` throws it away before it can affect anything. It
+/// carries the stone size now.
+pub const PAVING_STONE: f32 = 2.0;
 
 /// How many things can be pushing through the grass at once.
 ///
@@ -93,6 +164,8 @@ impl Default for CloudShade {
             // plain rather than wrong until the next sweep picks it up.
             weather: Vec4::ZERO,
             discs: [Vec4::ZERO; MOST_CLOUDS],
+            // Not paved. Set by the road's own material and by nothing else.
+            paving: Vec4::ZERO,
             // Standing still, which is what everything but grass does.
             bending: Vec4::ZERO,
             movers: [Vec4::ZERO; MOST_MOVERS],

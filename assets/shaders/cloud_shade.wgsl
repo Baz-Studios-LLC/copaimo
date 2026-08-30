@@ -57,6 +57,10 @@ struct Movers {
     list: array<vec4<f32>, 8>,
 }
 @group(2) @binding(103) var<uniform> movers: Movers;
+// How a paved surface is laid: x how much one stone differs from the next, y how
+// wide its joint is as a share of the stone, z how dark the joint goes. Zero on
+// everything that is not a road.
+@group(2) @binding(104) var<uniform> paving: vec4<f32>;
 
 const TAU: f32 = 6.28318530718;
 
@@ -322,9 +326,62 @@ fn banded(colour: vec3<f32>) -> vec3<f32> {
 }
 
 
+
+/// One number from a cell, so every stone gets its own tone.
+fn one_of(cell: vec2<f32>) -> f32 {
+    return fract(sin(dot(cell, vec2<f32>(127.1, 311.7))) * 43758.545);
+}
+
+/// A courseway of stones laid in world space: which stone, and how far into it.
+///
+/// # A running bond, because a grid is not a pavement
+///
+/// Rows are laid first and every other one is shifted half a stone along. Without
+/// that offset the joints line up in both directions and the surface reads as graph
+/// paper - the single thing that separates a drawn pavement from a real one is that
+/// its cross joints are broken.
+///
+/// Returns the stone's own number and its distance to the nearest joint, nought at
+/// the joint and a half in the middle of the stone.
+fn laid_in(at: vec2<f32>, size: f32) -> vec2<f32> {
+    let down = at.y / size;
+    let row = floor(down);
+    // Half a stone across on alternate courses.
+    let along = at.x / size + 0.5 * (row - 2.0 * floor(row * 0.5));
+    let cell = vec2<f32>(floor(along), row);
+    let inside = vec2<f32>(fract(along), fract(down));
+    let joint = min(min(inside.x, 1.0 - inside.x), min(inside.y, 1.0 - inside.y));
+    return vec2<f32>(one_of(cell), joint);
+}
+
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
     var pbr_input = pbr_input_from_standard_material(in, is_front);
+
+    // THE STONES, BEFORE THE LIGHT.
+    //
+    // Laid into the base colour rather than over the lit result, so a cobble is
+    // shaded by the same sun and the same near-cel ramp as the surface it belongs
+    // to - painted on afterwards it would read as a texture printed over the road
+    // rather than as the road being made of pieces.
+    //
+    // The size comes from the VERTEX, so the carriageway can be cobbled and the
+    // footway flagged on one continuous ribbon; the strength comes from the
+    // material, which is zero on everything that is not a road. See `PAVING_STONE`.
+#ifdef VERTEX_COLORS
+    let stone = in.color.a * 2.0;
+    if paving.x > 0.0 && stone > 0.02 {
+        let laid = laid_in(in.world_position.xz, stone);
+        // Each stone its own tone, and a line of shadow where they meet.
+        let joint = smoothstep(0.0, paving.y, laid.y);
+        let tone = (1.0 + (laid.x - 0.5) * paving.x) * mix(1.0 - paving.z, 1.0, joint);
+        pbr_input.material.base_color = vec4<f32>(
+            pbr_input.material.base_color.rgb * tone,
+            pbr_input.material.base_color.a,
+        );
+    }
+#endif
+
     pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
 
     var out: FragmentOutput;
