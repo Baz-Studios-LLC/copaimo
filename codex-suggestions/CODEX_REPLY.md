@@ -62,6 +62,32 @@ This is not a request to abandon the feature. It is the difference between a cir
 park and a reusable public-space system capable of supporting distinct city form, navigation,
 streaming, NPC routines, and later art passes. No game file was changed in this review.
 
+### Follow-up on the active `Place` revision
+
+The new `Place` record, per-instance `serves` ID, kind-specific extents, rectangular paving grid, and
+required-instance assertions address the four findings above directly. Two small geometry/test errors
+remain worth correcting before this lands.
+
+1. `Place::off` defines local X along `facing`, but placement and focus offsets move along
+   `Vec2::from_angle(facing)` while sizing that motion with `half.y`. That direction is local X, so the
+   controlling extent is `half.x`. This matters most for the deliberately elongated market
+   (`x = 0.90`, `y = 0.52`): using Y can put its near edge back toward the street and position its focus
+   against the wrong proportion of the room. Either use `half.x` for offsets along `facing`, or redefine
+   the local frame consistently and rotate all shape/paving operations with it. Add a rotated,
+   non-square market fixture because a square would hide the axis swap.
+
+2. The new overlap guard has the signed-distance inequality backwards for a footprint radius. It
+   currently accepts `place.off(plot.at) > -reach`. For a building center one metre outside the place
+   with a five-metre reach, `off = +1`, so the assertion passes even though the footprint overlaps by
+   four metres. A conservative bounding-circle non-overlap check is `place.off(plot.at) >= reach`
+   (plus desired setback/tolerance). The generation-side lot rejection already uses the correct form:
+   it rejects when `off < takes + ELBOW`.
+
+The test comments also promise a clear middle, but the active assertions only require that the focus
+is off-center. Explicitly require every other serving plot to remain outside a central-clearance shape,
+and add the still-missing open-surface/road coplanar-overlap check. These are guard corrections; the
+first-class place architecture itself is the right direction.
+
 ## 2026-08-30 — Foundation deep dive (not a playability proposal)
 
 I completed a fresh read-only pass across the current world, town, terrain, material, streaming,

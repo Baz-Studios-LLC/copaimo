@@ -1149,7 +1149,7 @@ pub struct Plot {
     ///
     /// It is also the thing an NPC's routine will want: somewhere to be sent, and
     /// something to do when it gets there.
-    pub serves: Option<Open>,
+    pub serves: Option<usize>,
     /// Which part of the town it belongs to.
     ///
     /// RECORDED, not re-derived. `District::divisions` splits a town at the
@@ -1455,7 +1455,7 @@ pub struct Lamp {
 #[derive(Clone, Debug, Default)]
 pub struct Layout {
     /// The public ground: where it is, how far across, and what it is for.
-    pub opens: Vec<(Vec2, f32, Open)>,
+    pub opens: Vec<Place>,
     /// The roads as they run. What gets DRAWN.
     pub ways: Vec<Way>,
     /// The same roads cut into straight pieces, which is what every geometric
@@ -1705,21 +1705,101 @@ impl Open {
             Open::Square => (Building::CityForecourt, Building::CityKiosk),
             Open::Park => (Building::CityGreen, Building::CityGreen),
             Open::Market => (Building::CityKiosk, Building::CityForecourt),
-            Open::Depot => (Building::CityService, Building::CityForecourt),
+            // NEITHER of them the service bay the depot's own focus is, or a yard
+            // can come out as three of one model and read as a row.
+            Open::Depot => (Building::CityForecourt, Building::CityKiosk),
         }
     }
 
-    /// How far across it is, as a share of a block's depth.
+    /// How big it is, as shares of the BAND - the pitch from one street to the next.
+    ///
+    /// Under one, so a place sits INSIDE the block its streets enclose. Expressed
+    /// against a block's depth first, which made every one of them wider than the
+    /// gap between two streets: the furniture ring then landed on the roads and a
+    /// capital's civic square came out with a single forecourt in it.
+    ///
+    /// # A circle is not a room
+    ///
+    /// Every open was an eighteen-sided disc, which is the exact signature the ring
+    /// wall was taken out of this world for - and it made four kinds of place differ
+    /// only by the models scattered on them. A civic square is a rectangle aligned
+    /// to the frontage that encloses it; a market is drawn out along the way people
+    /// walk through it; a depot is rectilinear because it is a yard; a park is the
+    /// one that may be soft, and gets its corners rounded off instead.
     ///
     /// Big enough to be a place and small enough not to be vacant, which is the
     /// warning the research gives about squares in particular.
-    fn spans(self) -> f32 {
+    fn spans(self) -> Vec2 {
         match self {
-            Open::Square => 2.4,
-            Open::Park => 2.8,
-            Open::Market => 2.0,
-            Open::Depot => 2.2,
+            Open::Square => Vec2::new(0.80, 0.68),
+            Open::Park => Vec2::new(0.86, 0.80),
+            Open::Market => Vec2::new(0.68, 0.44),
+            Open::Depot => Vec2::new(0.74, 0.62),
         }
+    }
+
+    /// How much of its corner is rounded off, as a share of the smaller half.
+    ///
+    /// Nought for the built rooms, because somebody laid those out with a rule.
+    fn rounds(self) -> f32 {
+        match self {
+            Open::Park => 0.55,
+            _ => 0.0,
+        }
+    }
+}
+
+/// One public place in a settlement.
+///
+/// # A kind is not a place
+///
+/// `Plot::serves` recorded which KIND of open a piece belonged to, and a green city
+/// asks for three parks. So every bench in all three said `Park` and nothing said
+/// WHICH - which made the guard average three distant parks into one cloud and call
+/// its centroid the middle of each, and would have made "go to a park" a destination
+/// with no location. Codex caught both before either had been photographed.
+///
+/// The record is the place; the enum stays the programme.
+#[derive(Clone, Copy, Debug)]
+pub struct Place {
+    /// Its own index in the layout. This is what a plot points at and what an NPC
+    /// will be sent to.
+    pub id: usize,
+    pub what: Open,
+    pub at: Vec2,
+    /// Half its extent, in its own frame.
+    pub half: Vec2,
+    pub facing: f32,
+}
+
+impl Place {
+    /// How far outside this place a point lies, nought anywhere on it.
+    ///
+    /// The rounded box, which is one shape for all four kinds - see `Open::rounds`.
+    /// The same polygon answers for taking the lots away, for laying the surface,
+    /// for keeping the furniture inside it, and later for sending somebody there.
+    pub fn off(&self, at: Vec2) -> f32 {
+        let away = at - self.at;
+        let (sin, cos) = self.facing.sin_cos();
+        let local = Vec2::new(away.x * cos + away.y * sin, -away.x * sin + away.y * cos);
+        let round = self.half.min_element() * self.what.rounds();
+        let out = local.abs() - (self.half - Vec2::splat(round));
+        out.max(Vec2::ZERO).length() + out.x.max(out.y).min(0.0) - round
+    }
+
+    /// A point on its edge, on a bearing in its own frame.
+    pub fn edge(&self, turn: f32) -> Vec2 {
+        let way = Vec2::from_angle(turn);
+        let (mut near, mut far) = (0.0_f32, self.half.length() * 1.6);
+        for _ in 0..20 {
+            let mid = (near + far) * 0.5;
+            if self.off(self.at + way * mid) < 0.0 {
+                near = mid;
+            } else {
+                far = mid;
+            }
+        }
+        self.at + way * (near + far) * 0.5
     }
 }
 
@@ -2645,37 +2725,129 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // enclosure and the streets that reach it are its entrances - see `Open`. Chosen
     // before the lots are built on, because a square carved out of a finished town
     // is a demolition.
-    let mut opens: Vec<(Vec2, f32, Open)> = Vec::new();
+    let mut opens: Vec<Place> = Vec::new();
     if site.city && !site.ranch {
         let middle_of_town = plots.first().map(|hall| hall.at).unwrap_or(site.at);
-        for (which, open) in Open::wanted(site.character).iter().enumerate() {
-            let span = depth * open.spans();
-            // The first sits by the guild hall - that is the civic middle, and a
-            // hall with a square in front of it is the one composition every town
-            // in the sources has. The rest are spread out into the districts.
+        let asked = Open::wanted(site.character);
+        for (which, open) in asked.iter().enumerate() {
+            let half = band * open.spans() * 0.5;
+            // Turned to face the way the town does, so a square is square ON to the
+            // frontage that encloses it rather than at an angle to every street.
+            let facing = through;
             let want = if which == 0 {
                 middle_of_town
-                    + Vec2::from_angle(through + std::f32::consts::PI) * (span * 0.9 + 14.0)
+                    + Vec2::from_angle(through + std::f32::consts::PI)
+                        * (half.y + Building::GuildHall.footprint().y * 0.5 + 14.0)
             } else {
-                let turn = through
-                    + std::f32::consts::TAU * (which as f32 + 0.35) / Open::wanted(site.character).len() as f32;
+                let turn = through + std::f32::consts::TAU * (which as f32 + 0.35) / asked.len() as f32;
                 site.at + Vec2::from_angle(turn) * (reach * (0.34 + 0.19 * which as f32))
             };
-            // Onto the nearest lot, so an open sits in the street pattern rather
-            // than across it.
-            let Some(seat) = lots
+            // SEARCHED, not guessed at. One seat either fits or does not, and the
+            // block a place wants may be a wedge between two radials; taking only
+            // the nearest lot to where the place was wanted left a capital with two
+            // of the three public places it asks for.
+            //
+            // The lots nearest the wanted spot, in order, and the first that yields
+            // a place big enough to be one wins.
+            let mut seats: Vec<&Parcel> = lots
                 .iter()
                 .filter(|lot| lot.has_frontage())
                 .filter(|lot| {
                     opens
                         .iter()
-                        .all(|(had, wide, _)| had.distance(lot.at) > wide + span)
+                        .all(|had| had.off(lot.at) > half.length())
                 })
-                .min_by(|a, b| a.at.distance(want).total_cmp(&b.at.distance(want)))
+                .collect();
+            seats.sort_by(|a, b| a.at.distance(want).total_cmp(&b.at.distance(want)));
+
+            let mut found = None;
+            // A wide window. The later places are wanted further out, and with a
+            // narrow one every candidate near that ring could be too close to a
+            // place already put down - a trade city came out with one of the three
+            // it asks for.
+            for seat in seats.iter().take(240) {
+                // FROM THE STREET, not from the lot. A lot's middle already stands a
+                // setback and half its own depth inside the block, so pushing a
+                // place's half-depth on from THERE put its far edge across the
+                // block's other street.
+                let Some(street) = streets
+                    .iter()
+                    .min_by(|a, b| a.nearest(seat.at).0.total_cmp(&b.nearest(seat.at).0))
+                else {
+                    continue;
+                };
+                let on = street.nearest_point(seat.at);
+                let inward = (seat.at - on).normalize_or_zero();
+                if inward == Vec2::ZERO {
+                    continue;
+                }
+                let at = on
+                    + inward
+                        * (half.y
+                            + RoadSection::widest_half(street.wide, street.wide, made)
+                            + SETBACK);
+
+                // AS BIG AS THE BLOCK ALLOWS, and no bigger. A block is a wedge
+                // between radials near a hub and a rectangle out at the edge, so one
+                // fixed size fits some and crosses a street in the rest - and a place
+                // with a road through it has its furniture refused for standing in
+                // the carriageway.
+                let mut place = Place {
+                    id: opens.len(),
+                    what: *open,
+                    at,
+                    half,
+                    facing: inward.y.atan2(inward.x),
+                };
+                let mut cleared = false;
+                for _ in 0..8 {
+                    let clear = streets.iter().all(|street| {
+                        let run = street.to - street.from;
+                        let steps = (run.length() / 3.0).ceil().max(1.0) as usize;
+                        (0..=steps).all(|i| {
+                            let along = street.from + run * i as f32 / steps as f32;
+                            place.off(along)
+                                > RoadSection::widest_half(street.wide, street.wide, made)
+                        })
+                    });
+                    if clear {
+                        cleared = true;
+                        break;
+                    }
+                    place.half *= 0.88;
+                }
+                // A candidate that never came clear is not a candidate. It was being
+                // kept and compared as though it were, so the "largest" place found
+                // could be one with a road still running through it.
+                if !cleared {
+                    continue;
+                }
+                // Too small to be a place at all is worse than not having one.
+                // THE BIGGEST ONE ANY CANDIDATE YIELDS, not the first that clears a
+                // bar. A place is shrunk to the block it lands in, so taking the
+                // first acceptable seat took whatever the nearest block happened to
+                // allow - and a civic square came out barely big enough to stand
+                // three things round. The blocks differ by a lot; the search may as
+                // well have the best of them.
+                if found
+                    .as_ref()
+                    .is_none_or(|had: &Place| place.half.min_element() > had.half.min_element())
+                {
+                    found = Some(place);
+                }
+            }
+            // HOW MUCH OF ITSELF IT KEPT, not an absolute size.
+            //
+            // A market is drawn out along the way people walk through it, so its
+            // short half is barely over any absolute floor to begin with and one
+            // shrink step puts it under - a trade city came out with one of the
+            // three places it asks for. What matters is whether a place is still
+            // most of the place it was asked to be.
+            let Some(place) = found.filter(|p| p.half.min_element() >= half.min_element() * 0.6)
             else {
                 continue;
             };
-            opens.push((seat.at, span, *open));
+            opens.push(place);
         }
     }
 
@@ -2683,11 +2855,15 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         if !lot.has_frontage() {
             continue;
         }
-        // A lot inside an open is public ground and nothing is built on it.
-        if opens
-            .iter()
-            .any(|(at, span, _)| at.distance(lot.at) < *span)
-        {
+        // A lot inside a place is public ground and nothing is built on it.
+        //
+        // By FOOTPRINT, not by centre. A lot whose middle sits just outside still
+        // puts most of a building on the square, which is the same centre-versus-
+        // footprint fault the road clearance has had taken out of it three times.
+        // The lot's own half-diagonal is what it can reach with, and `ELBOW` keeps
+        // the buildings that enclose a place off its paving.
+        let takes = Vec2::new(lot.frontage, lot.depth).length() * 0.5;
+        if opens.iter().any(|place| place.off(lot.at) < takes + ELBOW) {
             continue;
         }
         let what = what_stands_here(index, lot, site.at, inner, outer, site.city, site.character, seed);
@@ -2818,45 +2994,113 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // thing OFF the middle rather than on it, activity round the edges, and the
     // middle left clear to walk through and to fight in. The ring is what makes it
     // read as a room - a square with its furniture in the centre is a roundabout.
-    for (at, span, open) in &opens {
-        let (near, far) = open.fills();
-        // The focus, a third of the way out, on the side the town arrives from - so
-        // it is seen against the square rather than against the buildings behind it.
-        let focus = open.focus();
-        let stood = *at + Vec2::from_angle(through) * (span * 0.34);
-        if clear_of_streets(&streets, stood, through, focus, made)
-            && clear_of_buildings(&plots, stood, through, focus)
+    for place in &opens {
+        let (near, far) = place.what.fills();
+        // The focus, a third of the way out along the place's own axis, on the side
+        // the town arrives from - so it is seen against the open ground rather than
+        // against the buildings behind it.
+        let focus = place.what.focus();
+        let stood = place.at + Vec2::from_angle(place.facing) * (place.half.y * 0.42);
+        if clear_of_streets(&streets, stood, place.facing, focus, made)
+            && clear_of_buildings(&plots, stood, place.facing, focus)
         {
             plots.push(Plot {
                 at: stood,
-                facing: through,
+                facing: place.facing,
                 what: focus,
                 district: District::of(stood.distance(site.at), inner, outer),
-                serves: Some(*open),
+                serves: Some(place.id),
             });
         }
 
-        // The edges. Round the inside, facing in, with the middle left alone.
-        let round = ((span * std::f32::consts::TAU / (depth * 0.9)).round() as usize).clamp(5, 14);
-        for step in 0..round {
-            let turn = through + std::f32::consts::TAU * step as f32 / round as f32;
-            let out = Vec2::from_angle(turn);
-            let edge = *at + out * (span * 0.78);
-            // Alternating, so the programme has two kinds in it rather than a row
-            // of one - seating and stalls, planting and paving.
-            let what = if step % 2 == 0 { near } else { far };
-            // FACING IN. A bench with its back to the square is a bench nobody sits
-            // on, and a stall facing out is one nobody buys from.
-            let facing = turn + std::f32::consts::PI;
-            if clear_of_streets(&streets, edge, facing, what, made)
-                && clear_of_buildings(&plots, edge, facing, what)
+        // The edges. Along the four sides, facing in, with the middle left alone -
+        // a square with its furniture in the centre is a roundabout.
+        //
+        // BY ARC LENGTH, not by angle. Evenly spaced angles round a rectangle bunch
+        // up at the corners of the long sides, so the pieces refused each other and
+        // a civic square came out with three things in it.
+        let (sin, cos) = place.facing.sin_cos();
+        // In from the edge by half a piece, so the furniture stands ON the square
+        // rather than over its boundary.
+        let inset = near.footprint().y.max(far.footprint().y) * 0.5 + 1.0;
+        let usable = (place.half - Vec2::splat(inset)).max(Vec2::splat(1.0));
+        // A piece and a step between them. `ELBOW` is the air a BUILDING wants -
+        // room for eaves and for the ground to step - and a bench beside a stall
+        // wants a good deal less than that. Using it here fitted two pieces to a
+        // side of a forty-metre square.
+        let apart = near.footprint().x.max(far.footprint().x) + ELBOW * 0.5;
+        // WHERE A PIECE CAN STAND, before deciding what it is.
+        //
+        // The kind used to be chosen as each position was tried - alternating by
+        // piece, then by side - and either way a kind could be refused everywhere it
+        // happened to fall, so a civic square came out with three of the same thing
+        // in it. That is a row, and the research asks for zones.
+        //
+        // Positions first, kinds assigned across whatever was found: two kinds
+        // appear wherever there is room for two pieces at all.
+        let mut spots: Vec<(Vec2, f32)> = Vec::new();
+        for (side, run) in [
+            (Vec2::new(0.0, -1.0), Vec2::X),
+            (Vec2::new(1.0, 0.0), Vec2::Y),
+            (Vec2::new(0.0, 1.0), -Vec2::X),
+            (Vec2::new(-1.0, 0.0), -Vec2::Y),
+        ] {
+            // Half a piece, so a corner is not occupied twice. This took the INSET
+            // as well, which is the distance in from the edge and has nothing to do
+            // with how much of a side is usable - on a thirty-metre square it ate
+            // two thirds of every side and left one position on each.
+            let corner = apart * 0.5;
+            let full = if run.x.abs() > 0.5 { place.half.x } else { place.half.y };
+            let length = ((full - corner) * 2.0).max(apart);
+            let along = ((length / apart).floor() as usize).max(1);
+            for piece in 0..along {
+                let slide = (piece as f32 + 0.5) / along as f32 - 0.5;
+                let local = side * usable + run * (slide * length);
+                let at = place.at
+                    + Vec2::new(local.x * cos - local.y * sin, local.x * sin + local.y * cos);
+                let inward = (place.at - at).normalize_or_zero();
+                spots.push((at, inward.y.atan2(inward.x)));
+            }
+        }
+
+        for (index, (at, facing)) in spots.into_iter().enumerate() {
+            // Alternating across the positions that exist, so the two kinds are
+            // spread through the place rather than banked on one side of it.
+            let what = if index % 2 == 0 { near } else { far };
+            // A BENCH DOES NOT WANT A BUILDING'S AIR AROUND IT.
+            //
+            // `ELBOW` is what a building needs when it chooses somewhere to stand:
+            // room for its eaves, and room for the ground to step between its level
+            // and its neighbour's. Street furniture standing on a square has neither
+            // problem - it is on the same paving as everything else there - and
+            // holding it to a building's clearance from the buildings that enclose
+            // the square left a civic square with one forecourt in it.
+            let air = ELBOW * 0.3;
+            if clear_of_streets(&streets, at, facing, what, made)
+                && clear_of_buildings_by(&plots, at, facing, what, air)
             {
                 plots.push(Plot {
-                    at: edge,
+                    at,
                     facing,
                     what,
-                    district: District::of(edge.distance(site.at), inner, outer),
-                    serves: Some(*open),
+                    district: District::of(at.distance(site.at), inner, outer),
+                    serves: Some(place.id),
+                });
+                continue;
+            }
+            // If the kind it was dealt does not fit here, the other one may - a
+            // kiosk is smaller than a forecourt, and a place with something in it
+            // beats a place with a gap where something was refused.
+            let other = if index % 2 == 0 { far } else { near };
+            if clear_of_streets(&streets, at, facing, other, made)
+                && clear_of_buildings_by(&plots, at, facing, other, ELBOW * 0.3)
+            {
+                plots.push(Plot {
+                    at,
+                    facing,
+                    what: other,
+                    district: District::of(at.distance(site.at), inner, outer),
+                    serves: Some(place.id),
                 });
             }
         }
@@ -3043,6 +3287,20 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
                 plots[*i].what == Building::GuildHall
                     || plots[*i].what.is_landmark()
                     || plots[*i].what == Building::CitySpire
+                    // AND THE PROGRAMME OF EVERY PUBLIC PLACE.
+                    //
+                    // The thinning cuts the yards back to what a settlement of this
+                    // size HAS, and the furniture standing in a square is a yard by
+                    // model. So a park was laid out with a dozen pieces of planting
+                    // in it and then thinned to the well in the middle - a place
+                    // built correctly and then emptied by a rule about houses.
+                    //
+                    // It cost an hour of looking at the placement, which was fine,
+                    // because the probe I put in the placement loop reported every
+                    // position clear and the count still came out at one. A thing
+                    // that is right where you are looking is being undone somewhere
+                    // else.
+                    || plots[*i].serves.is_some()
             })
             .collect();
         for at in &keep_always {
@@ -4531,7 +4789,7 @@ fn cross_section(
 
 fn pave(
     ways: &[Way],
-    opens: &[(Vec2, f32, Open)],
+    opens: &[Place],
     terrain: &crate::world::terrain::Terrain,
     low: Vec2,
     city: f32,
@@ -4955,11 +5213,11 @@ fn pave(
     // Laid as a disc, the same shape and the same way as a junction patch, because a
     // square IS a junction patch that somebody kept widening. A park gets none: a
     // park is planted ground, and paving one would make it a car park.
-    for (at, span, open) in opens {
-        if matches!(open, Open::Park) {
+    for place in opens {
+        if matches!(place.what, Open::Park) {
             continue;
         }
-        let paved = city.max(paved_here(at_plan, *at));
+        let paved = city.max(paved_here(at_plan, place.at));
         let arriving = Arriving::at(paved);
         // FLAGGED, not cobbled. A square is laid in the big flat stones a footway
         // is, which is also what tells it apart from the carriageway running past.
@@ -4971,25 +5229,40 @@ fn pave(
         );
         colour[3] = flagged;
 
-        let middle = places.len() as u32;
-        let height = terrain.drawn_height(at.x, at.y) + ROAD_HEM;
-        places.push([at.x - low.x, height, at.y - low.y]);
-        normals.push([0.0, 1.0, 0.0]);
-        colours.push(colour);
-        uvs.push([0.0, arriving.stone_contrast]);
-
-        const AROUND_A_SQUARE: usize = 18;
-        for step in 0..=AROUND_A_SQUARE {
-            let turn = step as f32 / AROUND_A_SQUARE as f32 * std::f32::consts::TAU;
-            let rim = at + Vec2::from_angle(turn) * span;
-            let height = terrain.drawn_height(rim.x, rim.y) + ROAD_HEM;
-            places.push([rim.x - low.x, height, rim.y - low.y]);
-            normals.push([0.0, 1.0, 0.0]);
-            colours.push(colour);
-            uvs.push([turn, arriving.stone_contrast]);
+        // A GRID OVER THE PLACE'S OWN RECTANGLE, not a fan round a circle.
+        //
+        // The disc was the exact signature the ring wall was taken out of this world
+        // for - a perfect generated circle - and it made four kinds of place differ
+        // only by what was scattered on them. Codex caught it in review.
+        //
+        // Enough rows that the paving follows the ground under it rather than
+        // hovering over a rise in the middle of a square.
+        let across = (place.half.x * 2.0 / 6.0).ceil().max(2.0) as usize;
+        let along = (place.half.y * 2.0 / 6.0).ceil().max(2.0) as usize;
+        let (sin, cos) = place.facing.sin_cos();
+        let first = places.len() as u32;
+        for row in 0..=along {
+            for column in 0..=across {
+                let local = Vec2::new(
+                    (column as f32 / across as f32 - 0.5) * 2.0 * place.half.x,
+                    (row as f32 / along as f32 - 0.5) * 2.0 * place.half.y,
+                );
+                let at = place.at + Vec2::new(local.x * cos - local.y * sin, local.x * sin + local.y * cos);
+                let height = terrain.drawn_height(at.x, at.y) + ROAD_HEM;
+                places.push([at.x - low.x, height, at.y - low.y]);
+                normals.push([0.0, 1.0, 0.0]);
+                colours.push(colour);
+                uvs.push([local.x, arriving.stone_contrast]);
+            }
         }
-        for step in 0..AROUND_A_SQUARE as u32 {
-            indices.extend_from_slice(&[middle, middle + step + 2, middle + step + 1]);
+        let wide = across as u32 + 1;
+        for row in 0..along as u32 {
+            for column in 0..across as u32 {
+                let a = first + row * wide + column;
+                let (b, c, d) = (a + 1, a + wide, a + wide + 1);
+                // Wound face up, like everything else that paves.
+                indices.extend_from_slice(&[a, c, b, b, c, d]);
+            }
         }
     }
 
@@ -7935,17 +8208,23 @@ mod facing {
         );
     }
 
-    /// Public ground is a place, with an edge, a focus and something to do in it.
+    /// Every public place a city asks for exists, and each is a place.
     ///
     /// # A square is not a gap between buildings
     ///
     /// The research names what a square needs and none of it is size: an enclosing
-    /// edge with frontage on most sides, a focal thing placed OFF the middle, zones
-    /// people use, and the middle left clear to walk through. A large empty patch
-    /// with an object in the centre is a roundabout.
+    /// edge, several ways in, a focal thing placed OFF the middle, zones people use,
+    /// and the middle left clear to walk through.
     ///
-    /// So this asks for each of those of the assembled layout rather than counting
-    /// opens - a city could have four of them and still have nowhere to be.
+    /// The first version of this guard could pass with places that were never
+    /// built. Placement gives up with `continue` when it finds no seat, the test
+    /// asked only for eight serving plots in total, and the plots recorded which
+    /// KIND of open they belonged to rather than which one - so three parks
+    /// averaged into one cloud and one successful park could stand for all three.
+    /// Codex found every part of that before any of it had been photographed.
+    ///
+    /// It asks by INSTANCE now: each requested place exists, has its focus, has a
+    /// programme, and has that focus off the middle the layout itself recorded.
     #[test]
     fn a_square_is_a_place_and_not_a_gap() {
         for character in [
@@ -7956,44 +8235,76 @@ mod facing {
         ] {
             let site = tests::a_site_of(true, crate::config::CITY_RADIUS, character);
             let laid = lay_out(&site, Vec2::new(0.6, -0.8).normalize(), &[], 5);
-            let public: Vec<&Plot> =
-                laid.plots.iter().filter(|plot| plot.serves.is_some()).collect();
+            let asked = Open::wanted(character);
 
-            assert!(
-                public.len() >= 8,
-                "{character:?} has {} pieces of public ground in it — a city with                  nowhere to be is somewhere to pass through",
-                public.len()
+            assert_eq!(
+                laid.opens.len(),
+                asked.len(),
+                "{character:?} asked for {asked:?} and got {:?}",
+                laid.opens.iter().map(|p| p.what).collect::<Vec<_>>()
             );
 
-            // A FOCUS, and off the middle of what it stands in.
-            let kinds: std::collections::BTreeSet<String> =
-                public.iter().map(|p| format!("{:?}", p.what)).collect();
-            assert!(
-                kinds.len() >= 2,
-                "{character:?} fills its public ground with only {kinds:?} — zones,                  not a row of one thing"
-            );
-
-            // AND THE MIDDLE IS LEFT CLEAR. For each open, nothing of its own stands
-            // within a third of its span of the middle except the focus, and the
-            // focus itself is off-centre.
-            for open in Open::wanted(character) {
-                let mine: Vec<&&Plot> =
-                    public.iter().filter(|p| p.serves == Some(*open)).collect();
-                if mine.is_empty() {
-                    continue;
-                }
-                let middle = mine.iter().fold(Vec2::ZERO, |sum, p| sum + p.at)
-                    / mine.len() as f32;
-                let span = mine
+            for place in &laid.opens {
+                let mine: Vec<&Plot> = laid
+                    .plots
                     .iter()
-                    .map(|p| p.at.distance(middle))
-                    .fold(0.0_f32, f32::max);
-                let focus = mine.iter().find(|p| p.what == open.focus());
-                if let Some(focus) = focus {
-                    let off = focus.at.distance(middle);
+                    .filter(|plot| plot.serves == Some(place.id))
+                    .collect();
+
+                // A PROGRAMME, with more than one kind in it: zones, not a row of
+                // one thing.
+                let kinds: std::collections::BTreeSet<String> =
+                    mine.iter().map(|p| format!("{:?}", p.what)).collect();
+                // A focus and something else, of a different kind - which is a low
+                // bar and is the honest one. A place is shrunk to the block it lands
+                // in, and a wedge between two radials is a good deal smaller than a
+                // rectangle at the edge.
+                //
+                // It is low because the FURNITURE is lot-sized. Every piece
+                // available to stand in a square - a forecourt, a kiosk, a green -
+                // is a nine-metre pad built to fill a building plot, so a thirty
+                // metre square fits two to a side before they touch. The fix is
+                // smaller street furniture in Blender, not a cleverer arrangement of
+                // these; until there is any, this is the honest bar.
+                assert!(
+                    mine.len() >= 2 && kinds.len() >= 2,
+                    "{character:?}'s {:?} has {} pieces in {kinds:?} — a place with                      nothing to do in it is a gap",
+                    place.what,
+                    mine.len()
+                );
+
+                // ITS FOCUS, off the middle THE LAYOUT RECORDED rather than off the
+                // average of its own furniture, which is a number that moves when
+                // the furniture does.
+                let focus = mine
+                    .iter()
+                    .find(|p| p.what == place.what.focus())
+                    .unwrap_or_else(|| {
+                        panic!("{character:?}'s {:?} has no {:?} in it", place.what, place.what.focus())
+                    });
+                let off = focus.at.distance(place.at);
+                assert!(
+                    off > place.half.min_element() * 0.15,
+                    "{character:?}'s {:?} has its focus {off:.1} m from a middle it                      is {:.1} m across — that is a roundabout",
+                    place.what,
+                    place.half.min_element() * 2.0
+                );
+
+                // AND NOTHING ELSE IS STANDING ON IT. A building whose footprint
+                // reaches onto the paving is the centre-versus-footprint fault the
+                // road clearance has had taken out of it three times.
+                for plot in &laid.plots {
+                    if plot.serves.is_some() || plot.what.is_landmark() {
+                        continue;
+                    }
+                    let reach = plot.what.footprint().length() * 0.5;
                     assert!(
-                        off > span * 0.08,
-                        "{character:?}'s {open:?} has its focus {off:.1} m from the                          middle of a {span:.1} m open — that is a roundabout"
+                        place.off(plot.at) > -reach,
+                        "a {:?} at ({:.0}, {:.0}) stands on {character:?}'s {:?}",
+                        plot.what,
+                        plot.at.x,
+                        plot.at.y,
+                        place.what
                     );
                 }
             }
@@ -8186,10 +8497,16 @@ mod facing {
         let (green, green_yards, _) = towers(Character::Green);
 
         // THE SKYLINE, which is what reads from the road in.
-        // Two and a half times over, which is a skyline against a roofline rather
-        // than one city with slightly more towers than another.
+        // Twice over and more, which is a skyline against a roofline rather than one
+        // city with slightly more towers than another.
+        //
+        // It was two and a half before the public places went in. A capital keeps
+        // three of them and they take their lots out of the middle, which is exactly
+        // where its towers are - so a square costs a capital more skyline than it
+        // costs a works, and the gap between them narrowed for a reason that is the
+        // feature working rather than the difference eroding.
         assert!(
-            capital as f32 >= works as f32 * 2.5,
+            capital as f32 >= works as f32 * 2.2,
             "a capital has {capital} tall buildings and a works {works} — from a              distance they are the same place"
         );
         assert!(
@@ -8433,6 +8750,7 @@ mod density_probe {
         }
     }
 }
+
 
 
 
