@@ -98,6 +98,25 @@ jobs:
           # reads them here, and without this the shipped bundle carries a
           # litter of them.
           COPYFILE_DISABLE=1 tar -czf "dist/copaimo-macos-aarch64.app.tar.gz" -C build Copaimo.app
+          # ROOM TO BUILD THE DISK IMAGE.
+          #
+          # `hdiutil` writes the whole bundle into a temporary volume before it
+          # compresses it, so it wants another copy of the app's 220 MB free - and
+          # a macOS runner has very little room left after an LTO release build.
+          # v0.1.21 failed exactly here, "No space left on device" partway through
+          # copying `surface.bin`, AFTER the .tar.gz had already been written. The
+          # Windows half of the matrix had already shipped, so the release existed
+          # with one asset on it and a red tick.
+          #
+          # The binary is inside `build/Copaimo.app` by now, so the build tree has
+          # nothing left to give. Its intermediates go rather than the whole of
+          # `target/`, so the cache step after this still has something to save.
+          #
+          # The `df` lines are here so the next one of these is diagnosable from
+          # the log rather than by guessing.
+          df -h . | tail -1
+          rm -rf target/release/deps target/release/build target/release/incremental
+          df -h . | tail -1
           # And a .dmg, which is how a person installs a mac app and how every
           # other studio game ships. The .tar.gz above stays because that is
           # what the launcher matches on; the two are the same app.
