@@ -29,3 +29,15 @@ desktop.ini
 # Python bytecode. A stale ik_gait.pyc once made a source edit appear to do nothing.
 __pycache__/
 *.pyc
+
+# The exporter sweeps every .blend in dev/art/, and `ranger.blend` is an authoring
+# source whose product the game does not load - the warden is `person_ranger.glb`.
+# So a local build regenerates `ranger.glb` and `git add -A assets/models` puts 18 MB
+# of it straight back into the release tree. It did, once, undoing half of "Ship what
+# the game loads, and nothing else".
+/assets/models/ranger.glb
+
+# Concept art and other authoring references live in dev/art/source/, NOT in assets/.
+# The release workflows copy the whole asset tree, so anything left in there ships -
+# two concept sheets at 4.3 MB were doing exactly that.
+/assets/buildings/*.png

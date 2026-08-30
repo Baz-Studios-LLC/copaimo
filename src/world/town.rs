@@ -1357,11 +1357,17 @@ fn open_ground(
     what: Building,
     search: f32,
 ) -> Option<Vec2> {
-    let half = what.footprint().max_element() * 0.5;
     let clear = |at: Vec2| {
-        !streets
-            .iter()
-            .any(|street| street.nearest(at).0 < street.wide * 0.5 + half + 1.0)
+        // THE ROADS, MEASURED THE SAME WAY AS THE BUILDINGS.
+        //
+        // This kept its own circle - `max_element * 0.5` - after the building check
+        // beside it became exact, which Codex caught: a rectangle's corner reaches
+        // further than half its longer side, so at an oblique angle the circle can
+        // clear a spot whose corner is in the carriageway. Every landmark that goes
+        // through here is square or nearly so, which is why nothing has shown it, but
+        // there is no reason for this one call to keep the approximation when the
+        // exact test is one line away and is what every other placement uses.
+        clear_of_streets(streets, at, 0.0, what)
             // A THIRD CIRCLE ROUND A RECTANGLE, now gone the same way as the other
             // two. This one measured the standing building at `max_element * 0.5`,
             // which for the guild hall is 13 m - and the hall's own corner reaches
@@ -1837,11 +1843,25 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
     // was left to find a lot like any other building.
     //
     // Photographed from a city entrance that read as a row of near-identical slabs,
-    // and the numbers say why: blocks 19.7 m, towers 37.6 m, spire 57.1 m, guild
+    // and the numbers said why: blocks 19.7 m, towers 37.6 m, spire 57.1 m, guild
     // hall 14.1 m. The shortest thing on the street was the one building the whole
-    // game is named after. The hall is now 80.5 m and takes the middle, and the
-    // spire is moved off to one side where it is a second peak on the skyline rather
-    // than the thing competing to be the first.
+    // game is named after, so the hall was rebuilt as an 80.5 m campanile and took
+    // the middle.
+    //
+    // # And then it stopped being tall, and this text did not
+    //
+    // The hall is built to a concept sheet now and it is 12.7 m - a town branch, not
+    // a cathedral. Everything below still described it as the 80.5 m thing you see a
+    // city by, which is how a comment outlives the decision it records.
+    //
+    // So the two jobs are separated, because they were only ever conflated by the
+    // hall happening to do both. The SKYLINE landmark is the spire again, which is
+    // what `Building::weenie(true)` has said all along. What the hall keeps is its
+    // SQUARE: `KEEPS_CLEAR` around it is negative space at street level, so the
+    // building a warden is looking for is read against sky from the approach road
+    // rather than against the flank of a tower. That is public-space composition and
+    // it is worth keeping at 12.7 m; it is not skyline protection and must not be
+    // read as any.
     // And the fallback, for a settlement whose square had nowhere the hall would
     // stand: it takes an ordinary lot instead of going without.
     if !site.ranch && !plots.iter().any(|p| p.what == Building::GuildHall) {
@@ -1851,9 +1871,10 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
     }
 
     if site.city {
-        // The spire ACROSS the middle rather than at it - and to one side of the way
-        // in, so it is not standing directly behind the hall from the entrance road,
-        // which is the one place it would still be competing.
+        // THE SPIRE IS THE THING YOU SEE THE CITY BY. Across the middle rather than
+        // at it, and to one side of the way in, so the hall on the square and the
+        // spire on the skyline are two separate sightings rather than one behind the
+        // other from the entrance road.
         let aside = site.at + Vec2::new(-approach.y, approach.x) * reach * 0.72;
         if let Some(index) = lot_that_fits(&plots, aside, Building::CitySpire) {
             if plots[index].at.distance(site.at) > square + KEEPS_CLEAR * 0.5 {
@@ -1861,10 +1882,11 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
             }
         }
 
-        // NEGATIVE SPACE. Rogers' other half, and the half a height contest misses:
-        // a landmark needs room around it or it is a tall thing in a thicket of tall
-        // things. Anything tall standing too close to the hall is built lower, so the
-        // hall is seen against sky from the approach instead of against a neighbour.
+        // THE HALL'S SQUARE. Rogers' other half, and the half a height contest
+        // misses: a landmark needs room around it. At 80.5 m that meant nothing
+        // should out-top it; at 12.7 m it means nothing should stand over it at the
+        // moment you arrive, which is the same rule doing an honest job at a
+        // believable size. Anything tall too close is built lower.
         if let Some(hall) = plots
             .iter()
             .position(|plot| plot.what == Building::GuildHall)
@@ -4254,14 +4276,18 @@ mod tests {
                     }
                 }
 
-                // AND THE THING YOU SEE FROM OUTSIDE, which is the guild hall.
+                // AND THE THING YOU SEE FROM OUTSIDE, WHICH IS NOT THE HALL.
                 //
-                // This used to ask for a spire, because the spire was the tallest
-                // thing a city had and was placed nearest the middle by Rogers'
-                // rule. The guild hall is that thing now - 80.5 m against the
-                // spire's 57.1 - so the rule is unchanged and what satisfies it is
-                // not. Both halves are asked for: the hall is there, and it has room
-                // around it, because a landmark in a thicket of towers is not one.
+                // This asked only that a city have a guild hall with room around it,
+                // on the grounds that the hall was 80.5 m and therefore the thing you
+                // navigate by. The hall is 12.7 m now and the test kept passing,
+                // because what it actually checks - a hall exists, no tower stands
+                // near it - is true of a hall of any height. A test can go on being
+                // green long after the sentence it was written to defend stopped
+                // being true.
+                //
+                // Both are asked for now, separately: something TALL for the skyline,
+                // which is the spire, and the hall's own square at street level.
                 if city {
                     let Some(hall) = layout
                         .plots
@@ -4281,6 +4307,13 @@ mod tests {
                     assert_eq!(
                         crowding, 0,
                         "seed {seed}: {crowding} tower(s) stand inside the guild hall's square, so it is read against a building instead of against sky",
+                    );
+                    assert!(
+                        layout
+                            .plots
+                            .iter()
+                            .any(|p| p.what == Building::CitySpire),
+                        "seed {seed}: a city with nothing tall in it - there is no spire to see it by from outside",
                     );
                 }
             }

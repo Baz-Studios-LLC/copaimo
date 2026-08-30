@@ -122,3 +122,112 @@ No current blocker found in commits `d2066c4` and `b9e7b0f`.
   solid. Therefore a future side or rear gateway would still become an invisible solid wall even
   though the contract recorded the opening correctly. This does not affect any yard in the present
   contract; note it beside the next yard-layout expansion rather than reopening the completed fix.
+
+## 2026-08-30 — Answer: preserve partial matrix evidence, but only after the file exists
+
+Yes: make the report durable as the run progresses. Fifteen small report writes are immaterial next
+to rendering and encoding fifteen full screenshots, and a crash is exactly when the progress record
+has value.
+
+There is one important ordering correction to make at the same time. The current code pushes the
+successful report row **before** it spawns the screenshot request. A crash or save failure after
+`taking.report.push(row)` can therefore leave a report that says a shot was taken when no usable PNG
+exists. Incremental reporting would make that false claim durable.
+
+Recommended cheap lifecycle:
+
+1. At matrix start, create/truncate the report with a run header, expected shot count, and
+   `status: RUNNING`.
+2. Before the shutter, validate the declared world state as now. Keep that result as `validated`,
+   but do not yet count the shot as completed.
+3. Request the screenshot.
+4. At the existing post-shutter wait, verify the expected file exists and has non-zero length. If
+   reading the PNG dimensions is already cheap, verify those too. Only then append/commit the row as
+   `WRITTEN` and advance to the next shot.
+5. On a lighting-contract failure, append a `FAILED` row with the reason before exiting.
+6. After the final confirmed file, write `status: COMPLETE — 15/15`. The absence of that footer means
+   the run was interrupted even if every surviving row is valid.
+
+For only fifteen rows, rewriting the complete small Markdown report after each confirmed shot is
+simple and makes it continuously readable. An append-only TSV/JSONL journal is slightly more robust
+to interruption during a write, but it is not necessary unless this tool grows. If rewriting, a
+temporary file followed by replacement is ideal; if using plain writes, the explicit `RUNNING` and
+`COMPLETE` markers still prevent a truncated report from being mistaken for success.
+
+Include a run identifier or start timestamp so a new run cannot accidentally make stale rows or
+old PNGs look current. The final report should distinguish at least `planned`, `validated`,
+`written`, and `failed`; “validated” means the world was correct, while “written” means evidence is
+actually present.
+
+Skipping the hard `ClearColor` assertion is reasonable. Reproducing the overcast mix in the checker
+would create exactly the duplicated derivation this work is eliminating. If extra observability is
+desired, record the actual clear color without judging it, or compare the observed clear colors of
+an exact noon/night camera pair for meaningful difference. Neither is required to close this work:
+the explicit contract, actual hour, sun height, directional lux, held weather, and declared lamp
+expectation already catch the original and highest-risk schedule failures.
+
+Read-only review result for `953f4a4`: the evidence contract is a strong improvement, the deliberate
+`Night { lamps: bool }` correction is right, and the reproduced failure is convincing. The only
+actionable issue found is the report row currently being counted before its asynchronous screenshot
+has been confirmed on disk.
+## 2026-08-30 — Read-only review: concept-sheet Guild hall (`e01d638`)
+
+The new Wardens Guild hall is a strong visual correction. The lower silhouette, green shingle roof, plaster/timber/stone material hierarchy, porch, wing, and compass emblem read much more like an approachable civic-adventuring headquarters than the former 80 m campanile. Making the hall mandatory in every non-ranch settlement is also a coherent world-design choice.
+
+Before treating the change as closed, I recommend addressing two concrete issues.
+
+### 1. The commit appears to regress the runtime-only asset packaging rule
+
+- `assets/models/ranger.glb` was re-added at roughly 17.9 MB even though the runtime uses `assets/models/person_ranger.glb` and I found no live reference to the re-added file.
+- This duplicates the authoring source already kept at `dev/art/source/ranger.glb` and reverses part of commit `c2b4124` ("Ship what the game loads, and nothing else").
+- The concept references `assets/buildings/City hall` and `assets/buildings/Town hall` add another roughly 4.3 MB beneath the shipped `assets/` tree. The building loader ignores them because they are not JSON, but release packaging still copies the asset tree.
+
+Recommended action: keep these reference/source files under something like `dev/art/source/buildings/`, update the generator reference accordingly, and remove the unused duplicate `assets/models/ranger.glb`. That preserves the useful reproducible workflow without adding about 22 MB of authoring material to releases.
+
+### 2. City landmark behavior and tests still describe the old 80.5 m hall
+
+The generated hall is now approximately 9–10 m tall, but `src/world/town.rs` still contains comments and a test that describe the Guild hall as the city's 80.5 m skyline landmark. The city placement logic also reserves `KEEPS_CLEAR = 34.0` around it and demotes nearby `CityTower`/`CitySpire` buildings, while the test named `a_town_has_landmarks_and_a_city_has_something_tall` only proves that a Guild hall exists and that tall buildings are excluded nearby. It no longer proves the city has something tall.
+
+`Building::weenie(true)` already identifies `CitySpire` as the city weenie, so I recommend making that contract explicit:
+
+- Update the stale 80.5 m comments and test description.
+- Directly require and preserve a `CitySpire` (or test actual landmark height/approach visibility) for cities.
+- Re-evaluate the 34 m exclusion around the short hall. It can remain if it intentionally defines a civic square, but it should be tuned and documented as public-space composition rather than skyline protection.
+- Decide whether the town-scale branch should deliberately appear in modern cities. If the `City hall` concept is intended as a later variant, a separate city civic model/profile would let the same Wardens Guild program evolve architecturally by settlement tier. If the shared model is intentional, document that choice so future work does not mistake it for unfinished tiering.
+
+### What is working well
+
+- The concept-to-generator-to-turnaround workflow is valuable and should make visual iteration much more objective.
+- The measured footprint and centered entrance preserve the placement/door contract.
+- A village Guild hall at roughly twice cottage height should work as a legible local landmark without overpowering the settlement.
+- The new material hierarchy and asymmetric massing are a better fit for the semi-cel-shaded direction.
+
+This was a read-only review of the committed diff and relevant asset references. I did not modify or run anything in the game tree.
+## 2026-08-30 10:53 — Working-tree note while the enlarged hall is being integrated
+
+I can see this is still in progress, so this is a narrow early warning rather than a final review.
+
+The new `clear_of_buildings` SAT check is the right kind of replacement for the old clearance circles. There are two orientation/clearance details in `open_ground` worth fixing before relying on the new world-level test:
+
+1. `open_ground` checks the proposed landmark with `facing = 0.0`, but its caller then stores the square landmark with `facing = approach.y.atan2(approach.x)`. A 26 x 18 m Guild hall is not close enough to square for that substitution to be harmless. Pass the actual intended facing into `open_ground` and use the same value for both clearance and placement.
+2. Street clearance inside `open_ground` still uses a circle of `what.footprint().max_element() * 0.5`. For the 26 x 18 m hall, the corner radius is about 15.8 m while this check reserves only 13 m. At oblique angles it can therefore clear a location whose corner reaches into a road. Reuse `clear_of_streets(streets, at, facing, what)` here so both buildings and roads use exact directional support.
+
+The real-world settlement test is a valuable addition, but current-world seeds cannot prove that the mismatched facing is safe; it can only say the present layouts did not expose it. A small focused regression test with a rotated rectangular hall beside a building and beside a street would cover the geometry directly.
+
+Also, the two items from my review of `e01d638` remain visible in the current tree: the old 80.5 m city-landmark comments/test and 34 m exclusion are still present, and the unused/source files remain under shipped `assets/`. I would keep those on the close-out list after the current visual/collision pass.
+## 2026-08-30 11:25 — Post-commit review of `abaa307`
+
+The commit is a meaningful improvement: the hall now has an actual activity programme, readable signage, a more convincing compass rose, denser civic fenestration, and the false-window lantern problem is cleanly separated at the material/measurement boundary. Replacing the old building-clearance circles with SAT is also the correct architectural fix, and the real-world settlement test is much stronger than relying only on synthetic sites.
+
+Two geometry issues from my working-tree note remain in the committed code and should be treated as follow-up correctness work:
+
+- `open_ground` checks building separation at heading `0.0`, then places the Guild hall at the approach heading. The committed 26 x 18 m footprint is substantially rectangular, so collision approval and final placement are not testing the same shape.
+- The same function still clears streets with `max_element / 2` rather than the exact `clear_of_streets` support check. For this hall that reserves 13 m while a corner reaches about 15.8 m, so an obliquely placed hall can still intrude into a road even though the new building-to-building test passes.
+
+The commit message says all three former approximations became one exact test, but only building-to-building clearance did. Please pass the intended facing through `open_ground`, use it for the final plot, and reuse `clear_of_streets` there as well. A focused rotated-rectangle test beside a street and another building will guard the contract independently of today's world seeds.
+
+One pipeline hygiene item is also worth checking: the full art build rewrote many unrelated tracked `.blend1` backup files and both bridge GLBs even though their sizes did not change. If those are incidental Blender backup/nondeterministic export changes, the build should not make a clean tree dirty across unrelated art. Either keep disposable `.blend1` files out of version control or make figure generation/export deterministic and scoped. Do not remove them until their source-vs-backup role is confirmed.
+
+The earlier packaging and city-landmark findings are still open: the authoring references and unused ranger source remain under shipped `assets/`, while the city comments/test/34 m exclusion still describe the former 80.5 m Guild hall.
+
+This was a read-only review. I made no changes outside `codex-suggestions`.

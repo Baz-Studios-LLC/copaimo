@@ -436,6 +436,39 @@ pub fn anchor_where_told(
 /// a coordinate until the settlements have been planned. Naming them rather than
 /// writing coordinates down is the whole point: the same nine shots keep meaning the
 /// same nine things after the map changes, which is what makes two runs comparable.
+/// Where a settlement's guild hall stands, and which way its door faces.
+///
+/// # A viewpoint that is about a landmark has to find the landmark
+///
+/// The settlement shots were aimed at `site.at`, the middle of the plan, on the
+/// reasoning that the guild hall takes the square so the middle is where it is. That
+/// held while the hall was 18 m across and stopped the day it grew to 26: the search
+/// that places it walks OUTWARD until it finds room, so it moved - and three shots
+/// labelled as the middle of a village came back showing a well and some cottages
+/// with the landmark out of frame entirely.
+///
+/// The fix is not to aim further out. It is to stop assuming: the town is laid out
+/// with the same seed the game gives it, and the camera is pointed at whatever that
+/// says. `raise_the_towns` keys a settlement on its index in the plan, so the two
+/// agree by construction rather than by coincidence.
+fn guild_hall_in(plan: &crate::world::settle::Settlements, index: usize) -> Option<(Vec2, f32)> {
+    let site = plan.sites().get(index)?;
+    if site.ranch {
+        return None;
+    }
+    crate::world::town::lay_out(
+        site,
+        plan.approach(site.at),
+        crate::config::WORLD_SEED.wrapping_add(index as u32 * 7717),
+    )
+    .plots
+    .into_iter()
+    .find(|plot| plot.what == crate::world::town::Building::GuildHall)
+    // Out through its DOOR, which is where the sign and the rose are. Stood behind
+    // it the shot is a roof.
+    .map(|plot| (plot.at, plot.facing))
+}
+
 pub fn fill_the_matrix(
     mut photo: ResMut<Photo>,
     terrain: Option<Res<crate::world::terrain::TerrainSource>>,
@@ -472,10 +505,11 @@ pub fn fill_the_matrix(
     // and their middle. `EDGE_LIES_AT` is where the wall stands, so a little past
     // that is outside it.
     for (label, city) in [("village", false), ("city", true)] {
-        let Some(site) = plan
+        let Some((index, site)) = plan
             .sites()
             .iter()
-            .find(|site| !site.ranch && site.city == city)
+            .enumerate()
+            .find(|(_, site)| !site.ranch && site.city == city)
         else {
             continue;
         };
@@ -489,12 +523,17 @@ pub fn fill_the_matrix(
             if city { 52.0 } else { 40.0 },
             Lighting::Noon
         );
+        // THE HALL, not the middle. See `guild_hall_in`.
+        let (heart, look) = match guild_hall_in(plan, index) {
+            Some((at, facing)) => (at, Vec2::new(facing.sin(), -facing.cos())),
+            None => (site.at, out),
+        };
         add(
             &format!("{label}_node"),
-            site.at,
-            out,
-            if city { 9.0 } else { 5.0 },
-            if city { 66.0 } else { 40.0 },
+            heart,
+            look,
+            if city { 10.0 } else { 8.0 },
+            if city { 46.0 } else { 38.0 },
             Lighting::Noon
         );
         // And the country outside it, which is where the arrival ought to begin.
@@ -545,7 +584,12 @@ pub fn fill_the_matrix(
     // whether the dusk fade complements what is left of the sky, whether the node is
     // navigable at full dark, and whether light with no shadows leaks through the
     // building it should be stopped by.
-    if let Some(site) = plan.sites().iter().find(|site| site.city && !site.ranch) {
+    if let Some((index, site)) = plan
+        .sites()
+        .iter()
+        .enumerate()
+        .find(|(_, site)| site.city && !site.ranch)
+    {
         let out = plan.approach(site.at).normalize_or(Vec2::new(0.0, 1.0));
         add(
             "night_entrance",
@@ -557,7 +601,13 @@ pub fn fill_the_matrix(
             // the street lamps are further off than they are admitted from.
             Lighting::Night { lamps: false },
         );
-        add("night_node", site.at, out, 5.0, 40.0, Lighting::Night { lamps: true });
+        // On the hall after dark: its own lamps, its lit windows, and whether the
+        // sign and the rose still read once the sun is off them.
+        let (heart, look) = match guild_hall_in(plan, index) {
+            Some((at, facing)) => (at, Vec2::new(facing.sin(), -facing.cos())),
+            None => (site.at, out),
+        };
+        add("night_node", heart, look, 7.0, 34.0, Lighting::Night { lamps: true });
         // Behind a building, looking back at the lamps on the far side of it: if
         // light is passing through the wall, this is where it shows.
         add(

@@ -717,3 +717,55 @@ Would you have the matrix write a row as each shot completes rather than at the 
 so a crashed run still leaves evidence of where it got to? My instinct is yes and that
 it is worth the fifteen file writes, but you have thought harder about evidence
 workflow than I have.
+
+### 2026-08-30 — Acting on the guild hall reviews
+
+Six findings across your three notes. Four were right and are fixed, one was right
+and is recorded as open, one does not apply here. Verifying each rather than taking
+them on trust, as always.
+
+**Right, and fixed — the packaging regression.** `assets/models/ranger.glb` was back
+at 17.9 MB and you were right that nothing loads it. The cause is worth writing down
+because it will happen again otherwise: `dev/model_export.sh` sweeps EVERY `.blend`
+in `dev/art/`, and `ranger.blend` is a local authoring artefact that is gitignored -
+so it exists on my machine, the exporter turns it into a runtime model, and
+`git add -A assets/models` commits it. The file is gone and gitignored with that
+reason written beside it. The two concept sheets moved to `dev/art/source/buildings/`
+- there is a City hall sheet too now, which would have shipped as well. And the 32
+tracked `.blend1` backups are untracked: `.gitignore` already covered them, and its
+own comment says the rule arrived after they were committed, which is exactly why
+they kept churning. `assets/` is 138 MB down to 116 MB.
+
+**Right, and fixed — `open_ground` cleared streets with a circle.** It kept
+`max_element * 0.5` after the building check beside it became exact. It now calls
+`clear_of_streets`, so every placement in the file measures roads the same way.
+
+**Right, and fixed — the stale 80.5 m city landmark.** The comments and the test
+described the hall as the thing you see a city by. It is 12.7 m. The two jobs are
+separated now: the SKYLINE landmark is the spire, which `Building::weenie(true)` has
+said all along, and what the hall keeps is its SQUARE - `KEEPS_CLEAR` as negative
+space at street level, documented as public-space composition and explicitly not as
+skyline protection. The test asserted only that a hall exists with room around it,
+which is true of a hall of any height, so it stayed green through the whole change; it
+now also requires a `CitySpire`. That assertion passes on every seed, so the world was
+right and only its description was wrong.
+
+**Right, and open — the report row is counted before the screenshot lands.** Your
+lifecycle is correct and I have not built it yet. Recorded here rather than done
+badly at the end of a long session.
+
+**Does not apply — `open_ground` at facing 0.0.** You reasoned from a 26 x 18 m hall
+going through it. It does not: `Building::landmarks()` returns only `MarketCross`
+(3.4 x 3.4), `Well` (2.4 x 2.2) and `Monument` (5.0 x 5.0), and the guild hall is
+placed either by the square-walk above or by `lot_that_fits`. Worst case through
+`open_ground` is the Well at 9% off square. The substitution is sound and the comment
+already says why - though your general point stands, so if a rectangular building is
+ever routed through there the facing must be threaded properly.
+
+**And you were right about the commit message.** It said three approximations became
+one exact test; two did. The third - `open_ground`'s street circle - is done now, so
+the sentence is finally true.
+
+One correction back on process: the `.blend1` churn you flagged as possibly
+nondeterministic export was not. They are Blender's automatic backups, tracked before
+the ignore rule existed, so every build rewrote files git was watching.
