@@ -705,7 +705,12 @@ pub fn plant_the_feet(
     ];
 
     // How far each foot has to move to meet the ground it is over.
-    let grounds = sides.map(|(_, (_, _, ankle, _))| terrain.height(ankle.x, ankle.z));
+    //
+    // What it WALKS on, not the bare terrain. `walk_height` is the one that knows a
+    // bridge deck is over the water rather than under it - the player's own step has
+    // always asked it and the feet never did, so crossing a bridge planted them on
+    // the river bed a hundred metres below.
+    let grounds = sides.map(|(_, (_, _, ankle, _))| terrain.walk_height(ankle.x, ankle.z));
     let shifts = [
         shift_to_ground(grounds[0], feet_at),
         shift_to_ground(grounds[1], feet_at),

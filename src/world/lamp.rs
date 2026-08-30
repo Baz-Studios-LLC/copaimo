@@ -29,10 +29,10 @@ use crate::world::StreamAnchor;
 use crate::world::terrain::TerrainSource;
 
 /// How many lamps are lit at once.
-const MOST_LIT: usize = 20;
+const MOST_LIT: usize = 44;
 
 /// How far a lamp can be from the warden and still be lit, in metres.
-const LIT_WITHIN: f32 = 85.0;
+const LIT_WITHIN: f32 = 120.0;
 
 /// How bright each fitting burns, in lumens, and how far its light carries.
 ///
@@ -57,9 +57,9 @@ const LIT_WITHIN: f32 = 85.0;
 // `--photo --hour 22` - and they should be re-tuned from evidence if the exposure or
 // the night ambient ever moves, not reasoned about from wattage.
 const STREET_BURNS: f32 = 1_600_000.0;
-const POST_BURNS: f32 = 460_000.0;
-const STREET_CARRIES: f32 = 42.0;
-const POST_CARRIES: f32 = 20.0;
+const POST_BURNS: f32 = 900_000.0;
+const STREET_CARRIES: f32 = 55.0;
+const POST_CARRIES: f32 = 30.0;
 const LAMPLIGHT: Color = Color::srgb(1.0, 0.82, 0.55);
 
 /// How high the sun has to sink before the lamps come on.
@@ -266,7 +266,7 @@ const STREET_SPREAD: f32 = 1.15;
 
 /// How near a lamp has to be to be ADMITTED to the lit set, as against kept in it.
 /// The gap between this and `LIT_WITHIN` is the hysteresis.
-const ADMIT_WITHIN: f32 = 62.0;
+const ADMIT_WITHIN: f32 = 92.0;
 
 /// What a lit window is coloured. Warmer and paler than a street lamp: it is a room
 /// with a lamp in it seen through glass, not the lamp itself.

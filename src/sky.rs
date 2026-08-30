@@ -254,6 +254,8 @@ fn drive_the_sky(
     mut clear: ResMut<ClearColor>,
     mut ambient: ResMut<AmbientLight>,
     mut suns: Query<(&mut Transform, &mut DirectionalLight)>,
+    terrain: Option<Res<crate::world::terrain::TerrainSource>>,
+    anchors: Query<&GlobalTransform, With<crate::world::StreamAnchor>>,
 ) {
     let height = when.sun_height();
 
@@ -337,7 +339,31 @@ fn drive_the_sky(
     // The sky is the ambient light: bright blue-white by day, and at night a
     // little more than nothing, so a world is dark rather than invisible.
     ambient.color = mix_colour(NIGHT_AMBIENT, DAY_AMBIENT, smoothstep_up(height, -0.15, 0.25));
-    ambient.brightness = (NIGHT_LUX + (DAY_AMBIENT_LUX - NIGHT_LUX) * smoothstep_up(height, -0.2, 0.3))
+    // A TOWN AT NIGHT IS NOT A FIELD AT NIGHT.
+    //
+    // One night ambient for the whole world made the wilderness right and the towns
+    // wrong: a place with people in it and lamps up it read almost as dark as open
+    // country, and twenty street lamps cannot carry a whole settlement on their own -
+    // they light their own pools and leave everything between them black.
+    //
+    // So the night floor follows the GROUND the warden is standing on. `settled` is
+    // what the biome already uses to know a town's earth from a meadow's, positive
+    // for the old world's dirt and negative for a city's paving, so this asks the
+    // same question the ground colour does and eases out over the same edge. Walk out
+    // of a village and the dark comes back.
+    //
+    // Asked for directly: "towns and cities need to be well lit", with the wilderness
+    // left dark on purpose.
+    let indoors = terrain
+        .as_ref()
+        .zip(anchors.iter().next())
+        .map(|(terrain, anchor)| {
+            let at = anchor.translation();
+            terrain.0.settled(at.x, at.z).abs().clamp(0.0, 1.0)
+        })
+        .unwrap_or(0.0);
+    let floor = NIGHT_LUX + (TOWN_NIGHT_LUX - NIGHT_LUX) * indoors;
+    ambient.brightness = (floor + (DAY_AMBIENT_LUX - floor) * smoothstep_up(height, -0.2, 0.3))
         * (1.0 - weather.overcast * 0.35);
 
     // Clouds take the sun's own colour, which is what turns a sky pink at dusk.
@@ -739,6 +765,15 @@ const DAY_LUX: f32 = 11_000.0;
 const MOON_LUX: f32 = 900.0;
 const DAY_AMBIENT_LUX: f32 = 1_200.0;
 const NIGHT_LUX: f32 = 340.0;
+
+/// And what it is inside a settlement.
+///
+/// Two and a half times the wilderness. Enough that a street reads as a place you
+/// can walk down and a shop's inside is not a black hole through its own doorway,
+/// and short of the day's own ambient so it still plainly reads as night. The lamps
+/// still do the work of saying WHERE the light is; this stops everything between
+/// them from being nothing.
+const TOWN_NIGHT_LUX: f32 = 1100.0;
 
 const DAWN_LIGHT: Color = Color::srgb(1.0, 0.62, 0.34);
 const NOON_LIGHT: Color = Color::srgb(1.0, 0.97, 0.92);

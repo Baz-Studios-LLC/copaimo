@@ -156,7 +156,14 @@ pub const WALK_SPEED: f32 = 1.42;
 // delivered run is ANIMATED at - JOG_COVERS 2.982 m over its 0.625 s cycle - so the clip plays
 // at exactly 1.00x and distance matching agrees with the animator instead of stretching him.
 // 2.90 under this clip meant 0.61x playback: "running through water", reported twice.
-pub const JOG_SPEED: f32 = 4.77;
+//
+// 5.35 now, asked for directly: "increase the running speed a bit". That is 1.12x on the
+// clip rather than 1.00x, so the cadence runs a little ahead of the stride the animator
+// delivered. Twelve per cent is small enough to read as a quicker warden rather than as a
+// sped-up video, and this is a KNOB: how the game feels is the thing being tuned, and a
+// clip is an input to that rather than a limit on it. If it ever reads as skating, the
+// answer is a faster clip, not a slower warden.
+pub const JOG_SPEED: f32 = 5.35;
 
 /// A sprint, in metres a second. Held on Shift.
 ///
