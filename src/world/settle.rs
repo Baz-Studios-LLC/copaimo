@@ -63,6 +63,13 @@ pub struct Site {
     /// How its streets are laid out - see `world::town::Plan`. Villages are always
     /// rings; a city is dealt one.
     pub plan: crate::world::town::Plan,
+    /// The bearing the road into town arrives on, which is the axis its plan is laid
+    /// against. Filled in once the roads exist - see `face_the_sites`.
+    ///
+    /// STORED, not asked for. `approach` walks every road in the world, and the
+    /// levelling needs this at every point of ground it decides: putting the call in
+    /// there made a per-point question out of a per-settlement fact.
+    pub bearing: f32,
     /// The player's ranch, which is a site so that nothing else takes its ground -
     /// and is NOT a settlement. `world::town` skips it.
     ///
@@ -425,6 +432,7 @@ impl Settlements {
             // because the field exists, not because it means anything.
             character: crate::world::town::Character::of(0),
             plan: crate::world::town::Plan::Rings,
+            bearing: 0.0,
             ranch: true,
         });
 
@@ -448,7 +456,22 @@ impl Settlements {
                 // Dealt round the settlements in order, so a world cannot come out
                 // with seven capitals by luck. See `world::town::Character`.
                 character: crate::world::town::Character::of(which),
-                plan: crate::world::town::Plan::of(which),
+                // RESOLVED HERE, so nobody has to remember the rule. A village is
+                // always rings - a hamlet that grew around a green is what a village
+                // IS, and there is not enough of one to read a grid off.
+                //
+                // `lay_out` did the resolving and `level` read the raw field, so a
+                // village had its streets laid as rings and its GROUND levelled as
+                // the spine it had been dealt. The two shapes disagree fastest at
+                // the capsule's flank, which is where the ground stepped 0.88 m over
+                // a quarter of a metre.
+                plan: if city {
+                    crate::world::town::Plan::of(which)
+                } else {
+                    crate::world::town::Plan::Rings
+                },
+                // Filled in below, once there are roads to read it from.
+                bearing: 0.0,
                 ranch: false,
             });
         }
@@ -474,6 +497,12 @@ impl Settlements {
             half,
         };
         settlements.index();
+        // Which way each settlement faces, now the roads that reach it exist. Every
+        // plan is laid against the road that made the place.
+        for which in 0..settlements.sites.len() {
+            let out = settlements.approach(settlements.sites[which].at);
+            settlements.sites[which].bearing = out.y.atan2(out.x);
+        }
         // The streets inside each town, once there are sites and roads for the
         // layout to be built from. Filed as claims like everything else, so from
         // here on the ground itself knows where a street is.
@@ -611,7 +640,7 @@ impl Settlements {
         // the grid mutably and reading the features borrows it immutably.
         let mut filings: Vec<(u16, Vec2, Vec2)> = Vec::new();
         for (i, site) in self.sites.iter().enumerate() {
-            let reach = site.radius + skirt_of(site.radius);
+            let reach = site.plan.reaches(site.radius) + skirt_of(site.radius);
             filings.push((i as u16, site.at - reach, site.at + reach));
         }
         // The widest a road can ever pull, not the narrowest. Filing them by the
@@ -730,12 +759,23 @@ impl Settlements {
                 )
             } else if what < sites {
                 let site = &self.sites[what as usize];
-                let away = site.at.distance(at);
-                // Flat out to the radius, then easing back to the land over the
+                // THE SHAPE THE TOWN IS, not a circle round it.
+                //
+                // This was the distance from the middle, so every settlement stood
+                // on a round plateau. That is right for a ring town and wrong for a
+                // spine, which is a long thin thing with a circular field of bare
+                // level ground round it and a visible round edge on that - a crop
+                // circle with a town in it.
+                //
+                // `Plan::off` is the one definition of a settlement's footprint and
+                // the streets are clipped to the same one, so the ground a town
+                // stands on and the ground its streets are laid across agree.
+                let away = site.plan.off(at - site.at, site.bearing, site.radius);
+                // Flat out to the edge, then easing back to the land over the
                 // skirt, so a town sits in the ground rather than on a plinth.
                 (
                     site.height,
-                    smoothstep(site.radius + skirt_of(site.radius), site.radius, away),
+                    smoothstep(skirt_of(site.radius), 0.0, away),
                 )
             } else {
                 let road = &self.roads[(what - sites) as usize];
@@ -1346,7 +1386,7 @@ mod levelling {
             );
             for (which, site) in plan.sites().iter().enumerate() {
                 let away = site.at.distance(spot);
-                if away < site.radius + skirt_of(site.radius) + 40.0 {
+                if away < site.plan.reaches(site.radius) + skirt_of(site.radius) + 40.0 {
                     println!(
                         "    site {which}: away {away:.1}, radius {:.1}, height {:.2}, pull {:.3}",
                         site.radius,
@@ -1456,3 +1496,4 @@ mod pad_probe {
         }
     }
 }
+

@@ -224,7 +224,70 @@ impl Plan {
         const ALL: [Plan; 3] = [Plan::Rings, Plan::Grid, Plan::Spine];
         ALL[(key * 2 + 1 + crate::config::WORLD_SEED as usize) % ALL.len()]
     }
+
+    /// How far outside a settlement's built shape a point lies, nought on it.
+    ///
+    /// # A round disc of level ground under a town that is not round
+    ///
+    /// The ground was levelled in a circle for every settlement, which is right for
+    /// a ring town and wrong for the others: a spine town is a long thin thing, and
+    /// a circular plateau round it is mostly bare flat ground with a visible round
+    /// edge on it, which reads as a crop circle somebody built a town in.
+    ///
+    /// One definition of the shape, asked by the LEVELLING and by the street
+    /// clipping both, so the ground a town stands on and the ground its streets are
+    /// laid across cannot disagree. `away` is from the middle, in world space.
+    pub fn off(self, away: Vec2, bearing: f32, radius: f32) -> f32 {
+        let (sin, cos) = bearing.sin_cos();
+        // Into the plan's own frame: x along the road that made the place.
+        let local = Vec2::new(away.x * cos + away.y * sin, -away.x * sin + away.y * cos);
+        match self {
+            // A town that accreted round a market is round.
+            Plan::Rings => away.length() - radius,
+            // A chartered grid is a rectangle, because somebody drew it as one. A
+            // little wider than long, so it covers about the ground a circle would.
+            Plan::Grid => {
+                let half = Vec2::new(radius * 0.86, radius * 0.86);
+                let out = local.abs() - half;
+                out.max(Vec2::ZERO).length() + out.x.max(out.y).min(0.0)
+            }
+            // A road that got built along: a capsule, as long as the town reaches
+            // and as wide as its back lanes and their frontage.
+            Plan::Spine => {
+                let half = radius - radius * SPINE_IS_WIDE;
+                let along = local.x.clamp(-half, half);
+                Vec2::new(local.x - along, local.y).length() - radius * SPINE_IS_WIDE
+            }
+        }
+    }
+
+    /// The furthest this shape reaches from the middle.
+    ///
+    /// # A claim that stopped before its own pull did
+    ///
+    /// Settlements are filed into a grid of cells by how far they reach, and that
+    /// was a circle of `radius + skirt` for every one of them. A grid town is a BOX,
+    /// whose corner is 1.22 times its half-width out - so past the filed reach the
+    /// site simply was not considered, its pull went from most of the way to nothing
+    /// between two samples, and the ground stepped 0.88 m over a quarter of a metre.
+    ///
+    /// The shape says how far it reaches, next to the function that defines it.
+    pub fn reaches(self, radius: f32) -> f32 {
+        match self {
+            Plan::Rings => radius,
+            // The corner of the box, which is what a circle round it misses.
+            Plan::Grid => radius * 0.86 * std::f32::consts::SQRT_2,
+            // The end of the capsule: half its length plus its cap.
+            Plan::Spine => radius,
+        }
+    }
 }
+
+/// How wide a spine town is, as a share of how far it reaches.
+///
+/// The end caps of its capsule too, so a spine town is a rounded oblong rather than
+/// a rectangle with corners nobody built on.
+const SPINE_IS_WIDE: f32 = 0.34;
 
 /// The ground a plan is laid on, and the measurements every plan needs.
 ///
@@ -1560,6 +1623,127 @@ fn frontage_parcels(
 /// is shallower than the road is wide and the eye reads a curve rather than a bend.
 const A_CURVE_STEPS_EVERY: f32 = 6.0;
 
+/// How far from the middle a settlement's edge is, on a given bearing.
+///
+/// Found by bisection on `Plan::off` so every shape is handled by the one that
+/// defines it, rather than each shape needing its own solved boundary.
+fn edge_at(on: &Ground, plan: Plan, angle: f32) -> f32 {
+    let way = Vec2::from_angle(angle);
+    let (mut near, mut far) = (0.0_f32, on.reach * 2.0);
+    for _ in 0..24 {
+        let mid = (near + far) * 0.5;
+        if plan.off(way * mid, on.through, on.reach) < 0.0 {
+            near = mid;
+        } else {
+            far = mid;
+        }
+    }
+    (near + far) * 0.5
+}
+
+/// The perimeter road's own corners.
+///
+/// Shared by the road and by the clipping, because a street clipped to the SHAPE
+/// ends where the shape is and the road is a polygon inscribed in it - so on a plan
+/// with corners the two disagree by the sagitta, and a grid left twelve streets
+/// hanging a few metres past their own ring road.
+fn perimeter_points(on: &Ground, plan: Plan) -> Vec<Vec2> {
+    // Enough sides that it reads as a shape rather than a polygon, and few enough
+    // that each side is a street somebody could walk down.
+    const SIDES: usize = 40;
+    (0..SIDES)
+        .map(|i| {
+            let angle = std::f32::consts::TAU * i as f32 / SIDES as f32;
+            on.middle + Vec2::from_angle(angle) * edge_at(on, plan, angle)
+        })
+        .collect()
+}
+
+/// Whether a point is inside the perimeter road.
+///
+/// Ray casting, which is the shape the road actually is rather than the shape it
+/// was cut from.
+fn within(edge: &[Vec2], at: Vec2) -> bool {
+    let mut inside = false;
+    for i in 0..edge.len() {
+        let (a, b) = (edge[i], edge[(i + 1) % edge.len()]);
+        if (a.y > at.y) != (b.y > at.y) {
+            let cross = a.x + (at.y - a.y) / (b.y - a.y) * (b.x - a.x);
+            if at.x < cross {
+                inside = !inside;
+            }
+        }
+    }
+    inside
+}
+
+/// The stretch of a line that lies inside a settlement's shape.
+///
+/// Returns the two ends, both ON the boundary, so a street clipped with this
+/// finishes exactly where the perimeter road runs and the two meet.
+fn inside(on: &Ground, plan: Plan, from: Vec2, to: Vec2) -> Option<(Vec2, Vec2)> {
+    let run = to - from;
+    let length = run.length();
+    if length < 1.0 {
+        return None;
+    }
+    // Where the line first and last lies within the shape, to a metre, then each
+    // end tightened onto the boundary.
+    let steps = (length / 2.0).ceil().max(2.0) as usize;
+    let edge = perimeter_points(on, plan);
+    let inside_at = |t: f32| within(&edge, from + run * t);
+    let first = (0..=steps).map(|i| i as f32 / steps as f32).find(|t| inside_at(*t))?;
+    let last = (0..=steps)
+        .map(|i| 1.0 - i as f32 / steps as f32)
+        .find(|t| inside_at(*t))?;
+    if last - first < 1.0e-3 {
+        return None;
+    }
+    // Tighten each end onto the edge, so it lands on the perimeter rather than up
+    // to a metre short of it.
+    let tighten = |mut out: f32, mut within: f32| {
+        for _ in 0..16 {
+            let mid = (out + within) * 0.5;
+            if inside_at(mid) {
+                within = mid;
+            } else {
+                out = mid;
+            }
+        }
+        (out + within) * 0.5
+    };
+    let head = if first > 0.0 { tighten(first - 1.0 / steps as f32, first) } else { 0.0 };
+    let tail = if last < 1.0 { tighten(last + 1.0 / steps as f32, last) } else { 1.0 };
+    Some((from + run * head, from + run * tail))
+}
+
+/// The road round the edge of a settlement.
+///
+/// # Streets that stopped in a field
+///
+/// A grid's streets are chords and a spine's ribs are stubs, and both used to end
+/// wherever the town ran out - a road stopping dead in open ground, which is the one
+/// thing no real street does. Asked for directly: city streets should always close
+/// the loop with each other, and only a few roads should leave to meet the country.
+///
+/// A perimeter closes every one of them at once, whatever the plan, because every
+/// street is clipped to the same shape it follows. It is also what a town of any
+/// size actually has - a boundary road, a bypass, the line the fields start at.
+fn perimeter_streets(on: &Ground, plan: Plan, ways: &mut Vec<Way>, parcels: &mut Vec<Parcel>) {
+    let mut points = perimeter_points(on, plan);
+    // Closed, which is the whole point of it.
+    points.push(points[0]);
+
+    for pair in points.windows(2) {
+        frontage_parcels(parcels, on.middle, pair[0], pair[1], on.lane, on.depth, false);
+    }
+    ways.push(Way {
+        points,
+        wide: on.lane,
+        joins: on.lane,
+    });
+}
+
 /// A chartered grid: orthogonal blocks, turned off the compass, cut by two avenues.
 ///
 /// # Somebody drew this before anybody lived here
@@ -1582,9 +1766,19 @@ fn grid_streets(on: &Ground, ways: &mut Vec<Way>, parcels: &mut Vec<Parcel>) {
 
     // The two AVENUES, on the axes through the middle: a grid still needs somewhere
     // that is more important than everywhere else, or it has no centre to walk to.
+    // Clipped to the town's own shape, so each end finishes on the perimeter road
+    // rather than in a field - see `perimeter_streets`.
     for (way, wide) in [(along, on.high_street), (across, on.high_street)] {
+        let Some((from, to)) = inside(
+            on,
+            Plan::Grid,
+            on.middle - way * on.reach * 2.0,
+            on.middle + way * on.reach * 2.0,
+        ) else {
+            continue;
+        };
         ways.push(Way {
-            points: vec![on.middle - way * on.reach, on.middle + way * on.reach],
+            points: vec![from, to],
             wide,
             joins: wide,
         });
@@ -1597,15 +1791,21 @@ fn grid_streets(on: &Ground, ways: &mut Vec<Way>, parcels: &mut Vec<Parcel>) {
                 continue;
             }
             let off = band as f32 * on.band;
-            // A chord of the site's disc at this offset - a grid is cut to the
-            // ground that was levelled for it, so its streets get shorter toward
-            // the edges and the town comes out round rather than square.
-            let half = (on.reach * on.reach - off * off).max(0.0).sqrt();
-            if half < on.band * 0.6 {
+            // CUT TO THE TOWN'S OWN SHAPE, which for a grid is a rectangle - a grid
+            // clipped to a circle is a grid somebody rubbed the corners off, and it
+            // was also what made a chartered plan come out round.
+            let middle = on.middle + other * off;
+            let Some((from, to)) = inside(
+                on,
+                Plan::Grid,
+                middle - way * on.reach * 2.0,
+                middle + way * on.reach * 2.0,
+            ) else {
+                continue;
+            };
+            if from.distance(to) < on.band * 0.6 {
                 continue;
             }
-            let middle = on.middle + other * off;
-            let (from, to) = (middle - way * half, middle + way * half);
             ways.push(Way {
                 points: vec![from, to],
                 wide: on.lane,
@@ -1618,17 +1818,22 @@ fn grid_streets(on: &Ground, ways: &mut Vec<Way>, parcels: &mut Vec<Parcel>) {
 
     // And frontage on the avenues, cut band by band so a lot never straddles a
     // crossing.
-    for (way, other) in [(along, across), (across, along)] {
-        let _ = other;
+    for way in [along, across] {
         for step in -bands..bands {
             let from = on.middle + way * (step as f32 * on.band + SETBACK);
             let to = on.middle + way * ((step + 1) as f32 * on.band - SETBACK);
-            if from.distance(on.middle) > on.reach || to.distance(on.middle) > on.reach {
-                continue;
+            if plan_holds(on, Plan::Grid, from) && plan_holds(on, Plan::Grid, to) {
+                frontage_parcels(parcels, on.middle, from, to, on.high_street, on.depth, false);
             }
-            frontage_parcels(parcels, on.middle, from, to, on.high_street, on.depth, false);
         }
     }
+
+    perimeter_streets(on, Plan::Grid, ways, parcels);
+}
+
+/// Whether a point is on the built ground of a settlement of this plan.
+fn plan_holds(on: &Ground, plan: Plan, at: Vec2) -> bool {
+    plan.off(at - on.middle, on.through, on.reach) < 0.0
 }
 
 /// A market spine: one long high street with ribs off it and a back lane each side.
@@ -1650,31 +1855,41 @@ fn spine_streets(on: &Ground, ways: &mut Vec<Way>, parcels: &mut Vec<Parcel>) {
     let length = on.reach;
     let back = on.band;
 
-    // THE HIGH STREET, end to end.
-    ways.push(Way {
-        points: vec![on.middle - along * length, on.middle + along * length],
-        wide: on.high_street,
-        joins: on.high_street,
-    });
+    // THE HIGH STREET, end to end - clipped to the town's shape so both ends
+    // finish on the perimeter rather than in a field.
+    if let Some((from, to)) = inside(
+        on,
+        Plan::Spine,
+        on.middle - along * length * 2.0,
+        on.middle + along * length * 2.0,
+    ) {
+        ways.push(Way {
+            points: vec![from, to],
+            wide: on.high_street,
+            joins: on.high_street,
+        });
+    }
 
     // A BACK LANE each side, shorter than the spine so the town tapers.
     for side in [-1.0_f32, 1.0] {
         let lane_at = on.middle + across * (side * back);
-        let half = length * 0.72;
+        // CLIPPED TO THE PERIMETER, like everything else. These were cut to a share
+        // of the spine's length and stopped wherever that fell, which is a road
+        // ending in a field a few metres inside the town's own ring road.
+        let Some((from, to)) = inside(
+            on,
+            Plan::Spine,
+            lane_at - along * length * 2.0,
+            lane_at + along * length * 2.0,
+        ) else {
+            continue;
+        };
         ways.push(Way {
-            points: vec![lane_at - along * half, lane_at + along * half],
+            points: vec![from, to],
             wide: on.lane,
             joins: on.lane,
         });
-        frontage_parcels(
-            parcels,
-            on.middle,
-            lane_at - along * half,
-            lane_at + along * half,
-            on.lane,
-            on.depth,
-            false,
-        );
+        frontage_parcels(parcels, on.middle, from, to, on.lane, on.depth, false);
     }
 
     // THE RIBS, joining the spine to the back lanes and on out a little.
@@ -1694,7 +1909,17 @@ fn spine_streets(on: &Ground, ways: &mut Vec<Way>, parcels: &mut Vec<Parcel>) {
             } else {
                 back
             };
-            let head = foot + across * (side * out);
+            // OUT TO THE EDGE, always. A rib that stopped after the back lane
+            // stopped in the middle of a field; clipped to the shape it runs to the
+            // perimeter and closes the loop with it.
+            let far = foot + across * (side * on.reach * 2.0);
+            let head = if unit(on.seed.wrapping_add((rib as u32).wrapping_mul(29)), 93) < 0.55 {
+                inside(on, Plan::Spine, foot, far).map(|(_, to)| to)
+            } else {
+                Some(foot + across * (side * out))
+            };
+            // A rib that stops short stops ON the back lane, which is a junction.
+            let head = head.unwrap_or(foot + across * (side * back));
             ways.push(Way {
                 points: vec![foot, head],
                 wide: on.lane,
@@ -1719,6 +1944,8 @@ fn spine_streets(on: &Ground, ways: &mut Vec<Way>, parcels: &mut Vec<Parcel>) {
         );
         at += step;
     }
+
+    perimeter_streets(on, Plan::Spine, ways, parcels);
 }
 
 /// Lays a ring segment as an ARC rather than as the chord across it.
@@ -2068,7 +2295,8 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         city: site.city,
         seed,
     };
-    let plan = if site.city { site.plan } else { Plan::Rings };
+    // The site's own, which already knows a village is rings - see `Site::plan`.
+    let plan = site.plan;
     if plan != Plan::Rings {
         match plan {
             Plan::Grid => grid_streets(&on, &mut ways, &mut parcels),
@@ -2169,6 +2397,10 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         }
     }
 
+        // AND THE RING ROAD ROUND THE EDGE, so the outermost radials finish on a
+        // street rather than in a field. The rings between spokes only run where
+        // both spokes reach, so the outer edge had gaps in it.
+        perimeter_streets(&on, Plan::Rings, &mut ways, &mut parcels);
     }
 
     // The roads are all laid. Everything from here asks geometric questions of them
@@ -2227,8 +2459,17 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         // radials where they leave a square, which is exactly where the old search
         // looked and only there. It found nothing and the city got no guild hall.
         // One ring further out the same gap is wider, because the radials diverge.
-        'find: for out in 0..6 {
-            let stand = stand + out as f32 * hall.footprint().x * 0.5;
+        // AND SEARCHED FINELY ENOUGH TO FIND THE GAPS THERE ARE.
+        //
+        // The stride was half the hall's own width - thirteen metres - which is
+        // coarser than the space between a ring road and the next one. It worked
+        // while the outermost band was open ground: the search walked past every
+        // gap and found somewhere out beyond the last ring. A town has a road round
+        // its edge now, so that ground is a street's clearance, and a hall that
+        // cannot land between two rings does not land at all. Every city in the
+        // world came out with no guild hall in it.
+        'find: for out in 0..24 {
+            let stand = stand + out as f32 * hall.footprint().x * 0.22;
         for step in 0..48 {
             let turn = through + std::f32::consts::TAU * step as f32 / 48.0;
             let at = site.at + Vec2::from_angle(turn) * stand;
@@ -5044,6 +5285,7 @@ mod tests {
             city,
             character,
             plan,
+            bearing: 0.0,
             ranch: false,
         }
     }
@@ -7426,6 +7668,59 @@ mod facing {
         );
     }
 
+    /// No city street ends in a field.
+    ///
+    /// # A road that stops dead
+    ///
+    /// A grid's streets are chords and a spine's ribs are stubs, and both used to
+    /// end wherever the town ran out - which is the one thing no real street does.
+    /// The contract asked for: city streets should always close the loop with each
+    /// other, and only a few roads should leave to meet the country.
+    ///
+    /// Every plan gets a perimeter road and every street is clipped to the same
+    /// shape it follows, so an end lands ON the perimeter rather than near it. This
+    /// asks that of the assembled layout for all three plans at the size cities are
+    /// actually built at.
+    #[test]
+    fn no_city_street_ends_in_a_field() {
+        for plan in [Plan::Rings, Plan::Grid, Plan::Spine] {
+            for character in [Character::Capital, Character::Works] {
+                let site =
+                    tests::a_site_on(true, crate::config::CITY_RADIUS, character, plan);
+                let laid = lay_out(&site, Vec2::new(0.6, -0.8).normalize(), &[], 5);
+
+                // An end is joined if any OTHER street passes within touching of it.
+                // By INDEX, because a street is only ever unconnected to itself.
+                // Comparing by position instead excludes the neighbouring pieces of
+                // the same chain - which are precisely the streets that prove an end
+                // is joined - and reported 1,616 loose ends in a plan that has none.
+                let loose: Vec<Vec2> = laid
+                    .streets
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(which, street)| [(which, street.from), (which, street.to)])
+                    .filter(|(which, end)| {
+                        laid.streets
+                            .iter()
+                            .enumerate()
+                            .filter(|(other, _)| other != which)
+                            .all(|(_, other)| {
+                                other.nearest_point(*end).distance(*end) > 1.5
+                            })
+                    })
+                    .map(|(_, end)| end)
+                    .collect();
+
+                assert!(
+                    loose.len() <= 4,
+                    "{plan:?} leaves {} street ends in a field, and a city may have                      four roads out at most: {:?}",
+                    loose.len(),
+                    &loose[..loose.len().min(5)]
+                );
+            }
+        }
+    }
+
     /// Three plans that are three different shapes, not three seeds of one.
     ///
     /// # The strongest thing in the picture
@@ -7806,6 +8101,7 @@ mod density_probe {
         }
     }
 }
+
 
 
 
