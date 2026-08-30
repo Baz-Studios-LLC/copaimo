@@ -357,6 +357,30 @@ Move the joining endpoint to a true interior point of a segment—for this fixtu
 
 No Copaimo game file was changed during this review.
 
+## 2026-08-30 16:51 — Review of `3d55115`, `d957476`, and `ce7afc1`
+
+The earlier road findings are now properly closed: drawing uses `cut.shoulder`, the resolved shoulder fade reaches `ROAD_HEM`, the cobble scale and paving amount are separate, the junction fixture truly lands between samples, and real city approaches plus the frame-rate matrix exercise assembled geometry. Applying building pads after sculpting also addresses the measured source of floating rather than merely hiding it with a plinth.
+
+### P1 — The fixed step probe can jump over a narrow tall ridge
+
+Replacing the per-frame delta with `STEP_LANDS = 0.6` removes the frame-rate dependency, but `may_step` samples only the endpoint of that probe. If terrain rises sharply and falls again within those 0.6 m, `ahead - here` can be small or negative even when the path crosses a ridge far taller than `STEP_UP`; each actual frame is then permitted because the probe sees the far-side landing rather than the obstruction between. The current canyon is broad enough not to expose this case.
+
+Probe the interval at fixed, frame-independent spacing and evaluate the path, not only the landing. A discrete step is acceptable when the maximum support height along the interval is no more than `here + STEP_UP` and the landing is supported/walkable; otherwise the sampled slopes must satisfy `CLIMB_LIMIT`. Preserve unconditional downhill escape. Add a synthetic or real narrow-ridge fixture taller than `STEP_UP` but narrower than `STEP_LANDS`, and run it through the same 30/60/120/240 Hz matrix.
+
+### P1 — Overlapping pads choose one height target discontinuously
+
+`pad_under` retains only the pad with the strongest pull and returns that pad's center as the height target. Expanded pad skirts will overlap in compact settlements. When two pulls cross, the winner can switch from one edited center height to another in one sample; if those centers differ, the result is a seam or step between otherwise smooth terraces. This is the same strongest-claim target discontinuity that `Settlements::level` already documents and avoids by combining targets.
+
+Use the established pattern: let the strongest claim govern total pull, but blend every overlapping pad's target height by weight. Because pad targets must include the sculpted layer, this may require returning the contributing centers/weights or providing a pad-blend helper that can resolve their edited target heights without recursive `Terrain::height` calls. Add a traversal-height continuity test through the gap between the closest pair of non-yard plots, especially where their skirts overlap.
+
+### P2 — Kerb evidence should not become permanent repository weight by default
+
+`ce7afc1` commits three PNG captures under `dev/art/shots/kerb`, together roughly 10 MB. They are useful validation evidence, but repeated visual passes at this size will reverse the recent repository cleanup. Unless these are intentionally maintained golden references with a comparison workflow, keep captures in the ignored evidence location described in the playtest proposal. If curated baselines are desired, name that policy, limit the set, and use appropriately compressed images or smaller review dimensions.
+
+The still-open world-axis cobble orientation and derivative/distance anti-shimmer recommendations remain visual polish rather than blockers for these fixes. The current uncommitted settlement-road reach change was left untouched and appears aimed at the earlier positive-wander cheap-reject finding.
+
+No Copaimo game file was changed during this review.
+
 ## 2026-08-30 15:51 — Review of `86e55e4`
 
 The lighter footing and simplified footway are visually well motivated. The shoulder change, however, currently splits the shared cross-section contract and does not remove the rendered fringe it was intended to fix.

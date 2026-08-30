@@ -2489,7 +2489,7 @@ pub fn stands_on(
             // ASKED ON THE MIDDLE LINE, which is where a road's section is decided.
             let centre = street.nearest_point(at);
             let across = at.distance(centre);
-            if across > street.wide * 0.5 + SHOULDER_WIDE {
+            if across > RoadSection::most_it_reaches(street.wide, street.wide) {
                 continue;
             }
             let paved = paved_here(terrain.plan(), centre);
@@ -2560,7 +2560,7 @@ pub fn stands_on(
 ///
 /// The widest it ever gets is the city street it joins, plus its shoulder. Used only
 /// to throw away the roads that are nowhere near before measuring the ones that are.
-const ROAD_REACHES: f32 = CITY_STREET_WIDE * 0.5 + SHOULDER_WIDE;
+const ROAD_REACHES: f32 = (CITY_STREET_WIDE * 0.5 + SHOULDER_WIDE) * (1.0 + ROAD_WANDERS_BY * 0.5);
 
 /// One town's worth of buildings, kept so the whole lot can be taken down together.
 ///
@@ -2703,6 +2703,25 @@ impl RoadSection {
     /// used to wander `half` and leave the kerb's batter at nominal size, so on the
     /// narrow side of a wander the kerb stood where the analytical surface did not
     /// put it. Codex found that, with the rest of this family.
+    /// The furthest a road of this nominal width can reach, whatever the paving
+    /// and however the width wanders.
+    ///
+    /// # A cheap reject is still a claim about the section
+    ///
+    /// `stands_on` runs over every street several times a frame, so it throws out the
+    /// far ones before it samples anything - and the bound it threw them out with was
+    /// `wide * 0.5 + SHOULDER_WIDE`, written straight into the loop. That is the
+    /// section's reach at wander 1.0, and an unpaved road wanders up to +17%: a 6 m
+    /// street can be drawn 9.83 m out and was rejected past 8.4 m, so the outer metre
+    /// and a half of it was visible road that the warden's feet went through. Codex
+    /// found it by reading the two expressions against each other.
+    ///
+    /// So the bound belongs to the section too. Conservative by construction: every
+    /// term of `new` is at most this one, at every paving amount.
+    pub fn most_it_reaches(wide: f32, joins: f32) -> f32 {
+        (wide.max(joins) * 0.5 + SHOULDER_WIDE) * (1.0 + ROAD_WANDERS_BY * 0.5)
+    }
+
     pub fn new(wide: f32, joins: f32, paved: f32, wander: f32) -> Self {
         let paved = paved.clamp(0.0, 1.0);
         let half = (wide + (joins - wide) * paved) * 0.5 * wander;
@@ -6100,6 +6119,117 @@ mod facing {
     /// about nothing else, so the night the lamps went in, every one of them lit the
     /// ground beside the road and left the road itself black.
     ///
+    /// A road that wanders wider is walkable all the way out to where it is drawn.
+    ///
+    /// # A bound written twice, and only one of them wandered
+    ///
+    /// `stands_on` throws out the far streets before it samples anything. That reject
+    /// was `wide * 0.5 + SHOULDER_WIDE` - the section's reach at wander 1.0 - while
+    /// the section it then built was scaled by a wander of up to 1.17. An unpaved 6 m
+    /// street is drawn 9.83 m out and was rejected past 8.4 m, so the outer metre and
+    /// a half was road you could see and fell through. Codex found it by reading the
+    /// two expressions against each other.
+    ///
+    /// Both directions matter, so this tests both: the widest sample must be felt out
+    /// to its own edge, and the narrowest must not be felt past its own edge - a
+    /// reject made conservative enough to stop clipping is otherwise easy to make so
+    /// generous that it lifts the warden off the end of a narrow road.
+    #[test]
+    fn a_road_that_wanders_wider_is_walked_as_wide_as_it_is_drawn() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let site = a_site(false, 70.0);
+        let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), 3);
+        let mut built = Built::default();
+        built.standing.insert(0, layout);
+
+        // The most and least wandered cross-sections on the whole village.
+        // Carrying each sample's OWN street width: a village lays streets of several
+        // widths, and a section built from another one's is not this one's section.
+        let mut widest: Option<(Vec2, Vec2, f32, f32)> = None;
+        let mut narrowest: Option<(Vec2, Vec2, f32, f32)> = None;
+        for layout in built.standing.values() {
+            for street in &layout.streets {
+                let along = (street.to - street.from).normalize_or_zero();
+                let aside = Vec2::new(-along.y, along.x);
+                for step in 0..=40 {
+                    let on = street.from + (street.to - street.from) * step as f32 / 40.0;
+                    let paved = paved_here(terrain.plan(), on);
+                    let wander = wander_at(on, paved);
+                    if widest.is_none_or(|(_, _, had, _)| wander > had) {
+                        widest = Some((on, aside, wander, street.wide));
+                    }
+                    if narrowest.is_none_or(|(_, _, had, _)| wander < had) {
+                        narrowest = Some((on, aside, wander, street.wide));
+                    }
+                }
+            }
+        }
+        let (wide_on, wide_aside, most, wide_road) =
+            widest.expect("the village laid no streets");
+        let (thin_on, thin_aside, least, thin_road) =
+            narrowest.expect("the village laid no streets");
+        assert!(
+            most > 1.08 && least < 0.92,
+            "the village streets barely wander ({least:.2}..{most:.2}) —              this cannot test what it is here to test"
+        );
+
+        let section = |on: Vec2, wander: f32, wide: f32| {
+            RoadSection::new(wide, wide, paved_here(terrain.plan(), on), wander)
+        };
+
+        // Just INSIDE the widest section's own edge: the road is there, so the
+        // warden must be on it rather than in the ground under it.
+        let edge = section(wide_on, most, wide_road).shoulder;
+        let at = wide_on + wide_aside * (edge - 0.05);
+        assert!(
+            stands_on(&terrain, &built, at) > terrain.walk_height(at.x, at.y) + 0.001,
+            "a road drawn {edge:.2} m out is not walkable at {:.2} m —              the cheap reject is clipping the widened shoulder",
+            edge - 0.05
+        );
+
+        // AND NOWHERE ELSE. The other direction of the same fault is a reject made
+        // so generous it lifts the warden off the end of a narrow road, and that
+        // cannot be tested one street at a time: a point outside one street is often
+        // inside the next. So the whole envelope is built here - every street's own
+        // sampled section - and the walk surface has to be exactly that and no more.
+        let _ = (thin_on, thin_aside, least, thin_road);
+        let mut lifted = 0;
+        for x in -14..=14 {
+            for z in -14..=14 {
+                let at = site.at + Vec2::new(x as f32 * 5.0, z as f32 * 5.0);
+                if built.standing[&0]
+                    .plots
+                    .iter()
+                    .any(|plot| plot.floor_at(&terrain, at).is_some())
+                {
+                    continue;
+                }
+                let mut envelope = 0.0_f32;
+                for street in &built.standing[&0].streets {
+                    let on = street.nearest_point(at);
+                    let cut = RoadSection::new(
+                        street.wide,
+                        street.wide,
+                        paved_here(terrain.plan(), on),
+                        wander_at(on, paved_here(terrain.plan(), on)),
+                    );
+                    let across = at.distance(on);
+                    if across <= cut.shoulder {
+                        envelope = envelope.max(cut.lift(across));
+                    }
+                }
+                let on = stands_on(&terrain, &built, at) - terrain.walk_height(at.x, at.y);
+                if on > envelope + 0.001 {
+                    lifted += 1;
+                }
+            }
+        }
+        assert_eq!(
+            lifted, 0,
+            "{lifted} places in the village stand higher than any street's own              section reaches — the reject has been loosened into a lift"
+        );
+    }
+
     /// The road that is DRAWN is exactly as wide as the road that is WALKED.
     ///
     /// # The gradient beside the street
