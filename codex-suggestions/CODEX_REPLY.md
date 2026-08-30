@@ -283,3 +283,46 @@ The cap strategy needs to become profile-aware. Preserve kerb/footway bands thro
 The 15 matrix PNGs plus `matrix_report.md` are currently untracked at the project root. Give the matrix an ignored, dedicated evidence directory by default (for example under `dev/evidence/current/`) so a verification run cannot accidentally be swept into a commit. Keep the report beside its images as designed.
 
 I was unable to open the captures through the sandboxed image viewer, so the observations above are from the geometry, ownership, and generated-report paths rather than subjective image inspection. No game files were changed.
+## 2026-08-30 13:10 — Read-only review of road commits `96c111b` and `11ba224`
+
+These commits close the most important findings from the early road review and research. In particular, `RoadSection`, widening the entire right-of-way, bringing country roads into `stands_on`, removing bend caps, adding ground-level evidence shots, tightening asset/output hygiene, and testing the real settlement sizes are all strong changes. The correction from “every segment endpoint” to “multiple distinct ways meet here” is especially valuable.
+
+The current junction patch is a good intermediate repair, but it is not yet the profile-aware junction described in the research. Four concrete edge cases remain.
+
+### P1 — A mixed-width junction still paves into the narrower road's footway
+
+`junctions_in` retains only the widest `way.wide`, and the patch radius is that widest section's `cut.carriage`. At a 10 m high street meeting an 8 m lane, the patch radius is 3 m while the lane carriageway is only 2 m half-width. The disc therefore reaches about 1 m into the lane's footway even though `a_junction_patch_does_not_pave_the_footway` passes: that test checks a 10 m patch against a 10 m road and an 8 m patch against an 8 m road, never a mixed junction.
+
+Add a 10 m × 8 m T/crossroads fixture and test the patch against every incident arm's section. The durable representation must retain incident arms and their resolved sections, not only `max(width)`.
+
+### P1 — Junction patches ignore a country road's widening target
+
+A transitioning country `Way` has `wide = 4.6` and `joins = 10.0`, but `junctions_in` returns only `wide`; the patch then constructs `RoadSection::new(wide, wide, paved)`. Near a city gateway that produces a 4.6 m section with footways carved inside it—the exact pinched-section failure `RoadSection` fixed on the ribbon—while the incident road ribbon is widening toward 10 m.
+
+Resolve each arm with `RoadSection::new(way.wide, way.joins, paved_at_node)` and let the junction consume those resolved sections. A gateway-junction test at `paved = 0.5` and `1.0` should prove endpoint agreement.
+
+### P1 — The country mesh and `stands_on` still sample different section facts
+
+The mesh computes `paved` at the road centerline sample `on` and applies the `ROAD_WANDERS` field there. `stands_on` computes `paved_here(plan, at)` at the player's lateral position and never applies the wander field. Near the 34 m city boundary, moving sideways across the same road can therefore change the analytical section even though the mesh station was built from one centerline value. In the country, a ribbon can also wander roughly ±17% in width while the walk surface keeps nominal width.
+
+For every road candidate, first calculate its nearest centerline point. Evaluate both `paved_here` and the width-wander field at that point, then derive one sampled `RoadSection` used by mesh and traversal. The analytical surface should not depend on which side of the same cross-section the player happens to stand.
+
+Add a mesh-versus-analytical-height test at several lateral offsets through a transition and through maximum positive/negative wander. This will also verify the batter/seam stations, which currently mix wandered `half`/`carriage` with an unwandered `batter` offset.
+
+### P1 — Invisible biome roads currently affect player height
+
+`dirt_roads_near` deliberately does not draw dirt roads in desert or snow, but the new country-road loop in `stands_on` iterates every `plan.ways()` segment without applying the same surface-visibility rule. A player can now be lifted by the crown of a road that intentionally has no visible surface.
+
+Move “does this road have a made surface here?” into the shared road contract and consume it in both drawing and traversal. Do not duplicate the desert/snow predicate. Add a test that a hidden snow/desert road leaves `stands_on` at terrain height, while a visible dirt or paved approach raises it by the resolved section.
+
+### P2 — The disc still overlaps rather than owns the intersection
+
+Restricting patches to real junctions and carriageway radius is a substantial improvement. However, the incident ribbons are not trimmed; the radial cone is layered through them. Parts of the patch share or cross the same height as the underlying ribbons, so topology can still z-fight or form subtle ridges even while every triangle faces upward.
+
+Treat this as an interim junction implementation. The final pass should retain arm tangents/sections, trim them to a node boundary, and triangulate one center polygon with separate footway corners. Until then, add the ground/high junction captures from the research and a duplicate/near-coplanar overlap check; the existing normal and radius tests cannot detect layered surfaces.
+
+### Still open from the earlier pipeline verification
+
+The obsolete 80.5 m Guild-hall justification remains in `dev/model_export.py` and `src/models.rs`, with `LARGEST = 90.0`, while `TROUBLESHOOTING.md` still documents a 60 m guardrail. This is independent of the road work but remains worth closing.
+
+This review was read-only. No Copaimo game file was changed.

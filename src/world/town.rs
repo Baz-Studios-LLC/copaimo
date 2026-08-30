@@ -2431,19 +2431,18 @@ pub fn stands_on(
     let ground = on;
     for layout in built.standing.values() {
         for street in &layout.streets {
-            let across = at.distance(street.nearest_point(at));
-            let half = street.wide * 0.5;
-            let shoulder = half + SHOULDER_WIDE;
-            if across > shoulder {
+            // ASKED ON THE MIDDLE LINE, which is where a road's section is decided.
+            let centre = street.nearest_point(at);
+            let across = at.distance(centre);
+            if across > street.wide * 0.5 + SHOULDER_WIDE {
                 continue;
             }
-            // The same profile the mesh is built from, asked the same question - see
-            // `road_surface`. A footway the player sinks into is worse than no footway.
-            on = on.max(
-                ground
-                    + RoadSection::new(street.wide, street.wide, paved_here(terrain.plan(), at))
-                        .lift(across),
-            );
+            let paved = paved_here(terrain.plan(), centre);
+            let cut =
+                RoadSection::new(street.wide, street.wide, paved, wander_at(centre, paved));
+            if across <= cut.shoulder {
+                on = on.max(ground + cut.lift(across));
+            }
         }
         for plot in &layout.plots {
             if let Some(floor) = plot.floor_at(terrain, at) {
@@ -2464,7 +2463,6 @@ pub fn stands_on(
     // kerb on it, and feet in the middle of that is not a shoe. Found by Codex while
     // the footways were going in.
     let plan = terrain.plan();
-    let paved = paved_here(plan, at);
     for road in plan.ways() {
         // The cheap reject first - there are hundreds of these and this runs several
         // times a frame.
@@ -2480,8 +2478,22 @@ pub fn stands_on(
         } else {
             0.0
         };
-        let cut = RoadSection::new(crate::config::ROAD_WIDE, CITY_STREET_WIDE, paved);
-        let across = at.distance(road.from + run * part);
+        // NOT IF IT HAS NO SURFACE HERE. A dirt track is not laid across desert or
+        // snow, so until this asked, the warden was lifted by the crown of a road that
+        // is not drawn - an invisible ramp over every sand and snow crossing in the
+        // network. One predicate, shared with the drawing: `has_a_surface`.
+        let Some(made) = has_a_surface(plan, terrain, road) else {
+            continue;
+        };
+        let centre = road.from + run * part;
+        let paved = made.max(paved_here(plan, centre));
+        let cut = RoadSection::new(
+            crate::config::ROAD_WIDE,
+            CITY_STREET_WIDE,
+            paved,
+            wander_at(centre, paved),
+        );
+        let across = at.distance(centre);
         if across <= cut.shoulder {
             on = on.max(ground + cut.lift(across));
         }
@@ -2606,17 +2618,22 @@ pub struct RoadSection {
 
 impl RoadSection {
     /// The section of a road `wide` metres across that joins a `joins` metre street.
-    pub fn new(wide: f32, joins: f32, paved: f32) -> Self {
+    /// `wander` is how much wider or narrower this stretch happens to be - see
+    /// `wander_at`. It scales the WHOLE section, not only its outer edge: the mesh
+    /// used to wander `half` and leave the kerb's batter at nominal size, so on the
+    /// narrow side of a wander the kerb stood where the analytical surface did not
+    /// put it. Codex found that, with the rest of this family.
+    pub fn new(wide: f32, joins: f32, paved: f32, wander: f32) -> Self {
         let paved = paved.clamp(0.0, 1.0);
-        let half = (wide + (joins - wide) * paved) * 0.5;
-        let footway = VERGE_LEAST + (FOOTWAY_WIDE - VERGE_LEAST) * paved;
+        let half = (wide + (joins - wide) * paved) * 0.5 * wander;
+        let footway = (VERGE_LEAST + (FOOTWAY_WIDE - VERGE_LEAST) * paved) * wander;
         Self {
             paved,
             half,
             carriage: (half - footway).max(0.8),
             kerb: KERB_RISE * paved,
-            batter: VERGE_LEAST * 0.3 + KERB_RUN * paved,
-            shoulder: half + SHOULDER_WIDE,
+            batter: (VERGE_LEAST * 0.3 + KERB_RUN * paved) * wander,
+            shoulder: half + SHOULDER_WIDE * wander,
         }
     }
 
@@ -2643,6 +2660,26 @@ impl RoadSection {
             top + (ROAD_HEM - top) * out
         }
     }
+}
+
+/// How much wider or narrower a road is at this point on its middle line.
+///
+/// # One field, sampled in one place
+///
+/// A walked track is wider where the ground is easy, so the ribbon is modulated by a
+/// slow field. The mesh applied it and `stands_on` did not, so the drawn road and the
+/// walkable road disagreed by up to a sixth of a width. Worse, `stands_on` asked
+/// `paved_here` at the PLAYER's position rather than on the road's middle line, so
+/// stepping sideways across one cross-section could change which section the game
+/// thought it was standing on. A road's section is a property of a point on the ROAD,
+/// not of where somebody stands beside it.
+///
+/// A dirt track wanders and a city street does not: a kerb is a made edge, and a
+/// straight one.
+fn wander_at(on: Vec2, paved: f32) -> f32 {
+    1.0 + (terrain_core::forest::field(on / ROAD_WANDERS_OVER, 733) - 0.5)
+        * ROAD_WANDERS_BY
+        * (1.0 - paved)
 }
 
 /// How high a street's surface stands at a given distance from its middle.
@@ -2983,25 +3020,60 @@ const PAVING_ARRIVES: f32 = 34.0;
 ///
 /// Two or more distinct ways, because a way crossing itself is still one road and a
 /// radial ending on a ring's mid-point is two.
-fn junctions_in(ways: &[Way]) -> Vec<(Vec2, f32)> {
-    let mut met: Vec<(Vec2, f32, Vec<usize>)> = Vec::new();
+fn junctions_in(ways: &[Way]) -> Vec<Meeting> {
+    let mut met: Vec<Meeting> = Vec::new();
     for (index, way) in ways.iter().enumerate() {
         for point in &way.points {
-            match met.iter_mut().find(|(at, ..)| at.distance(*point) < 0.6) {
-                Some((_, wide, whose)) => {
-                    *wide = wide.max(way.wide);
-                    if !whose.contains(&index) {
-                        whose.push(index);
+            match met.iter_mut().find(|node| node.at.distance(*point) < 0.6) {
+                Some(node) => {
+                    if !node.whose.contains(&index) {
+                        node.whose.push(index);
+                        node.arms.push((way.wide, way.joins));
                     }
                 }
-                None => met.push((*point, way.wide, vec![index])),
+                None => met.push(Meeting {
+                    at: *point,
+                    arms: vec![(way.wide, way.joins)],
+                    whose: vec![index],
+                }),
             }
         }
     }
-    met.into_iter()
-        .filter(|(.., whose)| whose.len() > 1)
-        .map(|(at, wide, _)| (at, wide))
-        .collect()
+    met.retain(|node| node.whose.len() > 1);
+    met
+}
+
+/// A place where roads meet, and what meets there.
+///
+/// # The arms, not their widest
+///
+/// This kept only `max(wide)` and the patch was drawn at that road's carriageway. At
+/// a 10 m high street meeting an 8 m lane the patch came out 3 m across while the
+/// lane's carriageway is 2 m, so it paved a metre into the lane's footway - and the
+/// test written to prevent exactly that passed, because it only ever measured a 10 m
+/// patch against a 10 m road. Codex caught both the fault and the hole in its guard.
+///
+/// Each arm also carries what it JOINS. A country road arriving at a gateway is 4.6 m
+/// widening to 10, and a node that only knew 4.6 would resolve a section with the
+/// footways carved back out of it - the pinch `RoadSection` exists to prevent.
+pub struct Meeting {
+    pub at: Vec2,
+    /// Every road that meets here, as (its width, the width it joins).
+    pub arms: Vec<(f32, f32)>,
+    whose: Vec<usize>,
+}
+
+impl Meeting {
+    /// How far the patch may reach: the NARROWEST carriageway that meets here.
+    ///
+    /// A patch is there to fill the notch between carriageways. Reaching past the
+    /// tightest of them is paving somebody's pavement.
+    pub fn fills(&self, paved: f32) -> f32 {
+        self.arms
+            .iter()
+            .map(|(wide, joins)| RoadSection::new(*wide, *joins, paved, 1.0).carriage)
+            .fold(f32::MAX, f32::min)
+    }
 }
 
 fn pave(
@@ -3102,12 +3174,9 @@ fn pave(
             // one, and wandering it would read as a mistake rather than as wear.
             // A kerb is a made edge and a straight one, so the wander fades out as
             // the paving comes in rather than stopping with it.
-            let wander = 1.0
-                + (terrain_core::forest::field(on / ROAD_WANDERS_OVER, 733) - 0.5)
-                    * ROAD_WANDERS_BY
-                    * (1.0 - paved);
-            let cut = RoadSection::new(way.wide, way.joins, paved);
-            let half = cut.half * wander;
+            let wander = wander_at(on, paved);
+            let cut = RoadSection::new(way.wide, way.joins, paved, wander);
+            let half = cut.half;
             // A kerb only where there is paving to kerb. A cart track's edge is
             // where the dirt stops and the grass starts, and putting a stone kerb
             // down each side of one is most of why they all read as paved.
@@ -3152,7 +3221,7 @@ fn pave(
             // anywhere to change the count at, and a band that shuts completely is a
             // triangle with no area and no normal. Half a village's paving was that
             // for one build.
-            let walk = cut.carriage * wander;
+            let walk = cut.carriage;
             let batter = cut.batter;
             let flag = mix(surface, *ROAD_FLAG, paved);
             for (across, colour, grain) in [
@@ -3188,7 +3257,7 @@ fn pave(
                 // its edge and there is no step to see. What is left is a CROWN -
                 // higher down the centre than at the sides - which is how a road is
                 // actually built, and which reads as worn in rather than put down.
-                let lift = cut.lift(across / wander.max(0.01));
+                let lift = cut.lift(across);
 
                 // AND BRUSHED, not painted.
                 //
@@ -3284,28 +3353,39 @@ fn pave(
     let ends = junctions_in(ways);
 
     const AROUND_A_JOINT: usize = 10;
-    for (at, wide) in ends {
-        // ONLY AS BIG AS THE CARRIAGEWAY.
+    for node in ends {
+        // ONLY AS BIG AS THE NARROWEST CARRIAGEWAY MEETING HERE.
         //
-        // The disc used to have the radius of the whole right-of-way, which was
-        // right when a road was one flat band and is destructive now: it painted
-        // carriageway colour out over both footways and cut through the kerb between
-        // them. What a junction has to fill is the notch between two CARRIAGEWAYS.
-        // The footways run past it, which is what footways do at a corner.
-        let cut = RoadSection::new(wide, wide, city.max(paved_here(at_plan, at)));
+        // The disc had the radius of the whole right-of-way, which was right when a
+        // road was one flat band and is destructive now: it painted carriageway colour
+        // over both footways and cut through the kerb between them. Then it had the
+        // WIDEST arm's carriageway, which is wrong wherever two sizes of road meet.
+        // What a patch fills is the notch between carriageways - see `Meeting::fills`.
+        let at = node.at;
+        let paved = city.max(paved_here(at_plan, at));
+        let reach = node.fills(paved);
+        // The crown to lay it at is the widest arm's, so the patch meets the road it
+        // is filling rather than sitting under it.
+        let crown = node
+            .arms
+            .iter()
+            .map(|(wide, joins)| RoadSection::new(*wide, *joins, paved, 1.0))
+            .max_by(|a, b| a.half.partial_cmp(&b.half).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|cut| (cut.lift(0.0), cut.lift(reach)))
+            .unwrap_or((ROAD_LIES, ROAD_LIES));
         let middle = places.len() as u32;
-        let height = terrain.drawn_height(at.x, at.y) + cut.lift(0.0);
+        let height = terrain.drawn_height(at.x, at.y) + crown.0;
         places.push([at.x - low.x, height, at.y - low.y]);
         normals.push([0.0, 1.0, 0.0]);
-        colours.push(mix(*ROAD_EARTH, *ROAD_STONE, city.max(paved_here(at_plan, at))));
+        colours.push(mix(*ROAD_EARTH, *ROAD_STONE, paved));
         uvs.push([0.0, 0.0]);
 
         for step in 0..=AROUND_A_JOINT {
             let turn = step as f32 / AROUND_A_JOINT as f32 * std::f32::consts::TAU;
-            let rim = at + Vec2::from_angle(turn) * cut.carriage;
+            let rim = at + Vec2::from_angle(turn) * reach;
             // At the carriageway's own height where it meets it, so the patch is a
             // crowned cone continuous with the road rather than a flat lid over it.
-            let height = terrain.drawn_height(rim.x, rim.y) + cut.lift(cut.carriage);
+            let height = terrain.drawn_height(rim.x, rim.y) + crown.1;
             places.push([rim.x - low.x, height, rim.y - low.y]);
             normals.push([0.0, 1.0, 0.0]);
             // The SURFACE colour, not the kerb. A kerb around every joint beads the
@@ -3373,6 +3453,36 @@ fn paved_roads_near(
     country_roads_near(plan, terrain, at, true)
 }
 
+/// Whether a country road has a made surface here, and if so how paved it is.
+///
+/// # What decides that a road is DRAWN has to decide that it is THERE
+///
+/// A dirt track is not laid across desert or snow - sand and snow do not hold the
+/// mark feet make - so `country_roads_near` filters those legs out of the mesh. When
+/// the country roads came into `stands_on` they arrived without that filter, and the
+/// warden was lifted by roads with no surface. One predicate, both consumers.
+///
+/// `None` means there is nothing here to stand on.
+fn has_a_surface(
+    plan: &crate::world::settle::Settlements,
+    terrain: &crate::world::terrain::Terrain,
+    road: &crate::world::settle::Road,
+) -> Option<f32> {
+    let mid = (road.from + road.to) * 0.5;
+    if plan
+        .sites()
+        .iter()
+        .any(|site| site.city && !site.ranch && site.at.distance(mid) < site.radius)
+    {
+        return Some(1.0);
+    }
+    let bare = matches!(
+        terrain.region(mid.x, mid.y).0,
+        terrain_core::region::Country::Desert | terrain_core::region::Country::Snow
+    );
+    (!bare).then_some(0.0)
+}
+
 /// The country roads near the player, of one surface or the other.
 fn country_roads_near(
     plan: &crate::world::settle::Settlements,
@@ -3386,34 +3496,10 @@ fn country_roads_near(
             let mid = (road.from + road.to) * 0.5;
             mid.distance(at) < RAISES_WITHIN * 1.6
         })
-        // A leg belongs to a city when its middle stands on that city's own ground.
-        .filter(|road| {
-            let mid = (road.from + road.to) * 0.5;
-            let in_a_city = plan
-                .sites()
-                .iter()
-                .any(|site| site.city && !site.ranch && site.at.distance(mid) < site.radius);
-            in_a_city == paved
-        })
-        // NOT THROUGH THE DESERT OR THE SNOW - but only the dirt.
-        //
-        // "The desert doesn't need or would even have a dirt path, the snow would
-        // also cover it." Both true, and both are the same rule the weather already
-        // follows: what a place IS decides what happens on it. A track is worn by
-        // feet into ground that holds a mark, and sand and snow do not hold one.
-        //
-        // A city's paved street is a made surface and holds wherever it is built, so
-        // this does not apply to it.
-        .filter(|road| {
-            if paved {
-                return true;
-            }
-            let mid = (road.from + road.to) * 0.5;
-            !matches!(
-                terrain.region(mid.x, mid.y).0,
-                terrain_core::region::Country::Desert | terrain_core::region::Country::Snow
-            )
-        })
+        // WHETHER THIS LEG HAS A SURFACE, and which of the two it is. Both questions
+        // belong to `has_a_surface`, which `stands_on` asks too - a road the player is
+        // lifted by and cannot see is worse than either alone.
+        .filter(|road| has_a_surface(plan, terrain, road) == Some(f32::from(u8::from(paved))))
         // Each leg as a chain of its own. The legs of one route DO join end to
         // end, and mitring across them would be better still - but a route is
         // smoothed into a gentle curve before it is ever laid, so its bends are
@@ -3938,42 +4024,97 @@ mod tests {
         let met = junctions_in(&[bent, joining]);
         assert_eq!(met.len(), 1, "a crossroads got {} patches", met.len());
         assert!(
-            met[0].0.distance(Vec2::new(38.0, 16.0)) < 0.6,
+            met[0].at.distance(Vec2::new(38.0, 16.0)) < 0.6,
             "the patch landed at {:?} rather than where the roads meet",
-            met[0].0,
+            met[0].at,
         );
-        // At the WIDEST road's width, because the patch has to fill the widest notch.
-        assert_eq!(met[0].1, CITY_STREET_WIDE);
+        // BOTH arms are kept, because a patch has to fit the narrower of them - see
+        // `a_junction_patch_does_not_pave_any_arm_s_footway`.
+        assert_eq!(met[0].arms.len(), 2, "the node forgot one of its roads");
     }
 
-    /// A junction patch stays inside the carriageway it is filling.
+    /// A junction patch stays inside EVERY arm's carriageway, not just the widest.
     ///
-    /// The disc had the radius of the whole right-of-way, so on a 10 m street it
-    /// reached 5 m out - a metre past the kerb and across both 2 m footways, in
-    /// carriageway colour, flat over a raised surface.
+    /// # The version of this test that passed while the fault was there
+    ///
+    /// It measured a 10 m patch against a 10 m road and an 8 m patch against an 8 m
+    /// road, and both fitted. A junction is where roads of DIFFERENT sizes meet, and
+    /// the patch was drawn at the widest arm's carriageway - so a high street meeting
+    /// a lane put 3 m of carriageway into a road whose own is 2 m, a metre out across
+    /// its pavement. Codex found the fault and the hole in the guard together, which
+    /// is the more useful half: a test that only ever asks the easy case is a test
+    /// that reports the answer you hoped for.
     #[test]
-    fn a_junction_patch_does_not_pave_the_footway() {
-        for wide in [CITY_STREET_WIDE, CITY_LANE_WIDE] {
-            let cut = RoadSection::new(wide, wide, 1.0);
-            assert!(
-                cut.carriage <= cut.half - FOOTWAY_WIDE + 0.01,
-                "a patch of radius {:.2} on a {wide} m street reaches into a footway that \
-                 starts at {:.2}",
-                cut.carriage,
-                cut.half - FOOTWAY_WIDE,
-            );
-            // And it meets the road at the road's own height, not above it.
-            assert!(
-                (cut.lift(cut.carriage) - cut.lift(cut.carriage - 0.01)).abs() < 0.01,
-                "the patch's rim steps off the carriageway it is joining",
-            );
+    fn a_junction_patch_does_not_pave_any_arm_s_footway() {
+        let street = |wide: f32| Way {
+            points: vec![Vec2::ZERO, Vec2::new(0.0, 40.0)],
+            wide,
+            joins: wide,
+        };
+        // A high street meeting a lane, which is the case that was wrong.
+        let mixed = Meeting {
+            at: Vec2::ZERO,
+            arms: vec![
+                (CITY_STREET_WIDE, CITY_STREET_WIDE),
+                (CITY_LANE_WIDE, CITY_LANE_WIDE),
+            ],
+            whose: vec![0, 1],
+        };
+        for paved in [0.0_f32, 0.5, 1.0] {
+            let reach = mixed.fills(paved);
+            for (wide, joins) in &mixed.arms {
+                let arm = RoadSection::new(*wide, *joins, paved, 1.0);
+                assert!(
+                    reach <= arm.carriage + 1.0e-4,
+                    "at {paved} paved a patch of {reach:.2} m reaches past a {wide} m arm's \
+                     {:.2} m carriageway and out onto its footway",
+                    arm.carriage,
+                );
+            }
         }
+        drop(street(CITY_STREET_WIDE));
+    }
+
+    /// A gateway junction resolves each arm by what it JOINS, not by what it is.
+    ///
+    /// A country road arriving at a city is 4.6 m widening to 10. A node that knew
+    /// only the 4.6 would carve the footways back out of it - the pinched section
+    /// `RoadSection` exists to prevent, reintroduced at the one place the two road
+    /// kinds touch.
+    #[test]
+    fn a_gateway_junction_uses_what_each_arm_becomes() {
+        let gateway = Meeting {
+            at: Vec2::ZERO,
+            arms: vec![
+                (crate::config::ROAD_WIDE, CITY_STREET_WIDE),
+                (CITY_STREET_WIDE, CITY_STREET_WIDE),
+            ],
+            whose: vec![0, 1],
+        };
+        // Fully paved, the country arm has BECOME the high street, so the patch is
+        // the high street's carriageway and nothing is pinched.
+        let full = gateway.fills(1.0);
+        let street = RoadSection::new(CITY_STREET_WIDE, CITY_STREET_WIDE, 1.0, 1.0);
+        assert!(
+            (full - street.carriage).abs() < 1.0e-4,
+            "at the gateway the patch is {full:.2} m and the street's carriageway is {:.2} m",
+            street.carriage,
+        );
+        // And halfway in it is between the two, never narrower than the country road
+        // it started as.
+        let half = gateway.fills(0.5);
+        let country = RoadSection::new(crate::config::ROAD_WIDE, CITY_STREET_WIDE, 0.0, 1.0);
+        assert!(
+            half >= country.carriage - 1.0e-4 && half <= full + 1.0e-4,
+            "halfway through the gateway the patch is {half:.2} m, outside {:.2}..{full:.2}",
+            country.carriage,
+        );
     }
 
     #[test]
     fn a_kerb_is_a_step_and_not_a_wall() {
         for wide in [CITY_STREET_WIDE, CITY_LANE_WIDE] {
-            let cut = RoadSection::new(wide, wide, 1.0);
+            let cut = RoadSection::new(wide, wide, 1.0, 1.0);
             assert!(cut.kerb > 0.05, "a {wide} m city street has no kerb at all");
             let step = 0.02;
             let mut across = 0.0;
@@ -4002,7 +4143,7 @@ mod tests {
         let mut widest = 0.0_f32;
         for tenth in 0..=10 {
             let paved = tenth as f32 / 10.0;
-            let cut = RoadSection::new(crate::config::ROAD_WIDE, CITY_STREET_WIDE, paved);
+            let cut = RoadSection::new(crate::config::ROAD_WIDE, CITY_STREET_WIDE, paved, 1.0);
             assert!(
                 cut.half >= widest - 1.0e-4,
                 "the road NARROWS as it is paved: {:.2} m at {paved}",
@@ -4016,8 +4157,8 @@ mod tests {
             );
         }
         // And it arrives as exactly the section it is joining.
-        let arriving = RoadSection::new(crate::config::ROAD_WIDE, CITY_STREET_WIDE, 1.0);
-        let street = RoadSection::new(CITY_STREET_WIDE, CITY_STREET_WIDE, 1.0);
+        let arriving = RoadSection::new(crate::config::ROAD_WIDE, CITY_STREET_WIDE, 1.0, 1.0);
+        let street = RoadSection::new(CITY_STREET_WIDE, CITY_STREET_WIDE, 1.0, 1.0);
         assert!(
             (arriving.half - street.half).abs() < 1.0e-4
                 && (arriving.carriage - street.carriage).abs() < 1.0e-4,

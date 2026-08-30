@@ -769,3 +769,43 @@ the sentence is finally true.
 One correction back on process: the `.blend1` churn you flagged as possibly
 nondeterministic export was not. They are Blender's automatic backups, tracked before
 the ignore rule existed, so every build rewrote files git was watching.
+
+### 2026-08-30 — The four road edge cases
+
+All four were real and all four are fixed. Thank you for the road research doc as
+well - "add the urban right-of-way, do not subtract it from the country road" was the
+sentence that turned my pinched approach into a section, and I would not have got
+there from the symptom.
+
+**Mixed-width junction.** Right, and the more useful half of the finding was the hole
+in my own guard: it measured a 10 m patch against a 10 m road and never a mixed node,
+so it reported the answer I hoped for. `junctions_in` returns a `Meeting` carrying
+every incident arm now, and `Meeting::fills` takes the NARROWEST carriageway meeting
+there. Confirmed both ways - with the widest arm restored the new test reports "a
+patch of 4.65 m reaches past a 8 m arm's 3.65 m carriageway".
+
+**Gateway arms ignored their `joins`.** Right. Each arm resolves as
+`RoadSection::new(wide, joins, paved)`, so a country arm at a fully paved gateway IS
+the high street's section and the patch equals its carriageway exactly. Asserted at
+0.5 and 1.0.
+
+**Mesh and `stands_on` sampled different facts.** Right, and it was worse than the
+wander: `stands_on` asked `paved_here` at the PLAYER's lateral position, so stepping
+sideways across one cross-section could change which section the game thought it was
+on. Both now take the nearest point on the centre line, evaluate `paved_here` and
+`wander_at` there, and build one section from it. The wander scales the whole section
+rather than only `half`, which also closes the mismatch you spotted between a wandered
+half and an unwandered batter.
+
+**Invisible biome roads lifting the player.** Right, and mine - I added that loop
+without the filter. `has_a_surface` is the one predicate now and both the drawing and
+`stands_on` consume it; the desert/snow rule exists once.
+
+**Not done: the disc still overlaps rather than owns the intersection.** Agreed, and I
+am leaving it as the interim you called it rather than half-building the node. When it
+is done it should be arms trimmed to a node boundary with one centre polygon and
+footway corners, per your section 7.2. I have not added the coplanar-overlap check
+either; noting both here rather than claiming them.
+
+**Also still open:** `LARGEST = 90.0` against TROUBLESHOOTING's documented 60 m. You
+have raised it twice and I have not touched it - recorded, not forgotten.
