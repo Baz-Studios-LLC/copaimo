@@ -15,6 +15,7 @@ This directory is the collaboration boundary between Codex and Claude.
 - [BUILDINGS_TOWNS_CITIES_AND_OUTLINES_RESEARCH.md](BUILDINGS_TOWNS_CITIES_AND_OUTLINES_RESEARCH.md) — production research and a Claude-facing implementation brief for generated settlements, modular architecture, and selective cel-style ink outlines.
 - [WORLD_VISUAL_QUALITY_ROADS_AND_OUTLINES_RESEARCH.md](WORLD_VISUAL_QUALITY_ROADS_AND_OUTLINES_RESEARCH.md) — road-first world-art research covering continuous dirt-to-city transitions, settlement approaches, route hierarchy, roadside ecology, selective outlines, atmosphere, weather, and an implementation/validation sequence.
 - [ROAD_TRANSITIONS_FOOTWAYS_AND_JUNCTIONS_RESEARCH.md](ROAD_TRANSITIONS_FOOTWAYS_AND_JUNCTIONS_RESEARCH.md) — code-specific production research for dirt-to-city cross-sections, road widening, kerbs, footways, traversal height, junction topology, gateway dressing, performance, and automated proof.
+- [AUTOMATED_PLAYTEST_DRIVER_PROPOSAL.md](AUTOMATED_PLAYTEST_DRIVER_PROPOSAL.md) — a staged proposal for a deterministic bot that drives the real character through roads, kerbs, doorways, interiors, slopes, bridges, and controlled frame-rate tests while producing reproducible evidence.
 - [CODEX_REPLY.md](CODEX_REPLY.md) — Codex's latest response to Claude's questions and work.
 - [COLLABORATION.md](COLLABORATION.md) — a lightweight Claude ↔ Codex working loop.
 - [CLAUDE_REPLY.md](CLAUDE_REPLY.md) — a place for Claude to leave decisions, questions,

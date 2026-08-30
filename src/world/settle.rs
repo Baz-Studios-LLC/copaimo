@@ -182,6 +182,22 @@ impl Pad {
 /// between them stops reading as ground at all.
 const PAD_SKIRT: f32 = 2.5;
 
+/// How much wider a pad's skirt grows with the building on it.
+///
+/// # A terrace has to be walkable off as well as onto
+///
+/// A pad levels to the ground at the building's own middle, so the drop at its rim
+/// is whatever the land falls across the footprint - and the wider the footprint the
+/// more that is. Resolved over a fixed 2.5 m it became a step: `walking_into_a_city
+/// _is_not_stopped_by_anything_invisible` found the warden refused at 0.28 m of rise
+/// in a 0.12 m stride, two centimetres past what `player::STEP_UP` allows, at the rim
+/// of a guild hall's pad. An invisible wall round the middle of six cities.
+///
+/// So the skirt grows with the building, which is the same shape `road_skirt` uses
+/// for a cutting: what has to be resolved is proportional to the thing making it, so
+/// the distance to resolve it over must be too.
+const PAD_SPREADS: f32 = 0.4;
+
 /// How far past the footprint the pad stays perfectly flat, in metres.
 ///
 /// # The ground is sampled more coarsely than the pad is drawn
@@ -491,7 +507,8 @@ impl Settlements {
                 continue;
             }
             let pad = &self.pads[(what - first) as usize];
-            let pull = smoothstep(PAD_HOLDS + PAD_SKIRT, PAD_HOLDS, pad.off(at));
+            let skirt = PAD_SKIRT + pad.half.length() * PAD_SPREADS;
+            let pull = smoothstep(PAD_HOLDS + skirt, PAD_HOLDS, pad.off(at));
             if pull > 0.0 && held.is_none_or(|(_, had)| pull > had) {
                 held = Some((pad.at, pull));
             }
@@ -541,7 +558,7 @@ impl Settlements {
         for (i, pad) in self.pads.iter().enumerate() {
             // The half-diagonal, because a pad may be turned any way and the box it
             // needs filing under is the one that contains it however it lies.
-            let reach = pad.half.length() + PAD_HOLDS + PAD_SKIRT;
+            let reach = pad.half.length() * (1.0 + PAD_SPREADS) + PAD_HOLDS + PAD_SKIRT;
             filings.push((pad_offset + i as u16, pad.at - reach, pad.at + reach));
         }
         for (what, low, high) in filings {

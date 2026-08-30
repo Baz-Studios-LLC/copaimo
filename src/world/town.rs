@@ -2578,6 +2578,21 @@ pub const FOOTWAY_WIDE: f32 = 2.0;
 /// into the footway.
 const VERGE_LEAST: f32 = 0.35;
 
+/// How wide the top of the kerb stone is, in metres.
+///
+/// # A vertical face is invisible from above
+///
+/// The kerb was a 22 cm rise over a 5 cm chamfer, which is a proper kerb and shows
+/// nothing at all from a third-person camera looking down: all you see is the dark
+/// line where two surfaces meet, and a dark line is what a painted edge looks like
+/// too. Reported as still reading level even by somebody who could feel the step.
+///
+/// A kerb stone has a TOP - a flat band of its own colour along the road, lit
+/// differently from both the carriageway below and the pavement behind. That band is
+/// what is actually visible from any angle a player looks from, and it is the thing
+/// in the reference photograph that says kerb.
+const KERB_TOP: f32 = 0.18;
+
 /// How far apart the two stations at the top of a kerb sit, in metres.
 ///
 /// There are two because the kerb's colour has to STOP there and the footway's
@@ -2700,7 +2715,21 @@ impl RoadSection {
         } else if across <= self.half {
             road_lift(self.carriage / shoulder) + self.kerb
         } else {
-            let out = ((across - self.half) / SHOULDER_WIDE).clamp(0.0, 1.0);
+            // ACROSS THIS SECTION'S OWN SHOULDER, not the constant one.
+            //
+            // This divided by `SHOULDER_WIDE` - 5.4 m - which was the shoulder's
+            // width back when every road had the same one. A city street's shoulder
+            // now closes to a third of a metre, so the ramp only got a sixteenth of
+            // the way down before the section ended: the surface stopped 0.30 m in
+            // the air and `stands_on` dropped straight to the ground beyond it.
+            //
+            // A cliff a third of a metre high round every paved road in the world,
+            // and `player::STEP_UP` allows 0.26 - so it was a wall, by two
+            // centimetres. Found by walking into all six cities in the strides the
+            // game actually takes; it reported 0.28 m at every one of them, which is
+            // the tell that it was geometry and not ground.
+            let out = ((across - self.half) / (self.shoulder - self.half).max(0.01))
+                .clamp(0.0, 1.0);
             let top = road_lift(self.carriage / shoulder) + self.kerb;
             top + (ROAD_HEM - top) * out
         }
@@ -3311,10 +3340,15 @@ fn pave(
             // Asked for plain, and plain is also what makes the kerb the only line
             // there: the eye has one edge to find instead of three surfaces to sort
             // out. `0.0` grain means no stones, and no wear either - see `worn`.
+            // Fifteen stations, and the two extra are the kerb's own top - see
+            // `KERB_TOP`. Kerb colour on both sides of that band and flag beyond it,
+            // so the stone reads as a stone rather than fading into the pavement.
+            let top = walk + batter + KERB_TOP;
             for (across, colour, grain) in [
                 (-shoulder, hem(-shoulder), 0.0),
                 (-half, flag, 0.0),
-                (-(walk + batter + SEAM), flag, 0.0),
+                (-(top + SEAM), flag, 0.0),
+                (-top, edge, 0.0),
                 (-(walk + batter), edge, 0.0),
                 (-walk, edge, 0.0),
                 (-walk * 0.62, surface, COBBLE_IS),
@@ -3322,7 +3356,8 @@ fn pave(
                 (walk * 0.62, surface, COBBLE_IS),
                 (walk, edge, 0.0),
                 (walk + batter, edge, 0.0),
-                (walk + batter + SEAM, flag, 0.0),
+                (top, edge, 0.0),
+                (top + SEAM, flag, 0.0),
                 (half, flag, 0.0),
                 (shoulder, hem(shoulder), 0.0),
             ] {
@@ -3409,7 +3444,7 @@ fn pave(
             }
         }
 
-        const LANES: usize = 13;
+        const LANES: usize = 15;
         let base = (places.len() - (steps + 1) * LANES) as u32;
         for step in 0..steps as u32 {
             for lane in 0..(LANES as u32 - 1) {
@@ -3533,34 +3568,6 @@ fn pave(
 /// the sides back into the land - but nothing ever DREW them, so the only sign a
 /// road existed was a suspiciously level line of grass. A road is a surface.
 ///
-/// Built with the same ribbon the town's streets use, at the same height above the
-/// ground and with the same junction discs, so a country road meeting a town's
-/// high street looks like one road rather than two that happen to touch.
-fn dirt_roads_near(
-    plan: &crate::world::settle::Settlements,
-    terrain: &crate::world::terrain::Terrain,
-    at: Vec2,
-) -> Vec<Way> {
-    country_roads_near(plan, terrain, at, false)
-}
-
-/// The same roads where they run through a CITY, which are paved.
-///
-/// # A cart track across a plaza
-///
-/// Every country road was drawn as dirt for its whole length, the part inside a
-/// city included - so a modern city with paved streets and a paved square had a
-/// brown earth track driving across the middle of it and out the far side. The road
-/// BETWEEN towns is a dirt road; the same road, once it is inside a city, is that
-/// city's street, and it is surfaced like one.
-fn paved_roads_near(
-    plan: &crate::world::settle::Settlements,
-    terrain: &crate::world::terrain::Terrain,
-    at: Vec2,
-) -> Vec<Way> {
-    country_roads_near(plan, terrain, at, true)
-}
-
 /// Whether a country road has a made surface here, and if so how paved it is.
 ///
 /// # What decides that a road is DRAWN has to decide that it is THERE
@@ -3591,12 +3598,28 @@ fn has_a_surface(
     (!bare).then_some(0.0)
 }
 
-/// The country roads near the player, of one surface or the other.
+/// The country roads near the player, whatever surface they carry.
+///
+/// # A road nobody drew, that you could still feel underfoot
+///
+/// This took a `paved` flag and answered "the dirt legs" or "the paved legs", and
+/// there were two callers to match. Then `pave` learned to decide how paved each
+/// POINT is - so that a lane becomes a street over the last stretch of its approach
+/// rather than at a leg boundary - and the two passes were merged into one. The
+/// merge kept calling the DIRT one.
+///
+/// So every leg whose middle stands on a city's ground has been filtered out of the
+/// only pass that runs, and drawn by nothing, since that day. It went unnoticed
+/// because a road on a city's own paving is not very visible either way - until
+/// `stands_on` learned about country roads and started lifting the warden onto one
+/// that was not there. Reported exactly that way: "I can see the height change, it's
+/// not being drawn".
+///
+/// One pass, every leg that has a surface at all. `pave` does the rest.
 fn country_roads_near(
     plan: &crate::world::settle::Settlements,
     terrain: &crate::world::terrain::Terrain,
     at: Vec2,
-    paved: bool,
 ) -> Vec<Way> {
     plan.ways()
         .iter()
@@ -3604,10 +3627,10 @@ fn country_roads_near(
             let mid = (road.from + road.to) * 0.5;
             mid.distance(at) < RAISES_WITHIN * 1.6
         })
-        // WHETHER THIS LEG HAS A SURFACE, and which of the two it is. Both questions
-        // belong to `has_a_surface`, which `stands_on` asks too - a road the player is
-        // lifted by and cannot see is worse than either alone.
-        .filter(|road| has_a_surface(plan, terrain, road) == Some(f32::from(u8::from(paved))))
+        // WHETHER THIS LEG HAS A SURFACE AT ALL. Which surface is `pave`'s business,
+        // point by point. `stands_on` asks the same question, so a road the warden is
+        // lifted by is a road that got drawn.
+        .filter(|road| has_a_surface(plan, terrain, road).is_some())
         // Each leg as a chain of its own. The legs of one route DO join end to
         // end, and mitring across them would be better still - but a route is
         // smoothed into a gentle curve before it is ever laid, so its bends are
@@ -3993,7 +4016,7 @@ fn lay_the_country_roads(
         commands.entity(entity).despawn();
     }
 
-    let roads = dirt_roads_near(terrain.plan(), &terrain.0, here);
+    let roads = country_roads_near(terrain.plan(), &terrain.0, here);
     if roads.is_empty() {
         return;
     }

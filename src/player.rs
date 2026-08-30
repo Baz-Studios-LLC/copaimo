@@ -1199,6 +1199,60 @@ mod tests {
     /// Terrain is the game's only geometry and nothing else stops a walker — so
     /// without this, the warden strolls up a seventy-degree face and the canyon
     /// gates nothing at all.
+    /// Walking into a city is not stopped by anything invisible.
+    ///
+    /// Reported as invisible walls on the way in. A wall in this game is a refused
+    /// STEP, so the way to find one is to walk the approach in the strides the game
+    /// takes and ask `may_step` at every one - which is what the player's own
+    /// movement does, and what no test had ever done along a real approach road.
+    #[test]
+    fn walking_into_a_city_is_not_stopped_by_anything_invisible() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        let built = crate::world::town::Built::default();
+        let mut refused: Vec<String> = Vec::new();
+        for site in plan.sites().iter().filter(|s| s.city && !s.ranch) {
+            // In along the road the town's high street is built along, from well
+            // outside its ground to its middle.
+            let out = plan.approach(site.at).normalize_or(bevy::math::Vec2::Y);
+            let stride = 0.12;
+            let mut along = site.radius * 1.6;
+            while along > 0.0 {
+                let from = site.at + out * along;
+                let to = site.at + out * (along - stride);
+                let seat = |p: bevy::math::Vec2| {
+                    let y = crate::world::town::stands_on(&terrain, &built, p);
+                    Vec3::new(p.x, y, p.y)
+                };
+                if !may_step(&terrain, &built, &[], &[], seat(from), seat(to)) {
+                    refused.push(format!(
+                        "{:.0} m out from a city at {:.0},{:.0}: {:.2} m up in a {:.2} m stride",
+                        along,
+                        site.at.x,
+                        site.at.y,
+                        crate::world::town::stands_on(&terrain, &built, to)
+                            - crate::world::town::stands_on(&terrain, &built, from),
+                        stride,
+                    ));
+                }
+                along -= stride;
+            }
+        }
+        assert!(
+            refused.is_empty(),
+            "{} steps refused on the way into a city:
+  {}",
+            refused.len(),
+            refused
+                .iter()
+                .take(6)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("
+  "),
+        );
+    }
+
     #[test]
     fn a_canyon_wall_refuses_the_step_up_but_never_the_step_down() {
         let terrain = crate::world::terrain::Terrain::new();

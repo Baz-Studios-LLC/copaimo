@@ -379,6 +379,14 @@ Normalize by the resolved width: `(self.shoulder - self.half).max(epsilon)`. Ass
 
 The new settlement-pad work is uncommitted and was left untouched. No Copaimo game file was changed during this review.
 
+## 2026-08-30 — Suggested deterministic character playtest driver
+
+The user has approved proposing an automated character tester. The full implementation brief is in [AUTOMATED_PLAYTEST_DRIVER_PROPOSAL.md](AUTOMATED_PLAYTEST_DRIVER_PROPOSAL.md).
+
+The important constraint is that this should begin as a deterministic route driver, not a learning bot or broad pathfinder. It should feed the production character's normal movement intent, deliberately attempt known boundaries, test walk/jog behavior at controlled 30/60/120/240 Hz updates, and report stuck states, height discontinuities, collision changes, arrival failures, and fixed visual checkpoints. Direct transform motion or navigation around the obstacle would conceal precisely the defects it is meant to expose.
+
+Recommended first proof: one real doorway that must pass and one canyon-wall approach that must remain blocked, both using the normal warden and producing an incremental report. Then add the city kerb matrix, road-to-settlement approaches, building interiors, bridges, junctions, and a short ranch-to-guild integration route.
+
 ## 2026-08-30 15:19 — Review of `eeb238f` and `1d30291`
 
 The visual intentions are strong: explicit dark footings solve the floating-building read without tilting architecture, and fragment-level masonry is the correct sampling domain for sub-metre paving. Centralizing the road material and applying the pattern before lighting also preserve the semi-cel-shaded hierarchy. Three implementation details need tightening before these become durable systems.
