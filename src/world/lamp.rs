@@ -164,15 +164,32 @@ const AWAKE_WITHIN: f32 = 900.0;
 /// What share of a city's storeys have somebody in at night.
 const AWAKE_SHARE: f32 = 0.34;
 
-/// A city storey, floor to floor - `FLOOR_TALL` in `dev/art/town.py`.
+/// A city storey floor to floor, and how far up a tower's glazing starts.
 ///
-/// The old world's storey used to be here beside it and is gone: nothing in this
-/// file works out where an old-world window is any more, so nothing needs to know
-/// how tall its floors are. See `WINDOWS`.
-const FLOOR_TALL: f32 = 3.4;
+/// # Read, not restated
+///
+/// These were written out here as 3.4 and `FLOOR_TALL * 1.5`, and `dev/art/town.py`
+/// writes the same two numbers into `town.txt` where nothing read them. They agreed,
+/// which is the state every duplicated fact in this project was in until the day it
+/// did not - the yard gates were 14 cm apart, the lit windows were a metre and a half
+/// out, and the chimney was two and a half metres from its fire.
+///
+/// Codex flagged it: a change to the facade's proportions would leave the lit bands
+/// spanning frames or floating between floors while every test still passed.
+///
+/// Named lines with a sensible fallback rather than a panic: a missing contract
+/// should draw the windows a little wrong, not refuse to start the game.
+fn contract(tag: &str, fallback: f32) -> f32 {
+    crate::world::town::TOWN_CONTRACT
+        .lines()
+        .find_map(|line| line.strip_prefix(tag)?.trim().parse().ok())
+        .unwrap_or(fallback)
+}
 
-/// How far up a tower's glazing starts - it spends its ground floor on a lobby.
-const LOBBY: f32 = FLOOR_TALL * 1.5;
+static FLOOR_TALL: std::sync::LazyLock<f32> =
+    std::sync::LazyLock::new(|| contract("FLOOR_TALL ", 3.4));
+static LOBBY: std::sync::LazyLock<f32> =
+    std::sync::LazyLock::new(|| contract("LOBBY ", 5.1));
 
 /// How far proud of the glass a lit pane sits. Enough to win the depth test and
 /// little enough that it is in the window rather than in front of it.
@@ -700,8 +717,8 @@ pub fn light_the_windows(
                     standing.what.facade()
                 {
                     // ON THE FACADE, at the height the glazing actually is.
-                    let z = LOBBY + storey as f32 * FLOOR_TALL + FLOOR_TALL * 0.67;
-                    let band = FLOOR_TALL * 0.66;
+                    let z = *LOBBY + storey as f32 * *FLOOR_TALL + *FLOOR_TALL * 0.67;
+                    let band = *FLOOR_TALL * 0.66;
                     // ONE LIGHT AT A TIME, not the whole floor.
                     //
                     // Lighting the band lit a rectangle the width of the building,

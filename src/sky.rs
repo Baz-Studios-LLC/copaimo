@@ -204,11 +204,27 @@ pub fn read_the_clock(keys: Res<ButtonInput<KeyCode>>, mut when: ResMut<TimeOfDa
         when.nudge = 0.0;
     }
 
-    if when.follows_clock {
-        when.hours = local_hours();
+    // ONE derivation of the hour, WRITTEN only when it moves.
+    //
+    // `local_hours` reads whole seconds, so its answer is the same for sixty frames
+    // out of sixty-one - and assigning through a `ResMut` marks the resource changed
+    // whether or not the value moved, so `TimeOfDay` looked new every frame and
+    // nothing downstream could ever run on `Changed`.
+    //
+    // Codex's audit suggested resyncing on a timer and integrating between syncs. I
+    // objected that this adds a second source of truth for the hour - the `nudge`
+    // mechanism in `photo.rs` exists because writing `hours` directly already went
+    // wrong that way once - and they agreed and dropped that half. At fifteen degrees
+    // an hour, one second of sun is four thousandths of a degree; there is nothing to
+    // interpolate. Compare and write is the whole change.
+    let wanted = if when.follows_clock {
+        local_hours()
     } else {
         // Held where it was put, plus whatever the scrubbing has added.
-        when.hours = (local_hours() + when.nudge).rem_euclid(24.0);
+        (local_hours() + when.nudge).rem_euclid(24.0)
+    };
+    if when.hours != wanted {
+        when.hours = wanted;
     }
 }
 
