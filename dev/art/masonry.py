@@ -19,6 +19,7 @@ a vertex colour. That conversion is `to_linear`, and getting it wrong does not
 error: it just makes everything slightly too bright, everywhere, forever.
 """
 
+import math
 import os
 
 import bpy
@@ -54,6 +55,14 @@ PALETTE = {
     "leafy": (0.32, 0.46, 0.26),
     "door": (0.30, 0.21, 0.14),
     "glass": (0.36, 0.47, 0.52),
+    # A LANTERN'S GLASS IS NOT A WINDOW, and it needs its own name to say so.
+    #
+    # `town.windows_in` measures a figure's windows by finding every piece painted
+    # "glass", and the game hangs a lit pane on each after dark. Two decorative
+    # lanterns beside the guild hall's door and a lamp over its counter were painted
+    # with it, so the game lit them as though they were rooms - three small white
+    # squares floating on the front of the building, reported as "a weird flicker".
+    "lantern": (0.42, 0.44, 0.40),
     "sign": (0.62, 0.42, 0.22),
     # THE GUILD'S OWN GREEN, off the concept sheet's palette strip rather than
     # picked by eye. It was a blue-grey, chosen when the guild hall was a stone
@@ -147,6 +156,43 @@ def box(size, at, colour, tilt=None):
         obj.rotation_euler = tilt
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
     return (obj, colour)
+
+
+def lettering(parts, words, at, tall, colour, facing=-1.0, spread=0.0):
+    """Words, as real geometry, so a sign can say something.
+
+    # A sign with nothing on it is a plank
+
+    The guild hall's board was a brown rectangle under its emblem, and from the
+    street that is what it read as. A name is most of what a sign IS, and this kit
+    had no way to make one - so every sign in the game so far has been a shape that
+    means "sign" rather than a sign.
+
+    Blender's own font, converted to a mesh and welded in with everything else, so
+    the letters shade and outline like any other geometry and cost nothing at
+    runtime. Extruded a little, because flat text on a flat board disappears at a
+    grazing angle and the game is played from a low third-person camera.
+    """
+    letters = bpy.data.curves.new(type="FONT", name="words")
+    letters.body = words
+    letters.align_x = "CENTER"
+    letters.align_y = "CENTER"
+    letters.size = tall
+    letters.extrude = 0.02
+    letters.space_character = 1.0 + spread
+    obj = bpy.data.objects.new("words", letters)
+    bpy.context.collection.objects.link(obj)
+    # Stood up out of the XY plane it is authored in, and turned to face the wall's
+    # own way out - the same `facing` every other dressing in `town` takes.
+    obj.rotation_euler = (math.pi * 0.5, 0.0, 0.0 if facing < 0.0 else math.pi)
+    obj.location = at
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+    bpy.ops.object.convert(target="MESH")
+    made = bpy.context.object
+    made.select_set(False)
+    parts.append((made, colour))
+    return made
 
 
 def wedge(span, deep, high, at, colour, ridge="y"):

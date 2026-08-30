@@ -425,7 +425,15 @@ impl Building {
             Building::Cottage => Vec2::new(9.0, 7.5),
             Building::Townhouse => Vec2::new(9.0, 9.0),
             Building::Shop => Vec2::new(12.0, 9.0),
-            Building::GuildHall => Vec2::new(18.0, 13.5),
+            // A HALL YOU SPEND TIME IN.
+            //
+            // 18 x 13.5 was a branch office, sized off the concept sheet's own
+            // elevations. The guild is where a warden registers a companion, takes
+            // transfers, reads the board and takes work - minutes at a time, not
+            // seconds - and a room that size is a corridor with furniture in it once
+            // a counter, a table and benches are in there. Half as much building
+            // again in each direction is nearly twice the floor.
+            Building::GuildHall => Vec2::new(26.0, 18.0),
             // Measured off the exported models, same as the rest.
             Building::CityBlock => Vec2::new(11.3, 10.8),
             Building::CityTower => Vec2::new(10.8, 11.3),
@@ -900,6 +908,52 @@ fn clear_of_streets(streets: &[Street], at: Vec2, facing: f32, what: Building) -
     })
 }
 
+/// How much air is left between two buildings, in metres.
+///
+/// Not nought. A footprint is what a building keeps clear on the ground and its
+/// ROOF is bigger - eaves overhang by a third of a metre and a porch further - so
+/// two buildings whose footprints merely touch have their gutters through each
+/// other.
+const ELBOW: f32 = 1.0;
+
+/// Whether a building standing here would stand in one already standing.
+///
+/// # Nothing checked this. At all.
+///
+/// Every placement in this file tested a building against the ROADS - twice over,
+/// carefully, with an exact support function - and nothing ever asked whether the
+/// spot was already occupied. Lots rarely collide because the subdivision hands out
+/// disjoint ones, so it held up by construction and never by rule.
+///
+/// The guild hall broke it because the guild hall is placed OFF the lot grid: it is
+/// walked round the square looking for a gap between the radials, and a gap between
+/// two roads is not the same thing as an empty one. It landed on a townhouse - the
+/// two of them interpenetrating, one roof through the other's wall.
+///
+/// This is the separating axis theorem on the only axes a pair of rectangles can be
+/// separated along - the four face normals - reusing `reach_toward` as the support
+/// function, which is the same one the road test measures with.
+fn clear_of_buildings(plots: &[Plot], at: Vec2, facing: f32, what: Building) -> bool {
+    let (sin, cos) = facing.sin_cos();
+    plots.iter().all(|plot| {
+        let between = plot.at - at;
+        let (theirs, theirc) = plot.facing.sin_cos();
+        [
+            Vec2::new(cos, sin),
+            Vec2::new(sin, -cos),
+            Vec2::new(theirc, theirs),
+            Vec2::new(theirs, -theirc),
+        ]
+        .iter()
+        .any(|axis| {
+            between.dot(*axis).abs()
+                > reach_toward(what, facing, *axis)
+                    + reach_toward(plot.what, plot.facing, *axis)
+                    + ELBOW
+        })
+    })
+}
+
 /// Whether the door on this spot opens onto a street rather than away from one.
 ///
 /// A lot inherits the facing of the street it was cut from, so in principle every
@@ -1300,16 +1354,24 @@ fn open_ground(
     streets: &[Street],
     plots: &[Plot],
     about: Vec2,
-    half: f32,
+    what: Building,
     search: f32,
 ) -> Option<Vec2> {
+    let half = what.footprint().max_element() * 0.5;
     let clear = |at: Vec2| {
         !streets
             .iter()
             .any(|street| street.nearest(at).0 < street.wide * 0.5 + half + 1.0)
-            && !plots.iter().any(|plot| {
-                plot.at.distance(at) < plot.what.footprint().max_element() * 0.5 + half + 1.5
-            })
+            // A THIRD CIRCLE ROUND A RECTANGLE, now gone the same way as the other
+            // two. This one measured the standing building at `max_element * 0.5`,
+            // which for the guild hall is 13 m - and the hall's own corner reaches
+            // 15.8. So a monument could be cleared at 17 m from the middle of a hall
+            // whose corner was 15.8 m out, and stand inside it. That is exactly what
+            // the sweep test caught, in a village nobody had photographed.
+            //
+            // A landmark is near enough square that which way it faces does not
+            // change what it takes up, so it is asked about at nought.
+            && clear_of_buildings(plots, at, 0.0, what)
     };
     if clear(about) {
         return Some(about);
@@ -1651,6 +1713,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
                 let try_at = at + across * shift;
                 if clear_of_streets(&streets, try_at, lot.facing, what)
                     && door_faces_a_street(&streets, try_at, lot.facing, what)
+                    && clear_of_buildings(&plots, try_at, lot.facing, what)
                 {
                     stood = Some(try_at);
                     break;
@@ -1664,11 +1727,18 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
             }
         }
         let Some(at) = stood else { continue };
-        let bulk = what.footprint().length() * 0.5;
-        if plots.iter().any(|placed| {
-            let want = (bulk + placed.what.footprint().length() * 0.5) * 0.62;
-            at.distance(placed.at) < want
-        }) {
+        // THE HALF-DIAGONAL CIRCLE, AGAIN.
+        //
+        // This was `(bulk + theirs) * 0.62` on half-diagonals - two circles drawn
+        // round two rectangles and then scaled down by a fudge until towns stopped
+        // looking thin. It is the same approximation, with the same fudge, that put
+        // buildings in roads until `reach_toward` replaced it there; the roads got
+        // the exact answer and the buildings kept the guess.
+        //
+        // A circle round a rectangle is wrong in both directions at once: too big
+        // along the axes, so it thins a street that would have fit, and too small at
+        // the corners even before a 0.62 is applied to it.
+        if !clear_of_buildings(&plots, at, lot.facing, what) {
             continue;
         }
         plots.push(Plot {
@@ -1694,8 +1764,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
     // plan keeps its middle open - that is what a market square IS. Asked of the
     // network instead, so a plan that runs a street through its middle gets its
     // landmark beside that street rather than under it.
-    let mark_half = on_the_square.footprint().max_element() * 0.5;
-    if let Some(at) = open_ground(&streets, &plots, site.at, mark_half, square * 1.2) {
+    if let Some(at) = open_ground(&streets, &plots, site.at, on_the_square, square * 1.2) {
         plots.push(Plot {
             at,
             facing: approach.y.atan2(approach.x),
@@ -1742,7 +1811,7 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
             &streets,
             &plots,
             at + (at - site.at).normalize_or_zero() * (wide * 0.5 + junction_half + 1.2),
-            junction_half,
+            at_a_junction,
             wide * 2.0 + 6.0,
         ) else {
             continue;
@@ -3387,6 +3456,126 @@ mod tests {
             city,
             ranch: false,
         }
+    }
+
+    /// No building stands in another building.
+    ///
+    /// # Checked with a different instrument than the one that places them
+    ///
+    /// `clear_of_buildings` decides this with the separating axis theorem, so a test
+    /// that called it would be asking the placement to mark its own work - and the
+    /// fault it exists to catch was precisely a rule everybody assumed was there.
+    ///
+    /// So this walks the CORNERS: every corner of every building, tested for being
+    /// inside another building's rectangle. Different maths, same question. It misses
+    /// only the case where two rectangles cross without any corner going inside -
+    /// a perfect plus sign - which needs one building much longer than the other is
+    /// wide, and the town has nothing that shape.
+    #[test]
+    fn no_building_stands_in_another_building() {
+        // MANY LAYOUTS, not one. The first version of this checked a single village
+        // and a single city and passed with the fix TAKEN OUT - the subdivision hands
+        // out disjoint lots, so most layouts have no collision in them at all and a
+        // test of one proves nothing. The fault needs a settlement whose square
+        // happens to put the guild hall where a lot was going to be.
+        for seed in 0..40u32 {
+        for (city, radius) in [(true, 120.0_f32), (false, 70.0)] {
+            let laid = lay_out(&a_site(city, radius), Vec2::new(0.6, -0.8).normalize(), seed);
+            let solid: Vec<&Plot> = laid.plots.iter().filter(|p| !p.what.is_yard()).collect();
+
+            let corners = |plot: &Plot| {
+                let half = plot.what.footprint() * 0.5;
+                let (sin, cos) = plot.facing.sin_cos();
+                let across = Vec2::new(cos, sin);
+                let door = Vec2::new(sin, -cos);
+                [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map(
+                    |(x, y): (f32, f32)| plot.at + across * (x * half.x) + door * (y * half.y),
+                )
+            };
+            let inside = |plot: &Plot, point: Vec2| {
+                let half = plot.what.footprint() * 0.5;
+                let (sin, cos) = plot.facing.sin_cos();
+                let away = point - plot.at;
+                away.dot(Vec2::new(cos, sin)).abs() < half.x - 0.01
+                    && away.dot(Vec2::new(sin, -cos)).abs() < half.y - 0.01
+            };
+
+            for (index, one) in solid.iter().enumerate() {
+                for other in solid.iter().skip(index + 1) {
+                    for corner in corners(one) {
+                        assert!(
+                            !inside(other, corner),
+                            "a {:?} at {:?} has a corner inside a {:?} at {:?}",
+                            one.what, one.at, other.what, other.at,
+                        );
+                    }
+                    for corner in corners(other) {
+                        assert!(
+                            !inside(one, corner),
+                            "a {:?} at {:?} has a corner inside a {:?} at {:?}",
+                            other.what, other.at, one.what, one.at,
+                        );
+                    }
+                }
+            }
+            assert!(solid.len() > 6, "only {} buildings were laid out", solid.len());
+        }
+        }
+    }
+
+    /// Every settlement the game actually ships has a guild hall.
+    ///
+    /// # A synthetic site is not the world
+    ///
+    /// The test below this one lays out a made-up village and a made-up city and
+    /// checks each gets a hall. It passed while the hall was enlarged from 18 x 13.5
+    /// to 26 x 18 - and the enlarged hall then failed to fit in a real village, which
+    /// a photograph showed and the test did not. A circle of radius 55 at the origin
+    /// has room the actual thirteen sites do not: their roads arrive from particular
+    /// directions, their squares are the size the genre gives them, and their ground
+    /// is levelled to a shape.
+    ///
+    /// So this asks the WORLD. It builds the real terrain, walks the real settlement
+    /// plan with each site's real approach and the seed the game gives it, and names
+    /// any that come out without a hall.
+    #[test]
+    fn every_settlement_in_the_world_has_a_guild_hall() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        let mut missing = Vec::new();
+        let mut halls = 0;
+        for (key, site) in plan.sites().iter().enumerate() {
+            if site.ranch {
+                continue;
+            }
+            let laid = lay_out(
+                site,
+                plan.approach(site.at),
+                crate::config::WORLD_SEED.wrapping_add(key as u32 * 7717),
+            );
+            let here = laid
+                .plots
+                .iter()
+                .filter(|p| p.what == Building::GuildHall)
+                .count();
+            halls += here;
+            if here != 1 {
+                missing.push(format!(
+                    "{} at {:.0},{:.0} radius {:.0} laid {here} halls",
+                    if site.city { "city" } else { "village" },
+                    site.at.x,
+                    site.at.y,
+                    site.radius,
+                ));
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "{} of the world's settlements have no guild hall:\n  {}",
+            missing.len(),
+            missing.join("\n  "),
+        );
+        assert!(halls > 8, "only {halls} guild halls in the whole world");
     }
 
     #[test]

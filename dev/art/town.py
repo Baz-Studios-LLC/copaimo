@@ -46,7 +46,7 @@ import bpy
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import masonry
-from masonry import box, gable_wall, lean, tube, wedge
+from masonry import box, gable_wall, lean, lettering, tube, wedge
 
 # ---------------------------------------------------------------- the module
 #
@@ -530,7 +530,7 @@ def hole_in(kind, width):
     return min(want, width - REVEAL * 2.0)
 
 
-def _bays(length, windows, door):
+def _bays(length, windows, door, most=7):
     """How many bays a wall of this length gets, and what each one is.
 
     A bay is about a module wide. Fewer than three and a facade has no rhythm; more
@@ -549,7 +549,11 @@ def _bays(length, windows, door):
     seven bays - so this is the split grammar agreeing with the architecture rather
     than a correction bolted onto it.
     """
-    count = max(1, min(7, int(round(length / MODULE))))
+    # `most` is the cap. Seven is right for a house - beyond that a facade reads as
+    # a factory - and wrong for a civic hall, whose whole point is a long repeating
+    # frontage. At seven bays a 20 m guild hall gets windows three metres apart, which
+    # reads as a warehouse with holes in it rather than as a hall.
+    count = max(1, min(most, int(round(length / MODULE))))
     if door and count % 2 == 0:
         count = max(1, count - 1)
     bays = ["solid"] * count
@@ -721,8 +725,40 @@ def stock(parts, wide, deep):
 
 
 def guild_hall_inside(parts, wide, deep, at=(0.0, 0.0)):
-    """A long table down the middle and a notice board on the wall."""
+    """What a warden actually comes in here to do.
+
+    A counter to register a companion at, a long table with benches to sit and read
+    at, shelves behind the counter, and the board. The hall was made half as big
+    again in each direction because a player spends minutes in it rather than
+    seconds, and a bigger empty room is just a bigger empty room.
+    """
+    # THE COUNTER, across the far end, facing whoever comes through the door.
+    desk = (at[0], at[1] + deep * 0.28)
+    parts.append(box((wide * 0.42, 0.85, 1.1), (desk[0], desk[1], 0.55), "counter"))
+    parts.append(box((wide * 0.46, 1.05, 0.12), (desk[0], desk[1], 1.16), "shelf"))
+    # Shelves on the wall behind it, which is what says the counter is staffed.
+    for level in range(3):
+        parts.append(
+            box((wide * 0.34, 0.34, 0.09), (desk[0], at[1] + deep * 0.44, 1.1 + level * 0.62), "shelf")
+        )
+    # A lamp over the counter, so the far end of a long hall is not a dark end.
+    parts.append(box((0.3, 0.3, 0.5), (desk[0], desk[1] - 0.6, 2.6), "lantern"))
+    parts.append(box((0.1, 0.1, 0.9), (desk[0], desk[1] - 0.6, 3.3), "inbeam"))
+
     table(parts, (at[0], at[1] - 0.4), wide * 0.45, deep * 0.5)
+    # Benches down both sides of it, which is what makes a table a place to sit.
+    for side in (-1.0, 1.0):
+        parts.append(
+            box((wide * 0.45, 0.4, 0.12), (at[0], at[1] - 0.4 + side * deep * 0.19, 0.44), "inbeam")
+        )
+        for along in (-0.62, 0.0, 0.62):
+            parts.append(
+                box(
+                    (0.12, 0.3, 0.42),
+                    (at[0] + along * wide * 0.2, at[1] - 0.4 + side * deep * 0.19, 0.21),
+                    "inbeam",
+                )
+            )
     for side in (-1.0, 1.0):
         for along in (-0.6, 0.6):
             parts.append(
@@ -1294,6 +1330,37 @@ def skirt(parts, along, at, length, tall, gaps=()):
         parts.append(box(_slab(along, b - a, WALL + 0.2, 0.12), (place[0], place[1], tall), "stone2"))
 
 
+def compass(parts, at, span, face, colour="brass"):
+    """A compass rose: four long points and four short, each tapering to a tip.
+
+    # A bar is not a point
+
+    The first one was eight rectangles crossed at the middle, and rectangles do not
+    taper - so what the gable carried was a plus sign with four short strokes behind
+    it. A compass rose is READ from its points: they are what say which way is north,
+    and a point that is the same width at its tip as at its root is a stick.
+
+    Tapered in STEPS rather than as a triangle, which is the same trick `arched` uses
+    for a voussoir and `shingles` for a course, and keeps the whole figure boxes.
+    """
+    x, z = at
+    for index in range(8):
+        turn = index * math.pi * 0.25
+        # The cardinals long, the diagonals short. That difference IS the rose.
+        reach = span * (0.30 if index % 2 else 0.50)
+        for step in range(3):
+            part = (step + 0.5) / 3.0
+            along = reach * part
+            parts.append(
+                box(
+                    (span * 0.115 * (1.0 - part * 0.76), 0.14, reach / 3.0 * 1.04),
+                    (x + math.sin(turn) * along, face, z + math.cos(turn) * along),
+                    colour,
+                    tilt=(0.0, turn, 0.0),
+                )
+            )
+
+
 def emblem(parts, at, span, face):
     """The guild's compass rose, as a thing that reads at fifty metres.
 
@@ -1306,22 +1373,27 @@ def emblem(parts, at, span, face):
     # WHERE THE GABLE IS, passed in. This was a constant -0.10 - the middle of the
     # building - so the guild's rose was built inside the hall, in the dark, behind
     # its own front wall. Nothing failed; the gable just came out blank.
-    out = face
-    # The field: two squares at forty-five degrees, which reads as a disc from any
-    # distance and costs two boxes rather than a lathe.
+    #
+    # # Every layer thick enough to overlap, none of them sharing a face
+    #
+    # The first build stacked five plates at 0.06 and 0.07 apart, so the back of one
+    # landed EXACTLY on the front of the next - two coplanar surfaces, which is what
+    # a depth buffer cannot choose between. It showed in game as a small white square
+    # that flickered as the camera moved, and it was reported as one.
+    #
+    # Every plate is `THICK` and each sits `STEP` further out, and THICK is more than
+    # STEP - so consecutive plates interpenetrate rather than meet, and no two faces
+    # are ever in the same plane.
+    THICK, STEP = 0.16, 0.035
+    plate = lambda layer: face - layer * STEP
     for turn in (0.0, math.pi * 0.25):
-        parts.append(box((span, 0.12, span), (x, out, z), "guild", tilt=(0.0, turn, 0.0)))
+        parts.append(box((span, THICK, span), (x, plate(0), z), "guild", tilt=(0.0, turn, 0.0)))
     for turn in (0.0, math.pi * 0.25):
-        parts.append(box((span * 0.86, 0.06, span * 0.86), (x, out - 0.07, z), "brass", tilt=(0.0, turn, 0.0)))
+        parts.append(box((span * 0.90, THICK, span * 0.90), (x, plate(1), z), "brass", tilt=(0.0, turn, 0.0)))
     for turn in (0.0, math.pi * 0.25):
-        parts.append(box((span * 0.78, 0.06, span * 0.78), (x, out - 0.12, z), "guild", tilt=(0.0, turn, 0.0)))
-    # The star: four long points and four short, which is a compass rose.
-    for turn, reach in ((0.0, 1.0), (math.pi * 0.25, 0.62)):
-        for spin in (turn, turn + math.pi * 0.5):
-            parts.append(
-                box((span * 0.09, 0.06, span * 0.74 * reach), (x, out - 0.18, z), "brass", tilt=(0.0, spin, 0.0))
-            )
-    parts.append(box((span * 0.16, 0.08, span * 0.16), (x, out - 0.24, z), "brass"))
+        parts.append(box((span * 0.80, THICK, span * 0.80), (x, plate(2), z), "guild", tilt=(0.0, turn, 0.0)))
+    compass(parts, at, span, plate(3))
+    parts.append(box((span * 0.15, THICK, span * 0.15), (x, plate(4), z), "brass"))
 
 
 def guild_hall():
@@ -1362,7 +1434,9 @@ def guild_hall():
     """
     parts = []
     # The footprint the game keeps clear for this building, filled by the model.
-    wide, deep = 18.0, 13.5
+    # Matched by `Building::GuildHall::footprint` - the two are one fact and the game
+    # spaces its neighbours off its copy.
+    wide, deep = 26.0, 18.0
     hx, hy = wide * 0.5, deep * 0.5
 
     # THE TWO MASSES, placed by the DOORWAY rather than the other way round.
@@ -1375,22 +1449,22 @@ def guild_hall():
     #
     # So the bay is chosen first and the hall is slid until that bay IS the origin.
     # The wing takes whatever frontage is left, which is what decides its width.
-    hall_wide = 13.5
-    veranda = 1.35
+    hall_wide = 20.5
+    veranda = 1.5
     hall_front = -hy + veranda
     hall_deep = hy - hall_front
     hall_y = (hall_front + hy) * 0.5
-    eave = 4.3
-    stone_up = 0.95
+    eave = 4.8
+    stone_up = 1.05
 
     parts.append(box((wide + 0.5, deep + 0.5, PLINTH), (0.0, 0.0, PLINTH * 0.5), "stone"))
 
     # ------------------------------------------------------------------- THE HALL
     holes = {}
-    plain = _bays(hall_wide, True, door=False)
+    plain = _bays(hall_wide, True, door=False, most=13)
     # Every bay tried as the doorway; the hall placed so that bay lands on the
     # origin; and the one kept whose leftover frontage makes the best wing.
-    want_wing = 4.0
+    want_wing = 5.5
     best = None
     for index in range(len(plain)):
         trial = list(plain)
@@ -1407,8 +1481,8 @@ def guild_hall():
     hall_x0, hall_x1 = hall_mid - hall_wide * 0.5, hall_mid + hall_wide * 0.5
     door_x = 0.0
 
-    back = _bays(hall_wide, True, door=False)
-    flank = _bays(hall_deep, True, door=False)
+    back = _bays(hall_wide, True, door=False, most=13)
+    flank = _bays(hall_deep, True, door=False, most=11)
     holes[("x", -1.0)] = front
     holes[("x", 1.0)] = back
     holes[("y", -1.0)] = holes[("y", 1.0)] = flank
@@ -1444,11 +1518,17 @@ def guild_hall():
 
     # ------------------------------------------------------------------- THE WING
     wing_x = (-hx + hall_x0) * 0.5
-    wing_y0 = -3.0
+    # FLUSH WITH THE HALL'S FRONT, not set back behind it.
+    #
+    # It started 2.4 m back, which left its notice board - the thing a warden comes
+    # to the hall to READ - standing behind the veranda's posts and rails, in the one
+    # part of the frontage you cannot see into. Reported as "the signpost is behind
+    # beams", and it was: three of them.
+    wing_y0 = hall_front
     wing_deep = hy - wing_y0
     wing_mid_y = (wing_y0 + hy) * 0.5
     wing_eave = 3.1
-    wing_bays = _bays(wing_deep, True, door=False)
+    wing_bays = _bays(wing_deep, True, door=False, most=11)
     wall_run(parts, "x", (wing_x, wing_y0 + WALL * 0.5, 0.0), wing_wide, wing_eave, "plaster", ["solid", "solid"], 0.0, -1.0)
     wall_run(parts, "x", (wing_x, hy - WALL * 0.5, 0.0), wing_wide, wing_eave, "plaster", ["solid", "door"], 0.0, 1.0)
     wall_run(parts, "y", (-hx + WALL * 0.5, wing_mid_y, 0.0), wing_deep, wing_eave, "plaster", wing_bays, 0.0, -1.0)
@@ -1544,10 +1624,17 @@ def guild_hall():
      # on the roof - it is the thing the concept says to mount "for visibility from
      # town", so it has to be ON the gable, not through it.
     emblem(parts, (door_x, eave + gable_rise * 0.38), porch_wide * 0.40, reach - 0.20)
-    # The board under it, which is what actually says whose hall this is.
-    parts.append(box((3.0, 0.16, 0.72), (door_x, reach - 0.14, eave - 0.5), "sign"))
-    for up in (-0.86, -0.16):
-        parts.append(box((3.2, 0.1, 0.12), (door_x, reach - 0.18, eave + up), "timber"))
+    # The board under it, and what is written on it.
+    #
+    # A sign with nothing on it is a plank, and that is what this was: a brown
+    # rectangle that meant "sign" without being one. The concept letters it, and the
+    # letters are most of what a sign IS - see `masonry.lettering`.
+    sign_z = eave - 0.62
+    parts.append(box((5.0, 0.16, 1.15), (door_x, reach - 0.14, sign_z), "sign"))
+    for up in (-0.64, 0.64):
+        parts.append(box((5.3, 0.12, 0.15), (door_x, reach - 0.18, sign_z + up), "timber"))
+    lettering(parts, "WARDENS GUILD", (door_x, reach - 0.30, sign_z + 0.17), 0.46, "brass", spread=0.25)
+    lettering(parts, "EXPLORE  PROTECT  COEXIST", (door_x, reach - 0.30, sign_z - 0.33), 0.19, "timber", spread=0.2)
 
     # The steps up to it. `deep` is doubled from the HALL's front rather than the
     # figure's, because that is the wall the door is in.
@@ -1575,7 +1662,7 @@ def guild_hall():
     for side in (-1.0, 1.0):
         at_x = door_x + side * (porch_wide * 0.5 + 0.35)
         parts.append(box((0.1, 0.1, 0.5), (at_x, -hy + 0.28, 2.9), "timber"))
-        parts.append(box((0.3, 0.3, 0.42), (at_x, -hy + 0.28, 2.6), "glass"))
+        parts.append(box((0.3, 0.3, 0.42), (at_x, -hy + 0.28, 2.6), "lantern"))
         parts.append(box((0.36, 0.36, 0.1), (at_x, -hy + 0.28, 2.85), "timber"))
     post_x = hall_x1 - 0.9
     parts.append(box((0.2, 0.2, 5.2), (post_x, -hy + 0.5, 2.6), "timber"))
@@ -2012,6 +2099,12 @@ def windows_in(parts):
     """
     found = []
     for obj, colour in parts:
+        # ONLY GLASS THAT IS A WINDOW.
+        #
+        # The game hangs a lit pane on every one of these after dark, so anything
+        # else painted "glass" becomes a lit window in the middle of a wall. Two
+        # lanterns beside the guild hall's door did exactly that, and showed up as
+        # small white squares nobody could place. A fitting's glass is "lantern".
         if colour != "glass":
             continue
         points = [obj.matrix_world @ v.co for v in obj.data.vertices]
