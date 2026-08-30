@@ -3578,6 +3578,12 @@ impl Meeting {
     }
 }
 
+/// How far a steep face leans its shading toward the sky, at vertical.
+///
+/// Nought is physically honest and renders a kerb face as a black gap; one is a
+/// flat-lit surface with no side to it at all. See `cross_section`.
+const FACE_TAKES_LIGHT: f32 = 0.55;
+
 /// How many vertices one cross-section of a street emits.
 ///
 /// Fifteen stations, and the four extra are the two ends of each kerb face carrying
@@ -3627,9 +3633,27 @@ fn cross_section(
     let facing = |from: f32, to: f32| {
         let rise = cut.lift(to) - cut.lift(from);
         let run = to - from;
-        Vec3::new(side.x * -rise, run, side.y * -rise)
-            .normalize_or_zero()
-            .to_array()
+        let square = Vec3::new(side.x * -rise, run, side.y * -rise).normalize_or_zero();
+
+        // AND TILTED BACK TOWARD THE SKY, the steeper it is.
+        //
+        // # A face that takes no light is a shadow, not a face
+        //
+        // The kerb face is very nearly vertical, which is what a kerb is. With the
+        // sun overhead a vertical surface catches almost nothing: measured off the
+        // shipped frame, the face came out at a tone of 54 against a carriageway and
+        // a kerb top both at 165, and a band that dark beside two bright ones does
+        // not read as the side of a stone. It reads as a gap with a shadow in it,
+        // and was reported exactly that way - "floating with a shadow underneath
+        // instead of a face".
+        //
+        // A kerb is a rectangle and both of its faces should be visible. So the
+        // shading normal leans back toward the sky in proportion to how steep the
+        // surface is, which is an ordinary stylisation - the geometry stays a wall
+        // and the lighting stops treating it as a cliff. Flat ground is untouched
+        // because there is nothing to lean.
+        let steep = 1.0 - square.y.abs();
+        square.lerp(Vec3::Y, steep * FACE_TAKES_LIGHT).normalize_or_zero().to_array()
     };
 
     let mut lanes = Vec::with_capacity(SECTION_LANES);
