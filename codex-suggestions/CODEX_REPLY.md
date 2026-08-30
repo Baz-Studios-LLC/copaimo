@@ -356,3 +356,33 @@ The new `junctions_in` algorithm fixes the reported problem by detecting a road 
 Move the joining endpoint to a true interior point of a segment—for this fixture, `(29, 10)` is exactly halfway between `(20, 4)` and `(38, 16)`—and assert that one meeting is still produced there with both arms. Keep the existing single-way bend assertion. A second useful guard would put a parallel endpoint just outside `TOUCHING` (and, if the generator can create it, just inside but intentionally unconnected) so the tolerance's false-junction behavior is explicit rather than accidental.
 
 No Copaimo game file was changed during this review.
+
+## 2026-08-30 15:19 — Review of `eeb238f` and `1d30291`
+
+The visual intentions are strong: explicit dark footings solve the floating-building read without tilting architecture, and fragment-level masonry is the correct sampling domain for sub-metre paving. Centralizing the road material and applying the pattern before lighting also preserve the semi-cel-shaded hierarchy. Three implementation details need tightening before these become durable systems.
+
+### P0 — `STEP_UP` makes slope collision frame-rate and speed dependent
+
+`may_step` now accepts any rise up to 0.26 m regardless of horizontal run. But the run is one frame's movement (`speed * delta_secs()`), so this is not limited to discrete kerbs: every continuous slope is decomposed into small per-frame rises. At a 60 Hz jog, one frame covers roughly 0.09 m, so the step clause can admit a slope near 2.9:1 even though `CLIMB_LIMIT` is 1.4. At a 120 Hz jog it can admit roughly 5.8:1; at the slower walk pace the bypass is larger still. The canyon test takes a single 1.5 m sample, so it cannot catch this—reducing that sample to the actual per-frame stride can reverse the result.
+
+Do not make a generic height delta the global alternative to the gradient check. A step allowance needs evidence of a discrete ledge and a walkable landing, or an explicit surface/edge classification from the analytical town geometry. The safest near-term architecture is to keep the gradient rule for terrain and grant the step exception only when crossing a known kerb, doorstep, or other authored step boundary. If generic steps are required, use a fixed-size character sweep/probe independent of frame displacement: block at the lower body, test clearance at `STEP_UP`, then test a walkable landing ahead.
+
+Add a matrix test for the same canyon-wall and ordinary-steep-slope approach at walk and jog speeds with simulated 30, 60, 120, and 240 Hz strides, alongside a real kerb and doorstep that must pass at every rate. Collision outcomes must not change with frame rate.
+
+### P1 — The paving fade currently shrinks stones instead of fading them
+
+The vertex alpha stores `grain * paved`, and the fragment shader interprets it directly as stone size. During `PAVING_ARRIVES`, a 0.55 m cobble at `paved = 0.1` becomes a 5.5 cm cobble; as the fade tends toward zero, the pattern becomes arbitrarily fine until the 2 cm cutoff. That produces scale crawling, moiré, and a gravel/noise band precisely where the road is meant to transition naturally.
+
+Keep physical stone size fixed and fade pattern contrast/coverage separately. This needs two interpolated facts: material scale/type and paving amount. Use an unused UV component, a dedicated mesh attribute, or a deliberately encoded pair that the shader decodes without changing scale. The joint/tone contribution should approach zero with `paved`; the cell dimensions should not change.
+
+### P2 — A world-axis running bond will rotate relative to every road
+
+`laid_in(in.world_position.xz, stone)` makes all courses align to the global X/Z axes. That guarantees positional continuity, but a running bond on a curving or diagonal street will cut across the road at arbitrary angles, and footway flags will not follow the kerb. This is less noticeable for irregular cobbles than for the larger flagstones, but the shader explicitly draws an ordered bond, so its orientation is legible.
+
+Carry tangent-aligned along/across coordinates from each ribbon into the shader, with a deliberate separate mapping for junction nodes. Ordinary road stones should follow the road; footway flags should follow the curb; a junction may use its own square/radial field. World position can remain the hash seed so tone does not visibly restart.
+
+Finally, use derivative-aware joint filtering or a distance/detail fade. Even full-size 0.55 m stones will otherwise shimmer when their 7% joints become subpixel, and cel shading makes that temporal contrast especially visible. A street-level still cannot validate this; include a moving-camera capture at medium and far distance.
+
+The footing orientation correction and shared road-material ownership look sound in this read-only review. The current uncommitted road-profile diagnostic was left untouched.
+
+No Copaimo game file was changed during this review.

@@ -2667,7 +2667,18 @@ impl RoadSection {
             carriage: (half - footway).max(0.8),
             kerb: KERB_RISE * paved,
             batter: (VERGE_LEAST * 0.3 + KERB_RUN * paved) * wander,
-            shoulder: half + SHOULDER_WIDE * wander,
+            // THE SHOULDER CLOSES AS THE PAVING ARRIVES.
+            //
+            // A shoulder is the margin where a dirt track gives out into whatever
+            // the ground is - five and a half metres of it, feathered, which is
+            // right for a lane worn across a meadow. A city street does not give
+            // out: it ENDS, at a kerb, which is what a kerb is for.
+            //
+            // Left at full width it laid a 5.4 m band of ground-coloured wear noise
+            // immediately outside every footway, so the pavement had a brushed
+            // fringe down its far side and the eye read the fringe as part of the
+            // street. Reported as "the brushlike affect next to the sidewalk".
+            shoulder: half + (SHOULDER_WIDE * (1.0 - paved) + 0.35 * paved) * wander,
         }
     }
 
@@ -3293,10 +3304,17 @@ fn pave(
             let walk = cut.carriage;
             let batter = cut.batter;
             let flag = mix(surface, *ROAD_FLAG, paved);
+            // A FOOTWAY IS ONE PLAIN SURFACE.
+            //
+            // It was flagged, with its own stone size and its own wear - and beside a
+            // cobbled carriageway that is two patterns competing for the same glance.
+            // Asked for plain, and plain is also what makes the kerb the only line
+            // there: the eye has one edge to find instead of three surfaces to sort
+            // out. `0.0` grain means no stones, and no wear either - see `worn`.
             for (across, colour, grain) in [
                 (-shoulder, hem(-shoulder), 0.0),
-                (-half, flag, FLAG_IS),
-                (-(walk + batter + SEAM), flag, FLAG_IS),
+                (-half, flag, 0.0),
+                (-(walk + batter + SEAM), flag, 0.0),
                 (-(walk + batter), edge, 0.0),
                 (-walk, edge, 0.0),
                 (-walk * 0.62, surface, COBBLE_IS),
@@ -3304,8 +3322,8 @@ fn pave(
                 (walk * 0.62, surface, COBBLE_IS),
                 (walk, edge, 0.0),
                 (walk + batter, edge, 0.0),
-                (walk + batter + SEAM, flag, FLAG_IS),
-                (half, flag, FLAG_IS),
+                (walk + batter + SEAM, flag, 0.0),
+                (half, flag, 0.0),
                 (shoulder, hem(shoulder), 0.0),
             ] {
                 let at = on + side * across;
@@ -3341,10 +3359,19 @@ fn pave(
                 // Three scales, because wear has three: where the carts go, where
                 // the puddles sit, and the scuff of the ground itself.
                 let close = terrain_core::forest::field(at / (ROAD_WEARS_OVER * 0.06), 519);
+                // WEAR IS FOR GROUND THAT WEARS.
+                //
+                // Three scales of brushed variation is what turns packed earth into a
+                // track somebody walks. On a laid surface it is grime: the footway
+                // took the full treatment and came out looking scrubbed. So the wear
+                // fades out with the paving, and what a paved surface gets instead is
+                // its stones - which the carriageway has and the footway, asked for
+                // plain, does not.
+                let wears = ROAD_WEARS * (1.0 - paved * 0.8);
                 let mut worn = 1.0
-                    + (broad - 0.5) * ROAD_WEARS
-                    + (fine - 0.5) * ROAD_WEARS * 0.5
-                    + (close - 0.5) * ROAD_WEARS * 0.22;
+                    + (broad - 0.5) * wears
+                    + (fine - 0.5) * wears * 0.5
+                    + (close - 0.5) * wears * 0.22;
 
                 // AND THE STONES THEMSELVES, on a city street.
                 //
@@ -3692,10 +3719,16 @@ pub fn raise_the_towns(
                     (
                         meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
                         materials.add(crate::shade::shaded(StandardMaterial {
-                            // Darker than the stone above it: a footing is the part
-                            // in the building's own shadow, and a pale slab under a
-                            // house reads as the house sitting on a plate.
-                            base_color: Color::srgb(0.28, 0.27, 0.25),
+                            // MASONRY, not a shadow.
+                            //
+                            // This was 0.28, chosen so a footing would sit quietly in
+                            // the building's own shade. Under the near-cel ramp it
+                            // banded straight to black, so what filled the gap read as
+                            // the gap - the building still looked like it was floating
+                            // over a void, which is what it was reported as a second
+                            // time. A foundation is the same stone as the plinth above
+                            // it and wants to look like it.
+                            base_color: Color::srgb(0.46, 0.45, 0.42),
                             perceptual_roughness: 0.95,
                             reflectance: 0.02,
                             ..default()
