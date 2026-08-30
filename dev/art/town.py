@@ -113,6 +113,28 @@ INDOORS = {
 # --------------------------------------------------------------- wall grammar
 
 
+def wall_key(face, side, storey=0):
+    """How a wall's bays are filed, so the builder and the framing agree.
+
+    # One key, written once
+
+    `shell` files its bays under `(face, side, storey)` and `framing` looks them up
+    the same way. The guild hall does not use `shell` - it is two masses, so it lays
+    its own walls with `wall_run` - and it filed them under `(face, side)`, a shape
+    this key had before storeys were added to it.
+
+    Nothing failed. `openings.get(key, [])` returned an empty list for every wall, so
+    `framing` believed the hall had no doorways at all and put a stud straight through
+    the front door. Twice reported as a beam in front of the entrance, and hunted
+    twice as a placement bug, because the arithmetic on both sides was right and only
+    the shelf they were filed on differed.
+
+    A default argument would have hidden it just as well. The point of a function is
+    that there is now only one place the shape is written down.
+    """
+    return (face, side, storey)
+
+
 def wall_run(parts, along, at, length, height, colour, bays, floor=0.0, facing=-1.0):
     """One wall, split into bays, each bay resolved to what the rule says.
 
@@ -320,7 +342,7 @@ def chimney(parts, at, base_z, top_z, colour="stone"):
     parts.append(box((0.34, 0.34, 0.22), (at[0], at[1], top_z + 0.24), "roof2"))
 
 
-def framing(parts, wide, deep, floor, height, colour="timber", openings=None):
+def framing(parts, wide, deep, floor, height, colour="timber", openings=None, at=(0.0, 0.0)):
     """Timber framing: corner posts, rails, studs and a brace to each panel.
 
     Half-timbering is the cheapest strong pattern a stylised building can wear -
@@ -340,6 +362,19 @@ def framing(parts, wide, deep, floor, height, colour="timber", openings=None):
     door bay is not built, and a rail is broken around it. One description of where
     the holes are, used by both, because two would drift apart the first time
     anybody changed a bay.
+
+    # And it has to know WHERE the building is
+
+    `at` is the middle of the walls being framed. It was not a parameter, so framing
+    was always built around the origin - fine for every figure that is one centred
+    box, and wrong for the guild hall, whose hall is a mass offset three metres in x
+    so its doorway can land on the game's own gap.
+
+    So every stud, rail and brace stood three metres from the wall it belongs to:
+    a row of them through the middle of the room, and one straight across the front
+    door, because the gap `openings` cuts for a doorway was offset with them.
+    Reported as random beams inside the back of the hall and a beam in front of the
+    entrance, and it was one fault wearing two faces.
     """
     t = 0.11
     out = WALL * 0.5 + 0.02
@@ -348,10 +383,14 @@ def framing(parts, wide, deep, floor, height, colour="timber", openings=None):
 
     for face, span in (("x", wide), ("y", deep)):
         for side in (-1.0, 1.0):
-            base = (0.0, side * (deep * 0.5 - out * 0.5), 0.0) if face == "x" else (side * (wide * 0.5 - out * 0.5), 0.0, 0.0)
+            base = (
+                (at[0], at[1] + side * (deep * 0.5 - out * 0.5), 0.0)
+                if face == "x"
+                else (at[0] + side * (wide * 0.5 - out * 0.5), at[1], 0.0)
+            )
 
             # Where this wall's doorways are, as (from, to) along the wall.
-            bays = openings.get((face, side, storey), [])
+            bays = openings.get(wall_key(face, side, storey), [])
             gaps = []
             for (middle, width), kind in zip(bay_places(span, bays), bays):
                 if kind != "door":
@@ -359,8 +398,20 @@ def framing(parts, wide, deep, floor, height, colour="timber", openings=None):
                 half = hole_in(kind, width) * 0.5 + 0.12
                 gaps.append((middle - half, middle + half))
 
-            def clear(at):
-                return all(at < lo or at > hi for lo, hi in gaps)
+            def clear(over, half=None):
+                """Whether a piece of this half-width may stand at `over`.
+
+                # The whole timber, not its middle line
+
+                This tested the centre point only, so a stud whose centre fell just
+                outside a doorway still put half its thickness across the opening -
+                and `doorways_in` reported the guild hall with TWO doorways, split by
+                eleven centimetres of timber. Measured before it was understood, which
+                is the only reason it was found: the arithmetic said the stud was
+                clear and the mesh said otherwise.
+                """
+                half = t * 0.5 if half is None else half
+                return all(over + half <= lo or over - half >= hi for lo, hi in gaps)
 
             # Top rail runs the whole way; the BOTTOM one is broken by a doorway,
             # because a rail across a threshold is a bar across a door.
@@ -456,10 +507,10 @@ def shell(parts, wide, deep, storeys, colour, doors, windows, openings=None, bac
         # `framing`'s own docstring describes fixing this fault. It was fixed for
         # buildings with one storey.
         if openings is not None:
-            openings[("x", -1.0, storey)] = south
-            openings[("x", 1.0, storey)] = north
-            openings[("y", -1.0, storey)] = sides
-            openings[("y", 1.0, storey)] = sides
+            openings[wall_key("x", -1.0, storey)] = south
+            openings[wall_key("x", 1.0, storey)] = north
+            openings[wall_key("y", -1.0, storey)] = sides
+            openings[wall_key("y", 1.0, storey)] = sides
         wall_run(parts, "x", (0.0, -deep * 0.5 + WALL * 0.5, 0.0), wide, STOREY, colour, south, floor, -1.0)
         wall_run(parts, "x", (0.0, deep * 0.5 - WALL * 0.5, 0.0), wide, STOREY, colour, north, floor, 1.0)
         wall_run(parts, "y", (-wide * 0.5 + WALL * 0.5, 0.0, 0.0), deep, STOREY, colour, sides, floor, -1.0)
@@ -1503,16 +1554,16 @@ def guild_hall():
 
     back = _bays(hall_wide, True, door=False, most=13)
     flank = _bays(hall_deep, True, door=False, most=11)
-    holes[("x", -1.0)] = front
-    holes[("x", 1.0)] = back
-    holes[("y", -1.0)] = holes[("y", 1.0)] = flank
+    holes[wall_key("x", -1.0)] = front
+    holes[wall_key("x", 1.0)] = back
+    holes[wall_key("y", -1.0)] = holes[wall_key("y", 1.0)] = flank
     wall_run(parts, "x", (hall_mid, hall_front + WALL * 0.5, 0.0), hall_wide, eave, "plaster", front, 0.0, -1.0)
     wall_run(parts, "x", (hall_mid, hy - WALL * 0.5, 0.0), hall_wide, eave, "plaster", back, 0.0, 1.0)
     wall_run(parts, "y", (hall_x0 + WALL * 0.5, hall_y, 0.0), hall_deep, eave, "plaster", flank, 0.0, -1.0)
     wall_run(parts, "y", (hall_x1 - WALL * 0.5, hall_y, 0.0), hall_deep, eave, "plaster", flank, 0.0, 1.0)
 
     # Half-timbering over the plaster, and the stone the whole thing stands on.
-    framing(parts, hall_wide, hall_deep, 0.0, eave, openings=holes)
+    framing(parts, hall_wide, hall_deep, 0.0, eave, openings=holes, at=(hall_mid, hall_y))
     for (along, at, length, bays, facing) in (
         ("x", (hall_mid, hall_front + WALL * 0.5), hall_wide, front, -1.0),
         ("x", (hall_mid, hy - WALL * 0.5), hall_wide, back, 1.0),

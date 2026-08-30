@@ -295,6 +295,24 @@ pub fn surface_color(
     // through moving water is just noise.
     let takes = if height >= SEA_LEVEL { takes } else { 0.0 };
 
+    // AND A MADE SURFACE DOES NOT SPROUT.
+    //
+    // The note above the settled blend says "the fade below is what keeps a paved
+    // square from sprouting". There was no such fade. `takes` was chosen by COUNTRY
+    // alone - snow, sand or ordinary - so a city's pavement and a village's square
+    // took the full grass-growth blotching, at the full strength open meadow takes
+    // it. Reported as a splotchy look on the ground in towns and cities, which is
+    // exactly what uneven grass growth painted onto concrete is.
+    //
+    // A comment describing a mechanism that is not there is worse than no comment:
+    // it reads as a decision somebody already made, so nobody looks.
+    //
+    // A village's earth keeps a third of it, because packed earth does wear
+    // unevenly and a village square is earth. A city's paving keeps almost none.
+    let made = settled.abs().clamp(0.0, 1.0);
+    let keeps = if settled < 0.0 { MOTTLE_ON_PAVING } else { MOTTLE_ON_EARTH };
+    let takes = takes * (1.0 - made * (1.0 - keeps));
+
     // Brightness, and a lean toward the yellow of dry grass or the blue-green of
     // thick growth. Tone alone reads as lighting; it is the hue drift that reads
     // as different GROWTH on the same ground.
@@ -305,6 +323,13 @@ pub fn surface_color(
 
     [color.x.max(0.0), color.y.max(0.0), color.z.max(0.0), 1.0]
 }
+
+/// How much of the ground's blotching a made surface keeps.
+///
+/// Paving is laid and swept; packed earth is walked on and wears. Neither is a
+/// meadow, which is what the unmodified figure describes.
+const MOTTLE_ON_PAVING: f32 = 0.08;
+const MOTTLE_ON_EARTH: f32 = 0.34;
 
 /// Two scales of blotching over the ground, about -0.5 to 0.5.
 ///

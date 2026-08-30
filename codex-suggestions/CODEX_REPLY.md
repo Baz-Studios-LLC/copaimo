@@ -326,3 +326,21 @@ Treat this as an interim junction implementation. The final pass should retain a
 The obsolete 80.5 m Guild-hall justification remains in `dev/model_export.py` and `src/models.rs`, with `LARGEST = 90.0`, while `TROUBLESHOOTING.md` still documents a 60 m guardrail. This is independent of the road work but remains worth closing.
 
 This review was read-only. No Copaimo game file was changed.
+
+## 2026-08-30 13:43 — Verification of `f30ac41` and `b69a5bb`
+
+The four road findings from the 13:10 review are substantively closed. `Meeting` now retains the incident arms and resolves gateway widths through `joins`; paving and wander are sampled once on the nearest centreline for both drawing and traversal; and `has_a_surface` prevents invisible snow/desert roads from changing player height. The 60 m model-size guardrail is also restored in both import paths, backed by a gate-agreement test and a measured 57.13 m tallest shipped model. The full trimmed node polygon remains correctly identified as later intersection work rather than being presented as complete.
+
+### P1 — The settlement-road cheap reject can clip a positively wandered shoulder
+
+There is one remaining mismatch in `stands_on`. For streets inside `built.standing`, the early test rejects when `across > street.wide * 0.5 + SHOULDER_WIDE`, before constructing the wandered `RoadSection`. But `RoadSection::new(..., wander_at(...))` scales the entire section, including its shoulder, and an unpaved road can wander up to roughly +17%. A nominal 6 m road with a 1.5 m shoulder is therefore rejected beyond 4.5 m even when the visible sampled section can extend to about 5.27 m. The outer portion of a widened dirt road may be drawn while feet still use bare terrain.
+
+Either construct the sampled section before this reject and compare directly with `cut.shoulder`, or make the preliminary bound conservatively include the maximum wander and retain the exact `cut.shoulder` check afterward. The first is simplest for the comparatively small settlement street set. Add a test with a forced positive-wander sample that checks the outer widened shoulder, plus a negative-wander sample proving the exact profile still rejects outside the narrower mesh.
+
+### P2 — Quantify the deliberate mesh/walk-ground difference
+
+The section-owned lift now agrees, but the two consumers intentionally start from different bases: road vertices use `drawn_height`, while traversal adds the section lift to `walk_height`. The canyon regression explains why blindly substituting drawn height in traversal is unsafe, so this is not a request to revert that decision. It is worth adding an evidence test or diagnostic that samples the vertical delta between the rendered road and analytical foot surface only where a road is actually present. If the delta exceeds the visual/animation tolerance, the durable answer is to reject or regrade that road placement, or explicitly reconcile its base height—not to weaken the canyon wall.
+
+The current uncommitted kerb, paving-mottle, guild-hall framing, and junction-detection work was left untouched and is not reviewed as finished code here.
+
+No Copaimo game file was changed during this verification.

@@ -2563,7 +2563,21 @@ const VERGE_LEAST: f32 = 0.35;
 /// the second thing `the_paving_faces_the_sky` caught. Two centimetres apart the
 /// line still reads as hard and the triangles have area.
 const SEAM: f32 = 0.02;
-const KERB_RISE: f32 = 0.14;
+/// # A kerb has to be a STEP, not a change of colour
+///
+/// This was 0.14 - a real kerb - and the note beside it said there was no reason to
+/// exaggerate one, because what makes a footway read is the line and the change of
+/// surface. That was wrong, and how it was wrong is worth keeping: a 14 cm rise, with
+/// the batter derived from the climb rule, leaves a face 13 cm wide on the ground -
+/// which at a third-person camera's height, under this game's near-flat shading,
+/// carries almost no value difference. So the footway read as paint, and was reported
+/// exactly that way: "these are no true curbs and just read as different colors".
+///
+/// 22 cm is taller than a kerb in the world, and this is not the world. It is the
+/// height at which the face becomes a face: a 20 cm band of its own colour, turned
+/// away from the sky enough to shade differently from both surfaces it divides. The
+/// batter follows it, so it stays a step the warden can take.
+const KERB_RISE: f32 = 0.22;
 
 /// How far the kerb face leans back, in metres.
 ///
@@ -2870,7 +2884,10 @@ static ROAD_COBBLE: LazyLock<[f32; 4]> = LazyLock::new(|| srgb(0.46, 0.43, 0.39)
 const STONE_VARIES: f32 = 0.16;
 // The kerb of a PAVED street. A dirt track has no kerb - see `pave`, which uses the
 // surface colour at its edges when there is no city to put a kerb on.
-static ROAD_KERB: LazyLock<[f32; 4]> = LazyLock::new(|| srgb(0.34, 0.33, 0.32));
+// DARKER than either surface it divides - the carriageway is 0.42 and the footway
+// 0.60 - so it reads as a line between them at distance and as a shaded face close
+// up. A kerb the colour of the road is a road with a step in it.
+static ROAD_KERB: LazyLock<[f32; 4]> = LazyLock::new(|| srgb(0.30, 0.29, 0.28));
 
 /// How wide the margin is where a road gives out into the ground, in metres.
 ///
@@ -3018,28 +3035,66 @@ const PAVING_ARRIVES: f32 = 34.0;
 /// the kerb, all the way round every ring. Codex's research is blunt about the
 /// distinction and this is it, in code: cap where roads MEET, and leave a bend alone.
 ///
-/// Two or more distinct ways, because a way crossing itself is still one road and a
-/// radial ending on a ring's mid-point is two.
+/// # And a road ends ON another road, not on one of its corners
+///
+/// The first version of this clustered shared VERTICES, which found the square where
+/// several radials start and missed almost everything else: a ring is drawn as a
+/// chain of arc samples, and a radial meets it wherever it happens to arrive - which
+/// is between two of those samples, not on one. So the caps vanished from most of the
+/// junctions in every settlement and the notch came back. Reported as roads not
+/// connecting properly to most cities and some towns, which is what it was.
+///
+/// An END of one road, tested against the LINE of every other. A way's interior
+/// bends are still left alone - those are mitred and were never the problem.
 fn junctions_in(ways: &[Way]) -> Vec<Meeting> {
+    // How near a road has to pass for an end to be ON it.
+    const TOUCHING: f32 = 0.6;
+
+    let near_way = |way: &Way, at: Vec2| {
+        way.points.windows(2).any(|pair| {
+            let run = pair[1] - pair[0];
+            let along = run.length_squared();
+            let part = if along > 1.0e-6 {
+                ((at - pair[0]).dot(run) / along).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            at.distance(pair[0] + run * part) < TOUCHING
+        })
+    };
+
     let mut met: Vec<Meeting> = Vec::new();
     for (index, way) in ways.iter().enumerate() {
-        for point in &way.points {
-            match met.iter_mut().find(|node| node.at.distance(*point) < 0.6) {
+        let (Some(first), Some(last)) = (way.points.first(), way.points.last()) else {
+            continue;
+        };
+        for end in [*first, *last] {
+            // WHO ELSE IS HERE. Every other road whose LINE passes through this end,
+            // not merely those with a vertex on it.
+            let mut arms = vec![(way.wide, way.joins)];
+            let mut whose = vec![index];
+            for (other, road) in ways.iter().enumerate() {
+                if other != index && near_way(road, end) {
+                    arms.push((road.wide, road.joins));
+                    whose.push(other);
+                }
+            }
+            if arms.len() < 2 {
+                continue;
+            }
+            match met.iter_mut().find(|node| node.at.distance(end) < TOUCHING) {
                 Some(node) => {
-                    if !node.whose.contains(&index) {
-                        node.whose.push(index);
-                        node.arms.push((way.wide, way.joins));
+                    for (arm, who) in arms.into_iter().zip(whose) {
+                        if !node.whose.contains(&who) {
+                            node.whose.push(who);
+                            node.arms.push(arm);
+                        }
                     }
                 }
-                None => met.push(Meeting {
-                    at: *point,
-                    arms: vec![(way.wide, way.joins)],
-                    whose: vec![index],
-                }),
+                None => met.push(Meeting { at: end, arms, whose }),
             }
         }
     }
-    met.retain(|node| node.whose.len() > 1);
     met
 }
 
