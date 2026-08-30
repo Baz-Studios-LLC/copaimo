@@ -497,11 +497,27 @@ impl Settlements {
     /// This returns the pad's MIDDLE rather than a height, so the caller can level to
     /// whatever the ground at that middle actually is - edits and all - instead of to
     /// a generated height the sculpting may have moved a long way from.
-    pub fn pad_under(&self, at: Vec2) -> Option<(Vec2, f32)> {
+    /// `level_at` is asked for the ground at a pad's middle, edits and all.
+    pub fn pad_under(&self, at: Vec2, level_at: impl Fn(Vec2) -> f32) -> Option<(f32, f32)> {
         let (x, y) = self.cell_of(at);
         let cell = self.cells.get((y * self.cells_across + x) as usize)?;
         let first = self.sites.len() as u16 + self.roads.len() as u16 + self.lanes.len() as u16;
-        let mut held: Option<(Vec2, f32)> = None;
+
+        // THE STRONGEST CLAIM GOVERNS THE PULL AND EVERY CLAIM SHARES THE TARGET.
+        //
+        // This kept only the strongest pad and levelled to ITS middle, which is a
+        // seam waiting for two pads to overlap: where the two pulls cross, the
+        // winner changes in one sample and the target jumps from one building's
+        // ground to the other's. `Settlements::level` documents the same trap and
+        // avoids it the same way, and Codex spotted that the pads had not been given
+        // the treatment their own neighbours already had.
+        //
+        // Pads overlap by construction now - the skirt grows with the footprint, so
+        // a guild hall's reaches 8 m past its walls - and a compact village puts
+        // three of them over one doorstep.
+        let mut governs = 0.0_f32;
+        let mut target = 0.0_f32;
+        let mut shares = 0.0_f32;
         for &what in cell {
             if what < first {
                 continue;
@@ -509,11 +525,29 @@ impl Settlements {
             let pad = &self.pads[(what - first) as usize];
             let skirt = PAD_SKIRT + pad.half.length() * PAD_SPREADS;
             let pull = smoothstep(PAD_HOLDS + skirt, PAD_HOLDS, pad.off(at));
-            if pull > 0.0 && held.is_none_or(|(_, had)| pull > had) {
-                held = Some((pad.at, pull));
+            if pull <= 0.0 {
+                continue;
             }
+            governs = governs.max(pull);
+            // WEIGHTED SO A PAD AT FULL PULL IS THE ONLY CLAIM THAT COUNTS.
+            //
+            // Sharing by `pull` alone is continuous and flattens nothing: inside a
+            // shop's own footprint its neighbour still gets a vote, and the ground
+            // under the shop came out falling 38 cm - measured, by the guard that
+            // exists for exactly that. Sharing by the strongest alone is flat and
+            // jumps where the winner changes, which is the seam Codex found.
+            //
+            // So the weight rises to infinity as a pad saturates, the way inverse
+            // distance weighting does. A point on a building's own pad has that
+            // pad's pull at 1 and every other claim vanishes beside it; a point out
+            // in the skirt has no saturated claim and they all share smoothly; and
+            // the approach from one to the other is continuous, which is the whole
+            // reason not to just pick a winner.
+            let share = pull / (1.0 - pull).max(1.0e-4);
+            target += level_at(pad.at) * share;
+            shares += share;
         }
-        held
+        (shares > 0.0).then(|| (target / shares, governs))
     }
 
     pub fn lanes(&self) -> &[Lane] {
@@ -1312,3 +1346,4 @@ mod levelling {
         assert!(checked > 0, "the world has no towns to check");
     }
 }
+

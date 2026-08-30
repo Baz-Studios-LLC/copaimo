@@ -4460,6 +4460,96 @@ mod tests {
     /// its own site by exactly that much. A stone footing fills it and is the right
     /// thing to have; it is not a reason for the ground to be uneven.
     ///
+    /// Walking between two buildings does not step where their pads meet.
+    ///
+    /// # Flat under each, and smooth between them
+    ///
+    /// A pad's skirt grows with its footprint, so in a compact settlement the skirts
+    /// overlap and a point in the gap has a claim from both. Keeping only the
+    /// strongest and levelling to ITS middle is flat under each building and steps
+    /// where the winner changes - the same seam `Settlements::level` documents and
+    /// avoids for sites and roads, which the pads had not been given. Codex found it
+    /// by reading the two against each other.
+    ///
+    /// Sharing by pull alone fixes the seam and breaks the flatness: with a
+    /// neighbour still voting inside a shop's own footprint, the ground under the
+    /// shop fell 38 cm, which `no_building_stands_on_uneven_ground` caught in one
+    /// run. Both properties at once needs the weight to rise to infinity as a pad
+    /// saturates - so this walks the gap between the closest pair of buildings in
+    /// every settlement and asks for both.
+    #[test]
+    fn the_ground_between_two_buildings_has_no_step_in_it() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        let mut worst = (0.0_f32, String::new());
+        for (key, site) in plan.sites().iter().enumerate() {
+            if site.ranch {
+                continue;
+            }
+            let laid = lay_out(
+                site,
+                plan.approach(site.at),
+                crate::config::WORLD_SEED.wrapping_add(key as u32 * 7717),
+            );
+            let built: Vec<_> = laid.plots.iter().filter(|plot| !plot.what.is_yard()).collect();
+
+            // THE PAIR WHOSE GROUND DIFFERS MOST, not the closest pair.
+            //
+            // A seam between two pads is exactly as tall as the difference between
+            // the ground at their two middles, so the closest pair on a levelled
+            // town site steps by nothing at all and proves nothing at all - which is
+            // what the first version of this test did, and it passed with the fault
+            // deliberately put back. Measured before it was believed: 3,466 of
+            // 16,000 probed places in this world have two pads claiming them, some
+            // with both saturated.
+            let mut worst_pair: Option<(f32, Vec2, Vec2)> = None;
+            for (at, one) in built.iter().enumerate() {
+                for other in &built[at + 1..] {
+                    // Only pairs near enough for their skirts to meet.
+                    if one.at.distance(other.at) > 40.0 {
+                        continue;
+                    }
+                    let apart = (terrain.height(one.at.x, one.at.y)
+                        - terrain.height(other.at.x, other.at.y))
+                    .abs();
+                    if worst_pair.is_none_or(|(had, _, _)| apart > had) {
+                        worst_pair = Some((apart, one.at, other.at));
+                    }
+                }
+            }
+            let Some((_, one, other)) = worst_pair else {
+                continue;
+            };
+
+            // Five centimetres at a time, which is finer than any stride.
+            let steps = ((one.distance(other) / 0.05) as usize).max(2);
+            let mut last = terrain.height(one.x, one.y);
+            for step in 1..=steps {
+                let at = one.lerp(other, step as f32 / steps as f32);
+                let now = terrain.height(at.x, at.y);
+                let jump = (now - last).abs();
+                if jump > worst.0 {
+                    worst = (
+                        jump,
+                        format!(
+                            "between two buildings at ({:.0}, {:.0}) in the settlement at                              ({:.0}, {:.0})",
+                            at.x, at.y, site.at.x, site.at.y
+                        ),
+                    );
+                }
+                last = now;
+            }
+        }
+        // Five centimetres of ground over five centimetres of travel is a 1:1 slope,
+        // well inside what a warden climbs, and nothing a player reads as a step.
+        assert!(
+            worst.0 < 0.05,
+            "the ground steps {:.2} m in 5 cm {} — the pads are picking a winner              rather than sharing",
+            worst.0,
+            worst.1
+        );
+    }
+
     /// So this measures the thing directly: the spread of the four corners plus the
     /// middle, for every building in every settlement the game ships. Asked of the
     /// real terrain, because a pad that levels a synthetic site proves nothing about

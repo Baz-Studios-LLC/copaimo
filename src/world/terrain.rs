@@ -520,14 +520,12 @@ impl Terrain {
         // rather than to a generated height the brush may have moved a long way from.
         // `pad_under` says no almost everywhere, which is what keeps this off the
         // hot path.
-        match self.settlements.pad_under(Vec2::new(x, z)) {
-            Some((middle, pull)) if pull > 0.0 => {
-                let level = match self.edits.read() {
-                    Ok(edits) => self.base_height(middle.x, middle.y) + edits.at(middle.x, middle.y),
-                    Err(_) => self.base_height(middle.x, middle.y),
-                };
-                sculpted + (level - sculpted) * pull
-            }
+        let level_at = |middle: Vec2| match self.edits.read() {
+            Ok(edits) => self.base_height(middle.x, middle.y) + edits.at(middle.x, middle.y),
+            Err(_) => self.base_height(middle.x, middle.y),
+        };
+        match self.settlements.pad_under(Vec2::new(x, z), level_at) {
+            Some((level, pull)) if pull > 0.0 => sculpted + (level - sculpted) * pull,
             _ => sculpted,
         }
     }
