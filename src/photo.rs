@@ -54,19 +54,68 @@ pub struct Shot {
     pub height: f32,
     /// How far back from `at` the camera sits. Zero looks straight down.
     pub back: f32,
-    /// What hour this shot wants, if it wants a particular one.
-    ///
-    /// # A shot called `night_node` taken at noon
-    ///
-    /// The run had one hour and a shot had none, so the three viewpoints written
-    /// down as "the lighting evidence, at the hours it has to be judged at" were all
-    /// photographed at `EVIDENCE_HOUR` - midday. Nobody had looked at them, and the
-    /// file names said they were evidence about the lamps.
-    ///
-    /// That is worse than having no night shots at all: an instrument that reports
-    /// the wrong thing under a convincing label is how a fault survives a review.
-    /// `--hour` still overrides everything, because that is a deliberate ask.
-    pub hour: Option<f32>,
+    /// What this shot is lit for, and what it will be checked against.
+    pub lighting: Lighting,
+}
+
+/// What a shot's lighting is FOR.
+///
+/// # A shot called `night_node`, taken at noon
+///
+/// The run had one hour and a shot had none, so the three viewpoints written down
+/// as "the lighting evidence, at the hours it has to be judged at" were all
+/// photographed at `EVIDENCE_HOUR` - midday. Nobody had opened them, and their file
+/// names said they were evidence about the lamps.
+///
+/// The first fix gave a shot an `Option<f32>` and set it from the name: any shot
+/// called `night_*` asked for 22:00. That is two improvements on nothing and still
+/// two things wrong with it - a viewpoint could be added with no hour at all and
+/// silently take the run's, and the NAME decided the lighting, so the label and the
+/// content were still separate claims that could disagree.
+///
+/// This is Codex's answer and it is better. Every shot must say what it is lit for
+/// or the code does not compile; the hour is derived from that rather than sitting
+/// beside it; and the state that actually results is checked before the shutter -
+/// see `as_promised`. An instrument that reports the wrong thing under a convincing
+/// label is how a fault survives a review, so this one refuses to write the file.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Lighting {
+    /// Midday. For everything the lighting is not the subject of.
+    Noon,
+    /// The sun on the horizon, where a fade has to complement what is left of the sky.
+    Dusk,
+    /// Full dark. `lamps` says whether this viewpoint stands close enough to a
+    /// settlement for its lighting to be part of the evidence - an approach shot
+    /// from outside the boundary is a night shot with nothing lit in it on purpose,
+    /// and the checker cannot tell that from the name.
+    Night { lamps: bool },
+    /// A particular hour, when none of the above is the point.
+    At(f32),
+    /// Whatever the machine says. Only for looking at the real thing.
+    Live,
+}
+
+impl Lighting {
+    /// The hour this asks the world to hold, if it asks for one.
+    pub fn hour(self) -> Option<f32> {
+        match self {
+            Lighting::Noon => Some(EVIDENCE_HOUR),
+            Lighting::Dusk => Some(DUSK_HOUR),
+            Lighting::Night { .. } => Some(AFTER_DARK),
+            Lighting::At(hour) => Some(hour),
+            Lighting::Live => None,
+        }
+    }
+
+    fn called(self) -> String {
+        match self {
+            Lighting::Noon => "noon".into(),
+            Lighting::Dusk => "dusk".into(),
+            Lighting::Night { .. } => "night".into(),
+            Lighting::At(hour) => format!("{hour:.1}h"),
+            Lighting::Live => "live".into(),
+        }
+    }
 }
 
 /// What was asked for on the command line.
@@ -122,6 +171,114 @@ pub struct Taking {
     pub waited: u32,
     /// Whether its shutter has already gone.
     pub taken: bool,
+    /// One line per shot: what it promised and what it got.
+    pub report: Vec<String>,
+}
+
+/// How far the held hour may drift before the shot is not the shot it says it is.
+const HOUR_SLACK: f32 = 0.05;
+
+/// Checks a shot against the lighting it declares, and describes what it found.
+///
+/// # Refusing to write convincing evidence
+///
+/// The matrix's whole value is that two runs are comparable, which rests on a shot
+/// being what its name says. The old failure was not a wrong picture - it was a
+/// wrong picture NOBODY OPENED, filed under a name that said it was right.
+///
+/// So the state is read after the sky and the lamps have run and before the shutter,
+/// and a mismatch stops the run rather than writing the file. A missing photograph
+/// is an obvious problem; a daylit `night_node.png` is an invisible one.
+///
+/// # What it does not check
+///
+/// Codex also suggested comparing `ClearColor` against `sky_colour` at the actual
+/// sun height. That one is left out on purpose: the clear colour is mixed with the
+/// overcast, so the comparison would need to reproduce the mix - a second derivation
+/// of the thing it is checking, which is the fault this whole day has been about. The
+/// sun's own height and the light it casts say the same thing without a copy.
+fn as_promised(
+    shot: &Shot,
+    clock: &crate::sky::TimeOfDay,
+    weather: &crate::weather::TheWeather,
+    lux: f32,
+    lamps: usize,
+) -> Result<String, String> {
+    let height = clock.sun_height();
+    let row = format!(
+        "| {} | {} | {} | {:.2} | {:.2} | {:.0} | {} | {} |",
+        shot.name,
+        shot.lighting.called(),
+        shot.lighting
+            .hour()
+            .map_or("-".into(), |hour| format!("{hour:.1}")),
+        clock.hours,
+        height,
+        lux,
+        lamps,
+        if weather.falling == crate::weather::Falling::Nothing { "clear" } else { "falling" },
+    );
+
+    if let Some(wanted) = shot.lighting.hour() {
+        // Round the clock, so 23.99 against 0.01 is a minute apart and not a day.
+        let apart = (clock.hours - wanted).rem_euclid(24.0);
+        let apart = apart.min(24.0 - apart);
+        if apart > HOUR_SLACK {
+            return Err(format!(
+                "{} asked for {wanted:.2}h and the world is at {:.2}h",
+                shot.name, clock.hours,
+            ));
+        }
+        if clock.follows_clock {
+            return Err(format!("{} is held evidence and the clock is still running", shot.name));
+        }
+        if weather.follows_clock {
+            return Err(format!("{} is held evidence and the weather is still running", shot.name));
+        }
+    }
+
+    match shot.lighting {
+        Lighting::Night { lamps: wanted } => {
+            if height >= 0.0 {
+                return Err(format!("{} is a night shot and the sun is up", shot.name));
+            }
+            // Moonlight, not sunlight. The two are an order apart - see `sky`.
+            if lux > crate::sky::MOON_LUX * 1.05 {
+                return Err(format!(
+                    "{} is a night shot lit at {lux:.0} lux, which is daylight",
+                    shot.name,
+                ));
+            }
+            // And the thing the shot exists to show is actually burning.
+            //
+            // Asked for by the shot rather than guessed from its name. The first
+            // version of this check assumed any night shot wanted lamps in it and
+            // stopped the run at `night_entrance`, which stands outside the boundary
+            // looking in and is supposed to have none - the checker inferring intent
+            // is the same fault as the file name carrying it.
+            if wanted && lamps == 0 {
+                return Err(format!(
+                    "{} is evidence about the lamps and not one of them is lit",
+                    shot.name,
+                ));
+            }
+        }
+        Lighting::Noon => {
+            if height <= 0.0 {
+                return Err(format!("{} is a daylight shot and the sun is down", shot.name));
+            }
+            if lux < crate::sky::DAY_LUX * 0.5 {
+                return Err(format!(
+                    "{} is a daylight shot lit at {lux:.0} lux",
+                    shot.name,
+                ));
+            }
+        }
+        // Dusk is the hour where neither test means anything, which is why it is
+        // worth photographing. The hour check above is the whole of its contract.
+        Lighting::Dusk | Lighting::At(_) | Lighting::Live => {}
+    }
+    Ok(row)
 }
 
 /// Frames counted since the world came up.
@@ -172,8 +329,10 @@ impl Photo {
                 from: Vec2::new(0.0, 1.0),
                 height: value("--height").and_then(|v| v.parse().ok()).unwrap_or(28.0),
                 back: value("--back").and_then(|v| v.parse().ok()).unwrap_or(46.0),
-                // The whole-run `--hour` covers the single-shot route.
-                hour: None,
+                // Whatever `--hour` says, or the machine's own time. A single shot
+                // is somebody looking at something on purpose, not evidence filed
+                // under a name.
+                lighting: Lighting::Live,
             }],
             matrix: None,
             out: value("--out")
@@ -291,20 +450,22 @@ pub fn fill_the_matrix(
     }
 
     let mut shots = Vec::new();
-    let mut add = |name: &str, at: Vec2, from: Vec2, height: f32, back: f32| {
+    // Every viewpoint says what it is lit for. There is no default: a new one that
+    // does not decide will not compile, which is the whole point of the change.
+    let mut add = |name: &str, at: Vec2, from: Vec2, height: f32, back: f32, lighting: Lighting| {
         shots.push(Shot {
             name: name.into(),
             at,
             from: from.normalize_or(Vec2::new(0.0, 1.0)),
             height,
             back,
-            hour: None,
+            lighting,
         });
     };
 
     // The ranch, where the game starts.
     if let Some(ranch) = plan.sites().iter().find(|site| site.ranch) {
-        add("ranch_gate", ranch.at, Vec2::new(0.0, 1.0), 5.0, 34.0);
+        add("ranch_gate", ranch.at, Vec2::new(0.0, 1.0), 5.0, 34.0, Lighting::Noon);
     }
 
     // A village and a city: their entrance, from outside the boundary looking in,
@@ -326,6 +487,7 @@ pub fn fill_the_matrix(
             out,
             if city { 7.0 } else { 5.0 },
             if city { 52.0 } else { 40.0 },
+            Lighting::Noon
         );
         add(
             &format!("{label}_node"),
@@ -333,6 +495,7 @@ pub fn fill_the_matrix(
             out,
             if city { 9.0 } else { 5.0 },
             if city { 66.0 } else { 40.0 },
+            Lighting::Noon
         );
         // And the country outside it, which is where the arrival ought to begin.
         add(
@@ -341,6 +504,7 @@ pub fn fill_the_matrix(
             out,
             5.0,
             40.0,
+            Lighting::Noon
         );
     }
 
@@ -370,7 +534,7 @@ pub fn fill_the_matrix(
             // Close behind. The slot is 38 m wall to wall, so a 34 m pull-back puts
             // the camera IN the rock and the lower half of the frame is the inside
             // of a cliff. A shot has to be sized to the space it is taken in.
-            add(name, here, -ahead, 2.4, 12.0);
+            add(name, here, -ahead, 2.4, 12.0, Lighting::Noon);
         }
     }
 
@@ -383,8 +547,17 @@ pub fn fill_the_matrix(
     // building it should be stopped by.
     if let Some(site) = plan.sites().iter().find(|site| site.city && !site.ranch) {
         let out = plan.approach(site.at).normalize_or(Vec2::new(0.0, 1.0));
-        add("night_entrance", site.at + out * site.radius * 1.02, out, 5.0, 44.0);
-        add("night_node", site.at, out, 5.0, 40.0);
+        add(
+            "night_entrance",
+            site.at + out * site.radius * 1.02,
+            out,
+            5.0,
+            44.0,
+            // Outside the boundary looking in: the lit windows carry this one, and
+            // the street lamps are further off than they are admitted from.
+            Lighting::Night { lamps: false },
+        );
+        add("night_node", site.at, out, 5.0, 40.0, Lighting::Night { lamps: true });
         // Behind a building, looking back at the lamps on the far side of it: if
         // light is passing through the wall, this is where it shows.
         add(
@@ -393,6 +566,7 @@ pub fn fill_the_matrix(
             out.perp(),
             4.0,
             26.0,
+            Lighting::Night { lamps: true },
         );
     }
 
@@ -408,29 +582,43 @@ pub fn fill_the_matrix(
         })
     {
         let along = (bridge.to - bridge.from).normalize_or(Vec2::new(0.0, 1.0));
-        add("bridge_entrance", bridge.from, -along, 6.0, 46.0);
+        add("bridge_entrance", bridge.from, -along, 6.0, 46.0, Lighting::Noon);
         add(
             "bridge_middle",
             (bridge.from + bridge.to) * 0.5,
             -along,
             5.0,
             34.0,
+            Lighting::Noon
         );
-    }
-
-    // AND THE LIGHTING SHOTS ARE TAKEN AT NIGHT, which is the entire point of them.
-    //
-    // Here rather than beside them because `add` holds the list until the last shot
-    // is placed. Named rather than counted: a positional fix would quietly move the
-    // hour onto a different picture the next time a viewpoint is inserted.
-    for shot in &mut shots {
-        if shot.name.starts_with("night_") {
-            shot.hour = Some(AFTER_DARK);
-        }
     }
 
     info!("shot matrix: {} viewpoints", shots.len());
     photo.shots = shots;
+}
+
+/// Writes down what each shot promised and what it got, beside the pictures.
+///
+/// The point is that a fault is visible in the FOLDER. A matrix nobody opens is how
+/// three lighting shots came to be taken at midday for as long as they existed.
+fn write_the_report(photo: &Photo, taking: &Taking) {
+    let Some(folder) = photo.matrix.as_ref() else {
+        return;
+    };
+    let mut page = String::from(
+        "# Shot matrix\n\n         What each shot asked its world to be, and what the world was when the\n         shutter went. Written by `photo::write_the_report`.\n\n         | shot | lit for | asked | clock | sun | lux | lamps | weather |\n         |---|---|---|---|---|---|---|---|\n",
+    );
+    for row in &taking.report {
+        page.push_str(row);
+        page.push('\n');
+    }
+    page.push_str(&format!(
+        "\n{} of {} shots taken.\n",
+        taking.report.len(),
+        photo.shots.len(),
+    ));
+    let _ = std::fs::create_dir_all(folder);
+    let _ = std::fs::write(folder.join("matrix_report.md"), page);
 }
 
 /// Waits for the world to arrive, takes each picture in turn, and quits.
@@ -444,6 +632,11 @@ pub fn take_the_photo(
     photo: Res<Photo>,
     mut taking: ResMut<Taking>,
     mut quit: EventWriter<AppExit>,
+    clock: Res<crate::sky::TimeOfDay>,
+    weather: Res<crate::weather::TheWeather>,
+    suns: Query<&DirectionalLight>,
+    points: Query<&PointLight>,
+    spots: Query<&SpotLight>,
 ) {
     let Some(shot) = photo.shot(&taking) else {
         // NOTHING YET IS NOT NOTHING LEFT.
@@ -455,6 +648,7 @@ pub fn take_the_photo(
         //
         // Only an empty list that was never filled means there is nothing to do.
         if !photo.shots.is_empty() {
+            write_the_report(&photo, &taking);
             quit.write(AppExit::Success);
         }
         return;
@@ -490,6 +684,20 @@ pub fn take_the_photo(
     if let Some(folder) = out.parent() {
         let _ = std::fs::create_dir_all(folder);
     }
+    // WHAT THE WORLD ACTUALLY IS, before the shutter rather than after the review.
+    let lux = suns.iter().map(|sun| sun.illuminance).fold(0.0_f32, f32::max);
+    let lamps = points.iter().filter(|light| light.intensity > 0.0).count()
+        + spots.iter().filter(|light| light.intensity > 0.0).count();
+    match as_promised(shot, &clock, &weather, lux, lamps) {
+        Ok(row) => taking.report.push(row),
+        Err(wrong) => {
+            error!("the matrix will not write evidence it cannot stand behind: {wrong}");
+            write_the_report(&photo, &taking);
+            quit.write(AppExit::error());
+            return;
+        }
+    }
+
     info!(
         "photographing {} at {:.0}, {:.0} into {}",
         shot.name,
@@ -524,6 +732,9 @@ const EVIDENCE_HOUR: f32 = 12.0;
 /// and no dusk left in the sky to flatter them.
 const AFTER_DARK: f32 = 22.0;
 
+/// The sun on the horizon, where a fade has to sit against what is left of the sky.
+const DUSK_HOUR: f32 = 18.4;
+
 /// Holds the clock and the sky still, so two photographs differ only by their subject.
 ///
 /// Every frame, for the reason the camera override is every frame: the game's own
@@ -549,8 +760,11 @@ pub fn hold_the_world_still(
     // hour; then noon.
     let wanted = photo
         .hour
-        .or_else(|| photo.shots.get(taking.at).and_then(|shot| shot.hour))
-        .unwrap_or(EVIDENCE_HOUR);
+        .or_else(|| photo.shots.get(taking.at).and_then(|shot| shot.lighting.hour()));
+    // A shot lit LIVE is one nobody wants held. Everything else names an hour.
+    let Some(wanted) = wanted else {
+        return;
+    };
     clock.follows_clock = false;
     let real = (clock.hours - clock.nudge).rem_euclid(24.0);
     clock.nudge = (wanted - real).rem_euclid(24.0);

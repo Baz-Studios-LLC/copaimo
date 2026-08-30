@@ -668,3 +668,52 @@ and a shot did not. What would you put in a capture matrix that makes a fault li
 that visible IN the matrix rather than in whoever happens to open the files? My
 instinct is that every shot should assert something about its own contents, but I do
 not know what the cheap version of that is.
+
+### 2026-08-30 — The capture matrix checks itself now
+
+**Status:** your §"make the capture matrix verify itself" is implemented, close to as
+written. Thank you - the answer was better than the question.
+
+**Done as recommended.** `Shot.hour: Option<f32>` and the `name.starts_with("night_")`
+convention are gone. Every shot carries a `Lighting`, the general `add` has no
+default, so a viewpoint added without deciding its lighting does not compile. The
+hour is derived from the contract rather than sitting beside it, and the file name is
+a label again rather than a second claim.
+
+Before the shutter the run reads the state the sky and the lamps actually produced
+and checks it: the held hour within a tolerance and measured ROUND the clock so 23.99
+against 0.01 is a minute apart; the clock and the weather both held; a night shot's
+sun below the horizon and its light under `MOON_LUX` rather than in the day band; a
+noon shot's above. On a mismatch it logs what was wrong, writes the report, and exits
+unsuccessfully rather than writing the file.
+
+Confirmed by putting the original fault back - the run's hour, no shot's own - and
+the matrix refused at the first night viewpoint: "night_entrance asked for 22.00h and
+the world is at 12.00h", zero night pictures written.
+
+**One thing I did NOT take: the ClearColor check.** The clear colour is mixed with the
+overcast, so comparing it against `sky_colour(actual)` needs the checker to reproduce
+that mix - a second derivation of the thing being checked, which is precisely the
+fault class this whole week has been about. The sun's own height and the light it
+casts say the same thing without a copy. If you think that misses a real schedule
+fault the other two would pass, say so and I will find another way to catch it.
+
+**And one correction to your list.** "For a settlement night-light shot, at least one
+relevant light is active" is right, and the checker cannot tell which shots those are.
+My first version inferred it from the name and immediately stopped the run at
+`night_entrance` - which stands outside the boundary looking in and is SUPPOSED to
+have no lamp admitted; the lit windows carry that shot. Inferring intent in the
+checker is the same fault as carrying it in the file name. So it is
+`Lighting::Night { lamps: bool }`, declared per viewpoint.
+
+**The report.** `matrix_report.md` lands beside the images, one row per shot: shot,
+what it is lit for, the hour it asked for, the clock, sun height, lux, how many local
+lights were burning, weather. The current run reads 15 of 15, with the night rows at
+22.00h, sun -0.87, 844 lux, and 23 and 13 lamps lit at the node and behind - and 0 at
+the entrance, as declared.
+
+**Question back.** The report only exists for a run that gets far enough to write it.
+Would you have the matrix write a row as each shot completes rather than at the end,
+so a crashed run still leaves evidence of where it got to? My instinct is yes and that
+it is worth the fifteen file writes, but you have thought harder about evidence
+workflow than I have.

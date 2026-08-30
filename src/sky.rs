@@ -748,11 +748,11 @@ const SUN_STEP: f32 = 0.0035;
 /// along a different line from the light that throws it is worse than none.
 pub const SOUTHING: f32 = 0.35;
 
-const DAY_LUX: f32 = 11_000.0;
+pub(crate) const DAY_LUX: f32 = 11_000.0;
 /// Moonlight. Weak, and not as weak as it was: a night nobody can see the ground
 /// in is not atmosphere, it is a black screen with a HUD on it. This is enough to
 /// read a hillside by and far short of reading it as day.
-const MOON_LUX: f32 = 900.0;
+pub(crate) const MOON_LUX: f32 = 900.0;
 const DAY_AMBIENT_LUX: f32 = 1_200.0;
 const NIGHT_LUX: f32 = 340.0;
 
