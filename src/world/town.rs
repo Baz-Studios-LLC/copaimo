@@ -2964,6 +2964,46 @@ fn paved_here(plan: &crate::world::settle::Settlements, at: Vec2) -> f32 {
 /// Over what distance a country road turns into a city street, in metres.
 const PAVING_ARRIVES: f32 = 34.0;
 
+/// Where roads actually MEET, as (place, the widest road meeting there).
+///
+/// # A bend is not a junction
+///
+/// This used to answer "every endpoint of every segment", which was right when a
+/// road was a row of independent rectangles: consecutive pieces were square to
+/// different bearings, so every joint of a curved ring left a notch and every notch
+/// wanted a patch.
+///
+/// `Way` fixed that. A chain mitres its own bends - both pieces take one
+/// cross-section from `Way::across`, so they share an edge exactly and there is
+/// nothing left to fill. The discs went on being emitted anyway, at every
+/// subdivision of every curve, and once the cross-section grew a raised footway they
+/// stopped being harmless: a flat carriageway-coloured patch at each of them, over
+/// the kerb, all the way round every ring. Codex's research is blunt about the
+/// distinction and this is it, in code: cap where roads MEET, and leave a bend alone.
+///
+/// Two or more distinct ways, because a way crossing itself is still one road and a
+/// radial ending on a ring's mid-point is two.
+fn junctions_in(ways: &[Way]) -> Vec<(Vec2, f32)> {
+    let mut met: Vec<(Vec2, f32, Vec<usize>)> = Vec::new();
+    for (index, way) in ways.iter().enumerate() {
+        for point in &way.points {
+            match met.iter_mut().find(|(at, ..)| at.distance(*point) < 0.6) {
+                Some((_, wide, whose)) => {
+                    *wide = wide.max(way.wide);
+                    if !whose.contains(&index) {
+                        whose.push(index);
+                    }
+                }
+                None => met.push((*point, way.wide, vec![index])),
+            }
+        }
+    }
+    met.into_iter()
+        .filter(|(.., whose)| whose.len() > 1)
+        .map(|(at, wide, _)| (at, wide))
+        .collect()
+}
+
 fn pave(
     ways: &[Way],
     terrain: &crate::world::terrain::Terrain,
@@ -3241,27 +3281,20 @@ fn pave(
     // pair of bearings, laid at the same height as the rest. It costs a fan of eight
     // triangles per joint and it is what makes a junction look like a junction
     // rather than like two roads that happen to touch.
-    let mut ends: Vec<(Vec2, f32)> = Vec::new();
-    for street in ways.iter().flat_map(|way| way.segments()) {
-        if (street.to - street.from).length() < 1.0 {
-            continue;
-        }
-        for end in [street.from, street.to] {
-            // One disc per place, at the width of the widest road meeting there.
-            match ends
-                .iter_mut()
-                .find(|(at, _)| at.distance(end) < 0.6)
-            {
-                Some((_, wide)) => *wide = wide.max(street.wide),
-                None => ends.push((end, street.wide)),
-            }
-        }
-    }
+    let ends = junctions_in(ways);
 
     const AROUND_A_JOINT: usize = 10;
     for (at, wide) in ends {
+        // ONLY AS BIG AS THE CARRIAGEWAY.
+        //
+        // The disc used to have the radius of the whole right-of-way, which was
+        // right when a road was one flat band and is destructive now: it painted
+        // carriageway colour out over both footways and cut through the kerb between
+        // them. What a junction has to fill is the notch between two CARRIAGEWAYS.
+        // The footways run past it, which is what footways do at a corner.
+        let cut = RoadSection::new(wide, wide, city.max(paved_here(at_plan, at)));
         let middle = places.len() as u32;
-        let height = terrain.drawn_height(at.x, at.y) + ROAD_LIES;
+        let height = terrain.drawn_height(at.x, at.y) + cut.lift(0.0);
         places.push([at.x - low.x, height, at.y - low.y]);
         normals.push([0.0, 1.0, 0.0]);
         colours.push(mix(*ROAD_EARTH, *ROAD_STONE, city.max(paved_here(at_plan, at))));
@@ -3269,8 +3302,10 @@ fn pave(
 
         for step in 0..=AROUND_A_JOINT {
             let turn = step as f32 / AROUND_A_JOINT as f32 * std::f32::consts::TAU;
-            let rim = at + Vec2::from_angle(turn) * (wide * 0.5);
-            let height = terrain.drawn_height(rim.x, rim.y) + ROAD_LIES;
+            let rim = at + Vec2::from_angle(turn) * cut.carriage;
+            // At the carriageway's own height where it meets it, so the patch is a
+            // crowned cone continuous with the road rather than a flat lid over it.
+            let height = terrain.drawn_height(rim.x, rim.y) + cut.lift(cut.carriage);
             places.push([rim.x - low.x, height, rim.y - low.y]);
             normals.push([0.0, 1.0, 0.0]);
             // The SURFACE colour, not the kerb. A kerb around every joint beads the
@@ -3864,6 +3899,77 @@ mod tests {
     /// walks the whole section in two-centimetre steps and asks the same question
     /// `may_step` asks - because a kerb that refuses the player is an invisible wall
     /// down both sides of every street in every city, and nothing else would fail.
+    /// A bend gets no junction patch; a crossing does.
+    ///
+    /// # The mesh test that could not have caught this
+    ///
+    /// `the_paving_faces_the_sky` checks every triangle points up, and both the
+    /// footway and the patch laid over it point up - so a disc painting carriageway
+    /// colour across a raised pavement is invisible to it, which is exactly Codex's
+    /// point. What separates the two cases is not a normal, it is whether more than
+    /// one road is there at all, so that is what is asserted.
+    #[test]
+    fn a_bend_is_not_a_junction_and_a_crossing_is() {
+        // One road with two bends in it. `Way` mitres its own corners, so there is
+        // nothing to fill and nothing should be emitted.
+        let bent = Way {
+            points: vec![
+                Vec2::new(0.0, 0.0),
+                Vec2::new(20.0, 4.0),
+                Vec2::new(38.0, 16.0),
+                Vec2::new(50.0, 34.0),
+            ],
+            wide: CITY_STREET_WIDE,
+            joins: CITY_STREET_WIDE,
+        };
+        let capped = junctions_in(std::slice::from_ref(&bent));
+        assert!(
+            capped.is_empty(),
+            "a single winding road was given {} junction patches, one at every bend",
+            capped.len(),
+        );
+
+        // A second road ending on the first one's middle. That IS a junction.
+        let joining = Way {
+            points: vec![Vec2::new(38.0, 16.0), Vec2::new(38.0, -20.0)],
+            wide: CITY_LANE_WIDE,
+            joins: CITY_LANE_WIDE,
+        };
+        let met = junctions_in(&[bent, joining]);
+        assert_eq!(met.len(), 1, "a crossroads got {} patches", met.len());
+        assert!(
+            met[0].0.distance(Vec2::new(38.0, 16.0)) < 0.6,
+            "the patch landed at {:?} rather than where the roads meet",
+            met[0].0,
+        );
+        // At the WIDEST road's width, because the patch has to fill the widest notch.
+        assert_eq!(met[0].1, CITY_STREET_WIDE);
+    }
+
+    /// A junction patch stays inside the carriageway it is filling.
+    ///
+    /// The disc had the radius of the whole right-of-way, so on a 10 m street it
+    /// reached 5 m out - a metre past the kerb and across both 2 m footways, in
+    /// carriageway colour, flat over a raised surface.
+    #[test]
+    fn a_junction_patch_does_not_pave_the_footway() {
+        for wide in [CITY_STREET_WIDE, CITY_LANE_WIDE] {
+            let cut = RoadSection::new(wide, wide, 1.0);
+            assert!(
+                cut.carriage <= cut.half - FOOTWAY_WIDE + 0.01,
+                "a patch of radius {:.2} on a {wide} m street reaches into a footway that \
+                 starts at {:.2}",
+                cut.carriage,
+                cut.half - FOOTWAY_WIDE,
+            );
+            // And it meets the road at the road's own height, not above it.
+            assert!(
+                (cut.lift(cut.carriage) - cut.lift(cut.carriage - 0.01)).abs() < 0.01,
+                "the patch's rim steps off the carriageway it is joining",
+            );
+        }
+    }
+
     #[test]
     fn a_kerb_is_a_step_and_not_a_wall() {
         for wide in [CITY_STREET_WIDE, CITY_LANE_WIDE] {
