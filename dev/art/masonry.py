@@ -55,7 +55,14 @@ PALETTE = {
     "door": (0.30, 0.21, 0.14),
     "glass": (0.36, 0.47, 0.52),
     "sign": (0.62, 0.42, 0.22),
-    "guild": (0.25, 0.35, 0.42),
+    # THE GUILD'S OWN GREEN, off the concept sheet's palette strip rather than
+    # picked by eye. It was a blue-grey, chosen when the guild hall was a stone
+    # campanile and nobody had drawn the guild's colours yet.
+    "guild": (0.16, 0.28, 0.20),
+    # The green shingle the hall is roofed in, and the darker course between rows.
+    # Sampled off the drawing's own roof slope - see dev/art/swatches note.
+    "guildroof": (0.30, 0.36, 0.24),
+    "guildroof2": (0.25, 0.30, 0.20),
     "brass": (0.66, 0.52, 0.24),
     # Inside, mixed lighter on purpose - see the note at the top
     "inwall": (0.86, 0.82, 0.73),

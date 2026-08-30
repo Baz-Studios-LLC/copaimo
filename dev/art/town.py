@@ -294,7 +294,7 @@ def _dress_door(parts, along, at, wide, tall, floor, facing=-1.0):
     )
 
 
-def eaves(parts, wide, deep, at_z, over, colour, ridge="y"):
+def eaves(parts, wide, deep, at_z, over, colour, ridge="y", at=(0.0, 0.0)):
     """The fascia boards that run along the foot of a roof.
 
     A roof with no edge reads as a sheet laid on top of a box. The board along the
@@ -303,10 +303,10 @@ def eaves(parts, wide, deep, at_z, over, colour, ridge="y"):
     """
     if ridge == "y":
         for side in (-1.0, 1.0):
-            parts.append(box((wide + over * 2.0, 0.1, 0.16), (0.0, side * (deep * 0.5 + over), at_z), colour))
+            parts.append(box((wide + over * 2.0, 0.1, 0.16), (at[0], at[1] + side * (deep * 0.5 + over), at_z), colour))
     else:
         for side in (-1.0, 1.0):
-            parts.append(box((0.1, deep + over * 2.0, 0.16), (side * (wide * 0.5 + over), 0.0, at_z), colour))
+            parts.append(box((0.1, deep + over * 2.0, 0.16), (at[0] + side * (wide * 0.5 + over), at[1], at_z), colour))
 
 
 def chimney(parts, at, base_z, top_z, colour="stone"):
@@ -720,20 +720,20 @@ def stock(parts, wide, deep):
             )
 
 
-def guild_hall_inside(parts, wide, deep):
+def guild_hall_inside(parts, wide, deep, at=(0.0, 0.0)):
     """A long table down the middle and a notice board on the wall."""
-    table(parts, (0.0, -0.4), wide * 0.45, deep * 0.5)
+    table(parts, (at[0], at[1] - 0.4), wide * 0.45, deep * 0.5)
     for side in (-1.0, 1.0):
         for along in (-0.6, 0.6):
             parts.append(
                 box(
                     (0.45, 0.45, 0.45),
-                    (side * (wide * 0.28), -0.4 + along * deep * 0.18, 0.45),
+                    (at[0] + side * (wide * 0.28), at[1] - 0.4 + along * deep * 0.18, 0.45),
                     "inbeam",
                 )
             )
     parts.append(
-        box((wide * 0.5, 0.10, 1.2), (0.0, deep * 0.5 - WALL - 0.1, 1.7), "board")
+        box((wide * 0.5, 0.10, 1.2), (at[0], at[1] + deep * 0.5 - WALL - 0.1, 1.7), "board")
     )
 
 
@@ -830,7 +830,7 @@ SHINGLE_PROUD = 0.05
 SHINGLE_TALL = 0.34
 
 
-def courses(parts, wide, deep, base, height, colour="stone2", faces=("x", "y")):
+def courses(parts, wide, deep, base, height, colour="stone2", faces=("x", "y"), at=(0.0, 0.0)):
     """Horizontal bands of stone up a wall, so it reads as coursed masonry."""
     rows = max(1, int(height / COURSE_TALL))
     for row in range(rows):
@@ -842,13 +842,17 @@ def courses(parts, wide, deep, base, height, colour="stone2", faces=("x", "y")):
             if face not in faces:
                 continue
             for side in (-1.0, 1.0):
-                at = (0.0, side * off * 0.5, 0.0) if face == "x" else (side * off * 0.5, 0.0, 0.0)
+                on = (
+                    (at[0], at[1] + side * off * 0.5)
+                    if face == "x"
+                    else (at[0] + side * off * 0.5, at[1])
+                )
                 parts.append(
-                    box(_slab(face, span, proud * 2.0, height / rows * 0.62), (at[0], at[1], up), colour)
+                    box(_slab(face, span, proud * 2.0, height / rows * 0.62), (on[0], on[1], up), colour)
                 )
 
 
-def shingles(parts, wide, deep, base, rise, ridge="y", colour="shingle", over=OVERHANG):
+def shingles(parts, wide, deep, base, rise, ridge="y", colour="shingle", over=OVERHANG, at=(0.0, 0.0)):
     """Rows of tiles up both slopes of a pitched roof.
 
     Stepped so each row overlaps the one below, which is the whole reason a tiled
@@ -866,39 +870,56 @@ def shingles(parts, wide, deep, base, rise, ridge="y", colour="shingle", over=OV
             up = base + rise * part
             wide_here = SHINGLE_TALL * 1.15
             if ridge == "y":
-                place = (across, 0.0, up)
+                place = (at[0] + across, at[1], up)
                 size = (wide_here, length, SHINGLE_PROUD * 2.0)
             else:
-                place = (0.0, across, up)
+                place = (at[0], at[1] + across, up)
                 size = (length, wide_here, SHINGLE_PROUD * 2.0)
             parts.append(box(size, place, colour if row % 2 == 0 else colour + "2"))
 
 
-def roofed(parts, wide, deep, base, colour, ridge="y", over=OVERHANG, pitch=PITCH):
+# Which tile course goes with which roof. A roof colour that is not in here gets a
+# plain slope, which is right for thatch-like surfaces and wrong for anything laid
+# in rows - the guild hall's green shingle went on as a flat green wedge until it
+# was added, because the list was a hard-coded four.
+TILES = {
+    "slate": "shingle",
+    "roof": "shingle",
+    "roof2": "shingle",
+    "thatch": "straw",
+    "guildroof": "guildroof",
+}
+
+
+def roofed(parts, wide, deep, base, colour, ridge="y", over=OVERHANG, pitch=PITCH, at=(0.0, 0.0)):
     """A pitched roof with its overhang, its fascia and its gable walls filled in.
 
     Returns how tall the whole thing now stands, because everything above a roof -
     a chimney, a dormer, a weathervane - is placed against its ridge.
+
+    `at` is where the roof's middle sits. It is nought for a building that is one
+    centred box, which every figure here was until the guild hall - which is a hall
+    with a wing beside it, so neither mass is at the origin and both want the same
+    roof.
     """
     span = wide if ridge == "y" else deep
     rise = span * pitch
     parts.append(
-        wedge(wide + over * 2.0, deep + over * 2.0, rise, (0.0, 0.0, base), colour, ridge=ridge)
+        wedge(wide + over * 2.0, deep + over * 2.0, rise, (at[0], at[1], base), colour, ridge=ridge)
     )
-    eaves(parts, wide, deep, base + 0.02, over, "timber", ridge=ridge)
-    if colour in ("slate", "thatch", "roof", "roof2"):
-        shingles(parts, wide, deep, base, rise, ridge=ridge,
-                 colour="shingle" if colour != "thatch" else "straw", over=over)
+    eaves(parts, wide, deep, base + 0.02, over, "timber", ridge=ridge, at=at)
+    if colour in TILES:
+        shingles(parts, wide, deep, base, rise, ridge=ridge, colour=TILES[colour], over=over, at=at)
     # The triangle of wall under each slope, or the roof is a lid on an open box.
     if ridge == "y":
         for side in (-1.0, 1.0):
             parts.append(
-                gable_wall(wide, rise, (0.0, side * (deep * 0.5 - WALL * 0.5), base), WALL, "plaster2", facing="y")
+                gable_wall(wide, rise, (at[0], at[1] + side * (deep * 0.5 - WALL * 0.5), base), WALL, "plaster2", facing="y")
             )
     else:
         for side in (-1.0, 1.0):
             parts.append(
-                gable_wall(deep, rise, (side * (wide * 0.5 - WALL * 0.5), 0.0, base), WALL, "plaster2", facing="x")
+                gable_wall(deep, rise, (at[0] + side * (wide * 0.5 - WALL * 0.5), at[1], base), WALL, "plaster2", facing="x")
             )
     return base + rise
 
@@ -1217,169 +1238,368 @@ def shop():
     return parts, top + 0.6
 
 
+def arched(parts, along, at, length, bays, sill_z, tall, facing=-1.0, colour="timber"):
+    """A round head over every window in a wall, in stepped courses.
+
+    The kit cuts rectangular holes, because a rectangle is four boxes and an arch is
+    a lathe. This is the stylised answer the rest of the file already uses for
+    courses and shingle rows: three stepped voussoirs and a keystone, which reads as
+    an arch at any distance a player sees a building from and costs four boxes.
+
+    Told the wall's bays rather than working the window positions out again - see
+    `bay_places`.
+    """
+    head = sill_z + tall
+    for (middle, width), kind in zip(bay_places(length, bays), bays):
+        if kind != "window":
+            continue
+        span = hole_in(kind, width)
+        for step in range(3):
+            part = (step + 0.5) / 3.0
+            # Narrowing as it rises, which is what makes the steps read as a curve.
+            wide_here = span * (1.0 - part * 0.62) + 0.18
+            up = head + 0.06 + step * 0.11
+            place = _across(along, (at[0], at[1], up), middle)
+            parts.append(box(_slab(along, wide_here, 0.1, 0.12), _out(along, place, WALL * 0.5 + 0.03, facing), colour))
+        # The keystone, which is the piece that says arch rather than steps.
+        place = _across(along, (at[0], at[1], head + 0.30), middle)
+        parts.append(box(_slab(along, 0.24, 0.12, 0.26), _out(along, place, WALL * 0.5 + 0.05, facing), "stone"))
+
+
+def skirt(parts, along, at, length, tall, gaps=()):
+    """The band of stone round the foot of a wall, broken where a doorway is.
+
+    A material change rather than a step: the concept draws a stone base a metre up
+    every wall, and the floor inside stays where every other building in the game
+    puts it. Making it a plinth instead would raise the guild hall's floor above the
+    one `world::town` computes for it, and the warden would walk through the boards.
+    """
+    runs = [(-length * 0.5, length * 0.5)]
+    for low, high in gaps:
+        cut = []
+        for a, b in runs:
+            if high <= a or low >= b:
+                cut.append((a, b))
+                continue
+            if low > a:
+                cut.append((a, low))
+            if high < b:
+                cut.append((high, b))
+        runs = cut
+    for a, b in runs:
+        if b - a < 0.1:
+            continue
+        place = _across(along, (at[0], at[1], tall * 0.5), (a + b) * 0.5)
+        parts.append(box(_slab(along, b - a, WALL + 0.12, tall), place, "stone"))
+        parts.append(box(_slab(along, b - a, WALL + 0.2, 0.12), (place[0], place[1], tall), "stone2"))
+
+
+def emblem(parts, at, span, face):
+    """The guild's compass rose, as a thing that reads at fifty metres.
+
+    The concept draws a compass star on a green field inside a laurel wreath, gold on
+    green. A wreath is not a shape this kit can make and it is not the shape anyone
+    reads from the street: what carries is the ROUNDEL and the STAR inside it, so
+    that is what is built. Said plainly rather than quietly dropped.
+    """
+    x, z = at
+    # WHERE THE GABLE IS, passed in. This was a constant -0.10 - the middle of the
+    # building - so the guild's rose was built inside the hall, in the dark, behind
+    # its own front wall. Nothing failed; the gable just came out blank.
+    out = face
+    # The field: two squares at forty-five degrees, which reads as a disc from any
+    # distance and costs two boxes rather than a lathe.
+    for turn in (0.0, math.pi * 0.25):
+        parts.append(box((span, 0.12, span), (x, out, z), "guild", tilt=(0.0, turn, 0.0)))
+    for turn in (0.0, math.pi * 0.25):
+        parts.append(box((span * 0.86, 0.06, span * 0.86), (x, out - 0.07, z), "brass", tilt=(0.0, turn, 0.0)))
+    for turn in (0.0, math.pi * 0.25):
+        parts.append(box((span * 0.78, 0.06, span * 0.78), (x, out - 0.12, z), "guild", tilt=(0.0, turn, 0.0)))
+    # The star: four long points and four short, which is a compass rose.
+    for turn, reach in ((0.0, 1.0), (math.pi * 0.25, 0.62)):
+        for spin in (turn, turn + math.pi * 0.5):
+            parts.append(
+                box((span * 0.09, 0.06, span * 0.74 * reach), (x, out - 0.18, z), "brass", tilt=(0.0, spin, 0.0))
+            )
+    parts.append(box((span * 0.16, 0.08, span * 0.16), (x, out - 0.24, z), "brass"))
+
+
 def guild_hall():
-    """The building a city is a city because it has. Stone, buttressed, and towered."""
-    wide, deep = MODULE * 12, MODULE * 9
+    """The Wardens Guild's town branch, built to the concept sheet.
+
+    # What this replaces, and why it is a different building
+
+    This was a stone campanile 74 m tall, built to win a CITY skyline against
+    towers of 37 m and a spire of 57. It did that, and it was never what a village
+    guild hall is: the warden's branch office, the place you register a companion and
+    read the board, standing among cottages a third its height.
+
+    The concept sheet - `assets/buildings/Town hall` - draws that building instead: a
+    single tall hall in stone, timber and plaster under a green shingle roof, with a
+    gabled entrance carrying the guild's compass rose, a veranda across its front and
+    a lean-to wing down one side. Nine to ten metres, which is twice a cottage rather
+    than twelve times it.
+
+    # Measured off the drawing, not eyeballed
+
+    The sheet gives three elevations and a height. Everything below was read off it in
+    pixels and scaled by that height - the masses, the roof pitches, where the ridge
+    breaks, how far the wing runs - rather than estimated. The palette likewise comes
+    off the drawing's own surfaces.
+
+    # The two places it deliberately differs
+
+    The DOORWAY is at x = 0. `Plot::walls` leaves the game's gap in the middle of the
+    front, so a door anywhere else is a door you cannot walk through with a hole in
+    the plaster beside it - the fault that cost a day earlier this week. The concept
+    puts the entrance two fifths across the frontage, so the wing goes on the far side
+    from the drawing and the hall keeps that proportion with the door where the game
+    needs it.
+
+    The WREATH around the emblem is not built. A laurel wreath is not a shape made of
+    boxes and it is not what reads from the street; the roundel and the compass star
+    are, and those are what is there.
+    """
     parts = []
-    # A BROAD SHALLOW APPROACH, not a flight.
+    # The footprint the game keeps clear for this building, filled by the model.
+    wide, deep = 18.0, 13.5
+    hx, hy = wide * 0.5, deep * 0.5
+
+    # THE TWO MASSES, placed by the DOORWAY rather than the other way round.
     #
-    # This was a four-step ceremonial climb onto a 70 cm plinth, on the reasoning
-    # that a hall you climb to is a hall that matters. It is - and a warden walks on
-    # the TERRAIN, not on step geometry, so those steps were scenery in front of a
-    # 70 cm wall and the hall was the least enterable building in the town.
+    # The door has to land on x = 0, where `Plot::walls` leaves the game's gap. A
+    # wall's bays are a fixed grid - seven of them at most, so on a 13.5 m frontage
+    # they fall every 1.87 m - and nothing says one of them sits at the origin. Fixing
+    # the hall's position first and hunting for a bay near the middle got within
+    # 62 cm, which sounds close and means half the doorway is solid wall to walk into.
     #
-    # The ceremony survives as WIDTH rather than as height: two long shallow courses
-    # spanning most of the frontage, climbing the same threshold every other
-    # building uses. It still reads as an approach; it no longer refuses anyone.
-    for step in range(2):
-        parts.append(
-            box(
-                (wide * 0.55 - step * 0.6, 1.5 - step * 0.5, PLINTH * 0.5),
-                (0.0, -deep * 0.5 - 1.2 + step * 0.5, PLINTH * 0.25 + step * PLINTH * 0.5),
-                "stone",
-            )
-        )
-    parts.append(box((wide + 0.6, deep + 0.6, PLINTH), (0.0, 0.0, PLINTH * 0.5), "stone"))
+    # So the bay is chosen first and the hall is slid until that bay IS the origin.
+    # The wing takes whatever frontage is left, which is what decides its width.
+    hall_wide = 13.5
+    veranda = 1.35
+    hall_front = -hy + veranda
+    hall_deep = hy - hall_front
+    hall_y = (hall_front + hy) * 0.5
+    eave = 4.3
+    stone_up = 0.95
+
+    parts.append(box((wide + 0.5, deep + 0.5, PLINTH), (0.0, 0.0, PLINTH * 0.5), "stone"))
+
+    # ------------------------------------------------------------------- THE HALL
     holes = {}
+    plain = _bays(hall_wide, True, door=False)
+    # Every bay tried as the doorway; the hall placed so that bay lands on the
+    # origin; and the one kept whose leftover frontage makes the best wing.
+    want_wing = 4.0
+    best = None
+    for index in range(len(plain)):
+        trial = list(plain)
+        trial[index] = "door"
+        mid = -bay_places(hall_wide, trial)[index][0]
+        left = mid - hall_wide * 0.5
+        if mid + hall_wide * 0.5 > hx + 0.01 or left + hx < 2.4:
+            continue
+        off = abs(left + hx - want_wing)
+        if best is None or off < best[0]:
+            best = (off, index, mid, trial, left + hx)
+    assert best, "no bay of the guild hall's front puts its doorway on the game's gap"
+    _, door_bay, hall_mid, front, wing_wide = best
+    hall_x0, hall_x1 = hall_mid - hall_wide * 0.5, hall_mid + hall_wide * 0.5
+    door_x = 0.0
 
-    shell(parts, wide, deep, 2, "stone", doors=True, windows=True, openings=holes)
-    room(parts, wide, deep, 2)
-    stairs(parts, wide, deep, 2, side=-1.0)
-    guild_hall_inside(parts, wide, deep)
+    back = _bays(hall_wide, True, door=False)
+    flank = _bays(hall_deep, True, door=False)
+    holes[("x", -1.0)] = front
+    holes[("x", 1.0)] = back
+    holes[("y", -1.0)] = holes[("y", 1.0)] = flank
+    wall_run(parts, "x", (hall_mid, hall_front + WALL * 0.5, 0.0), hall_wide, eave, "plaster", front, 0.0, -1.0)
+    wall_run(parts, "x", (hall_mid, hy - WALL * 0.5, 0.0), hall_wide, eave, "plaster", back, 0.0, 1.0)
+    wall_run(parts, "y", (hall_x0 + WALL * 0.5, hall_y, 0.0), hall_deep, eave, "plaster", flank, 0.0, -1.0)
+    wall_run(parts, "y", (hall_x1 - WALL * 0.5, hall_y, 0.0), hall_deep, eave, "plaster", flank, 0.0, 1.0)
 
-    # BUTTRESSES. Sloped piers against the long walls - the medium shape that says
-    # stone hall rather than stone box, and they read from a long way off.
-    for side in (-1.0, 1.0):
-        for over in (-1.0, 0.0, 1.0):
-            at_y = over * deep * 0.3
-            parts.append(box((0.5, 0.7, STOREY * 1.5), (side * (wide * 0.5 + 0.2), at_y, STOREY * 0.75), "stone"))
-            parts.append(
-                lean(0.5, 0.7, 0.0, (side * (wide * 0.5 + 0.2), at_y, STOREY * 1.5), "slate", drops_to=0.45)
-            )
+    # Half-timbering over the plaster, and the stone the whole thing stands on.
+    framing(parts, hall_wide, hall_deep, 0.0, eave, openings=holes)
+    for (along, at, length, bays, facing) in (
+        ("x", (hall_mid, hall_front + WALL * 0.5), hall_wide, front, -1.0),
+        ("x", (hall_mid, hy - WALL * 0.5), hall_wide, back, 1.0),
+        ("y", (hall_x0 + WALL * 0.5, hall_y), hall_deep, flank, -1.0),
+        ("y", (hall_x1 - WALL * 0.5, hall_y), hall_deep, flank, 1.0),
+    ):
+        gaps = []
+        for (middle, width), kind in zip(bay_places(length, bays), bays):
+            if kind == "door":
+                half = hole_in(kind, width) * 0.5 + 0.25
+                gaps.append((middle - half, middle + half))
+        skirt(parts, along, at, length, stone_up, gaps)
+        arched(parts, along, at, length, bays, WINDOW_SILL, WINDOW_TALL, facing)
 
-    top = roofed(parts, wide, deep, STOREY * 2, "slate", ridge="x", pitch=0.5)
+    # THE FLOOR AND THE CEILING, so it is a hall rather than a shell.
+    parts.append(box((hall_wide - WALL * 2.0, hall_deep - WALL * 2.0, 0.10), (hall_mid, hall_y, 0.05), "infloor"))
+    parts.append(box((hall_wide - WALL * 2.0, hall_deep - WALL * 2.0, 0.10), (hall_mid, hall_y, eave - 0.05), "inwall"))
+    for over in (-0.62, 0.0, 0.62):
+        parts.append(box((hall_wide - WALL * 2.0, 0.26, 0.30), (hall_mid, hall_y + over * hall_deep * 0.5, eave - 0.3), "inbeam"))
+    guild_hall_inside(parts, hall_wide, hall_deep, at=(hall_mid, hall_y))
 
-    # ------------------------------------------------------------- THE CAMPANILE
-    #
-    # # A landmark has to WIN the skyline, not merely be on it
-    #
-    # This tower used to top out at 13 m. Measured against what stands round it in a
-    # city - blocks at 19.7 m, towers at 37.6 and a spire at 57.1 - the guild's own
-    # hall was the shortest thing on the street, and a photograph from the city
-    # entrance showed a row of near-identical slabs with nothing saying which way to
-    # walk. A landmark that loses to the background is not a landmark.
-    #
-    # So it goes to 74 m, clear of the tallest tower by a sixth of its height. Height
-    # alone is not enough either - a taller slab is still a slab - so the shape is
-    # deliberately the one thing in a city of extruded rectangles that TAPERS: a
-    # square shaft in setback stages, an open belfry, an octagonal lantern, and a
-    # spire to a point. Read as a silhouette against the sky, nothing else here is
-    # remotely that shape.
-    # PROPORTION, not just height. At MODULE * 3 square and 80 m this was 1:18 -
-    # photographed from the city entrance it read as a radio mast with a city under
-    # it, not as the guild's hall. A campanile runs about 1:10, so the shaft gets
-    # wider rather than shorter and the building at its foot has something to belong
-    # to.
-    tower = MODULE * 5
-    tx, ty = wide * 0.5 - tower * 0.5, deep * 0.5 - tower * 0.5
+    ridge = roofed(parts, hall_wide, hall_deep, eave, "guildroof", ridge="x", pitch=0.32, at=(hall_mid, hall_y))
 
-    # The shaft, in stages. Each steps in a little and wears a string course, which
-    # is what stops sixty metres of masonry reading as an extruded box.
-    stages = 5
-    stage_tall = 10.0
-    at = 0.0
-    for stage in range(stages):
-        span = tower * (1.0 - stage * 0.045)
-        parts.append(box((span, span, stage_tall), (tx, ty, at + stage_tall * 0.5), "stone"))
-        # A string course on top of every stage but the last, which the belfry caps.
-        parts.append(
-            box((span + 0.34, span + 0.34, 0.3), (tx, ty, at + stage_tall - 0.15), "stone2")
-        )
-        # A tall slit down each face, so the stage has a scale you can read from the
-        # ground - without them the shaft is a plain column and reads as nearer and
-        # shorter than it is.
-        if stage > 0:
-            for face, (ox, oy) in enumerate(
-                ((0.0, -1.0), (0.0, 1.0), (-1.0, 0.0), (1.0, 0.0))
-            ):
-                parts.append(
-                    box(
-                        (0.7 if face < 2 else 0.1, 0.1 if face < 2 else 0.7, 4.2),
-                        (
-                            tx + ox * (span * 0.5 + 0.02),
-                            ty + oy * (span * 0.5 + 0.02),
-                            at + stage_tall * 0.52,
-                        ),
-                        "glass",
-                    )
-                )
-        at += stage_tall
+    # ------------------------------------------------------------------- THE WING
+    wing_x = (-hx + hall_x0) * 0.5
+    wing_y0 = -3.0
+    wing_deep = hy - wing_y0
+    wing_mid_y = (wing_y0 + hy) * 0.5
+    wing_eave = 3.1
+    wing_bays = _bays(wing_deep, True, door=False)
+    wall_run(parts, "x", (wing_x, wing_y0 + WALL * 0.5, 0.0), wing_wide, wing_eave, "plaster", ["solid", "solid"], 0.0, -1.0)
+    wall_run(parts, "x", (wing_x, hy - WALL * 0.5, 0.0), wing_wide, wing_eave, "plaster", ["solid", "door"], 0.0, 1.0)
+    wall_run(parts, "y", (-hx + WALL * 0.5, wing_mid_y, 0.0), wing_deep, wing_eave, "plaster", wing_bays, 0.0, -1.0)
+    skirt(parts, "x", (wing_x, wing_y0 + WALL * 0.5), wing_wide, stone_up)
+    skirt(parts, "y", (-hx + WALL * 0.5, wing_mid_y), wing_deep, stone_up)
+    arched(parts, "y", (-hx + WALL * 0.5, wing_mid_y), wing_deep, wing_bays, WINDOW_SILL, WINDOW_TALL, -1.0)
+    parts.append(box((wing_wide - WALL, wing_deep - WALL, 0.10), (wing_x, wing_mid_y, 0.05), "infloor"))
 
-    # THE BELFRY: an open stage, which is the moment the tower stops being solid.
-    belfry = tower * 0.94
-    belfry_tall = 8.4
-    for corner_x in (-1.0, 1.0):
-        for corner_y in (-1.0, 1.0):
-            parts.append(
-                box(
-                    (belfry * 0.24, belfry * 0.24, belfry_tall),
-                    (
-                        tx + corner_x * (belfry * 0.38),
-                        ty + corner_y * (belfry * 0.38),
-                        at + belfry_tall * 0.5,
-                    ),
-                    "stone",
-                )
-            )
-    # The guild's own colour, deep inside the belfry where it reads as a lit window
-    # rather than as paint on a wall.
+    # A LEAN-TO ROOF, dropping away from the hall. One slab on a tilt: the wing is
+    # the piece that stops the hall reading as a single extruded box from the side.
+    drop = 1.1
+    slope = math.atan2(drop, wing_wide)
     parts.append(
-        box((belfry * 0.52, belfry * 0.52, belfry_tall * 0.8), (tx, ty, at + belfry_tall * 0.5), "guild")
-    )
-    parts.append(box((belfry + 0.5, belfry + 0.5, 0.42), (tx, ty, at + belfry_tall + 0.21), "stone2"))
-    at += belfry_tall + 0.42
-
-    # THE LANTERN: two squares at forty-five degrees, which reads as an octagon from
-    # every side and costs eight boxes rather than a lathe.
-    lantern = tower * 0.66
-    for turn in (0.0, math.pi * 0.25):
-        parts.append(
-            box(
-                (lantern, lantern, 6.2),
-                (tx, ty, at + 3.1),
-                "stone",
-                tilt=(0.0, 0.0, turn),
-            )
+        box(
+            (wing_wide / math.cos(slope) + 0.5, wing_deep + 0.4, 0.24),
+            (wing_x, wing_mid_y, wing_eave + drop * 0.5 + 0.1),
+            "guildroof",
+            # NEGATIVE. A turn about +Y carries +X downward, and the hall is on +X -
+            # so the positive angle pitched the lean-to UP towards the hall and left
+            # a plank leaning off the side of the building into the air.
+            tilt=(0.0, -slope, 0.0),
         )
-    for turn in (0.0, math.pi * 0.25):
-        parts.append(
-            box(
-                (lantern + 0.4, lantern + 0.4, 0.3),
-                (tx, ty, at + 6.35),
-                "stone2",
-                tilt=(0.0, 0.0, turn),
-            )
-        )
-    at += 6.5
-
-    # THE SPIRE. Four faces to a point, which is the shape a guild puts on a map.
-    spire = 9.4
-    for ridge in ("x", "y"):
-        parts.append(wedge(lantern + 0.5, lantern + 0.5, spire, (tx, ty, at), "guild", ridge=ridge))
-    at += spire
-    # And a beacon on the very top, so it is still a landmark at dusk.
-    parts.append(tube(0.16, 1.6, (tx, ty, at + 0.8), "brass", sides=8))
-    parts.append(box((0.75, 0.75, 0.75), (tx, ty, at + 1.9), "brass"))
-    tower_top = at + 2.3
-
-    # The guild's colours over the door, and a banner either side of it.
-    parts.append(box((2.4, 0.12, 1.1), (0.0, -deep * 0.5 - 0.12, 3.9), "guild"))
-    parts.append(
-        tube(0.4, 0.14, (0.0, -deep * 0.5 - 0.22, 3.9), "brass", sides=18, tilt=(math.pi * 0.5, 0.0, 0.0))
     )
+    eaves(parts, wing_wide, wing_deep, wing_eave + 0.06, 0.25, "timber", ridge="y", at=(wing_x, wing_mid_y))
+
+    # ------------------------------------------------------------ THE WAY IN
+    #
+    # A gabled porch standing forward of the hall, carrying the guild's rose. This is
+    # the building's one tall gesture and the thing you pick it out by from the
+    # street - the concept's note says the emblem is mounted "for visibility from
+    # town", and the gable is what puts it up where it can be seen.
+    # A COVERED PORCH, NOT A VESTIBULE.
+    #
+    # The first version of this built the porch as a solid mass standing forward of
+    # the hall and cut a doorway into its front face - so the door opened onto a metre
+    # and a half of its own plaster, with the hall's real wall still shut behind it.
+    # Which is what the concept actually draws: the doorway is in the HALL's wall, and
+    # the gable projects over it on posts, sheltering the way in rather than sealing
+    # it. The doorway is already there - it is the bay the hall was placed around.
+    porch_wide = 5.0
+    porch_top = ridge + 0.7
+    gable_rise = porch_top - eave
+    reach = -hy + WALL * 0.5
     for side in (-1.0, 1.0):
-        parts.append(box((0.9, 0.07, 2.6), (side * 2.6, -deep * 0.5 - 0.1, 4.3), "guild"))
-    return parts, max(top, tower_top)
+        parts.append(box((0.28, 0.28, eave), (door_x + side * porch_wide * 0.42, reach + 0.2, eave * 0.5), "timber"))
+        # A brace back to the hall, which is what stops two posts reading as sticks.
+        parts.append(
+            box((0.2, 1.3, 0.2), (door_x + side * porch_wide * 0.42, reach + 0.9, eave - 0.55), "timber",
+                tilt=(0.7, 0.0, 0.0))
+        )
+    parts.append(box((porch_wide + 0.6, veranda + 0.4, 0.24), (door_x, reach + veranda * 0.5, eave + 0.1), "timber"))
+    # THE ROOF STOPS AT THE GABLE, and the gable is the face you see.
+    #
+    # It overhung the gable wall by 65 cm, and a pitched roof is a SOLID - so the
+    # triangle the emblem is mounted on was inside it, and the guild's rose was
+    # rendered within the roof over its own gable. Twice: first buried in the middle
+    # of the building, then buried in this. The barge boards below carry the overhang
+    # the concept draws, which is what an overhang should be made of anyway.
+    # A CROSS GABLE, running back into the main roof - not a fin standing on it.
+    #
+    # It was only as deep as the porch projected, 1.65 m, under an apex 4.9 m above
+    # the eave. A gable roof seen from the side is a rectangle as deep as it runs, so
+    # from the flank it read as a tall thin slab of shingle stood up on the roof with
+    # nothing behind it. A projecting entrance gable is deep: it reaches back to the
+    # main ridge and cuts into it, which is what makes it part of the roof.
+    porch_back = hall_y
+    porch_deep = porch_back - (reach - 0.05)
+    porch_roof = (door_x, (reach - 0.05 + porch_back) * 0.5)
+    parts.append(wedge(porch_wide + 0.9, porch_deep, gable_rise, (porch_roof[0], porch_roof[1], eave), "guildroof", ridge="y"))
+    shingles(parts, porch_wide + 0.2, porch_deep - 0.2, eave, gable_rise, ridge="y", colour="guildroof", at=porch_roof)
+    # The barge boards down both slopes, which is the overhang and the trim at once.
+    for side in (-1.0, 1.0):
+        parts.append(
+            box((0.22, 0.34, ((porch_wide * 0.5) ** 2 + gable_rise ** 2) ** 0.5),
+                (door_x + side * porch_wide * 0.25, reach - 0.16, eave + gable_rise * 0.5),
+                # NEGATIVE side. A board on the LEFT slope leans its head toward the
+                # apex, which is +X - and a turn about +Y carries the head +X for a
+                # positive angle. Signed the other way they crossed over the gable in
+                # a great X, above the ridge, like a pair of crossed spears.
+                "timber", tilt=(0.0, -side * math.atan2(porch_wide * 0.5, gable_rise), 0.0))
+        )
+    parts.append(gable_wall(porch_wide, gable_rise, (door_x, reach + 0.06, eave), WALL, "plaster2", facing="y"))
+    # The bracing in the gable, which is the half-timbered look at its loudest.
+    for side in (-1.0, 1.0):
+        parts.append(
+            box((0.24, 0.14, gable_rise * 0.55), (door_x + side * porch_wide * 0.17, reach - 0.06, eave + gable_rise * 0.30),
+                "timber", tilt=(0.0, side * 0.36, 0.0))
+        )
+    parts.append(box((porch_wide, 0.14, 0.26), (door_x, reach - 0.06, eave + 0.16), "timber"))
+
+    # Low enough in the gable that the triangle is still wide there. Put at half its
+     # height the roundel overhung both slopes and the compass rose came out sitting
+     # on the roof - it is the thing the concept says to mount "for visibility from
+     # town", so it has to be ON the gable, not through it.
+    emblem(parts, (door_x, eave + gable_rise * 0.38), porch_wide * 0.40, reach - 0.20)
+    # The board under it, which is what actually says whose hall this is.
+    parts.append(box((3.0, 0.16, 0.72), (door_x, reach - 0.14, eave - 0.5), "sign"))
+    for up in (-0.86, -0.16):
+        parts.append(box((3.2, 0.1, 0.12), (door_x, reach - 0.18, eave + up), "timber"))
+
+    # The steps up to it. `deep` is doubled from the HALL's front rather than the
+    # figure's, because that is the wall the door is in.
+    doorstep(parts, -hall_front * 2.0, PLINTH, wide=3.0, at=door_x)
+
+    # ------------------------------------------------------------ THE VERANDA
+    #
+    # Posts and a rail across the hall's front, under the eaves. It is what the
+    # concept leads with and it is the shape that says somebody stands out here.
+    for over in (-1.0, -0.45, 0.45, 1.0):
+        at_x = hall_mid + over * (hall_wide * 0.5 - 0.6)
+        if abs(at_x - door_x) < porch_wide * 0.5 + 0.4:
+            continue
+        parts.append(box((0.7, 0.7, stone_up), (at_x, -hy + 0.45, stone_up * 0.5), "stone"))
+        parts.append(box((0.22, 0.22, eave - stone_up), (at_x, -hy + 0.45, stone_up + (eave - stone_up) * 0.5), "timber"))
+    rails = ((hall_x0 + 0.5, door_x - porch_wide * 0.5 - 0.2), (door_x + porch_wide * 0.5 + 0.2, hall_x1 - 0.5))
+    for a, b in rails:
+        if b - a < 0.5:
+            continue
+        for up in (0.55, 1.05):
+            parts.append(box((b - a, 0.14, 0.12), ((a + b) * 0.5, -hy + 0.45, up), "timber"))
+    parts.append(box((hall_wide, veranda, 0.14), (hall_mid, -hy + veranda * 0.5, 0.07), "stone"))
+
+    # A lantern either side of the door, and the guild's banner on a post.
+    for side in (-1.0, 1.0):
+        at_x = door_x + side * (porch_wide * 0.5 + 0.35)
+        parts.append(box((0.1, 0.1, 0.5), (at_x, -hy + 0.28, 2.9), "timber"))
+        parts.append(box((0.3, 0.3, 0.42), (at_x, -hy + 0.28, 2.6), "glass"))
+        parts.append(box((0.36, 0.36, 0.1), (at_x, -hy + 0.28, 2.85), "timber"))
+    post_x = hall_x1 - 0.9
+    parts.append(box((0.2, 0.2, 5.2), (post_x, -hy + 0.5, 2.6), "timber"))
+    parts.append(box((1.5, 0.14, 0.16), (post_x - 0.65, -hy + 0.5, 5.0), "timber"))
+    parts.append(box((0.9, 0.08, 2.0), (post_x - 1.1, -hy + 0.5, 3.85), "guild"))
+    for turn in (0.0, math.pi * 0.25):
+        parts.append(box((0.52, 0.05, 0.52), (post_x - 1.1, -hy + 0.44, 4.3), "brass", tilt=(0.0, turn, 0.0)))
+
+    # The notice board on the wing, which is what the branch is FOR.
+    parts.append(box((1.7, 0.16, 1.3), (wing_x, wing_y0 - 0.06, 2.0), "board"))
+    parts.append(box((1.9, 0.1, 0.14), (wing_x, wing_y0 - 0.1, 2.72), "timber"))
+    parts.append(wedge(2.1, 0.7, 0.3, (wing_x, wing_y0 - 0.3, 2.8), "guildroof", ridge="x"))
+
+    # THE CHIMNEY, off the hall's ridge where the concept puts it.
+    stack_x = hall_mid + hall_wide * 0.18
+    chimney(parts, (stack_x, hall_y + 1.0), eave, ridge + 2.1)
+
+    # A dormer in the back slope, which the rear elevation has and which breaks a
+    # long roof from behind.
+    parts.append(box((1.3, 1.3, 1.0), (hall_mid + 2.0, hall_y + 2.6, ridge - 1.2), "plaster"))
+    parts.append(wedge(1.6, 1.6, 0.5, (hall_mid + 2.0, hall_y + 2.6, ridge - 0.7), "guildroof", ridge="x"))
+    parts.append(box((0.7, 0.1, 0.6), (hall_mid + 2.0, hall_y + 1.95, ridge - 1.3), "glass"))
+
+    return parts, max(ridge, porch_top) + 0.6
 
 
 # # THE CITY IS A DIFFERENT AGE OF THE WORLD
@@ -1716,8 +1936,19 @@ def doorways_in(solids):
     the plaster beside its own opening and is 7 cm thick, and counting it would have
     the door narrowing the doorway.
     """
+    # A WALL IS WIDE. A post is not.
+    #
+    # Grouping by plane was supposed to settle this and does not: a banner post
+    # standing on the ground in front of a building is its own plane, it is the
+    # FORWARD-most one, and `min` picks it. The guild hall's guard then measured a
+    # 20 cm post, found no doorway in it, and reported the hall had none - a
+    # measurement failing in a way that looks like a finding, which is the thing this
+    # function's own note warns about.
+    #
+    # Only for deciding WHERE the front is. The sampling below still takes every
+    # piece on that plane, narrow jambs included, or a doorway would measure wide.
     slabs = [b for b in solids if b[4] < 0.15 and b[5] > 2.0
-             and b[3] - b[2] > WALL * 0.9]
+             and b[3] - b[2] > WALL * 0.9 and b[1] - b[0] > 0.8]
     assert slabs, "nothing in this figure looks like a wall standing on the ground"
     planes = {}
     for slab in slabs:

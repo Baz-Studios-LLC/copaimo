@@ -1524,8 +1524,20 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
 
     // THE GUILD HALL TAKES THE SQUARE, which is where a guild hall goes: the search
     // below walks the square's edge for a spot clear of every radial mouth.
+    //
+    // # Every settlement has one
+    //
+    // This was `site.city` and had been for the life of the feature, so the guild
+    // whose name the game carries had a hall in the four cities and nowhere else -
+    // nine villages with no branch to register a companion at, and nothing in them
+    // saying whose world you were walking through. Nobody noticed because a village
+    // still looked like a village: what was missing was a building nobody had drawn
+    // yet, and the placement was written to match what existed rather than what the
+    // world needed.
+    //
+    // The ranch is not a settlement and is skipped everywhere else too - see `Site`.
     let mut civic: Option<Plot> = None;
-    if site.city {
+    if !site.ranch {
         let hall = Building::GuildHall;
         let stand = square + STREET_WIDE * 0.5 + SETBACK + hall.footprint().y * 0.5;
         // Walked outward as well as around.
@@ -1761,7 +1773,9 @@ pub fn lay_out(site: &Site, approach: Vec2, seed: u32) -> Layout {
     // game is named after. The hall is now 80.5 m and takes the middle, and the
     // spire is moved off to one side where it is a second peak on the skyline rather
     // than the thing competing to be the first.
-    if site.city && !plots.iter().any(|p| p.what == Building::GuildHall) {
+    // And the fallback, for a settlement whose square had nowhere the hall would
+    // stand: it takes an ordinary lot instead of going without.
+    if !site.ranch && !plots.iter().any(|p| p.what == Building::GuildHall) {
         if let Some(index) = lot_that_fits(&plots, site.at, Building::GuildHall) {
             plots[index].what = Building::GuildHall;
         }
@@ -3376,26 +3390,39 @@ mod tests {
     }
 
     #[test]
-    fn a_city_has_exactly_one_guild_hall_and_a_village_has_none() {
-        let city = lay_out(&a_site(true, 90.0), Vec2::X, 7);
-        let halls = city
-            .plots
-            .iter()
-            .filter(|p| p.what == Building::GuildHall)
-            .count();
-        assert_eq!(halls, 1, "a city laid out {halls} guild halls");
-
-        let village = lay_out(&a_site(false, 55.0), Vec2::X, 7);
-        assert_eq!(
-            village
+    fn every_settlement_has_exactly_one_guild_hall() {
+        // This test used to be called `a_city_has_exactly_one_guild_hall_and_a_village_
+        // has_none`, and it passed. The placement was `site.city`, so the guild whose
+        // name the game carries had a branch in the four cities and in none of the
+        // nine villages - and the test recorded that as the intent rather than as the
+        // gap it was. A test can hold a decision in place long after anybody would
+        // make it again; the name is the tell, because nobody would write that one
+        // down as a design goal.
+        for (city, radius) in [(true, 90.0_f32), (false, 55.0)] {
+            let laid = lay_out(&a_site(city, radius), Vec2::X, 7);
+            let halls = laid
                 .plots
                 .iter()
                 .filter(|p| p.what == Building::GuildHall)
-                .count(),
-            0,
-            "a village got a guild hall"
+                .count();
+            let kind = if city { "city" } else { "village" };
+            assert_eq!(halls, 1, "a {kind} laid out {halls} guild halls");
+            assert!(!laid.plots.is_empty(), "a {kind} got no buildings at all");
+        }
+
+        // And the ranch gets no hall. Only that: `lay_out` will lay a settlement out
+        // on any site it is handed, and it is `raise_the_towns` that never hands it
+        // the ranch - so asserting the ranch has no BUILDINGS here tests a promise
+        // this function does not make, which is how the first version of this failed.
+        let mut home = a_site(false, 55.0);
+        home.ranch = true;
+        assert!(
+            !lay_out(&home, Vec2::X, 7)
+                .plots
+                .iter()
+                .any(|p| p.what == Building::GuildHall),
+            "the ranch was given a guild hall"
         );
-        assert!(!village.plots.is_empty(), "a village got no buildings at all");
     }
 
     #[test]
