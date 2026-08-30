@@ -57,6 +57,20 @@ with a window of its own.
 The gash through the eastern massif is a real gate now — narrow enough on the floor
 that the walls close over you, and solid enough that going round is going round.
 
+### Doors, floors and the ground under your feet
+
+Almost nothing you walk on in this game *is* the terrain — a road is laid a crown's
+height over it, a building's floor sits on a plinth over the highest of its four
+corners. The warden stood at terrain height through all of it, so the feet sank into
+every path and most of a shin into every floor. They stand on **what is actually
+built there** now, and the doorstep is read as the ramp it is, so you walk up into a
+house rather than stepping through its threshold.
+
+Doors swing **inward**, where a real one goes. Swung outward against the wall, an
+open door parked itself on the window next to it.
+
+The jog is a little quicker.
+
 ### Also in this release
 
 - Every solid thing in the world wears an **ink outline**, so the game reads as one
@@ -68,3 +82,12 @@ that the walls close over you, and solid enough that going round is going round.
 - Windows on the taller buildings are framed in ink and squared off, which is what
   keeps a facade from reading as a spreadsheet.
 - Props sit on the ground rather than in it.
+- Rooms are lit from the inside after dark, so a doorway is a room somebody is in
+  rather than a black rectangle.
+- The windows that light up at night are the windows the building actually has. They
+  were being placed from the *lot* the building stands on, which is bigger than the
+  building — so lit panes glowed on blank plaster and two of them hung in the air
+  beside a chimney.
+- Outlines no longer double up where two wall panels meet.
+- A road gives out into the ground over twice the distance, so its edge reads as
+  ground that has been walked less rather than as a line.
