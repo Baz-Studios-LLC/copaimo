@@ -2731,7 +2731,17 @@ impl RoadSection {
             half,
             carriage: (half - footway).max(0.8),
             kerb: KERB_RISE * paved,
-            batter: (VERGE_LEAST * 0.3 + KERB_RUN * paved) * wander,
+            // THE CHAMFER CLOSES AS THE KERB ARRIVES.
+            //
+            // The verge term is here so an unpaved road's stations cannot collapse
+            // onto each other - degenerate triangles, which is what
+            // `the_paving_faces_the_sky` caught 3,156 of - and it was being added to
+            // the paved chamfer rather than replaced by it. So a city kerb's face was
+            // 22 cm of rise over 15.5 cm of run: a 55 degree ramp, when a kerb face
+            // is very nearly a wall. Found while working out what normal the face
+            // should carry, which is a question nobody had had to ask while every
+            // normal pointed at the sky.
+            batter: (VERGE_LEAST * 0.3 * (1.0 - paved) + KERB_RUN * paved) * wander,
             // THE SHOULDER CLOSES AS THE PAVING ARRIVES.
             //
             // A shoulder is the margin where a dirt track gives out into whatever
@@ -3235,6 +3245,81 @@ impl Meeting {
     }
 }
 
+/// How many vertices one cross-section of a street emits.
+///
+/// Fifteen stations, and the four extra are the two ends of each kerb face carrying
+/// two normals apiece. See `cross_section`.
+const SECTION_LANES: usize = 19;
+
+/// Whether the band between two neighbouring lanes is a split rather than a surface.
+///
+/// The pairs are the duplicated stations at the foot and the top of each kerb face,
+/// in the order `cross_section` emits them.
+fn splits_at(lane: usize) -> bool {
+    matches!(lane, 4 | 6 | 11 | 13)
+}
+
+/// A street's cross-section, as vertices that know which way they face.
+///
+/// # Colour was being asked to explain a shape the mesh never described
+///
+/// Every vertex of every road carried `[0, 1, 0]`. The carriageway, the crown, the
+/// kerb face, the kerb top, the footway and the outer tie all told the shader they
+/// were flat ground pointing at the sky - so a 22 cm kerb, correct in every
+/// dimension and correct to walk on, was lit exactly like the road beside it. The
+/// only thing separating them was the colour I had assigned, which is why a kerb
+/// rebuilt three times kept coming back as "not a real curb, looks more like it just
+/// rained": a wet-looking line is precisely what a colour boundary with no lighting
+/// change looks like. Codex found it in the production spec, by reading the code
+/// rather than a photograph.
+///
+/// A cel shader cannot band a surface it is told is flat. The fix was never another
+/// centimetre of `KERB_RISE`.
+///
+/// So each band takes its normal from its own rise and run, and the stations where
+/// two surfaces meet at an angle are SPLIT - the same point emitted twice, once
+/// facing each way. A shared normal at the foot of a kerb averages the road into the
+/// face and rounds the whole thing into a tube; the hard edge is what puts the face
+/// in its own lighting band, which is a stronger and steadier line than any painted
+/// stripe. Everywhere the section merely bends - the crown, the tie into the ground -
+/// the stations stay shared and shade smoothly.
+fn cross_section(
+    section: &[(f32, [f32; 4], f32, bool)],
+    cut: &RoadSection,
+    side: Vec2,
+) -> Vec<(f32, [f32; 4], f32, [f32; 3])> {
+    // The normal of one band, from the profile it is built on. Horizontal component
+    // against the rise, vertical component with the run: flat ground gives +Y, and a
+    // kerb face gives a normal looking back across the road it holds.
+    let facing = |from: f32, to: f32| {
+        let rise = cut.lift(to) - cut.lift(from);
+        let run = to - from;
+        Vec3::new(side.x * -rise, run, side.y * -rise)
+            .normalize_or_zero()
+            .to_array()
+    };
+
+    let mut lanes = Vec::with_capacity(SECTION_LANES);
+    for (at, &(across, colour, grain, hard)) in section.iter().enumerate() {
+        let before = (at > 0).then(|| facing(section[at - 1].0, across));
+        let after = (at + 1 < section.len()).then(|| facing(across, section[at + 1].0));
+        match (before, after) {
+            (Some(before), Some(after)) if hard => {
+                lanes.push((across, colour, grain, before));
+                lanes.push((across, colour, grain, after));
+            }
+            (Some(before), Some(after)) => {
+                let smooth = (Vec3::from(before) + Vec3::from(after)).normalize_or_zero();
+                lanes.push((across, colour, grain, smooth.to_array()));
+            }
+            (Some(only), None) | (None, Some(only)) => lanes.push((across, colour, grain, only)),
+            (None, None) => lanes.push((across, colour, grain, [0.0, 1.0, 0.0])),
+        }
+    }
+    debug_assert_eq!(lanes.len(), SECTION_LANES);
+    lanes
+}
+
 fn pave(
     ways: &[Way],
     terrain: &crate::world::terrain::Terrain,
@@ -3405,24 +3490,30 @@ fn pave(
             // Fifteen stations, and the two extra are the kerb's own top - see
             // `KERB_TOP`. Kerb colour on both sides of that band and flag beyond it,
             // so the stone reads as a stone rather than fading into the pavement.
+            //
+            // The fourth item is whether the two surfaces meeting at this edge SHARE
+            // A NORMAL - see `cross_section`. False everywhere the section bends
+            // gently, true at the foot and the top of the kerb face, which is the one
+            // place a street has a wall in it.
             let top = walk + batter + KERB_TOP;
-            for (across, colour, grain) in [
-                (-shoulder, hem(-shoulder), 0.0),
-                (-half, flag, 0.0),
-                (-(top + SEAM), flag, 0.0),
-                (-top, edge, 0.0),
-                (-(walk + batter), edge, 0.0),
-                (-walk, edge, 0.0),
-                (-walk * 0.62, surface, COBBLE_IS),
-                (0.0, surface, COBBLE_IS),
-                (walk * 0.62, surface, COBBLE_IS),
-                (walk, edge, 0.0),
-                (walk + batter, edge, 0.0),
-                (top, edge, 0.0),
-                (top + SEAM, flag, 0.0),
-                (half, flag, 0.0),
-                (shoulder, hem(shoulder), 0.0),
-            ] {
+            let section = [
+                (-shoulder, hem(-shoulder), 0.0, false),
+                (-half, flag, 0.0, false),
+                (-(top + SEAM), flag, 0.0, false),
+                (-top, edge, 0.0, false),
+                (-(walk + batter), edge, 0.0, true),
+                (-walk, edge, 0.0, true),
+                (-walk * 0.62, surface, COBBLE_IS, false),
+                (0.0, surface, COBBLE_IS, false),
+                (walk * 0.62, surface, COBBLE_IS, false),
+                (walk, edge, 0.0, true),
+                (walk + batter, edge, 0.0, true),
+                (top, edge, 0.0, false),
+                (top + SEAM, flag, 0.0, false),
+                (half, flag, 0.0, false),
+                (shoulder, hem(shoulder), 0.0, false),
+            ];
+            for (across, colour, grain, normal) in cross_section(&section, &cut, side) {
                 let at = on + side * across;
 
                 // CROWNED, and tucked in at the edges.
@@ -3510,7 +3601,7 @@ fn pave(
 
                 let height = terrain.drawn_height(at.x, at.y) + lift;
                 places.push([at.x - low.x, height, at.y - low.y]);
-                normals.push([0.0, 1.0, 0.0]);
+                normals.push(normal);
                 colours.push(colour);
                 // x is the station along the road, kept for anything that wants it.
                 // y is HOW PAVED this point is - see the note on the colour above.
@@ -3518,10 +3609,17 @@ fn pave(
             }
         }
 
-        const LANES: usize = 15;
+        const LANES: usize = SECTION_LANES;
         let base = (places.len() - (steps + 1) * LANES) as u32;
         for step in 0..steps as u32 {
             for lane in 0..(LANES as u32 - 1) {
+                // NOT ACROSS A SPLIT. The two vertices at a hard edge sit on the same
+                // line, so the band between them has no width - triangles with no
+                // area, which `the_paving_faces_the_sky` counts as facing down
+                // because a degenerate cross product has no direction at all.
+                if splits_at(lane as usize) {
+                    continue;
+                }
                 let a = base + step * LANES as u32 + lane;
                 let b = a + 1;
                 let c = a + LANES as u32;
@@ -6317,6 +6415,59 @@ mod facing {
         assert_eq!(
             lifted, 0,
             "{lifted} places in the village stand higher than any street's own              section reaches — the reject has been loosened into a lift"
+        );
+    }
+
+    /// The kerb face tells the shader it is a face.
+    ///
+    /// # A cel shader cannot band a surface it is told is flat
+    ///
+    /// Every vertex of every road carried `[0, 1, 0]` - the carriageway, the crown,
+    /// the kerb face, the kerb top, the footway and the tie into the ground. So a
+    /// 22 cm kerb that was correct in every dimension and correct to walk on was lit
+    /// exactly like the road beside it, and the only thing separating them was the
+    /// colour. That is why a kerb rebuilt three times kept coming back as "not a real
+    /// curb, looks more like it just rained": a colour boundary with no lighting
+    /// change is what a wet line looks like.
+    ///
+    /// Codex found it in the code. No screenshot could have - the fault is invisible
+    /// in a still exactly to the degree that it makes the still look wrong.
+    #[test]
+    fn the_kerb_face_is_not_lit_as_flat_ground() {
+        use bevy::render::mesh::VertexAttributeValues;
+        let terrain = crate::world::terrain::Terrain::new();
+        let ways = vec![Way {
+            points: vec![Vec2::new(-40.0, 0.0), Vec2::new(40.0, 0.0)],
+            wide: CITY_STREET_WIDE,
+            joins: CITY_STREET_WIDE,
+        }];
+        let mesh = pave(&ways, &terrain, Vec2::ZERO, 1.0);
+        let Some(VertexAttributeValues::Float32x3(facing)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+        else {
+            panic!("the paving has no normals");
+        };
+
+        // The steepest normal anywhere on the street, and how much of the street
+        // carries one. A kerb face is two of the nineteen lanes on each side.
+        let steepest = facing.iter().map(|n| n[1]).fold(f32::MAX, f32::min);
+        let faces = facing.iter().filter(|n| n[1] < 0.8).count();
+        assert!(
+            steepest < 0.45,
+            "the steepest thing on a city street faces {steepest:.2} up — a kerb face              is a wall and nothing here is telling the shader so"
+        );
+        assert!(
+            faces * 6 > facing.len() && faces * 3 < facing.len(),
+            "{faces} of {} vertices are turned away from the sky — a kerb face is four              lanes of nineteen, so this is the wrong part of the street bending",
+            facing.len()
+        );
+
+        // And the ones that ARE flat are properly flat, rather than everything having
+        // been tilted a little by a normal averaged across the whole section.
+        let flat = facing.iter().filter(|n| n[1] >= 0.8).count();
+        let level = facing.iter().filter(|n| n[1] > 0.999).count();
+        assert!(
+            level * 2 > flat,
+            "only {level} of {flat} unturned vertices are actually level — the hard              edges are being smoothed into their neighbours"
         );
     }
 
