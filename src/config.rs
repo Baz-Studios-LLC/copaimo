@@ -924,7 +924,7 @@ pub const TOWNS: usize = 28;
 //
 // FILLS is 0.94 now and these grew by the same ratio, so a town covers the same
 // ground it did - about 218 m for a city and 109 for a town - with all of it level.
-pub const CITY_RADIUS: f32 = 232.0;
+pub const CITY_RADIUS: f32 = 340.0;
 pub const TOWN_RADIUS: f32 = 116.0;
 
 /// How far apart they must stand.

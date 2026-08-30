@@ -133,7 +133,20 @@ pub const SETBACK: f32 = 1.6;
 // stretches of street - "they feel kinda sparse". Still a village and still nowhere
 // near the three hundred it started at.
 const HOUSES_IN_A_VILLAGE: usize = 16;
-const HOUSES_IN_A_CITY: usize = 34;
+// 96, up from 34.
+//
+// # "I want real large cities so dont be scared"
+//
+// The note above argues a fantasy town is small by genre and it is right about a
+// TOWN. A city is the other thing in the pair: the place a player crosses the map
+// to see, that reads as somewhere from a hilltop, and that they should want to
+// visit when nobody has set them a task. Thirty-four buildings on fifteen hectares
+// is a business park. This is asked for directly and the space it costs is not a
+// constraint - "I fully expect this game to be quite a few Gb when ready".
+//
+// The villages are untouched. They are the thing the genre argument is about, and
+// the contrast between the two is most of what makes a city feel like one.
+const HOUSES_IN_A_CITY: usize = 96;
 
 const A_FRONTAGE_IS_AT_LEAST: f32 = 13.0;
 
@@ -171,6 +184,72 @@ const FILLS: f32 = 0.94;
 /// another. Districts are told apart by what is BUILT in them, which is the
 /// cheapest of the three levers the reading names - architectural scale, material,
 /// and street layout - and the one that shows from furthest away.
+/// How a settlement's streets are laid out.
+///
+/// # Every city in the world was the same wheel
+///
+/// Rings around a market square with radials through them is what a town that grew
+/// around a market IS, and it was the only plan there was - so seven cities shared
+/// one aerial silhouette and a player who had seen one had seen all of them. Giving
+/// them different buildings helped and could not fix it: the plan is the strongest
+/// thing in the picture, and two places that share it read as the same place.
+///
+/// Real settlements have distinct plans and the reasons are well documented - a
+/// chartered grid is laid out by somebody in an afternoon, a market spine is one
+/// road that got built along, a ring town accreted around a centre. Each produces a
+/// different street network, different blocks and a different walk through it.
+///
+/// Dealt separately from `Character`, so the plan and what the place is FOR are two
+/// facts rather than one wearing two names: a capital on a grid and a works on a
+/// grid are different cities, and so are a capital on a grid and a capital in rings.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Plan {
+    /// A market square with roads radiating from it and concentric streets joining
+    /// those. What a town that grew around its market looks like.
+    Rings,
+    /// Orthogonal blocks, turned off the compass and cut by two avenues. Somebody
+    /// drew this on a table before anybody lived here.
+    Grid,
+    /// One long high street with ribs off it and a back lane each side. A road that
+    /// got built along until it was a town.
+    Spine,
+}
+
+impl Plan {
+    /// The plan of the nth city.
+    ///
+    /// Dealt round like `Character` and offset from it, so the two do not move in
+    /// lockstep and the world gets combinations rather than four fixed cities.
+    pub fn of(key: usize) -> Self {
+        const ALL: [Plan; 3] = [Plan::Rings, Plan::Grid, Plan::Spine];
+        ALL[(key * 2 + 1 + crate::config::WORLD_SEED as usize) % ALL.len()]
+    }
+}
+
+/// The ground a plan is laid on, and the measurements every plan needs.
+///
+/// One struct so a plan is a function of its site rather than of a dozen locals
+/// captured out of `lay_out`, which is what made there being only one plan feel
+/// inevitable.
+pub struct Ground {
+    pub middle: Vec2,
+    /// How far the built-up part reaches from the middle.
+    pub reach: f32,
+    /// Half the width of the open middle, whatever shape the plan gives it.
+    pub square: f32,
+    /// How deep a block is, which is the deepest building plus its air.
+    pub depth: f32,
+    /// Middle to middle of two parallel streets with a block of lots between them.
+    pub band: f32,
+    /// The bearing the road into town arrives on. Every plan uses it: a settlement
+    /// is organised around the road that made it.
+    pub through: f32,
+    pub high_street: f32,
+    pub lane: f32,
+    pub city: bool,
+    pub seed: u32,
+}
+
 /// What a city is FOR.
 ///
 /// # Two cities that differ only in their seed are one city drawn twice
@@ -218,6 +297,25 @@ impl Character {
             Character::Trade,
         ];
         ALL[(key + crate::config::WORLD_SEED as usize) % ALL.len()]
+    }
+
+    /// How many buildings this kind of city has, against the count for its size.
+    ///
+    /// # The lever that stopped working when the cities got big
+    ///
+    /// Density used to be expressed only through the yard budget, and at
+    /// thirty-four houses that was enough to tell a works from a capital. At
+    /// ninety-six the budget exceeds the lots available in both and they saturate at
+    /// the same number - so the difference vanished exactly when the cities got
+    /// large enough for it to matter. A count cannot saturate.
+    pub fn houses(self, base: usize) -> usize {
+        let share = match self {
+            Character::Capital => 1.0,
+            Character::Works => 1.2,
+            Character::Green => 0.72,
+            Character::Trade => 1.05,
+        };
+        ((base as f32 * share).round() as usize).max(1)
     }
 
     /// How much of a district's frontage this kind of city occupies.
@@ -1462,6 +1560,167 @@ fn frontage_parcels(
 /// is shallower than the road is wide and the eye reads a curve rather than a bend.
 const A_CURVE_STEPS_EVERY: f32 = 6.0;
 
+/// A chartered grid: orthogonal blocks, turned off the compass, cut by two avenues.
+///
+/// # Somebody drew this before anybody lived here
+///
+/// The opposite of a ring town in every way that shows. A grid has no centre unless
+/// one is given to it, its blocks are all the same size on purpose, and its streets
+/// run to the edge of town and stop - which from the air is unmistakably not a
+/// wheel, and on the ground gives long straight views a ring town never has.
+///
+/// Turned off the compass by the approach bearing, because a grid aligned to north
+/// reads as the world's axes rather than as a decision somebody made, and because
+/// the road into town should meet it at the angle it arrives at.
+fn grid_streets(on: &Ground, ways: &mut Vec<Way>, parcels: &mut Vec<Parcel>) {
+    let turn = on.through + unit(on.seed, 91) * 0.4 - 0.2;
+    let (sin, cos) = turn.sin_cos();
+    let along = Vec2::new(cos, sin);
+    let across = Vec2::new(-sin, cos);
+    // Half as many bands as fit, each way, so the grid is square about the middle.
+    let bands = ((on.reach / on.band).floor() as i32).clamp(1, 6);
+
+    // The two AVENUES, on the axes through the middle: a grid still needs somewhere
+    // that is more important than everywhere else, or it has no centre to walk to.
+    for (way, wide) in [(along, on.high_street), (across, on.high_street)] {
+        ways.push(Way {
+            points: vec![on.middle - way * on.reach, on.middle + way * on.reach],
+            wide,
+            joins: wide,
+        });
+    }
+
+    for (way, other) in [(along, across), (across, along)] {
+        for band in -bands..=bands {
+            // The avenue is already laid.
+            if band == 0 {
+                continue;
+            }
+            let off = band as f32 * on.band;
+            // A chord of the site's disc at this offset - a grid is cut to the
+            // ground that was levelled for it, so its streets get shorter toward
+            // the edges and the town comes out round rather than square.
+            let half = (on.reach * on.reach - off * off).max(0.0).sqrt();
+            if half < on.band * 0.6 {
+                continue;
+            }
+            let middle = on.middle + other * off;
+            let (from, to) = (middle - way * half, middle + way * half);
+            ways.push(Way {
+                points: vec![from, to],
+                wide: on.lane,
+                joins: on.lane,
+            });
+            // Frontage down both sides of it.
+            frontage_parcels(parcels, on.middle, from, to, on.lane, on.depth, false);
+        }
+    }
+
+    // And frontage on the avenues, cut band by band so a lot never straddles a
+    // crossing.
+    for (way, other) in [(along, across), (across, along)] {
+        let _ = other;
+        for step in -bands..bands {
+            let from = on.middle + way * (step as f32 * on.band + SETBACK);
+            let to = on.middle + way * ((step + 1) as f32 * on.band - SETBACK);
+            if from.distance(on.middle) > on.reach || to.distance(on.middle) > on.reach {
+                continue;
+            }
+            frontage_parcels(parcels, on.middle, from, to, on.high_street, on.depth, false);
+        }
+    }
+}
+
+/// A market spine: one long high street with ribs off it and a back lane each side.
+///
+/// # A road that got built along until it was a town
+///
+/// The commonest plan there is and the one a ring town is not. Everything faces the
+/// one street, the ribs are short and connect to a back lane rather than dying, and
+/// the whole place is longer than it is wide - which is legible from the air and
+/// even more so from the road, because arriving means arriving at the END of the
+/// town and seeing all of it at once.
+///
+/// The back lanes are what stop this being the cul-de-sac suburb an earlier plan in
+/// this file was: without them the ribs enclose nothing and there are no blocks.
+fn spine_streets(on: &Ground, ways: &mut Vec<Way>, parcels: &mut Vec<Parcel>) {
+    let along = Vec2::from_angle(on.through);
+    let across = Vec2::new(-along.y, along.x);
+    // Longer than it is wide, which is the whole shape of the thing.
+    let length = on.reach;
+    let back = on.band;
+
+    // THE HIGH STREET, end to end.
+    ways.push(Way {
+        points: vec![on.middle - along * length, on.middle + along * length],
+        wide: on.high_street,
+        joins: on.high_street,
+    });
+
+    // A BACK LANE each side, shorter than the spine so the town tapers.
+    for side in [-1.0_f32, 1.0] {
+        let lane_at = on.middle + across * (side * back);
+        let half = length * 0.72;
+        ways.push(Way {
+            points: vec![lane_at - along * half, lane_at + along * half],
+            wide: on.lane,
+            joins: on.lane,
+        });
+        frontage_parcels(
+            parcels,
+            on.middle,
+            lane_at - along * half,
+            lane_at + along * half,
+            on.lane,
+            on.depth,
+            false,
+        );
+    }
+
+    // THE RIBS, joining the spine to the back lanes and on out a little.
+    let ribs = ((length * 2.0 / on.band).floor() as i32).clamp(2, 14);
+    for rib in -ribs..=ribs {
+        // Irregularly spaced: a road that was built along was built along in fits.
+        let jitter = (unit(on.seed.wrapping_add((rib as u32).wrapping_mul(17)), 92) - 0.5) * on.band * 0.3;
+        let at = rib as f32 * on.band * 0.62 + jitter;
+        if at.abs() > length * 0.86 {
+            continue;
+        }
+        let foot = on.middle + along * at;
+        for side in [-1.0_f32, 1.0] {
+            // Some ribs stop at the back lane and some carry past it.
+            let out = if unit(on.seed.wrapping_add((rib as u32).wrapping_mul(29)), 93) < 0.4 {
+                back * 1.9
+            } else {
+                back
+            };
+            let head = foot + across * (side * out);
+            ways.push(Way {
+                points: vec![foot, head],
+                wide: on.lane,
+                joins: on.lane,
+            });
+            frontage_parcels(parcels, on.middle, foot, head, on.lane, on.depth, false);
+        }
+    }
+
+    // And the spine's own frontage, cut rib by rib.
+    let step = on.band * 0.62;
+    let mut at = -length * 0.86;
+    while at + step < length * 0.86 {
+        frontage_parcels(
+            parcels,
+            on.middle,
+            on.middle + along * (at + SETBACK),
+            on.middle + along * (at + step - SETBACK),
+            on.high_street,
+            on.depth,
+            false,
+        );
+        at += step;
+    }
+}
+
 /// Lays a ring segment as an ARC rather than as the chord across it.
 ///
 /// # A ring of six straight pieces is a hexagon
@@ -1744,7 +2003,14 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // the ranch's town into a small city.
     // Two bands for a city and ONE for a village. Three rings of blocks is a
     // county town; the ranch's neighbour had a hundred buildings in it.
-    let most = if site.city { 2 } else { 2 };
+    // A CITY GETS THE RINGS ITS SIZE IMPLIES. This was two for both, which was
+    // right when a city was 232 m across and is not now: at 340 m a two-ring town
+    // has streets over its inner third and empty levelled ground round the rest, so
+    // the lot supply ran out long before the ninety-six buildings a city has.
+    //
+    // The note below is about a VILLAGE, and it stands - three rings of blocks round
+    // a hamlet is a county town. A city is the other thing.
+    let most = if site.city { 5 } else { 2 };
     let rings = (((reach - square) / band).floor() as usize).clamp(1, most);
 
     // The radials. One PAIR of them is the road that got here, carried straight
@@ -1786,6 +2052,32 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // The roads as CHAINS. `streets` is derived from these once they are all laid.
     let mut ways: Vec<Way> = Vec::new();
     let mut parcels = Vec::new();
+
+    // WHICH PLAN THIS PLACE WAS LAID OUT ON. Villages keep the rings - a hamlet
+    // that grew around a green is what a village IS, and there is not enough of one
+    // to read a grid off anyway. See `Plan`.
+    let on = Ground {
+        middle: site.at,
+        reach,
+        square,
+        depth,
+        band,
+        through,
+        high_street,
+        lane,
+        city: site.city,
+        seed,
+    };
+    let plan = if site.city { site.plan } else { Plan::Rings };
+    if plan != Plan::Rings {
+        match plan {
+            Plan::Grid => grid_streets(&on, &mut ways, &mut parcels),
+            Plan::Spine => spine_streets(&on, &mut ways, &mut parcels),
+            Plan::Rings => unreachable!(),
+        }
+    }
+    let _ = on.city;
+    if plan == Plan::Rings {
 
     // # The rings WOBBLE, and the radials do not all reach
     //
@@ -1875,6 +2167,8 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
             }
             arc_streets(&mut ways, &mut parcels, site.at, from, to, lane, depth, false);
         }
+    }
+
     }
 
     // The roads are all laid. Everything from here asks geometric questions of them
@@ -2281,7 +2575,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // fills one quarter of the town and leaves the rest of the streets empty, which
     // reads as a place half-built rather than a small one.
     let wanted = if site.city {
-        HOUSES_IN_A_CITY
+        site.character.houses(HOUSES_IN_A_CITY)
     } else {
         HOUSES_IN_A_VILLAGE
     };
@@ -4733,12 +5027,23 @@ mod tests {
 
     /// A fabricated site of a named character, for the tests that care which.
     pub(super) fn a_site_of(city: bool, radius: f32, character: Character) -> Site {
+        a_site_on(city, radius, character, Plan::Rings)
+    }
+
+    /// A fabricated site with a named plan, for the tests that care which.
+    pub(super) fn a_site_on(
+        city: bool,
+        radius: f32,
+        character: Character,
+        plan: Plan,
+    ) -> Site {
         Site {
             at: Vec2::new(120.0, -80.0),
             height: 30.0,
             radius,
             city,
             character,
+            plan,
             ranch: false,
         }
     }
@@ -7121,6 +7426,99 @@ mod facing {
         );
     }
 
+    /// Three plans that are three different shapes, not three seeds of one.
+    ///
+    /// # The strongest thing in the picture
+    ///
+    /// Every city was rings and radials, so seven of them shared one aerial
+    /// silhouette and a player who had seen one had seen all of them. Different
+    /// buildings helped and could not fix it: a plan is the first thing you read
+    /// from above and the thing you navigate by on the ground.
+    ///
+    /// So this measures SHAPE rather than counting streets. A grid's streets run in
+    /// two bearings and nothing else; a spine is far longer than it is wide; rings
+    /// put most of their length at a constant distance from the middle. Any plan
+    /// that quietly became another would fail one of the three.
+    #[test]
+    fn the_three_plans_are_three_different_shapes() {
+        let measure = |plan: Plan| {
+            let site = tests::a_site_on(
+                true,
+                crate::config::CITY_RADIUS,
+                Character::Capital,
+                plan,
+            );
+            let laid = lay_out(&site, Vec2::new(0.6, -0.8).normalize(), &[], 5);
+
+            // How much of the street length runs on each of two bearings, folded to
+            // a half turn so a road and its reverse agree.
+            let mut bearings: Vec<(f32, f32)> = Vec::new();
+            let (mut long, mut wide) = (0.0_f32, 0.0_f32);
+            // The approach bearing, which is what the plans are laid against.
+            // `atan2` takes y first; passing them the other way measures the wrong
+            // axis and reported a spine as very nearly round.
+            let approach = Vec2::new(0.6, -0.8).normalize();
+            let along = Vec2::from_angle(approach.y.atan2(approach.x));
+            let across = Vec2::new(-along.y, along.x);
+            for street in &laid.streets {
+                let run = street.to - street.from;
+                let len = run.length();
+                if len < 1.0 {
+                    continue;
+                }
+                let turn = run.to_angle().rem_euclid(std::f32::consts::PI);
+                bearings.push((turn, len));
+                for end in [street.from, street.to] {
+                    let off = end - site.at;
+                    long = long.max(off.dot(along).abs());
+                    wide = wide.max(off.dot(across).abs());
+                }
+            }
+            let total: f32 = bearings.iter().map(|(_, len)| len).sum();
+
+            // The share of the street length lying within a few degrees of the two
+            // commonest bearings - high for a grid, low for anything with curves.
+            let mut best = 0.0_f32;
+            for (turn, _) in &bearings {
+                let near: f32 = bearings
+                    .iter()
+                    .filter(|(other, _)| {
+                        let gap = (other - turn).abs();
+                        gap.min(std::f32::consts::PI - gap) < 0.12
+                    })
+                    .map(|(_, len)| len)
+                    .sum();
+                best = best.max(near / total.max(1.0));
+            }
+            (best, long / wide.max(1.0), laid.streets.len())
+        };
+
+        let (grid_aligned, _, grid_streets) = measure(Plan::Grid);
+        let (rings_aligned, _, rings_streets) = measure(Plan::Rings);
+        let (_, spine_long, spine_streets) = measure(Plan::Spine);
+
+        assert!(
+            grid_streets > 10 && rings_streets > 10 && spine_streets > 10,
+            "a plan laid almost nothing: grid {grid_streets}, rings {rings_streets},              spine {spine_streets}"
+        );
+
+        // A GRID runs on two bearings and a ring town does not.
+        assert!(
+            grid_aligned > 0.35,
+            "only {grid_aligned:.2} of a grid's street length shares one bearing —              that is not a grid"
+        );
+        assert!(
+            grid_aligned > rings_aligned * 1.5,
+            "a grid is {grid_aligned:.2} aligned and a ring town {rings_aligned:.2} —              from above they are the same drawing"
+        );
+
+        // A SPINE is longer than it is wide. A ring town is round by construction.
+        assert!(
+            spine_long > 2.0,
+            "a spine reaches {spine_long:.2} times as far along as across — a spine              town is a road that got built along, not a blob"
+        );
+    }
+
     /// No two kinds of city are the same city drawn twice.
     ///
     /// # A world of seven cities that a player has seen after visiting one
@@ -7161,8 +7559,10 @@ mod facing {
         let (green, green_yards, _) = towers(Character::Green);
 
         // THE SKYLINE, which is what reads from the road in.
+        // Two and a half times over, which is a skyline against a roofline rather
+        // than one city with slightly more towers than another.
         assert!(
-            capital >= works * 3 + 2,
+            capital as f32 >= works as f32 * 2.5,
             "a capital has {capital} tall buildings and a works {works} — from a              distance they are the same place"
         );
         assert!(
@@ -7406,5 +7806,6 @@ mod density_probe {
         }
     }
 }
+
 
 

@@ -25,6 +25,26 @@ use bevy::prelude::*;
 use crate::config::*;
 use crate::util::smoothstep;
 
+/// How far a site's levelling eases back into the land around it.
+///
+/// # A skirt is a gradient, and a gradient is a height over a distance
+///
+/// `SITE_SKIRT` was a flat 140 m for every settlement, which worked while every
+/// settlement was about the same size. A city's radius then went from 232 m to 340
+/// to make it a real city, and the plateau reached out onto ground with half as much
+/// relief again to absorb - over the same 140 m. The skirt came out steep enough to
+/// refuse a warden walking in: 507 steps blocked on the approach to one city,
+/// every one of them going gently DOWNHILL into a wall a stride ahead.
+///
+/// Caught by `walking_into_a_city_is_not_stopped_by_anything_invisible`, which is
+/// the guard written the last time a city had an invisible wall round it.
+///
+/// So it is a share of the site, because the thing it has to absorb grows with the
+/// site. Kept as the ratio the old pair had, so a village's skirt is unchanged.
+pub fn skirt_of(radius: f32) -> f32 {
+    radius * (SITE_SKIRT / crate::config::TOWN_RADIUS)
+}
+
 /// A place levelled for people to build on.
 #[derive(Clone, Copy)]
 pub struct Site {
@@ -40,6 +60,9 @@ pub struct Site {
     /// the way its radius is, and because two callers deriving it separately is the
     /// shape of every fault this file has had.
     pub character: crate::world::town::Character,
+    /// How its streets are laid out - see `world::town::Plan`. Villages are always
+    /// rings; a city is dealt one.
+    pub plan: crate::world::town::Plan,
     /// The player's ranch, which is a site so that nothing else takes its ground -
     /// and is NOT a settlement. `world::town` skips it.
     ///
@@ -401,6 +424,7 @@ impl Settlements {
             // A ranch is not a settlement and `world::town` skips it; this is here
             // because the field exists, not because it means anything.
             character: crate::world::town::Character::of(0),
+            plan: crate::world::town::Plan::Rings,
             ranch: true,
         });
 
@@ -424,6 +448,7 @@ impl Settlements {
                 // Dealt round the settlements in order, so a world cannot come out
                 // with seven capitals by luck. See `world::town::Character`.
                 character: crate::world::town::Character::of(which),
+                plan: crate::world::town::Plan::of(which),
                 ranch: false,
             });
         }
@@ -586,7 +611,7 @@ impl Settlements {
         // the grid mutably and reading the features borrows it immutably.
         let mut filings: Vec<(u16, Vec2, Vec2)> = Vec::new();
         for (i, site) in self.sites.iter().enumerate() {
-            let reach = site.radius + SITE_SKIRT;
+            let reach = site.radius + skirt_of(site.radius);
             filings.push((i as u16, site.at - reach, site.at + reach));
         }
         // The widest a road can ever pull, not the narrowest. Filing them by the
@@ -710,7 +735,7 @@ impl Settlements {
                 // skirt, so a town sits in the ground rather than on a plinth.
                 (
                     site.height,
-                    smoothstep(site.radius + SITE_SKIRT, site.radius, away),
+                    smoothstep(site.radius + skirt_of(site.radius), site.radius, away),
                 )
             } else {
                 let road = &self.roads[(what - sites) as usize];
@@ -1269,7 +1294,7 @@ mod levelling {
         let mut worst_at = Vec2::ZERO;
         let mut looked = 0;
         for site in terrain.sites() {
-            let reach = site.radius + SITE_SKIRT + 40.0;
+            let reach = site.radius + skirt_of(site.radius) + 40.0;
             let ticks = (reach * 2.0 / step) as i32;
             for lane in -4..=4 {
                 let offset = lane as f32 * reach / 4.0;
@@ -1321,12 +1346,12 @@ mod levelling {
             );
             for (which, site) in plan.sites().iter().enumerate() {
                 let away = site.at.distance(spot);
-                if away < site.radius + SITE_SKIRT + 40.0 {
+                if away < site.radius + skirt_of(site.radius) + 40.0 {
                     println!(
                         "    site {which}: away {away:.1}, radius {:.1}, height {:.2}, pull {:.3}",
                         site.radius,
                         site.height,
-                        crate::util::smoothstep(site.radius + SITE_SKIRT, site.radius, away)
+                        crate::util::smoothstep(site.radius + skirt_of(site.radius), site.radius, away)
                     );
                 }
             }
