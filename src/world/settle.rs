@@ -35,6 +35,11 @@ pub struct Site {
     pub radius: f32,
     /// Whether this is one of the larger places.
     pub city: bool,
+    /// What this city is FOR - see `world::town::Character`. Carried here rather
+    /// than worked out at layout time because it is a property of the settlement,
+    /// the way its radius is, and because two callers deriving it separately is the
+    /// shape of every fault this file has had.
+    pub character: crate::world::town::Character,
     /// The player's ranch, which is a site so that nothing else takes its ground -
     /// and is NOT a settlement. `world::town` skips it.
     ///
@@ -393,18 +398,32 @@ impl Settlements {
             height: ground(ranch),
             radius: RANCH_RADIUS,
             city: false,
+            // A ranch is not a settlement and `world::town` skips it; this is here
+            // because the field exists, not because it means anything.
+            character: crate::world::town::Character::of(0),
             ranch: true,
         });
 
         // Then the thirteen that are actually on the map, exactly where they were
         // put. No rejection sampling and no quotas: `SETTLEMENTS` is the list.
-        for (x, z, city) in SETTLEMENTS {
+        // Counted over the CITIES, not over every settlement. Dealing by the index
+        // into `SETTLEMENTS` deals to the villages as well, and since the two kinds
+        // are interleaved the cities landed on three of the four residues - a world
+        // with no green city in it at all, which is the one a player would have gone
+        // to for its own sake.
+        let mut cities = 0;
+        for (x, z, city) in SETTLEMENTS.iter().copied() {
+            let which = cities;
+            cities += usize::from(city);
             let at = Vec2::new(x, z);
             sites.push(Site {
                 at,
                 height: ground(at),
                 radius: if city { CITY_RADIUS } else { TOWN_RADIUS },
                 city,
+                // Dealt round the settlements in order, so a world cannot come out
+                // with seven capitals by luck. See `world::town::Character`.
+                character: crate::world::town::Character::of(which),
                 ranch: false,
             });
         }

@@ -171,6 +171,115 @@ const FILLS: f32 = 0.94;
 /// another. Districts are told apart by what is BUILT in them, which is the
 /// cheapest of the three levers the reading names - architectural scale, material,
 /// and street layout - and the one that shows from furthest away.
+/// What a city is FOR.
+///
+/// # Two cities that differ only in their seed are one city drawn twice
+///
+/// Every city in the world was built from the same rules: rings and radials, towers
+/// in the middle falling to blocks at the edge, the same yards behind them. Different
+/// seeds move the buildings about and change nothing about what the place IS, so a
+/// player who has seen one has seen all seven and there is no reason to visit the
+/// next. Asked for directly: cities should not be carbon copies, some should be
+/// industrial and others entertainment, and a player should want to go to one
+/// outside a warden exam.
+///
+/// Character is the coarsest lever and the one that reads from furthest away, which
+/// is Codex's point in the foundation review: variety belongs in the massing and the
+/// silhouette rather than in more decoration. A capital's skyline is towers; a works
+/// is low and wide and busy at ground level; a green city is mid-rise around its
+/// parks. You can tell them apart from the road in.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Character {
+    /// The seat. Towers crowded into the middle, formal, and the tallest skyline in
+    /// the world - this is the one you see from a long way off and walk toward.
+    Capital,
+    /// A working city. Low, wide, and busy: service yards and forecourts instead of
+    /// greens, and hardly a tower in it.
+    Works,
+    /// Built around its open space. Mid-rise, generous, greens and kiosks - the one
+    /// worth going to when nobody has set you a task.
+    Green,
+    /// Trade. Dense and low-shouldered, its ground floor given over to stalls and
+    /// forecourts, busiest at the market end.
+    Trade,
+}
+
+impl Character {
+    /// The character of the nth settlement.
+    ///
+    /// Dealt round rather than rolled, so a world cannot come out with seven
+    /// capitals by luck. The offset is the world seed, so a different world deals
+    /// them in a different order.
+    pub fn of(key: usize) -> Self {
+        const ALL: [Character; 4] = [
+            Character::Capital,
+            Character::Works,
+            Character::Green,
+            Character::Trade,
+        ];
+        ALL[(key + crate::config::WORLD_SEED as usize) % ALL.len()]
+    }
+
+    /// How much of a district's frontage this kind of city occupies.
+    ///
+    /// A works fills its ground - that is what a works is - and a green city keeps
+    /// its air. Multiplies the district's own share; see `District::occupies`.
+    fn fills(self) -> f32 {
+        match self {
+            Character::Capital => 1.0,
+            Character::Works => 1.25,
+            Character::Green => 0.75,
+            Character::Trade => 1.15,
+        }
+    }
+
+    /// How much of this district is built tall.
+    ///
+    /// The skyline, as a share of the district's buildings that are towers rather
+    /// than blocks. This is the number you read from the road in.
+    fn towers(self, district: District) -> f32 {
+        match (self, district) {
+            // A capital's middle is nearly all tower, and it keeps some height out
+            // into the second ring.
+            (Character::Capital, District::Market) => 0.80,
+            (Character::Capital, District::Crafts) => 0.45,
+            (Character::Capital, District::Outskirts) => 0.10,
+
+            // A works has almost no skyline. What it has is ground.
+            (Character::Works, District::Market) => 0.18,
+            (Character::Works, District::Crafts) => 0.06,
+            (Character::Works, District::Outskirts) => 0.0,
+
+            // A green city is mid-rise: a few towers over the parks, nothing crowded.
+            (Character::Green, District::Market) => 0.40,
+            (Character::Green, District::Crafts) => 0.15,
+            (Character::Green, District::Outskirts) => 0.0,
+
+            // Trade builds low and wide, with a couple of tall backs to its market.
+            (Character::Trade, District::Market) => 0.35,
+            (Character::Trade, District::Crafts) => 0.12,
+            (Character::Trade, District::Outskirts) => 0.0,
+        }
+    }
+
+    /// The yard this city puts on a lot when the district has no opinion.
+    ///
+    /// What a place does all day, at street level. A works stacks pallets where a
+    /// green city plants a square, and that difference is visible standing in either.
+    fn yard(self, other: bool) -> Building {
+        match (self, other) {
+            (Character::Capital, false) => Building::CityForecourt,
+            (Character::Capital, true) => Building::CityGreen,
+            (Character::Works, false) => Building::CityService,
+            (Character::Works, true) => Building::CityForecourt,
+            (Character::Green, false) => Building::CityGreen,
+            (Character::Green, true) => Building::CityKiosk,
+            (Character::Trade, false) => Building::CityKiosk,
+            (Character::Trade, true) => Building::CityForecourt,
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum District {
     /// Around the square: trade. Shops, and the guild hall on the square itself.
@@ -275,6 +384,10 @@ impl District {
     /// cannot say: a market street should be nearly solid, a crafts quarter busy but
     /// broken by work yards, and the outskirts should give way to gardens and open
     /// ground. Below one means more buildings than yards.
+    pub fn occupies_for(self, character: Character) -> f32 {
+        self.occupies() * character.fills()
+    }
+
     pub fn occupies(self) -> f32 {
         match self {
             District::Market => 3.0,
@@ -321,27 +434,18 @@ impl District {
     }
 
     /// What is built here, given a roll.
-    fn builds(self, roll: f32, city: bool) -> Building {
+    fn builds(self, roll: f32, city: bool, character: Character) -> Building {
         if city {
             // The modern city. Height falls off from the middle, which is what a
             // skyline IS - a city whose every building is the same height reads as
             // a housing scheme however tall they all are.
-            return match self {
-                District::Market => {
-                    if roll < 0.55 {
-                        Building::CityTower
-                    } else {
-                        Building::CityBlock
-                    }
-                }
-                District::Crafts => {
-                    if roll < 0.30 {
-                        Building::CityTower
-                    } else {
-                        Building::CityBlock
-                    }
-                }
-                District::Outskirts => Building::CityBlock,
+            //
+            // AND THE FALL-OFF BELONGS TO THE CITY. It was one curve for all of
+            // them, so seven cities had one skyline between them - see `Character`.
+            return if roll < character.towers(self) {
+                Building::CityTower
+            } else {
+                Building::CityBlock
             };
         }
         match self {
@@ -760,6 +864,7 @@ impl Building {
         city: bool,
         beside: Option<Building>,
         roll: u32,
+        character: Character,
     ) -> Building {
         // WHAT IT BELONGS TO decides what it is.
         //
@@ -798,15 +903,21 @@ impl Building {
                 (what, false) if what.is_landmark() => Building::Stall,
                 (what, true) if what.is_landmark() => Building::CityForecourt,
 
-                _ => Self::yard_by_district(district, city, roll),
+                _ => Self::yard_by_district(district, city, roll, character),
             };
         }
-        Self::yard_by_district(district, city, roll)
+        Self::yard_by_district(district, city, roll, character)
     }
 
     /// What a lot is for when nothing stands near enough to own it.
-    fn yard_by_district(district: District, city: bool, roll: u32) -> Building {
+    fn yard_by_district(district: District, city: bool, roll: u32, character: Character) -> Building {
         let other = roll % 2 == 1;
+        // A CITY'S OWN, outside its market. The market is where a city is most
+        // itself as a market and least itself as a works or a park, so the district
+        // keeps that one and the character takes the rest.
+        if city && district != District::Market {
+            return character.yard(other);
+        }
         match (district, city) {
             // Trade, either way: a canvas stall on a village square, a steel and
             // glass kiosk on a city's.
@@ -1896,7 +2007,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         if !lot.has_frontage() {
             continue;
         }
-        let what = what_stands_here(index, lot, site.at, inner, outer, site.city, seed);
+        let what = what_stands_here(index, lot, site.at, inner, outer, site.city, site.character, seed);
         let Some(what) = what else { continue };
 
         // Placed against the street rather than in the middle of its lot.
@@ -2274,7 +2385,8 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
                 .iter()
                 .filter(|plot| plot.district == district && !plot.what.is_yard())
                 .count();
-            let want = ((houses as f32 * district.occupies()).round() as usize).min(free.len());
+            let want = ((houses as f32 * district.occupies_for(site.character)).round() as usize)
+                .min(free.len());
             if want == 0 {
                 continue;
             }
@@ -2300,7 +2412,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
                     .filter(|(away, _)| *away < BELONGS_WITHIN)
                     .min_by(|a, b| a.0.total_cmp(&b.0))
                     .map(|(_, what)| what);
-                yard.what = Building::yard_for(yard.district, site.city, beside, roll);
+                yard.what = Building::yard_for(yard.district, site.city, beside, roll, site.character);
                 kept.push(yard);
             }
         }
@@ -2378,6 +2490,7 @@ fn what_stands_here(
     inner: f32,
     outer: f32,
     city: bool,
+    character: Character,
     seed: u32,
 ) -> Option<Building> {
     let roll = unit(seed.wrapping_add(index as u32 * 131), 11);
@@ -2390,7 +2503,8 @@ fn what_stands_here(
     // rule, the obvious one, and Lynch's districts all at once: the ground with the
     // most feet on it carries the trade, and what a place is FOR is what tells one
     // part of a town from another.
-    let wanted = District::of(lot.at.distance(middle), inner, outer).builds(roll, city);
+    let wanted =
+        District::of(lot.at.distance(middle), inner, outer).builds(roll, city, character);
     if fits(wanted) {
         Some(wanted)
     } else if fits(if city { Building::CityBlock } else { Building::Cottage }) {
@@ -4614,11 +4728,17 @@ mod tests {
     use super::*;
 
     pub(super) fn a_site(city: bool, radius: f32) -> Site {
+        a_site_of(city, radius, Character::Capital)
+    }
+
+    /// A fabricated site of a named character, for the tests that care which.
+    pub(super) fn a_site_of(city: bool, radius: f32, character: Character) -> Site {
         Site {
             at: Vec2::new(120.0, -80.0),
             height: 30.0,
             radius,
             city,
+            character,
             ranch: false,
         }
     }
@@ -7001,6 +7121,76 @@ mod facing {
         );
     }
 
+    /// No two kinds of city are the same city drawn twice.
+    ///
+    /// # A world of seven cities that a player has seen after visiting one
+    ///
+    /// Every city was built from one set of rules - the same tower-to-block curve,
+    /// the same yards behind them - so a different seed moved the buildings about
+    /// and changed nothing about what the place was. Asked for directly: cities
+    /// should not be carbon copies, some should be industrial and others somewhere
+    /// you would go when nobody has set you a task.
+    ///
+    /// This asserts the difference is real and large enough to see, rather than that
+    /// the constants are what they currently are: a capital has to have a skyline a
+    /// works does not, and their street-level programmes have to differ too, because
+    /// a city you can only tell apart from a hilltop is not one you would walk into.
+    #[test]
+    fn a_capital_and_a_works_are_not_the_same_city() {
+        let towers = |character: Character| {
+            let site = tests::a_site_of(true, crate::config::CITY_RADIUS, character);
+            let laid = lay_out(&site, Vec2::new(0.6, -0.8).normalize(), &[], 5);
+            let tall = laid
+                .plots
+                .iter()
+                .filter(|plot| {
+                    matches!(plot.what, Building::CityTower | Building::CitySpire)
+                })
+                .count();
+            let yards: std::collections::BTreeSet<String> = laid
+                .plots
+                .iter()
+                .filter(|plot| plot.what.is_yard())
+                .map(|plot| format!("{:?}", plot.what))
+                .collect();
+            (tall, yards, laid.plots.len())
+        };
+
+        let (capital, capital_yards, capital_plots) = towers(Character::Capital);
+        let (works, works_yards, works_plots) = towers(Character::Works);
+        let (green, green_yards, _) = towers(Character::Green);
+
+        // THE SKYLINE, which is what reads from the road in.
+        assert!(
+            capital >= works * 3 + 2,
+            "a capital has {capital} tall buildings and a works {works} — from a              distance they are the same place"
+        );
+        assert!(
+            (green as i32 - capital as i32).abs() >= 3,
+            "a green city has {green} tall buildings and a capital {capital} — too              close to tell apart"
+        );
+
+        // AND THE STREET, because a city told apart only from a hilltop is not one
+        // anybody would walk into.
+        assert!(
+            capital_yards != works_yards && works_yards != green_yards,
+            "these cities put the same things on their streets: capital {capital_yards:?},              works {works_yards:?}, green {green_yards:?}"
+        );
+
+        // A works fills its ground and a green city keeps its air.
+        assert!(
+            works_plots > capital_plots,
+            "a works has {works_plots} plots and a capital {capital_plots} — a working              city is meant to be the fuller one"
+        );
+
+        // And every character the world deals is one of the four, so a city cannot
+        // come out with no character at all.
+        let dealt: std::collections::BTreeSet<String> = (0..16)
+            .map(|key| format!("{:?}", Character::of(key)))
+            .collect();
+        assert_eq!(dealt.len(), 4, "the world deals {dealt:?} rather than all four");
+    }
+
     /// The kerb face tells the shader it is a face.
     ///
     /// # A cel shader cannot band a surface it is told is flat
@@ -7216,3 +7406,5 @@ mod density_probe {
         }
     }
 }
+
+
