@@ -277,6 +277,21 @@ pub const WARDEN_IS_WIDE: f32 = 0.33;
 /// that a staircase is still measured as the slope it is.
 const STEP_LANDS: f32 = 0.6;
 
+/// How many places along that stride are asked about the ground.
+///
+/// # A landing is not a path
+///
+/// The first version of the fixed stride sampled its far END and nothing between,
+/// which trades one hole for another: a ridge a metre high and twenty centimetres
+/// thick has a landing on the far side at the same height as the near side, so the
+/// probe sees no rise at all and every frame is waved through the middle of it.
+/// Codex found it in the same review that confirmed the frame-rate fix.
+///
+/// Four samples put one every fifteen centimetres, which is under half the width of
+/// the warden's own shoulders - nothing a body that wide could be stopped by fits
+/// between them.
+const STEP_SAMPLES: usize = 4;
+
 /// How far to look for things to walk into, in metres.
 ///
 /// A step is small and a trunk is not wide, so the box only has to cover the step
@@ -325,16 +340,46 @@ fn may_step(
         return true;
     }
 
-    // THE GROUND OVER A STRIDE, not over this frame. See `STEP_LANDS` - measuring
-    // either rule across one frame's movement makes both of them frame-rate rules.
-    let ahead = Vec2::new(from.x, from.z) + step / run * STEP_LANDS;
-    let climb = crate::world::town::stands_on(terrain, built, ahead) - here;
+    // THE GROUND ALONG A STRIDE, not across this frame. See `STEP_LANDS` - measuring
+    // either rule across one frame's movement makes both of them frame-rate rules -
+    // and `STEP_SAMPLES`, because the ground between here and there is part of the
+    // question.
+    let way = step / run;
+    let at = Vec2::new(from.x, from.z);
+    may_climb(here, |out| {
+        crate::world::town::stands_on(terrain, built, at + way * out)
+    })
+}
 
-    // Walkable as a SLOPE - the whole stride rises no faster than a warden climbs -
-    // or short enough to be a STEP, which is a rise with a landing behind it and so
-    // is still within `STEP_UP` a stride later. A kerb is 22 cm and then level; a
-    // canyon wall is 1.8 m and then more canyon wall.
-    climb <= STEP_LANDS * CLIMB_LIMIT || climb <= STEP_UP
+/// Whether a warden standing on `here` may climb what the next stride of ground does.
+///
+/// # The rule, apart from the ground it is asked about
+///
+/// `may_step` knows where the warden is and how to sample the world; this knows what
+/// a warden can climb. Two things, and they were one until a narrow ridge needed
+/// testing: there is no way to put a metre-high, twenty-centimetre-thick ridge into
+/// the generated terrain, and a rule that can only be asked about real terrain can
+/// only be tested on the shapes the terrain happens to have.
+///
+/// `along` is the ground at a distance out from the warden's feet, in metres.
+fn may_climb(here: f32, along: impl Fn(f32) -> f32) -> bool {
+    let mut highest = 0.0_f32;
+    let mut a_slope = true;
+    for sample in 1..=STEP_SAMPLES {
+        let out = STEP_LANDS * sample as f32 / STEP_SAMPLES as f32;
+        let climb = along(out) - here;
+        highest = highest.max(climb);
+        // Every sample of a SLOPE is within reach of a warden climbing at
+        // `CLIMB_LIMIT` from where they stand. One that is not makes this something
+        // other than a slope, whatever the far end turns out to be.
+        a_slope &= climb <= out * CLIMB_LIMIT;
+    }
+
+    // A STEP is a rise with somewhere to stand behind it, and nothing along the way
+    // higher than the step itself - a kerb is 22 cm and then level. Or a SLOPE, which
+    // a canyon wall's gentle toe is and its face is not. Downhill is neither and is
+    // never refused: `highest` cannot exceed nought on ground that only falls.
+    highest <= STEP_UP || a_slope
 }
 
 /// One thing standing in the world that a warden cannot walk through.
@@ -1280,6 +1325,46 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("
   "),
+        );
+    }
+
+    /// A ridge too tall to step over is not walked through because it is thin.
+    ///
+    /// # A landing is not a path
+    ///
+    /// The first fixed-stride rule sampled the far END of the stride and nothing
+    /// between it and the warden's feet. That is frame-rate independent and still
+    /// wrong: a ridge a metre high and twenty centimetres thick puts its far side at
+    /// the same height as its near side, so the probe reads no rise at all and every
+    /// frame is waved through the middle of it. Codex found it in the review that
+    /// confirmed the frame-rate fix.
+    ///
+    /// The generated terrain has nothing that thin to test with, which is why the
+    /// rule and the sampling are separate things - see `may_climb`.
+    #[test]
+    fn a_thin_ridge_is_still_a_wall() {
+        // A metre high, twenty centimetres thick, a third of a stride away: taller
+        // than `STEP_UP` and narrower than `STEP_LANDS`, with level ground behind it.
+        let ridge = |out: f32| if (0.2..0.4).contains(&out) { 1.0 } else { 0.0 };
+        assert!(
+            !may_climb(0.0, ridge),
+            "a 1 m ridge was walked through because there is level ground behind it"
+        );
+
+        // The same shape low enough to step over is a step, and must be walkable.
+        let step = |out: f32| if out >= 0.2 { STEP_UP * 0.8 } else { 0.0 };
+        assert!(may_climb(0.0, step), "a 21 cm kerb is refused");
+
+        // And a hollow is not a wall: ground that only falls is never refused,
+        // whatever shape it falls in.
+        let ditch = |out: f32| if (0.2..0.4).contains(&out) { -2.0 } else { 0.0 };
+        assert!(may_climb(0.0, ditch), "a dip in the ground became a barrier");
+
+        // A wall right at the far end, where the old rule looked and saw it: this is
+        // the case that already worked, kept so the fix cannot regress into it.
+        assert!(
+            !may_climb(0.0, |out| out * 3.0),
+            "a 3:1 slope is walkable — `CLIMB_LIMIT` is 1.4"
         );
     }
 

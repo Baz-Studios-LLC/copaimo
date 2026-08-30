@@ -50,3 +50,13 @@ __pycache__/
 # Where a capture run leaves its evidence. Fifteen PNGs and a report were landing in
 # the repository root, one `git add -A` away from being committed as source.
 /dev/evidence/
+
+# And where `--photo` and `--matrix` leave theirs. The shots already committed here
+# are the evidence Codex's reviews were written about and are named in them, so they
+# stay - a rule cannot untrack what git is already tracking, which is exactly why
+# this is the right rule. What it stops is the next visual pass adding another ten
+# megabytes to a repository that is carrying 182 MB of pictures already.
+#
+# A capture worth keeping is one a document refers to: add it deliberately with
+# `git add -f`, at a size worth the weight.
+/dev/art/shots/
