@@ -98,29 +98,29 @@ jobs:
           # reads them here, and without this the shipped bundle carries a
           # litter of them.
           COPYFILE_DISABLE=1 tar -czf "dist/copaimo-macos-aarch64.app.tar.gz" -C build Copaimo.app
-          # ROOM TO BUILD THE DISK IMAGE.
+          # THE IMAGE HAS TO BE TOLD HOW BIG TO BE.
           #
-          # `hdiutil` writes the whole bundle into a temporary volume before it
-          # compresses it, so it wants another copy of the app's 220 MB free - and
-          # a macOS runner has very little room left after an LTO release build.
-          # v0.1.21 failed exactly here, "No space left on device" partway through
-          # copying `surface.bin`, AFTER the .tar.gz had already been written. The
-          # Windows half of the matrix had already shipped, so the release existed
-          # with one asset on it and a red tick.
+          # v0.1.21 failed here with "No space left on device" partway through
+          # copying `surface.bin`, and the obvious reading - a runner out of disk
+          # after an LTO build - was wrong. The `df` below is what proved it: 36 GiB
+          # free on the host at the moment of the failure. The volume that ran out
+          # was the temporary one `hdiutil` makes to stage the bundle in.
           #
-          # The binary is inside `build/Copaimo.app` by now, so the build tree has
-          # nothing left to give. Its intermediates go rather than the whole of
-          # `target/`, so the cache step after this still has something to save.
+          # `-srcfolder` on its own sizes that volume from the source and does not
+          # leave enough for the filesystem's own overhead on a bundle this size, so
+          # it is given an explicit size with room to spare instead. Half again plus
+          # 300 MB is far more than APFS needs and costs nothing: the image is
+          # compressed to UDZO on the way out, so the slack is not in the download.
           #
-          # The `df` lines are here so the next one of these is diagnosable from
-          # the log rather than by guessing.
+          # The `df` stays. It is two lines and it has already earned them once.
           df -h . | tail -1
-          rm -rf target/release/deps target/release/build target/release/incremental
-          df -h . | tail -1
+          app_mb=$(du -sm build/Copaimo.app | cut -f1)
+          echo "bundle is ${app_mb} MB"
           # And a .dmg, which is how a person installs a mac app and how every
           # other studio game ships. The .tar.gz above stays because that is
           # what the launcher matches on; the two are the same app.
           hdiutil create -volname "Copaimo" -srcfolder build/Copaimo.app -ov -format UDZO \
+            -size $(( app_mb + app_mb / 2 + 300 ))m \
             "dist/copaimo-v${{ steps.ver.outputs.version }}-macos-arm64.dmg"
 
       # The world lives in assets/ and is READ AT RUNTIME - the map the
