@@ -809,3 +809,104 @@ either; noting both here rather than claiming them.
 
 **Also still open:** `LARGEST = 90.0` against TROUBLESHOOTING's documented 60 m. You
 have raised it twice and I have not touched it - recorded, not forgotten.
+
+## 2026-08-30 — Every open finding closed, and the driver is built
+
+All eight of your P0/P1s from today are in, each with a guard that fails with the
+fault put back. Two of them were worse than you estimated, which I only learned by
+building the thing you proposed.
+
+### The step rule (P0, `eeb238f`)
+
+Confirmed and worse than the units suggested. Walked with a real stride rather than
+sampled once, the old rule takes the warden **15.3 m up a canyon wall at every frame
+rate at walking pace**, and at 120 Hz and above at a jog. It was not a fast-machine
+problem: the gate only worked for somebody jogging at 30 or 60 Hz.
+
+I did not take the "authored step boundary" route. The step exception is now asked
+over a fixed 0.6 m stride sampled at four places — your narrow-ridge case landed in
+the same review and killed the endpoint-only version I had written first, so the
+rule tests the path and not just the landing. `may_climb` takes the ground as a
+closure so a 1 m × 0.2 m ridge can be handed to it directly; generated terrain has
+nothing that thin.
+
+### The mesh shoulder (P0, `86e55e4`)
+
+Correct, and it was the "gradient next to the road" the user had reported twice
+while I looked at the terrain. `pave` consumes `cut.shoulder`.
+`the_drawn_road_is_as_wide_as_the_walked_one` measures the shipped mesh's widest
+vertex against the section at paved 0, 0.5 and 1.0, and checks `lift(shoulder)`
+reaches `ROAD_HEM` monotonically.
+
+### The cheap reject (P1, `f30ac41`)
+
+Confirmed by arithmetic: a 6 m unpaved street is drawn 9.83 m out and was rejected
+past 8.4 m. `RoadSection::most_it_reaches` owns the bound. The guard tests both
+directions, because the fix for one is the fault of the other — across 841 places in
+a village, nowhere may stand higher than the envelope of every street's own section.
+
+### The paving fade, the junction fixture, the captures
+
+All as you described. Stone size is fixed in alpha and the paving amount rides in
+`uv.y`; the junction joins at (29, 10); `dev/art/shots` is ignored going forward —
+the 57 files already there are the evidence your reviews cite by name, and an ignore
+rule cannot untrack what git already tracks, which is what makes it the right rule.
+
+### The pads (P1, `85e4d50`)
+
+Live, not latent: 3,466 of 16,000 probed places have two pads claiming them, some
+with both saturated, and between the worst pair the ground stepped **0.28 m in 5 cm**
+— a wall in the gap between two houses.
+
+Worth recording that sharing by pull alone, which is what your note describes,
+fixes the seam and breaks the flatness the pads exist for: with a neighbour still
+voting inside a shop's own footprint the ground under the shop fell 38 cm. Both
+properties need the weight to rise to infinity as a pad saturates.
+
+My first guard for it walked between the CLOSEST pair of buildings and **passed with
+the fault deliberately restored** — a seam is exactly as tall as the difference
+between the ground at the two middles, so on a levelled town site the closest pair
+steps by nothing. It hunts the pair whose ground differs most now.
+
+## The driver is built — `--drive`
+
+Stage 1 and the movement half of Stage 2, wired as `DrivePlugin`. Thirty-three
+routes, report at `dev/evidence/playtest.md`.
+
+It obeys the core rule. It presses W. `steer` writes `ButtonInput<KeyCode>` and
+`Orbit::yaw` — the keyboard and the mouse — and nothing else touches the warden; the
+one teleport is placing them at a route's start. Keys are chosen against the
+camera's own forward, so the driver has the same eight directions a player has and
+no more, because a driver that steers more finely than a player passes through gaps
+a player cannot. Fixed rates come from `TimeUpdateStrategy::ManualDuration`; the
+world streams in under real time first and the clock switches when the route starts.
+
+Routes are resolved by name from the generated world — "the crown of the widest
+street in the first city" — with coordinates going into the report as evidence.
+
+**It reproduces the step bug exactly as you predicted from reading the units.** With
+the old rule restored: blocked at 30 Hz, blocked at 60 Hz jogging, and twenty metres
+straight up the canyon wall at 60 Hz walking, 120 Hz and 240 Hz. Five routes whose
+verdict flips with frame rate. With the rule as it stands the warden stops at the
+same point, (749, -1446), at every rate and both paces.
+
+Two things I would like your read on.
+
+**Arrival tolerance.** `ARRIVED_WITHIN` is 1.2 m and every arriving route reports
+1.14–1.20 m short, because the verdict fires on the first update under the
+threshold. That is honest but it means the tolerance is load-bearing. Your brief
+warns against tolerances broad enough to accept arrival on the wrong side of a wall.
+I think the answer is a required final approach rather than a smaller radius — say,
+the last metre must be crossed rather than declared — but I would rather have your
+view than guess.
+
+**What the corridor cannot see.** A route that expects to be blocked passes on "no
+progress for 0.75 s", which cannot distinguish *stopped by the wall* from *stopped
+by something else near the wall*. On the canyon it is unambiguous because the stop
+position is identical across eight routes. On a doorway it will not be. I think
+blocked routes need an expected stop position with a tolerance, not just a verdict.
+
+Still open and not attempted: the world-axis running bond, derivative-aware joint
+filtering with a moving-camera capture, the trimmed junction node polygon, and the
+coplanar-overlap check. Routes 3–8 of your suite are not built — doorways next,
+since that is where the driver stops being able to tell me *why* it stopped.

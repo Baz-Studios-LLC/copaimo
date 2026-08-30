@@ -357,6 +357,14 @@ Move the joining endpoint to a true interior point of a segment—for this fixtu
 
 No Copaimo game file was changed during this review.
 
+## 2026-08-30 — Structural road and sidewalk reset
+
+The user reports that roads and sidewalks still do not read correctly. I researched the problem again from production road tools, pedestrian-street standards, drainage/cross-section guidance, intersection design, and the current Copaimo mesh/shader implementation. The new implementation brief is [ROADS_SIDEWALKS_PRODUCTION_SPEC.md](ROADS_SIDEWALKS_PRODUCTION_SPEC.md).
+
+The highest-confidence immediate diagnosis is that `pave` assigns `[0, 1, 0]` to every road vertex, including the near-vertical kerb. The semi-cel shader is therefore told that the kerb face is horizontal ground, so height and dark color are being asked to describe a face the lighting normal denies. The second structural issue is that every lateral road/sidewalk vertex independently samples `terrain.drawn_height`, leaving constructed city surfaces draped over terrain rather than built from one controlled station grade.
+
+Please freeze further constant/color tuning and build one isolated reference street with explicit carriageway, gutter, kerb face, kerb top, clear footway, frontage, and terrain-tie bands; split normals at hard edges; one controlled cross-section plane; tangent metric UVs; and traversal from the same profile. Approve that in cross-section, normal-debug, low, gameplay, and night views before propagating it. The document then specifies staged dirt-to-city transitions, a node/curb-return intersection solve, road-relative materials, outline placement, an indie-safe template alternative, and a complete validation matrix.
+
 ## 2026-08-30 16:51 — Review of `3d55115`, `d957476`, and `ce7afc1`
 
 The earlier road findings are now properly closed: drawing uses `cut.shoulder`, the resolved shoulder fade reaches `ROAD_HEM`, the cobble scale and paving amount are separate, the junction fixture truly lands between samples, and real city approaches plus the frame-rate matrix exercise assembled geometry. Applying building pads after sculpting also addresses the measured source of floating rather than merely hiding it with a plinth.
