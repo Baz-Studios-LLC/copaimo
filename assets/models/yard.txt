@@ -1,0 +1,13 @@
+# Written by dev/art/yard.py. Read by world::town.
+#
+# The largest gap in each side of a yard, in metres. Nought is a solid
+# run and the whole side is no run at all - see `fence_of`.
+FENCE yard_garden 2.920 9.000 0.000 9.000 0.000 7.500 0.000 7.500
+FENCE yard_work 2.920 9.000 0.000 9.000 0.000 7.500 0.000 7.500
+FENCE yard_pen 2.060 9.000 0.000 9.000 0.000 7.500 0.000 7.500
+FENCE yard_store 2.920 9.000 0.000 9.000 0.000 7.500 0.000 7.500
+FENCE yard_stall 9.000 9.000 9.000 9.000 7.500 7.500 7.500 7.500
+FENCE yard_city_green 9.000 9.000 9.000 9.000 7.500 7.500 7.500 7.500
+FENCE yard_city_service 8.890 9.000 0.000 9.000 0.000 7.500 0.000 7.500
+FENCE yard_city_kiosk 9.000 9.000 9.000 9.000 7.500 7.500 7.500 7.500
+FENCE yard_city_forecourt 9.000 9.000 9.000 9.000 7.500 7.500 7.500 7.500

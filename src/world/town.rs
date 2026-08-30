@@ -562,14 +562,16 @@ impl Building {
     /// `wide * 0.34` in `yard.py` - and they currently agree; closing that loop wants
     /// the fence runs measured and written down the way the windows now are.
     pub fn fenced(self) -> Option<Fenced> {
-        match self {
-            Building::Garden => Some(Fenced::Gated(3.06)),
-            Building::WorkYard | Building::StoreYard => Some(Fenced::Gated(3.06)),
-            Building::Pen => Some(Fenced::Gated(2.2)),
-            // Three runs and an open mouth - see the note above.
-            Building::CityService => Some(Fenced::OpenFronted),
-            _ => None,
+        let sides = FENCES.get(self.figure())?;
+        // A side whose largest hole is most of the side has no run in it.
+        let open = |side: usize| sides[side].0 > sides[side].1 * OPEN_SIDE;
+        if open(1) && open(2) && open(3) {
+            return None;
         }
+        if open(0) {
+            return Some(Fenced::OpenFronted);
+        }
+        Some(Fenced::Gated(sides[0].0))
     }
 
     /// The wall a lit window hangs on: how wide, how deep, and how many storeys of
@@ -2184,6 +2186,50 @@ pub static FLOORS: std::sync::LazyLock<std::collections::HashMap<&'static str, F
                 continue;
             };
             found.insert(figure, Floor { top, reach, wide });
+        }
+        found
+    });
+
+/// What `dev/art/yard.py` measured off the yards it built: the largest hole in each
+/// side and how long that side is, front, back, left, right.
+const YARD_CONTRACT: &str = include_str!("../../assets/models/yard.txt");
+
+/// How much of a side has to be missing before there is no run there at all.
+const OPEN_SIDE: f32 = 0.7;
+
+/// Every yard's fence, keyed by the name it is built under.
+///
+/// # The game had four runs and the model had three
+///
+/// `fenced` answered with a gate width and nothing else, so every fenced yard was
+/// taken to be closed on all four sides. The city's service bay is closed on three -
+/// it is a loading bay, and you drive into it - and the game fenced its open mouth
+/// anyway, leaving the player walking into nothing across a frontage they could see
+/// straight through.
+///
+/// The old-world gate widths were wrong too, by the width of a post: 3.06 is the
+/// spacing of the gateposts and 2.92 is the hole between them, which is the number a
+/// warden has to fit through.
+///
+/// Found by Codex, who also said not to make the two copies agree without deciding
+/// which was intended. The open bay is the user's decision; this is what stops there
+/// being two copies to disagree.
+static FENCES: std::sync::LazyLock<std::collections::HashMap<&'static str, [(f32, f32); 4]>> =
+    std::sync::LazyLock::new(|| {
+        let mut found = std::collections::HashMap::new();
+        for line in YARD_CONTRACT.lines() {
+            let Some(rest) = line.strip_prefix("FENCE ") else {
+                continue;
+            };
+            let mut word = rest.split_whitespace();
+            let Some(figure) = word.next() else {
+                continue;
+            };
+            let said: Vec<f32> = word.filter_map(|number| number.parse().ok()).collect();
+            let [fg, fs, bg, bs, lg, ls, rg, rs] = said[..] else {
+                continue;
+            };
+            found.insert(figure, [(fg, fs), (bg, bs), (lg, ls), (rg, rs)]);
         }
         found
     });

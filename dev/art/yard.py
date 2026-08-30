@@ -406,6 +406,87 @@ FIGURES = {
 }
 
 
+
+
+# ------------------------------------------------------- what the fence actually is
+
+
+def _extent(obj):
+    """One object's box."""
+    points = [obj.matrix_world @ v.co for v in obj.data.vertices]
+    return (
+        min(p.x for p in points), max(p.x for p in points),
+        min(p.y for p in points), max(p.y for p in points),
+        min(p.z for p in points), max(p.z for p in points),
+    )
+
+
+# What tells a fence from everything else standing near a yard's edge.
+#
+# Not height. The garden's fence is a single rail on 72 cm posts and its rail tops out
+# at 38 cm; the city green's KERB tops out at 34. Four centimetres apart, and one is a
+# thing you cannot walk through while the other is a thing you step over - so a height
+# band called the green a walled box with no way into it.
+#
+# THICKNESS tells them apart cleanly. A rail is 9 cm through and a post 14; a kerb is
+# 34. And a run stands ON the line: the bollards across the service bay's mouth sit
+# 30 cm inside it, and counting those reported a five-metre gateway on a bay that has
+# no front run at all - which is the very fault this exists to catch.
+FENCE_THICK = 0.22
+FENCE_STANDS = 0.25
+FENCE_NEAR = 0.22
+
+
+def fence_of(parts, wide, deep):
+    """Which sides of a yard are fenced, and where the way in is.
+
+    # The game had four runs and the model had three
+
+    `Building::fenced` answered with a gate width and nothing else, so every fenced
+    yard was assumed to be closed on all four sides. The city's service bay is closed
+    on three - it is a loading bay, and you drive into it - and the game fenced its
+    open mouth anyway, leaving the player walking into nothing across a frontage they
+    could see straight through.
+
+    That is the same shape as the windows placed from the lot and the chimney that
+    missed its fire: one fact, stated in Blender and restated in Rust, never compared.
+    So the runs are MEASURED, and the game reads them.
+
+    A side reports the width of the largest gap in it - `0` for a solid run, the
+    whole side for no run at all, and the gateway in between.
+    """
+    boxes = [_extent(obj) for obj, _ in parts]
+    sides = {}
+    for name, along, line in (
+        ("front", 0, -deep * 0.5),
+        ("back", 0, deep * 0.5),
+        ("left", 1, -wide * 0.5),
+        ("right", 1, wide * 0.5),
+    ):
+        # `along` 0 means the run goes across X and stands at a Y; 1 is the other way.
+        span = wide if along == 0 else deep
+        across = (2, 3) if along == 0 else (0, 1)
+        run = (0, 1) if along == 0 else (2, 3)
+        covered = []
+        for box in boxes:
+            middle = (box[across[0]] + box[across[1]]) * 0.5
+            if abs(middle - line) > FENCE_NEAR:
+                continue
+            if box[across[1]] - box[across[0]] > FENCE_THICK or box[5] < FENCE_STANDS:
+                continue
+            covered.append((box[run[0]], box[run[1]]))
+        # The largest hole left in the side, and how long the side is - so the game can
+    # tell "a gateway" from "no run at all" without knowing this file's dimensions.
+        covered.sort()
+        gap, edge = 0.0, -span * 0.5
+        for low, high in covered:
+            gap = max(gap, low - edge)
+            edge = max(edge, high)
+        gap = max(gap, span * 0.5 - edge)
+        sides[name] = (gap, span)
+    return sides
+
+
 def build(name: str) -> None:
     masonry.fresh()
     parts, tall = FIGURES[name]()
@@ -416,5 +497,38 @@ def build(name: str) -> None:
     print(f"BUILT yard_{name}  ({len(parts)} pieces, {tall:.1f} m tall)")
 
 
+MEASURED = {}
 for figure in FIGURES:
     build(figure)
+
+# And what each one is fenced with, written where the game can read it.
+for figure in FIGURES:
+    masonry.fresh()
+    parts, _ = FIGURES[figure]()
+    MEASURED[figure] = fence_of(parts, WIDE, DEEP)
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+NOTE = os.path.join(os.path.dirname(os.path.dirname(HERE)), "assets", "models", "yard.txt")
+os.makedirs(os.path.dirname(NOTE), exist_ok=True)
+with open(NOTE, "w", encoding="utf-8") as note:
+    note.write("# Written by dev/art/yard.py. Read by world::town.\n")
+    note.write("#\n")
+    note.write("# The largest gap in each side of a yard, in metres. Nought is a solid\n")
+    note.write("# run and the whole side is no run at all - see `fence_of`.\n")
+    for figure, sides in MEASURED.items():
+        note.write(
+            f"FENCE yard_{figure} "
+            + " ".join(
+                f"{sides[side][0]:.3f} {sides[side][1]:.3f}"
+                for side in ("front", "back", "left", "right")
+            )
+            + "\n"
+        )
+        print(
+            f"MEASURED yard_{figure:15} "
+            + "  ".join(
+                f"{side} {sides[side][0]:5.2f}/{sides[side][1]:.1f}"
+                for side in ("front", "back", "left", "right")
+            )
+        )
+print(f"WROTE {NOTE}")

@@ -2486,3 +2486,28 @@ genuinely oversails the ground it stands on, and the guild hall's **tower**, set
 well inside the hall's footprint with its own windows fifteen metres up. A check has
 to claim only what it can know; it now says only that no window hangs off the end of
 the building.
+
+## A fence measured by height, when height was the wrong property
+
+**ISSUE.** `Building::fenced` answered with a gate width alone, so every fenced yard
+was taken to be closed on four sides. The city's service bay is closed on three - it
+is a loading bay - and the game fenced its open mouth anyway. The old-world gate
+widths were wrong too: 3.06 and 2.2 against a measured 2.92 and 2.06, the difference
+being a gatepost.
+
+**SOLUTION.** `dev/art/yard.py` measures each side's largest hole and writes
+`assets/models/yard.txt`; `fenced` reads it.
+
+**The ruler was wrong three times first, and that is the lesson.**
+
+1. Counting anything within 35 cm of the line caught the BOLLARDS 30 cm inside the
+   bay's mouth, and reported a five-metre gateway on a bay with no front run - the
+   exact fault the measurement exists to catch, manufactured by the measurement.
+2. A height band then called the city green's 34 cm KERB a fence on all four sides: a
+   walled box with no way into it.
+3. Height cannot separate a fence from a kerb here at all. The garden's fence is one
+   rail on 72 cm posts, topping out at 38 cm; the kerb tops out at 34.
+
+**Pick the property that differs by an order, not by a margin.** Height differed by
+12% and gave three wrong answers. Thickness differs by 3× - a rail is 9 cm through, a
+kerb is 34 - and gave the right one immediately.
