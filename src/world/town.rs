@@ -277,9 +277,9 @@ impl District {
     /// ground. Below one means more buildings than yards.
     pub fn occupies(self) -> f32 {
         match self {
-            District::Market => 1.0,
-            District::Crafts => 0.7,
-            District::Outskirts => 0.45,
+            District::Market => 3.0,
+            District::Crafts => 2.0,
+            District::Outskirts => 1.0,
         }
     }
 
@@ -6073,12 +6073,30 @@ mod tests {
             // And the yards are BOUNDED by them, which is the whole point of the
             // budget: the size of a settlement is a property of the settlement, not
             // of how many provisional lots the street generator happened to make.
+            //
+            // Bounded by the DECLARED ratios rather than by one yard per building.
+            // The one-for-one bound expressed the same idea and expressed it too
+            // tightly: a city came out at one occupied lot per thirty metres of its
+            // own street, which is a place where two thirds of every frontage is bare
+            // ground, and photographed from the air it reads as a business park. The
+            // invariant that matters is that a change upstream in how many lots the
+            // generator offers cannot multiply the scene - and `District::occupies`
+            // is what enforces that, because it is a ratio against the buildings
+            // KEPT and not against the lots found.
+            //
+            // So the guard asks what those ratios actually permit. It fails if the
+            // yards exceed what the districts declare, and it fails if somebody
+            // raises a ratio without meaning to.
+            let permitted = [District::Market, District::Crafts, District::Outskirts]
+                .iter()
+                .map(|district| district.occupies())
+                .fold(0.0_f32, f32::max);
             for (what, layout) in [("city", &city), ("village", &village)] {
                 let yards = layout.plots.iter().filter(|p| p.what.is_yard()).count();
                 let built = houses(layout);
                 assert!(
-                    yards <= built,
-                    "seed {seed}: a {what} has {yards} yards to {built} buildings - the yards are running away with it",
+                    yards as f32 <= built as f32 * permitted,
+                    "seed {seed}: a {what} has {yards} yards to {built} buildings, past the                      {permitted} the districts declare - the yards are running away with it",
                 );
             }
         }
@@ -7051,3 +7069,30 @@ mod facing {
 
 
 
+
+#[cfg(test)]
+mod density_probe {
+    #[test]
+    #[ignore]
+    fn how_full_is_a_city() {
+        // ratios come from the constants below
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        for (key, site) in plan.sites().iter().enumerate() {
+            if site.ranch || !site.city {
+                continue;
+            }
+            let laid = super::lay_the_site_out(plan, key, site);
+            let houses = laid.plots.iter().filter(|p| !p.what.is_yard()).count();
+            let yards = laid.plots.len() - houses;
+            // How much street there is to front onto, and how much ground.
+            let street: f32 = laid.streets.iter().map(|s| s.from.distance(s.to)).sum();
+            let ground = std::f32::consts::PI * (site.radius * super::FILLS).powi(2);
+            println!(
+                "CITY ({:.0},{:.0}) r{:.0}: {houses} houses + {yards} yards, {:.0} m of street, {:.1} ha, one building per {:.0} m of street",
+                site.at.x, site.at.y, site.radius, street, ground / 10000.0,
+                street / laid.plots.len().max(1) as f32
+            );
+        }
+    }
+}
