@@ -2,7 +2,7 @@
 # Everything measurable about the character, in one run. See dev/art/audit_character.py.
 #
 #   dev/art/audit_character.sh                       the built asset
-#   dev/art/audit_character.sh assets/character/walk.glb    anything else
+#   dev/art/audit_character.sh dev/art/source/character/walk.glb    anything else
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 . "$here/blender.sh"

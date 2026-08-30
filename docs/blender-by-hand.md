@@ -12,7 +12,7 @@ below are the real ones.
 
     %TEMP%\copaimo_view\character.blend
 
-and `dev/art/build_character.sh` writes a fresh one from `assets/character/*.glb` every time it
+and `dev/art/build_character.sh` writes a fresh one from `dev/art/source/character/*.glb` every time it
 runs. Edit it freely to *find out* what a fix should be — nothing you do there can break the build —
 but the edit itself dies on the next build. [Making a fix stick](#making-a-fix-stick) is the last
 section and it is the important one.
@@ -124,7 +124,7 @@ at push-off, `THE_TOE_LIFTS_AT_TOE_OFF` is a number you can change and rebuild. 
 `THE_HEEL_LIFTS_AT_TOE_OFF`, `THE_FOOT_POINTS_AT_MOST`, `THE_LEGS_STAND_APART_BY`. This is the
 cheapest kind of fix and it survives everything.
 
-**2. A change to the delivered animation.** The clips come from `assets/character/idle.glb`,
+**2. A change to the delivered animation.** The clips come from `dev/art/source/character/idle.glb`,
 `walk.glb` and `run.glb`. Edit one of those and rebuild, and the change flows through. This is the
 right home for "the arm swing is wrong on frame 12" — a performance note.
 

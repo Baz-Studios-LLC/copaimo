@@ -1,6 +1,6 @@
 """Says what is actually inside a .glb, without opening Blender.
 
-    python dev/art/inspect_glb.py assets/character/*.glb
+    python dev/art/inspect_glb.py dev/art/source/character/*.glb
 
 The first thing to run on anything delivered, and deliberately not a Blender script: it reads
 the file's own JSON, so what it reports is what the FILE says rather than what an importer made

@@ -2,7 +2,7 @@
 
     blender --background --python build_character.py
 
-Reads `assets/character/*.glb` and writes `assets/models/person_ranger.glb` with the mesh, the
+Reads `dev/art/source/character/*.glb` and writes `assets/models/person_ranger.glb` with the mesh, the
 skeleton and three clips named `idle`, `walk` and `run`.
 
 # Why there is no retargeting here
@@ -33,7 +33,14 @@ import mathutils
 
 ART = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(ART))
-SOURCE = os.path.join(ROOT, "assets", "character")
+# THE DELIVERED CLIPS, which are an input to this and not a thing the game loads.
+#
+# They lived in `assets/character/` and the release workflow copies `assets/` whole,
+# so fifteen megabytes of source animation shipped in every download - along with the
+# original `ranger.glb` this pipeline superseded, which nothing had referenced for a
+# long time. `assets/` now means what the game loads, and only that: there is no list
+# to keep in step, because the folder IS the list.
+SOURCE = os.path.join(ROOT, "dev", "art", "source", "character")
 OUT = os.path.join(ROOT, "assets", "models", "person_ranger.glb")
 
 # The delivered file, and what the game calls the clip in it. `lookAround` becomes the idle.

@@ -1651,11 +1651,13 @@ FIGURES = {
     "well": well,
     # The new: cities.
     "city_block": city_block,
-    # The same figures with the door shut and no interior. Most doors in a town do
-    # not open, which is the genre's own convention - see `shut_the_door`.
-    "cottage_shut": lambda: cottage(open_door=False),
-    "townhouse_shut": lambda: townhouse(open_door=False),
-    "city_block_shut": lambda: tower(5, wide=10.5, deep=9.0, crown="flat", lobby_open=False),
+    # The shut variants are NOT built. Every figure with a door has a closed form -
+    # `open_door=False`, and `shut_the_door` below - and the game has never loaded
+    # one: `Building::model` names the open model for every kind. So three models
+    # were built, exported and shipped in every download for nobody.
+    #
+    # The capability stays, because the convention is right and it is one line to
+    # bring back; what stops is spending 1.7 MB of everybody's download on it.
     "city_tower": city_tower,
     "city_spire": city_spire,
     "monument": monument,

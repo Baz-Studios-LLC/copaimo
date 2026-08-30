@@ -10,7 +10,7 @@ edit** — tick stages off here, and the other is a snapshot.
 ## Where the character is now
 
 Measured 2026-08-24 on `assets/models/person_ranger.glb`, built by `dev/art/build_character.py`
-from the three files in `assets/character/`.
+from the three files in `dev/art/source/character/`.
 
     mesh          2464 real vertices, 4899 triangles, 6 shells
     skeleton      41 joints, 18 of them twist bones
