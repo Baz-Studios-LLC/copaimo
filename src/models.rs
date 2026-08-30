@@ -32,12 +32,12 @@
 /// `the_two_gates_agree_about_what_they_allow`, which reads that file and checks.
 #[cfg(test)]
 const SMALLEST: f32 = 0.02;
-/// Ninety, moved with the export script when the guild hall went to 80.5 m - it is
-/// the landmark a city is steered by and has to beat a 57 m spire by enough that
-/// the win is not a matter of opinion. Still a long way under the factor-of-a-
-/// hundred scale error this exists to refuse.
+/// Sixty. It was ninety while the guild hall was an 80.5 m campanile; that building
+/// is gone - the hall is 12.7 m now - and a bound widened for one asset does not
+/// narrow again on its own. See the note in `dev/model_export.py`, which this must
+/// match.
 #[cfg(test)]
-const LARGEST: f32 = 90.0;
+const LARGEST: f32 = 60.0;
 
 /// How far a model's base may sit off the floor before it counts as floating.
 #[cfg(test)]

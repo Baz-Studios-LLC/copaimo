@@ -49,20 +49,24 @@ APPLY_MODIFIERS = True
 # Sixty: a twenty-storey tower, and well clear of the 1.8 m warden times a
 # hundred.
 #
-# NINETY now, and moved on purpose rather than to get something through. The
-# guild hall is the landmark a city is steered by, so it has to beat the tallest
-# thing standing round it - a 57 m spire - by enough that the win is not a matter
-# of opinion. At 80 m it tripped a bound written when the tallest thing in the
-# world was that spire, which is a bound describing what had been built rather
-# than what may be built.
+# It went to NINETY for the guild hall, when the guild hall was an 80.5 m campanile
+# meant to beat a 57 m spire on a city skyline. That building no longer exists: the
+# hall is built to a concept sheet now and stands 12.7 m, a town branch rather than a
+# cathedral, and the tallest thing the game ships is the spire again.
 #
-# It still catches what it was for. The mistake this exists to refuse is a scale
-# error, and those are out by a factor of a hundred: the broken fixture that first
-# defeated it was a 1.8 m figure built in centimetres, so 180 m tall. Ninety leaves
-# that a long way outside, and anything taller than the guild hall now has to say
-# why here before it can ship.
+# So the bound comes back to sixty, and this is the part worth writing down. A
+# guardrail widened for one asset does not narrow again when that asset goes - it
+# just sits there, permanently weaker, describing a world that has been deleted. Codex
+# spotted it twice; `TROUBLESHOOTING.md` had gone on documenting 60 the whole time,
+# so the generator, the runtime gate and the written contract disagreed three ways.
+#
+# Sixty is a twenty-storey tower and it is well clear of the mistake this exists to
+# refuse. That mistake is a scale error and scale errors are out by a factor of a
+# hundred: the fixture that first defeated a 200 m bound was a 1.8 m figure built in
+# centimetres, so 180 m tall. Anything that genuinely needs to be taller than sixty
+# has to come and say why here first, which is the whole job.
 SMALLEST = 0.02
-LARGEST = 90.0
+LARGEST = 60.0
 
 # How far a model's base may sit off the floor before it counts as floating.
 FOOTING_SLACK = 0.02

@@ -610,6 +610,14 @@ centimetres, so 180 m tall — passed it. A bound that admits the exact mistake 
 exists to stop is decoration. It is 60 m now, and there is a test with the 180 m
 figure in it.
 
+It was 90 for a while, widened to admit an 80.5 m guild hall built to out-top a
+city's spire. That hall was replaced by a 12.7 m one and the bound stayed at 90 —
+which is the failure mode worth naming: **a guardrail widened for one asset does not
+narrow again when the asset goes.** It sits there describing a world that has been
+deleted, and the only thing that noticed was a review reading this file against the
+code. The tallest thing the game ships is the spire at 57.1 m, so 60 has its
+headroom back.
+
 **A known limit, stated.** The Z-up diagnosis is a *hint* layered on the
 base-on-the-floor rule, not a general detector: it fires when the model is sunk
 below the floor and is also wider and deeper than it is tall. A Z-up export that
