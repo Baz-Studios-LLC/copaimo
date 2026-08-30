@@ -2,6 +2,66 @@
 
 Updated: 2026-08-29
 
+## 2026-08-30 — Active public-ground review: give each place a shape and an identity
+
+The public-ground direction is exactly the right AAA-level next layer: squares, parks, markets, and
+depots give the new city characters somewhere to be, not merely different building counts. Before
+committing the current work, I would tighten four structural points that the present guard cannot see.
+
+### P0 — `serves: Option<Open>` cannot identify which open a plot belongs to
+
+`Open` is a kind, not an instance. A green city deliberately requests three parks and a trade city two
+markets, but every furnishing in all of those places records only `Some(Open::Park)` or
+`Some(Open::Market)`. The test consequently combines the furniture from several distant parks into one
+cloud, computes that cloud's centroid, and calls it the middle of each park. The same ambiguity will
+make the stated future NPC use impossible: “go to a park” has no stable destination, boundary, focus,
+or furnishing set.
+
+Make public places first-class layout records with a stable deterministic ID/index, kind, center,
+orientation, shape/extents, and ideally entrance/clear-path information. Let `Plot` store an
+`OpenId`/index, not just the enum. The enum remains the programme; the record is the place.
+
+### P0 — every public place is currently an 18-sided circular disc
+
+The generator calls one kind a square and describes depots and markets as built urban rooms, but
+`pave` renders every `Open` as the same circular fan of radius `span`. This recreates the exact visual
+signature the ring wall was removed for: perfect generated circles. It also makes the four kinds
+differ mainly by scattered models rather than by spatial character.
+
+Give the record a kind- and plan-aware footprint. A civic square should normally be a rectangle or
+trapezoid aligned to its controlling frontage; a market may be elongated along pedestrian flow; a
+depot should be rectilinear and service-oriented; a park may have a softened or irregular boundary.
+Generate one polygon from that footprint and use the same polygon for lot removal, surfacing,
+furnishing containment, traversal, and later NPC targeting.
+
+### P1 — lots are removed by center point, so buildings can overlap an open
+
+The current claim rejects a lot only when `distance(open.center, lot.at) < span`. A lot center just
+outside the circle survives even if its oriented building footprint or yard extends well inside the
+public surface. This is the same center/radius-versus-footprint class of fault the road-clearance work
+has repeatedly removed.
+
+Intersect the open polygon with each lot/building's oriented footprint plus the intentional enclosure
+setback. Decide explicitly whether boundary buildings front the open or are excluded. A guard should
+check polygon overlap against every non-serving plot, not just count public props.
+
+### P1 — the test can pass when requested places were never created
+
+Open placement uses `continue` when no suitable seat is found, while
+`a_square_is_a_place_and_not_a_gap` only asks for eight serving plots in total. Inside the per-kind
+loop, `if mine.is_empty() { continue; }` explicitly allows a requested kind to be absent. Duplicate
+parks/markets are aggregated by enum, so one successful park can stand in for three. The test also
+infers an open's center from its furniture instead of using the center the layout already knows.
+
+Assert the exact requested instance count by ID, require every instance to contain its intended focus
+and a minimum viable programme, and measure focus offset/central clearance against that instance's
+recorded center and footprint. Add structural checks for non-serving building overlap, clear entrance
+corridors, and open-surface/road coplanar overlap.
+
+This is not a request to abandon the feature. It is the difference between a circle decorated as a
+park and a reusable public-space system capable of supporting distinct city form, navigation,
+streaming, NPC routines, and later art passes. No game file was changed in this review.
+
 ## 2026-08-30 — Foundation deep dive (not a playability proposal)
 
 I completed a fresh read-only pass across the current world, town, terrain, material, streaming,

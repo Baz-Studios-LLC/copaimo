@@ -1138,6 +1138,18 @@ impl Building {
 pub struct Plot {
     /// Where its middle stands.
     pub at: Vec2,
+    /// The public ground this belongs to, if it is part of one.
+    ///
+    /// A bench in a square faces the SQUARE, which is where the people are, and a
+    /// stall faces the ground somebody buys from - so neither has a door onto a
+    /// street and `every_building_faces_a_street` is asking them the wrong
+    /// question. Recorded rather than inferred from what they are, because the same
+    /// kiosk model stands on ordinary frontage elsewhere and there it does face the
+    /// road.
+    ///
+    /// It is also the thing an NPC's routine will want: somewhere to be sent, and
+    /// something to do when it gets there.
+    pub serves: Option<Open>,
     /// Which part of the town it belongs to.
     ///
     /// RECORDED, not re-derived. `District::divisions` splits a town at the
@@ -1442,6 +1454,8 @@ pub struct Lamp {
 /// Everything laid out for one settlement.
 #[derive(Clone, Debug, Default)]
 pub struct Layout {
+    /// The public ground: where it is, how far across, and what it is for.
+    pub opens: Vec<(Vec2, f32, Open)>,
     /// The roads as they run. What gets DRAWN.
     pub ways: Vec<Way>,
     /// The same roads cut into straight pieces, which is what every geometric
@@ -1622,6 +1636,92 @@ fn frontage_parcels(
 /// metres is under the width of the street itself, so the corner between two pieces
 /// is shallower than the road is wide and the eye reads a curve rather than a bend.
 const A_CURVE_STEPS_EVERY: f32 = 6.0;
+
+/// A piece of ground given over to the public rather than built on.
+///
+/// # A square is not a gap between buildings
+///
+/// The towns had open ground in them and none of it was a PLACE: the middle was
+/// whatever the radials left over, and every other empty lot was a yard with a fence
+/// round it. A player crossing one had nothing to walk toward and nothing to do when
+/// they got there, which is most of why a city was somewhere to pass through.
+///
+/// The research is specific about what a square needs, and it is not size: an
+/// enclosing edge with frontage on most sides, several ways in with one that is
+/// obviously the front, a focal thing placed off the middle rather than on it,
+/// zones that people use - stalls, seating, shade - and lanes left clear to walk
+/// through. Every one of those is a thing a generator can place.
+///
+/// So an open is a run of adjacent LOTS turned over to the public. That gets the
+/// enclosure and the entrances for nothing, because the lots around it are still
+/// built and the streets that cut it are already there; what it adds is the
+/// programme. It is also somewhere an NPC can be sent, which is the next thing this
+/// world needs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Open {
+    /// The civic room: hard ground, a monument off the middle, seating round the
+    /// edge and the ways through left clear.
+    Square,
+    /// Grass, planting and benches. Somewhere to go when nothing has been asked.
+    Park,
+    /// Stalls in rows on hard ground, with the cross at its head.
+    Market,
+    /// A works's own open ground: hard standing, service bays, no seating.
+    Depot,
+}
+
+impl Open {
+    /// What a city of this character keeps its public ground for.
+    ///
+    /// Ordered, and the first is always the one at the middle: every settlement has
+    /// a civic square, and what it has BESIDE that is what tells you what kind of
+    /// place you are in.
+    fn wanted(character: Character) -> &'static [Open] {
+        match character {
+            Character::Capital => &[Open::Square, Open::Park, Open::Square],
+            Character::Works => &[Open::Square, Open::Depot, Open::Depot],
+            Character::Green => &[Open::Square, Open::Park, Open::Park, Open::Park],
+            Character::Trade => &[Open::Square, Open::Market, Open::Market],
+        }
+    }
+
+    /// The thing at the middle of it, which is what you walk toward.
+    fn focus(self) -> Building {
+        match self {
+            Open::Square => Building::Monument,
+            Open::Park => Building::Well,
+            Open::Market => Building::MarketCross,
+            // A yard has no monument in it. The bays are the whole of it.
+            Open::Depot => Building::CityService,
+        }
+    }
+
+    /// What fills the ground around that.
+    ///
+    /// Two, so the programme has some variety in it without becoming a scatter -
+    /// the research is clear that a square wants zones rather than noise.
+    fn fills(self) -> (Building, Building) {
+        match self {
+            Open::Square => (Building::CityForecourt, Building::CityKiosk),
+            Open::Park => (Building::CityGreen, Building::CityGreen),
+            Open::Market => (Building::CityKiosk, Building::CityForecourt),
+            Open::Depot => (Building::CityService, Building::CityForecourt),
+        }
+    }
+
+    /// How far across it is, as a share of a block's depth.
+    ///
+    /// Big enough to be a place and small enough not to be vacant, which is the
+    /// warning the research gives about squares in particular.
+    fn spans(self) -> f32 {
+        match self {
+            Open::Square => 2.4,
+            Open::Park => 2.8,
+            Open::Market => 2.0,
+            Open::Depot => 2.2,
+        }
+    }
+}
 
 /// How far from the middle a settlement's edge is, on a given bearing.
 ///
@@ -2511,7 +2611,8 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
                 what: hall,
                 // On the square, whatever the percentiles would have said.
                 district: District::Market,
-            });
+                    serves: None,
+                });
             break 'find;
         }
         }
@@ -2538,8 +2639,55 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         District::divisions(&mut out)
     };
 
+    // WHERE THE PUBLIC GROUND IS, before anything is built on it.
+    //
+    // Each open claims a run of adjacent lots, so the buildings around it are its
+    // enclosure and the streets that reach it are its entrances - see `Open`. Chosen
+    // before the lots are built on, because a square carved out of a finished town
+    // is a demolition.
+    let mut opens: Vec<(Vec2, f32, Open)> = Vec::new();
+    if site.city && !site.ranch {
+        let middle_of_town = plots.first().map(|hall| hall.at).unwrap_or(site.at);
+        for (which, open) in Open::wanted(site.character).iter().enumerate() {
+            let span = depth * open.spans();
+            // The first sits by the guild hall - that is the civic middle, and a
+            // hall with a square in front of it is the one composition every town
+            // in the sources has. The rest are spread out into the districts.
+            let want = if which == 0 {
+                middle_of_town
+                    + Vec2::from_angle(through + std::f32::consts::PI) * (span * 0.9 + 14.0)
+            } else {
+                let turn = through
+                    + std::f32::consts::TAU * (which as f32 + 0.35) / Open::wanted(site.character).len() as f32;
+                site.at + Vec2::from_angle(turn) * (reach * (0.34 + 0.19 * which as f32))
+            };
+            // Onto the nearest lot, so an open sits in the street pattern rather
+            // than across it.
+            let Some(seat) = lots
+                .iter()
+                .filter(|lot| lot.has_frontage())
+                .filter(|lot| {
+                    opens
+                        .iter()
+                        .all(|(had, wide, _)| had.distance(lot.at) > wide + span)
+                })
+                .min_by(|a, b| a.at.distance(want).total_cmp(&b.at.distance(want)))
+            else {
+                continue;
+            };
+            opens.push((seat.at, span, *open));
+        }
+    }
+
     for (index, lot) in lots.iter().enumerate() {
         if !lot.has_frontage() {
+            continue;
+        }
+        // A lot inside an open is public ground and nothing is built on it.
+        if opens
+            .iter()
+            .any(|(at, span, _)| at.distance(lot.at) < *span)
+        {
             continue;
         }
         let what = what_stands_here(index, lot, site.at, inner, outer, site.city, site.character, seed);
@@ -2605,7 +2753,8 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
             facing: lot.facing,
             what,
             district: District::of(at.distance(site.at), inner, outer),
-        });
+                    serves: None,
+                });
     }
 
     // A CITY ALWAYS HAS SOMETHING TALL IN IT.
@@ -2663,6 +2812,56 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         }
     }
 
+    // AND THE PUBLIC GROUND IS DRESSED.
+    //
+    // What the research asks a square for, in the order it asks for it: a focal
+    // thing OFF the middle rather than on it, activity round the edges, and the
+    // middle left clear to walk through and to fight in. The ring is what makes it
+    // read as a room - a square with its furniture in the centre is a roundabout.
+    for (at, span, open) in &opens {
+        let (near, far) = open.fills();
+        // The focus, a third of the way out, on the side the town arrives from - so
+        // it is seen against the square rather than against the buildings behind it.
+        let focus = open.focus();
+        let stood = *at + Vec2::from_angle(through) * (span * 0.34);
+        if clear_of_streets(&streets, stood, through, focus, made)
+            && clear_of_buildings(&plots, stood, through, focus)
+        {
+            plots.push(Plot {
+                at: stood,
+                facing: through,
+                what: focus,
+                district: District::of(stood.distance(site.at), inner, outer),
+                serves: Some(*open),
+            });
+        }
+
+        // The edges. Round the inside, facing in, with the middle left alone.
+        let round = ((span * std::f32::consts::TAU / (depth * 0.9)).round() as usize).clamp(5, 14);
+        for step in 0..round {
+            let turn = through + std::f32::consts::TAU * step as f32 / round as f32;
+            let out = Vec2::from_angle(turn);
+            let edge = *at + out * (span * 0.78);
+            // Alternating, so the programme has two kinds in it rather than a row
+            // of one - seating and stalls, planting and paving.
+            let what = if step % 2 == 0 { near } else { far };
+            // FACING IN. A bench with its back to the square is a bench nobody sits
+            // on, and a stall facing out is one nobody buys from.
+            let facing = turn + std::f32::consts::PI;
+            if clear_of_streets(&streets, edge, facing, what, made)
+                && clear_of_buildings(&plots, edge, facing, what)
+            {
+                plots.push(Plot {
+                    at: edge,
+                    facing,
+                    what,
+                    district: District::of(edge.distance(site.at), inner, outer),
+                    serves: Some(*open),
+                });
+            }
+        }
+    }
+
     // LANDMARKS, before the thinning, because they are not houses and must not be
     // thinned away.
     //
@@ -2684,7 +2883,8 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
             facing: approach.y.atan2(approach.x),
             what: on_the_square,
             district: District::Market,
-        });
+                    serves: None,
+                });
     }
 
     // And one at each of the town's real JUNCTIONS - the places three or more
@@ -2741,7 +2941,8 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
             facing: facing.y.atan2(facing.x),
             what: at_a_junction,
             district: District::Crafts,
-        });
+                    serves: None,
+                });
     }
 
     // THE WEENIE, AND IT IS THE GUILD HALL.
@@ -2956,6 +3157,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
 
     let lamps = light_the_streets(&streets, &plots, site.city);
     Layout {
+        opens,
         ways,
         // THE TOWN'S OWN, because these are what it draws. The roads crossing it
         // belong to `settle` and are already drawn there - see the note on `streets`.
@@ -3933,6 +4135,13 @@ const FLAG_IS: f32 = 1.15;
 /// being drawn at a metre a vertex - what carries at distance is that the surface is
 /// BROKEN, not that any one stone is legible.
 const COBBLE_IS: f32 = 0.55;
+
+/// How big one paving flag is, in metres.
+///
+/// A square is laid in the big flat stones a footway is rather than in the road's
+/// setts, which is what tells the two apart where they meet. The production spec
+/// puts sidewalk flags at 0.6 to 1.2 m.
+const FOOTWAY_FLAG: f32 = 0.95;
 const COBBLES_VARY: f32 = 0.30;
 
 /// What a VILLAGE's lanes are made of: packed earth and cobble, warm and rough.
@@ -4322,6 +4531,7 @@ fn cross_section(
 
 fn pave(
     ways: &[Way],
+    opens: &[(Vec2, f32, Open)],
     terrain: &crate::world::terrain::Terrain,
     low: Vec2,
     city: f32,
@@ -4729,7 +4939,57 @@ fn pave(
             // discs were the 670 triangles still facing down after that was fixed,
             // and they showed as a ring of dark patches at every joint the moment
             // the lamps started lighting the road properly.
-            indices.extend_from_slice(&[middle, middle + 2 + step, middle + 1 + step]);
+            indices.extend_from_slice(&[middle, middle + step + 2, middle + step + 1]);
+        }
+    }
+
+    // THE PUBLIC GROUND ITSELF.
+    //
+    // # A square with grass in it is a gap
+    //
+    // An open was a run of lots with nothing built on them and a ring of furniture
+    // round the edge, which from above reads as somewhere the generator failed
+    // rather than somewhere anybody meant. What makes a square a square is that it
+    // is PAVED - hard ground you cross, with an edge where the paving stops.
+    //
+    // Laid as a disc, the same shape and the same way as a junction patch, because a
+    // square IS a junction patch that somebody kept widening. A park gets none: a
+    // park is planted ground, and paving one would make it a car park.
+    for (at, span, open) in opens {
+        if matches!(open, Open::Park) {
+            continue;
+        }
+        let paved = city.max(paved_here(at_plan, *at));
+        let arriving = Arriving::at(paved);
+        // FLAGGED, not cobbled. A square is laid in the big flat stones a footway
+        // is, which is also what tells it apart from the carriageway running past.
+        let flagged = FOOTWAY_FLAG / crate::shade::PAVING_STONE;
+        let mut colour = mix(
+            mix(*ROAD_EARTH, *ROAD_STONE, arriving.surface_made),
+            *ROAD_FLAG,
+            arriving.footway_made,
+        );
+        colour[3] = flagged;
+
+        let middle = places.len() as u32;
+        let height = terrain.drawn_height(at.x, at.y) + ROAD_HEM;
+        places.push([at.x - low.x, height, at.y - low.y]);
+        normals.push([0.0, 1.0, 0.0]);
+        colours.push(colour);
+        uvs.push([0.0, arriving.stone_contrast]);
+
+        const AROUND_A_SQUARE: usize = 18;
+        for step in 0..=AROUND_A_SQUARE {
+            let turn = step as f32 / AROUND_A_SQUARE as f32 * std::f32::consts::TAU;
+            let rim = at + Vec2::from_angle(turn) * span;
+            let height = terrain.drawn_height(rim.x, rim.y) + ROAD_HEM;
+            places.push([rim.x - low.x, height, rim.y - low.y]);
+            normals.push([0.0, 1.0, 0.0]);
+            colours.push(colour);
+            uvs.push([turn, arriving.stone_contrast]);
+        }
+        for step in 0..AROUND_A_SQUARE as u32 {
+            indices.extend_from_slice(&[middle, middle + step + 2, middle + step + 1]);
         }
     }
 
@@ -4993,7 +5253,7 @@ pub fn raise_the_towns(
         // precisely the shape of "still no roads" reported three times against a
         // paving mesh that measured correctly every time it was asked.
         let surface = road_surface.get_or_insert_with(|| materials.add(crate::shade::road_material()));
-        let paving = pave(&layout.ways, &terrain.0, site.at, f32::from(u8::from(site.city)));
+        let paving = pave(&layout.ways, &layout.opens, &terrain.0, site.at, f32::from(u8::from(site.city)));
         commands.spawn((
             FromSite(key),
             Mesh3d(meshes.add(paving)),
@@ -5232,7 +5492,7 @@ fn lay_the_country_roads(
     // boundary out in open country. `pave` asks how paved each POINT is now, so the
     // same road becomes a street over the last stretch of its approach.
     if !roads.is_empty() {
-        let mesh = pave(&roads, &terrain.0, here, 0.0);
+        let mesh = pave(&roads, &[], &terrain.0, here, 0.0);
         commands.spawn((
             CountryRoad,
             Mesh3d(meshes.add(mesh)),
@@ -6226,7 +6486,7 @@ mod tests {
         let layout = lay_out(&site, plan.approach(site.at), &[], crate::config::WORLD_SEED);
         assert!(!layout.streets.is_empty(), "the town has no streets");
 
-        let paving = pave(&layout.ways, &terrain, site.at, f32::from(u8::from(site.city)));
+        let paving = pave(&layout.ways, &layout.opens, &terrain, site.at, f32::from(u8::from(site.city)));
         let count = paving.count_vertices();
         assert!(count > 200, "the paving is {count} vertices, which is nothing");
 
@@ -6402,7 +6662,7 @@ mod tests {
         let site = plan.sites()[0];
         let layout = lay_out(&site, plan.approach(site.at), &[], crate::config::WORLD_SEED);
         println!("{} streets", layout.streets.len());
-        let mesh = pave(&layout.ways, &terrain, site.at, f32::from(u8::from(site.city)));
+        let mesh = pave(&layout.ways, &layout.opens, &terrain, site.at, f32::from(u8::from(site.city)));
         use bevy::render::mesh::VertexAttributeValues;
         let places = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
             Some(VertexAttributeValues::Float32x3(v)) => v.clone(),
@@ -6691,6 +6951,12 @@ mod tests {
                 // faces nothing, which is exactly what makes it a landmark rather
                 // than a bigger house.
                 if plot.what.is_landmark() {
+                    continue;
+                }
+                // A bench in a square faces the SQUARE, and a stall faces the ground
+                // somebody buys from. Neither has a door onto a street, so this is
+                // asking them a question they have no answer to - see `Plot::serves`.
+                if plot.serves.is_some() {
                     continue;
                 }
                 // The way the door looks, which is the building's own -Y turned by
@@ -7329,7 +7595,8 @@ mod doorstep {
                 // arithmetic below reads as it does in `walls_into`.
                 facing: 0.0,
                 what,
-            };
+                    serves: None,
+                };
             let across_the_front = plot
                 .walls()
                 .iter()
@@ -7628,7 +7895,7 @@ mod facing {
         let site = a_site(true, 120.0);
         let layout = lay_out(&site, Vec2::X, &[], 3);
         for paved in [0.3_f32, 0.5, 0.85] {
-            let mesh = pave(&layout.ways, &terrain, site.at, paved);
+            let mesh = pave(&layout.ways, &layout.opens, &terrain, site.at, paved);
             let Some(VertexAttributeValues::Float32x2(uvs)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0)
             else {
                 panic!("the paving has no uvs");
@@ -7666,6 +7933,71 @@ mod facing {
             "the shared road material has paving {:?} - a road wearing this draws no              stones whatever its vertices say",
             road.extension.paving
         );
+    }
+
+    /// Public ground is a place, with an edge, a focus and something to do in it.
+    ///
+    /// # A square is not a gap between buildings
+    ///
+    /// The research names what a square needs and none of it is size: an enclosing
+    /// edge with frontage on most sides, a focal thing placed OFF the middle, zones
+    /// people use, and the middle left clear to walk through. A large empty patch
+    /// with an object in the centre is a roundabout.
+    ///
+    /// So this asks for each of those of the assembled layout rather than counting
+    /// opens - a city could have four of them and still have nowhere to be.
+    #[test]
+    fn a_square_is_a_place_and_not_a_gap() {
+        for character in [
+            Character::Capital,
+            Character::Works,
+            Character::Green,
+            Character::Trade,
+        ] {
+            let site = tests::a_site_of(true, crate::config::CITY_RADIUS, character);
+            let laid = lay_out(&site, Vec2::new(0.6, -0.8).normalize(), &[], 5);
+            let public: Vec<&Plot> =
+                laid.plots.iter().filter(|plot| plot.serves.is_some()).collect();
+
+            assert!(
+                public.len() >= 8,
+                "{character:?} has {} pieces of public ground in it — a city with                  nowhere to be is somewhere to pass through",
+                public.len()
+            );
+
+            // A FOCUS, and off the middle of what it stands in.
+            let kinds: std::collections::BTreeSet<String> =
+                public.iter().map(|p| format!("{:?}", p.what)).collect();
+            assert!(
+                kinds.len() >= 2,
+                "{character:?} fills its public ground with only {kinds:?} — zones,                  not a row of one thing"
+            );
+
+            // AND THE MIDDLE IS LEFT CLEAR. For each open, nothing of its own stands
+            // within a third of its span of the middle except the focus, and the
+            // focus itself is off-centre.
+            for open in Open::wanted(character) {
+                let mine: Vec<&&Plot> =
+                    public.iter().filter(|p| p.serves == Some(*open)).collect();
+                if mine.is_empty() {
+                    continue;
+                }
+                let middle = mine.iter().fold(Vec2::ZERO, |sum, p| sum + p.at)
+                    / mine.len() as f32;
+                let span = mine
+                    .iter()
+                    .map(|p| p.at.distance(middle))
+                    .fold(0.0_f32, f32::max);
+                let focus = mine.iter().find(|p| p.what == open.focus());
+                if let Some(focus) = focus {
+                    let off = focus.at.distance(middle);
+                    assert!(
+                        off > span * 0.08,
+                        "{character:?}'s {open:?} has its focus {off:.1} m from the                          middle of a {span:.1} m open — that is a roundabout"
+                    );
+                }
+            }
+        }
     }
 
     /// No city street ends in a field.
@@ -7909,7 +8241,7 @@ mod facing {
             wide: CITY_STREET_WIDE,
             joins: CITY_STREET_WIDE,
         }];
-        let mesh = pave(&ways, &terrain, Vec2::ZERO, 1.0);
+        let mesh = pave(&ways, &[], &terrain, Vec2::ZERO, 1.0);
         let Some(VertexAttributeValues::Float32x3(facing)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
         else {
             panic!("the paving has no normals");
@@ -7984,7 +8316,7 @@ mod facing {
                 wide: CITY_STREET_WIDE,
                 joins: CITY_STREET_WIDE,
             }];
-            let mesh = pave(&ways, &terrain, Vec2::ZERO, paved);
+            let mesh = pave(&ways, &[], &terrain, Vec2::ZERO, paved);
             let Some(VertexAttributeValues::Float32x3(places)) =
                 mesh.attribute(Mesh::ATTRIBUTE_POSITION)
             else {
@@ -8040,7 +8372,7 @@ mod facing {
         for city in [false, true] {
             let site = a_site(city, if city { 120.0 } else { 70.0 });
             let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), &[], 3);
-            let mesh = pave(&layout.ways, &terrain, site.at, f32::from(u8::from(city)));
+            let mesh = pave(&layout.ways, &layout.opens, &terrain, site.at, f32::from(u8::from(city)));
             let Some(VertexAttributeValues::Float32x3(places)) =
                 mesh.attribute(Mesh::ATTRIBUTE_POSITION)
             else {

@@ -1051,7 +1051,8 @@ mod tests {
                 facing: turn,
                 what: Building::Cottage,
                 district: crate::world::town::District::Market,
-            };
+            serves: None,
+        };
             let walls = plot.walls();
             let half = plot.what.footprint() * 0.5;
             // Out of the front of the building, in its own frame, and back in.
@@ -1096,6 +1097,7 @@ mod tests {
             facing: 0.4,
             what: Building::Shop,
                 district: crate::world::town::District::Market,
+            serves: None,
         };
         let walls = plot.walls();
         // Standing in the middle of the room, every step outward is allowed - the
@@ -1186,13 +1188,15 @@ mod tests {
                 facing: 0.0,
                 district: District::Market,
                 what,
-            };
+            serves: None,
+        };
             let half = what.footprint() * 0.5;
             let walls = plot.walls();
             let mut built = Built::default();
             built.standing.insert(
                 0,
                 Layout {
+                    opens: Vec::new(),
                     ways: Vec::new(),
                     streets: Vec::new(),
                     plots: vec![plot],
