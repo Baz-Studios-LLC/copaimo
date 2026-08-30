@@ -3377,12 +3377,6 @@ const SHOULDER_WIDE: f32 = 5.4;
 /// So the paving has its own material, with the bending switched off. It is still a
 /// `Shaded`, because the cloud shadows have to fall on a street like they fall on
 /// everything else.
-#[derive(Resource)]
-pub struct RoadSurface(pub Handle<crate::shade::Shaded>);
-
-fn mix_the_road_surface(mut commands: Commands, mut materials: ResMut<Assets<crate::shade::Shaded>>) {
-    commands.insert_resource(RoadSurface(materials.add(crate::shade::road_material())));
-}
 
 /// How much room the guild hall is given, in metres.
 ///
@@ -4047,11 +4041,20 @@ fn pave(
         let height = terrain.drawn_height(at.x, at.y) + crown.0;
         places.push([at.x - low.x, height, at.y - low.y]);
         normals.push([0.0, 1.0, 0.0]);
+        // THROUGH THE SAME CHANNELS THE RIBBON USES.
+        //
+        // The disc mixed its colour and wrote its stone contrast from the raw paving
+        // amount while its own arms had moved to `Arriving`. So in a transition a
+        // junction could go stone-coloured and reveal its cobbles on one curve while
+        // every road leading into it was on another - a made circular patch arriving
+        // before its arms, or a ring where the stones do not match across the join.
+        // Codex caught it in the same commit that introduced the channels.
         let cobbled = COBBLE_IS / crate::shade::PAVING_STONE;
-        let mut middle_colour = mix(*ROAD_EARTH, *ROAD_STONE, paved);
+        let middle_arriving = Arriving::at(paved);
+        let mut middle_colour = mix(*ROAD_EARTH, *ROAD_STONE, middle_arriving.surface_made);
         middle_colour[3] = cobbled;
         colours.push(middle_colour);
-        uvs.push([0.0, paved]);
+        uvs.push([0.0, middle_arriving.stone_contrast]);
 
         for step in 0..=AROUND_A_JOINT {
             let turn = step as f32 / AROUND_A_JOINT as f32 * std::f32::consts::TAU;
@@ -4066,11 +4069,11 @@ fn pave(
             // from six-metre arc pieces looks like when each joint wears a rim. The
             // disc is there to fill a notch, and a patch that fills a hole should
             // not announce itself.
-            let rim_paved = city.max(paved_here(at_plan, rim));
-            let mut rim_colour = mix(*ROAD_EARTH, *ROAD_STONE, rim_paved);
+            let rim_arriving = Arriving::at(city.max(paved_here(at_plan, rim)));
+            let mut rim_colour = mix(*ROAD_EARTH, *ROAD_STONE, rim_arriving.surface_made);
             rim_colour[3] = cobbled;
             colours.push(rim_colour);
-            uvs.push([turn, rim_paved]);
+            uvs.push([turn, rim_arriving.stone_contrast]);
         }
         for step in 0..AROUND_A_JOINT as u32 {
             // Face up, like the ribbon - see the note on the ribbon's winding. The
@@ -4553,17 +4556,24 @@ fn lay_the_country_roads(
     if roads.is_empty() {
         return;
     }
+    // THE SAME MATERIAL THE TOWNS USE - see `shade::road_material`.
+    //
+    // # A road that carried its cobbles and had nothing to draw them with
+    //
+    // This built its own generic `shaded(StandardMaterial { .. })`, whose
+    // `CloudShade::paving` is nought - and the shader only draws stones where that
+    // is above zero. So every country road in the world carried a stone size in its
+    // vertex alpha and a paving amount in its UV, reported both correctly, and drew
+    // no stones at all; the pattern then appeared the instant the mesh changed
+    // owner at a town's edge. That is the abrupt dirt-to-city transition, and it
+    // survived every measurement because everything measured was right.
+    //
+    // Found by Codex reading the two spawn paths against each other. There were
+    // three descriptions of a road's material: this one, the towns', and a
+    // `RoadSurface` resource that was filled in at startup and never read by
+    // anybody. The resource is gone and both paths ask `road_material`.
     let material = surface
-        .get_or_insert_with(|| {
-            materials.add(crate::shade::shaded(StandardMaterial {
-                base_color: Color::WHITE,
-                perceptual_roughness: 0.97,
-                reflectance: 0.02,
-                double_sided: true,
-                cull_mode: None,
-                ..default()
-            }))
-        })
+        .get_or_insert_with(|| materials.add(crate::shade::road_material()))
         .clone();
 
     // ONE mesh, and the surface decides itself.
@@ -6924,6 +6934,71 @@ mod facing {
                 );
             }
         }
+    }
+
+    /// A junction and the roads that meet it arrive together.
+    ///
+    /// # A made circle before its own arms
+    ///
+    /// The ribbon moved to the named arrival channels and the junction disc kept
+    /// mixing its colour and writing its stone contrast from the raw paving amount.
+    /// In a transition that puts the disc on one curve and every arm on another: a
+    /// stone-coloured patch appearing before the road reaching it, or a ring where
+    /// the cobbles change contrast across the join. Codex caught it in the commit
+    /// that introduced the channels.
+    #[test]
+    fn a_junction_arrives_with_the_roads_that_meet_it() {
+        // Asked of the MESH, because the two things being compared are what the
+        // ribbon writes and what the disc writes, and a test that asks `Arriving`
+        // twice can only discover that it agrees with itself.
+        //
+        // Every paving vertex has to carry the channel's stone contrast and not the
+        // raw paving amount. The sample values are ones where the two are far enough
+        // apart to tell apart at all - the curve crosses the line it is derived from
+        // at about 0.7, so that one proves nothing.
+        use bevy::render::mesh::VertexAttributeValues;
+        let terrain = crate::world::terrain::Terrain::new();
+        let site = a_site(true, 120.0);
+        let layout = lay_out(&site, Vec2::X, &[], 3);
+        for paved in [0.3_f32, 0.5, 0.85] {
+            let mesh = pave(&layout.ways, &terrain, site.at, paved);
+            let Some(VertexAttributeValues::Float32x2(uvs)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0)
+            else {
+                panic!("the paving has no uvs");
+            };
+            let raw = paved;
+            let channel = Arriving::at(paved).stone_contrast;
+            let on_raw = uvs.iter().filter(|uv| (uv[1] - raw).abs() < 1.0e-4).count();
+            assert!(
+                (raw - channel).abs() > 0.05,
+                "paved {paved} is too close to its own channel to tell them apart"
+            );
+            assert_eq!(
+                on_raw, 0,
+                "{on_raw} paving vertices carry the raw paving amount {raw} rather than                  the {channel:.3} its channel asks for"
+            );
+        }
+    }
+
+    /// Every road in the world is drawn with the material that can draw stones.
+    ///
+    /// # A road that carried its cobbles and had nothing to draw them with
+    ///
+    /// The country roads built their own generic material, whose `paving` is nought,
+    /// and the shader only lays stones where that is above zero. So every road
+    /// between towns carried a stone size in its vertex alpha and a paving amount in
+    /// its UV, reported both correctly, and drew nothing - and the pattern appeared
+    /// the moment the mesh changed owner at a town's edge. That is the abrupt
+    /// dirt-to-city transition, and it survived every measurement because everything
+    /// that was measured was right.
+    #[test]
+    fn the_road_material_can_actually_draw_stones() {
+        let road = crate::shade::road_material();
+        assert!(
+            road.extension.paving.x > 0.0 && road.extension.paving.y > 0.0,
+            "the shared road material has paving {:?} - a road wearing this draws no              stones whatever its vertices say",
+            road.extension.paving
+        );
     }
 
     /// The kerb face tells the shader it is a face.
