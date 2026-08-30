@@ -252,17 +252,25 @@ pub fn surface_color(
         color = color.lerp(p.lush_grass, (-worn * 0.7).clamp(0.0, 1.0));
     }
 
-    // AND WHAT PEOPLE HAVE MADE OF IT.
+    // AND WHAT PEOPLE HAVE MADE OF IT: NOTHING, to the ground's own colour.
     //
-    // After the wear and before the blotching, because a town's ground is a made
-    // surface and the blotching is grass growing unevenly ON a surface - which is
-    // true of a village's earth and not of a city's pavement, so the fade below is
-    // what keeps a paved square from sprouting.
-    if settled > 0.0 && height >= SEA_LEVEL {
-        color = color.lerp(p.dirt, (settled * 0.82).clamp(0.0, 1.0));
-    } else if settled < 0.0 && height >= SEA_LEVEL {
-        color = color.lerp(p.paving, (-settled * 0.9).clamp(0.0, 1.0));
-    }
+    // # A settlement stands on the country it is in
+    //
+    // This tinted a village's ground toward bare earth and a city's toward paving,
+    // which gave every settlement a coloured disc under it that stopped at the
+    // levelling's edge. Two problems with that, and the second is the one that
+    // matters. It made a village and a city different COLOURS as well as different
+    // shapes, so the ground told you which kind of place you were approaching before
+    // any of the architecture did. And a town in the desert and a town on the coast
+    // came out the same shade as each other, because the tint came from what people
+    // had done rather than from where they had done it.
+    //
+    // The made surfaces are drawn as their own meshes - the streets, the squares,
+    // the yards - so a town does not need the terrain to pretend as well. What is
+    // left between them is the country the town is in, which is what it should be.
+    //
+    // Asked for directly: the settled land should just be whatever biome the city
+    // resides in.
 
     // # Ground is never one colour, and this one was
     //

@@ -270,11 +270,31 @@ fn sunlight_on(ground: vec2<f32>) -> f32 {
         var gap = ground - centre;
         gap = gap - spread * round(gap / spread);
 
-        // Darkest in the middle and soft at the rim, because a cloud's edge is a
-        // thinning rather than an ending, and two hundred metres of air blurs
-        // whatever is left of it.
+        // AND IT IS NOT A CIRCLE.
+        //
+        // # Painted circles on the grass
+        //
+        // A shadow was a disc: solid out to half its radius, then a smooth rim.
+        // Over a wood or a hillside that passes, because there is other detail for
+        // the eye to hold. Over the flat levelled ground of a city there is nothing
+        // else at all, and what it reads as is a row of grey circles somebody
+        // painted on the lawn - which is what was asked about, in those words.
+        //
+        // A cloud has no edge and it also has no radius. The reach is pushed in and
+        // out around the shadow, twice over at two rates, so its outline is a
+        // wandering blob and its middle is unevenly lit rather than flat. It is the
+        // cheapest thing that stops a circle being a circle: two hashes of the
+        // direction, no texture, no extra samples.
         let reach = length(gap);
-        openest = min(openest, smoothstep(disc.z * weather.y, disc.z, reach));
+        let turn = atan2(gap.y, gap.x);
+        let seed = disc.x + disc.y;
+        let wander = sin(turn * 3.0 + seed) * 0.17
+            + sin(turn * 7.0 - seed * 2.3) * 0.09
+            + sin(turn * 13.0 + seed * 0.7) * 0.05;
+        // The middle broken up too, so a big cloud is not a flat grey plate.
+        let dappled = 1.0 + sin(gap.x * 0.011 + seed) * sin(gap.y * 0.013 - seed) * 0.10;
+        let edge = disc.z * (1.0 + wander) * dappled;
+        openest = min(openest, smoothstep(edge * weather.y, edge, reach));
     }
 
     // The DARKEST cloud over this point, not all of them multiplied together.

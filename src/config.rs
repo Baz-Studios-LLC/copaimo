@@ -364,7 +364,14 @@ pub const CLOUD_SHADE: f32 = 0.45;
 /// Raised from a third, because at a third a small cloud was ALL rim — it never
 /// reached full strength anywhere, so half the sky cast shadows you could barely
 /// see. At a half there is a solid middle to every one of them.
-pub const CLOUD_SHADE_SOFT: f32 = 0.5;
+// 0.3, down from a half.
+//
+// A half leaves the inner half of every shadow at full strength, which is a solid
+// disc with a soft ring round it - and on the flat levelled ground of a city that
+// is a painted circle whatever the ring does. The note above about a third being
+// ALL rim was true of a circle; the outline wanders now and the middle is dappled,
+// so a softer shadow still has a shape to read.
+pub const CLOUD_SHADE_SOFT: f32 = 0.3;
 
 /// The sun heights the shadows fade in and out across.
 ///
