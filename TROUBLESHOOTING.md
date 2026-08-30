@@ -2519,3 +2519,46 @@ being a gatepost.
 **Pick the property that differs by an order, not by a margin.** Height differed by
 12% and gave three wrong answers. Thickness differs by 3× - a rail is 9 cm through, a
 kerb is 34 - and gave the right one immediately.
+
+## A rule that was really a frame-rate rule, and the tests that could not see it
+
+**Issue.** `may_step` ended with `rise <= STEP_UP` — a 26 cm allowance meant for
+kerbs and doorsteps — and the rise it measured was one frame's movement. A jog
+covers about 9 cm in a 60 Hz frame, so the clause bought a slope of nearly 3:1
+against a `CLIMB_LIMIT` of 1.4, and about 11:1 at 240 Hz where a frame is 2.3 cm.
+The canyon walls gated the world on a slow machine and not on a fast one.
+
+Nothing caught it. Every test of the rule took a single sample of a comfortable
+size — 1.5 m — which is a look-ahead, not a stride, and at that distance the rule
+gives the right answer.
+
+**Solution.** Ask over a distance the frame cannot change. `STEP_LANDS` is 0.6 m,
+about a stride, sampled at four fixed places along it, and a step is a rise with
+nothing along the way higher than the step itself. The rule and the sampling are
+separate functions (`may_climb` takes the ground as a closure) because there is no
+way to put a metre-high, twenty-centimetre-thick ridge into generated terrain, and a
+rule that can only be asked about real ground can only be tested on the shapes real
+ground happens to have.
+
+**And the general lesson.** A test that takes one comfortable sample of a rule is
+testing the sample, not the rule. Where a rule consumes a per-frame quantity, drive
+it at several frame rates and require the same answer — `dev/evidence`'s playtest
+driver does exactly this on the assembled game, and reproduces the fault as five
+routes whose verdict flips between 30 Hz and 240 Hz.
+
+## A road drawn five metres wider than it could be walked
+
+**Issue.** `RoadSection` was written so a street's cross-section is decided once.
+Two commits later `pave` still computed its own shoulder — the full 5.4 m country
+verge — while `stands_on` had moved to the section's, which closes to 35 cm as the
+paving arrives. Every city street was drawn with a five-metre brushed fringe that
+the warden could not stand on. Reported twice as "there's still that gradient next
+to them", and both times I looked at the terrain rather than the road.
+
+The same fault a second time in the same file: `stands_on`'s cheap reject used
+`wide * 0.5 + SHOULDER_WIDE`, which is the section's reach at wander 1.0, while the
+section it then built was scaled by a wander of up to +17%.
+
+**Solution.** Both bounds belong to the section. `pave` consumes `cut.shoulder`;
+`RoadSection::most_it_reaches` owns the reject's bound. When a fact has two
+derivations, the fix is never to correct the second one — it is to delete it.

@@ -831,10 +831,24 @@ pub fn hold_the_world_still(
     let Some(wanted) = wanted else {
         return;
     };
+    hold_the_world_at(wanted, &mut clock, &mut weather);
+}
+
+/// Pins the clock and the weather to a named hour.
+///
+/// Held through the clock's OWN offset rather than by writing the hour: see
+/// `hold_the_world_still`, which learned that the hard way. Shared with the route
+/// driver, which needs exactly the same stillness for exactly the same reason - a
+/// run whose lighting and weather drift is a story rather than evidence.
+pub fn hold_the_world_at(
+    hour: f32,
+    clock: &mut crate::sky::TimeOfDay,
+    weather: &mut crate::weather::TheWeather,
+) {
     clock.follows_clock = false;
     let real = (clock.hours - clock.nudge).rem_euclid(24.0);
-    clock.nudge = (wanted - real).rem_euclid(24.0);
-    clock.hours = wanted;
+    clock.nudge = (hour - real).rem_euclid(24.0);
+    clock.hours = hour;
 
     weather.follows_clock = false;
     weather.falling = crate::weather::Falling::Nothing;
