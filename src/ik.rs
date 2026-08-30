@@ -640,6 +640,10 @@ pub fn find_the_legs(
 pub fn plant_the_feet(
     time: Res<Time>,
     terrain: Option<Res<TerrainSource>>,
+    // Optional like the terrain beside it, and for the same reason: a test stands a
+    // warden on a bare heightfield with no town in the world, and "nothing is built
+    // here" is a true answer rather than a missing one.
+    built: Option<Res<crate::world::town::Built>>,
     mut wardens: Query<(&Transform, &mut Legs, Option<&crate::motion::Warping>), With<Player>>,
     mut placed: Query<(&mut Transform, Option<&ChildOf>), Without<Player>>,
 ) {
@@ -710,7 +714,11 @@ pub fn plant_the_feet(
     // bridge deck is over the water rather than under it - the player's own step has
     // always asked it and the feet never did, so crossing a bridge planted them on
     // the river bed a hundred metres below.
-    let grounds = sides.map(|(_, (_, _, ankle, _))| terrain.walk_height(ankle.x, ankle.z));
+    let nothing = crate::world::town::Built::default();
+    let built = built.as_deref().unwrap_or(&nothing);
+    let grounds = sides.map(|(_, (_, _, ankle, _))| {
+        crate::world::town::stands_on(&terrain.0, built, Vec2::new(ankle.x, ankle.z))
+    });
     let shifts = [
         shift_to_ground(grounds[0], feet_at),
         shift_to_ground(grounds[1], feet_at),

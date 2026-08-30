@@ -2141,6 +2141,53 @@ impl Built {
     }
 }
 
+/// What `dev/art/town.py` measured off the buildings it built.
+///
+/// Compiled in: a few kilobytes, wanted before the first frame, and `include_str!`
+/// makes cargo rebuild when it changes.
+pub(crate) const TOWN_CONTRACT: &str = include_str!("../../assets/models/town.txt");
+
+/// The floor inside a building, and the step up to it.
+pub struct Floor {
+    /// How high the boards are above the ground the building stands on.
+    pub top: f32,
+    /// How far the step out front reaches, and how wide it is.
+    pub reach: f32,
+    pub wide: f32,
+}
+
+/// Every figure's floor, keyed by the name it is built under.
+///
+/// # The game thought every floor was the ground
+///
+/// A building's floor is laid on its plinth, and the ground it stands on is the
+/// HIGHEST of its four corners - so on any slope the boards are well clear of the
+/// earth beside them. The warden stood at terrain height regardless and sank into
+/// them, which on a hillside is most of a shin.
+///
+/// Measured rather than assumed, for the same reason the windows are: taking the
+/// highest interior slab reported a townhouse's floor at 3.7 m, which as a walking
+/// surface would have put the warden on its roof.
+pub static FLOORS: std::sync::LazyLock<std::collections::HashMap<&'static str, Floor>> =
+    std::sync::LazyLock::new(|| {
+        let mut found = std::collections::HashMap::new();
+        for line in TOWN_CONTRACT.lines() {
+            let Some(rest) = line.strip_prefix("FLOOR ") else {
+                continue;
+            };
+            let mut word = rest.split_whitespace();
+            let Some(figure) = word.next() else {
+                continue;
+            };
+            let said: Vec<f32> = word.filter_map(|number| number.parse().ok()).collect();
+            let [top, reach, wide] = said[..] else {
+                continue;
+            };
+            found.insert(figure, Floor { top, reach, wide });
+        }
+        found
+    });
+
 /// How a yard is closed in, when it is closed in at all.
 ///
 /// See `Building::fenced`.
@@ -2153,6 +2200,47 @@ pub enum Fenced {
     Gated(f32),
 }
 
+/// How high a warden stands here: the ground, or whatever has been laid over it.
+///
+/// # Everything you walk on is drawn above the ground
+///
+/// The terrain is the floor of this game and almost nothing you actually walk on IS
+/// the terrain. A road is laid a crown's height over it so it does not z-fight with
+/// the ground it follows; a building's floor sits on a plinth over the highest of
+/// its four corners. The warden stood at terrain height through all of it, so the
+/// feet sank into every path and most of a shin into every floor.
+///
+/// `Terrain::walk_height` already told this story for bridges - the deck answers
+/// instead of the lake bed - and this is the rest of it. It stays out of `Terrain`
+/// because what is BUILT is not the terrain's business: the streets and the plots
+/// live in `Built`, which is raised and taken down as the player moves.
+///
+/// Reported as feet clipping into the path, and into the floor indoors.
+pub fn stands_on(
+    terrain: &crate::world::terrain::Terrain,
+    built: &Built,
+    at: Vec2,
+) -> f32 {
+    let mut on = terrain.walk_height(at.x, at.y);
+    let drawn = terrain.drawn_height(at.x, at.y);
+    for layout in built.standing.values() {
+        for street in &layout.streets {
+            let across = at.distance(street.nearest_point(at));
+            let shoulder = street.wide * 0.5 + SHOULDER_WIDE;
+            if across > shoulder {
+                continue;
+            }
+            on = on.max(drawn + road_lift(across / shoulder.max(0.01)));
+        }
+        for plot in &layout.plots {
+            if let Some(floor) = plot.floor_at(terrain, at) {
+                on = on.max(floor);
+            }
+        }
+    }
+    on
+}
+
 /// One town's worth of buildings, kept so the whole lot can be taken down together.
 ///
 /// Public because `world::lamp` stands its lamps against the same key: the
@@ -2160,6 +2248,21 @@ pub enum Fenced {
 /// thing to get out of step.
 #[derive(Component)]
 pub struct FromSite(pub u32);
+
+/// How high a road's surface stands over the ground it is laid on.
+///
+/// `out` is how far across the ribbon the point is, nought down the middle and one
+/// at the shoulder. Full lift at the crown falling to almost nothing at the edge, so
+/// the ribbon meets the ground at its sides and there is no step to see.
+///
+/// One function because two things need the answer: the mesh that draws the road,
+/// and `stands_on`, which is what stops the warden's feet sinking into it. Written
+/// out twice, those drift, and the second one is only ever noticed by somebody
+/// looking at their own boots.
+pub fn road_lift(out: f32) -> f32 {
+    let out = out.clamp(0.0, 1.0);
+    ROAD_LIES * (1.0 - out * out) + ROAD_HEM
+}
 
 /// How far above the ground a street's surface is laid, in metres.
 ///
@@ -2597,8 +2700,7 @@ fn pave(
                 // its edge and there is no step to see. What is left is a CROWN -
                 // higher down the centre than at the sides - which is how a road is
                 // actually built, and which reads as worn in rather than put down.
-                let out = (across.abs() / shoulder.max(0.01)).clamp(0.0, 1.0);
-                let lift = ROAD_LIES * (1.0 - out * out) + ROAD_HEM;
+                let lift = road_lift(across.abs() / shoulder.max(0.01));
 
                 // AND BRUSHED, not painted.
                 //
@@ -2963,6 +3065,40 @@ impl Plot {
     ///
     /// The front wall comes in two pieces with the doorway between them, which is
     /// what makes the building enterable. Everything else is one slab a side.
+    /// This plot's floor at a point, if its floor is what you would be standing on.
+    ///
+    /// Inside the walls, the boards. Just outside the front, the STEP - a ramp from
+    /// the ground up to the threshold, because a floor that appears at the footprint
+    /// edge is a lip the walking rule would refuse and a doorway you cannot enter.
+    /// The step's own reach and width are measured off the model, so the ramp is the
+    /// treads that are actually there.
+    pub fn floor_at(&self, terrain: &crate::world::terrain::Terrain, at: Vec2) -> Option<f32> {
+        if self.what.is_yard() || self.what.is_landmark() {
+            return None;
+        }
+        let floor = FLOORS.get(self.what.figure())?;
+        let half = self.what.footprint() * 0.5;
+        // Into the building's own frame - the inverse of the turn `walls_into` uses.
+        let (sin, cos) = self.facing.sin_cos();
+        let away = at - self.at;
+        let local = Vec2::new(away.x * cos + away.y * sin, -away.x * sin + away.y * cos);
+        if local.x.abs() > half.x + floor.reach || local.y.abs() > half.y + floor.reach {
+            return None;
+        }
+        let base = stands_at(terrain, self.at, self.what.footprint(), self.facing);
+        if local.x.abs() <= half.x && local.y.abs() <= half.y {
+            return Some(base + floor.top);
+        }
+        // The step, in front of the front wall and no wider than the treads.
+        let out = -local.y - half.y;
+        if out <= 0.0 || out > floor.reach || local.x.abs() > floor.wide * 0.5 {
+            return None;
+        }
+        let ground = terrain.walk_height(at.x, at.y);
+        let top = base + floor.top;
+        Some(ground + (top - ground) * (1.0 - out / floor.reach.max(0.01)))
+    }
+
     pub fn walls(&self) -> Vec<(Vec2, Vec2, f32)> {
         let mut walls = Vec::new();
         self.walls_into(&mut walls);

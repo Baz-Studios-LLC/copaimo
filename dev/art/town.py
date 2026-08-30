@@ -1708,6 +1708,7 @@ def doorways_in(solids):
     for slab in slabs:
         planes.setdefault(round((slab[2] + slab[3]) * 0.5, 1), []).append(slab)
     front = min(planes)
+    doorways_in.front = front
     low = min(b[0] for b in planes[front])
     high = max(b[1] for b in planes[front])
 
@@ -1793,6 +1794,59 @@ def windows_in(parts):
     return found
 
 
+def floor_of(parts, front):
+    """How high the floor inside is, and how far the step to it reaches out.
+
+    # The game had no idea it was above the ground
+
+    A building's floor is laid on top of its plinth, and the ground it stands on is
+    the HIGHEST of its four corners - so on any slope the floor is well clear of the
+    earth beside it. The warden stood at terrain height regardless and sank into the
+    boards, which on a hillside is most of a shin.
+
+    The step out front is what makes that walkable: three shallow treads from the
+    ground to the threshold. So it is measured too - the game needs the ramp as much
+    as the height, or entering a house becomes a hop.
+
+    `front` is where the front wall's own plane is, which `doorways_in` has already
+    had to find.
+    """
+    # The floor STANDING ON THE GROUND, not the one over it. `room` lays one per
+    # storey, and taking the highest reported a townhouse's first floor at 3.7 m -
+    # which as a walking surface would have put the warden on the roof.
+    inside = [
+        b
+        for obj, colour in parts
+        if colour == "infloor"
+        for b in [_extent(obj)]
+        if b[4] < 0.2
+    ]
+    top = max((b[5] for b in inside), default=0.0)
+
+    # The treads: stone, below the threshold, and standing out past the front wall.
+    face = front - WALL * 0.5
+    treads = [
+        b
+        for obj, colour in parts
+        if colour == "stone"
+        for b in [_extent(obj)]
+        if b[2] < face - 0.02 and b[5] < top + PLINTH + 0.05
+    ]
+    reach = max((face - b[2] for b in treads), default=0.0)
+    wide = max((b[1] - b[0] for b in treads), default=0.0)
+    return top, reach, wide
+
+
+def _extent(obj):
+    """One object's box, in the frame it was built in."""
+    points = [obj.matrix_world @ v.co for v in obj.data.vertices]
+    return (
+        min(p.x for p in points), max(p.x for p in points),
+        min(p.y for p in points), max(p.y for p in points),
+        min(p.z for p in points), max(p.z for p in points),
+    )
+
+
 def every_doorway():
     """Measures the front door of every figure that has one.
 
@@ -1822,7 +1876,9 @@ def every_doorway():
 game leaves its collision gap centred - see DOOR_CLEAR in src/world/town.rs"
         assert clear > DOOR_WIDE - 0.4, \
             f"{name}'s doorway is only {clear:.3f} m clear"
-        found.append((name, middle, clear, windows_in(parts)))
+        found.append(
+            (name, middle, clear, windows_in(parts), floor_of(parts, doorways_in.front))
+        )
     return found
 
 
@@ -1903,11 +1959,14 @@ def measure_the_cottage(hearth_left=True):
 def write_the_plan(note, plan, door, clear):
     """The cottage's plan, in the units the game measures its lots in."""
     note.write(f"DOORWAY cottage {door:.4f} {clear:.4f}\n")
-    for name, middle, wide, _ in DOORWAYS:
+    for name, middle, wide, _, _ in DOORWAYS:
         if name != "cottage":
             note.write(f"DOORWAY {name} {middle:.4f} {wide:.4f}\n")
+    # THE FLOOR INSIDE, and the step up to it.
+    for name, _, _, _, (top, reach, step_wide) in DOORWAYS:
+        note.write(f"FLOOR town_{name} {top:.4f} {reach:.4f} {step_wide:.4f}\n")
     # AND EVERY WINDOW, so the game can light the glass rather than the plaster.
-    for name, _, _, windows in DOORWAYS:
+    for name, _, _, windows, _ in DOORWAYS:
         for storey, at, size in windows:
             note.write(
                 f"WINDOW town_{name} {storey} "
@@ -1933,10 +1992,11 @@ def write_the_plan(note, plan, door, clear):
 COTTAGE_PLAN, COTTAGE_DOOR, COTTAGE_CLEAR = measure_the_cottage(True)
 measure_the_cottage(False)
 DOORWAYS = every_doorway()
-for _name, _middle, _clear, _windows in DOORWAYS:
+for _name, _middle, _clear, _windows, _floor in DOORWAYS:
     print(
         f"MEASURED {_name:11} doorway {_clear:.3f} m clear at {_middle:+.3f}, "
-        f"{len(_windows)} windows on {len({w[0] for w in _windows})} storeys"
+        f"{len(_windows)} windows on {len({w[0] for w in _windows})} storeys, "
+        f"floor {_floor[0]:.2f} m up behind a {_floor[1]:.2f} m step"
     )
 
 

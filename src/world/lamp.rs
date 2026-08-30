@@ -179,13 +179,6 @@ const LOBBY: f32 = FLOOR_TALL * 1.5;
 const PROUD: f32 = 0.02;
 
 /// How wide and tall a cottage's window is, in metres, and how far up its storey.
-/// What `dev/art/town.py` measured off the buildings it built.
-///
-/// Compiled in rather than loaded: it is a few kilobytes, every consumer wants it
-/// before the first frame, and `include_str!` makes cargo rebuild when it changes -
-/// so the table and the models cannot get out of step in a build that succeeded.
-const TOWN_CONTRACT: &str = include_str!("../../assets/models/town.txt");
-
 /// One window in a building, where the model actually has one.
 pub(crate) struct Pane {
     /// Which floor it lights, so a lit room lights all of its own windows.
@@ -218,7 +211,7 @@ pub(crate) struct Pane {
 /// Found by Codex, reviewing for facts this codebase states twice.
 static WINDOWS: LazyLock<HashMap<&'static str, Vec<Pane>>> = LazyLock::new(|| {
     let mut found: HashMap<&'static str, Vec<Pane>> = HashMap::new();
-    for line in TOWN_CONTRACT.lines() {
+    for line in crate::world::town::TOWN_CONTRACT.lines() {
         let Some(rest) = line.strip_prefix("WINDOW ") else {
             continue;
         };

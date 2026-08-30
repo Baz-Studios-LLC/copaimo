@@ -254,6 +254,7 @@ const LOOKS_AHEAD: f32 = 4.0;
 /// refused, so no slope is a trap.
 fn may_step(
     terrain: &crate::world::terrain::Terrain,
+    built: &crate::world::town::Built,
     standing: &[Trunk],
     walls: &[(Vec2, Vec2, f32)],
     from: Vec3,
@@ -263,8 +264,11 @@ fn may_step(
     // bridge, where the deck is the surface underfoot - and asking the ground there
     // reports the lake bed, which is under the wade limit, so every step onto a
     // bridge was refused as a step into deep water.
-    let here = terrain.walk_height(from.x, from.z);
-    let there = terrain.walk_height(to.x, to.z);
+    // And what has been BUILT over it: a road's crown, a doorstep, the boards
+    // inside. The cliff rule reads these too, so a doorstep is a ramp it allows
+    // rather than a lip it refuses.
+    let here = crate::world::town::stands_on(terrain, built, Vec2::new(from.x, from.z));
+    let there = crate::world::town::stands_on(terrain, built, Vec2::new(to.x, to.z));
 
     let depth = SEA_LEVEL - there;
     if depth > WADE_DEPTH && depth >= SEA_LEVEL - here {
@@ -749,7 +753,7 @@ pub fn move_player(
             Vec3::new(from.x, from.y, next.z),
         ]
         .into_iter()
-        .find(|to| *to != from && may_step(&terrain.0, &standing, &walls, from, *to));
+        .find(|to| *to != from && may_step(&terrain.0, &towns, &standing, &walls, from, *to));
         let before = transform.translation;
         if let Some(to) = step {
             transform.translation = to;
@@ -784,7 +788,11 @@ pub fn move_player(
 
     // Plant the feet on the ground every frame, including when standing still,
     // so the warden settles correctly the moment the world finishes loading.
-    let ground = terrain.walk_height(transform.translation.x, transform.translation.z);
+    let ground = crate::world::town::stands_on(
+        &terrain.0,
+        &towns,
+        Vec2::new(transform.translation.x, transform.translation.z),
+    );
     transform.translation.y = ground.max(SEA_LEVEL - WADE_DEPTH);
 }
 
@@ -1026,6 +1034,110 @@ mod tests {
         }
     }
 
+
+    /// A warden can still walk in through a front door.
+    ///
+    /// # The risk this change carried
+    ///
+    /// Making the floor answer for the ground fixes the feet sinking into the boards
+    /// and introduces a way to break something far worse: a floor that appears at the
+    /// footprint's edge is a lip, and the cliff rule refuses a rise steeper than
+    /// `CLIMB_LIMIT` - so every house in the world could have become a house you can
+    /// see into and never enter.
+    ///
+    /// That is why the doorstep is measured off the model and read as a ramp. This
+    /// walks the approach at the stride a jog actually takes and asserts every step
+    /// of it is allowed, and that the warden ends up on the boards rather than under
+    /// them.
+    #[test]
+    fn a_warden_can_walk_in_through_a_front_door() {
+        use crate::world::town::{Building, Built, District, Layout, Plot};
+
+        let terrain = crate::world::terrain::Terrain::new();
+        // ON A SLOPE, which is the only place this can go wrong.
+        //
+        // A building's floor is levelled at the HIGHEST of its four corners, so on
+        // flat ground it stands a hand's breadth over the earth and a warden steps
+        // up onto it without noticing. On a slope it can be half a metre over the
+        // ground at its own door, and that is the lip the walking rule refuses.
+        // Written against flat ground first, this test passed with the doorstep
+        // taken out entirely - it was proving nothing.
+        let half_of = |what: Building| what.footprint() * 0.5;
+        let step_up = |at: Vec2, what: Building| {
+            crate::world::town::stands_at(&terrain, at, what.footprint(), 0.0)
+                - terrain.height(at.x, at.y - half_of(what).y)
+        };
+        let mut at = Vec2::new(RANCH_AT.0, RANCH_AT.1 - 60.0);
+        for _ in 0..600 {
+            if step_up(at, Building::Cottage) > 0.35 && terrain.height(at.x, at.y) > SEA_LEVEL + 2.0
+            {
+                break;
+            }
+            at.x += 4.0;
+        }
+        assert!(
+            step_up(at, Building::Cottage) > 0.35,
+            "no sloping ground found to stand a cottage on",
+        );
+
+        for what in [Building::Cottage, Building::Shop, Building::GuildHall] {
+            // Facing +y, so the front - and the doorstep - is on the -y side.
+            let plot = Plot {
+                at,
+                facing: 0.0,
+                district: District::Market,
+                what,
+            };
+            let half = what.footprint() * 0.5;
+            let walls = plot.walls();
+            let mut built = Built::default();
+            built.standing.insert(
+                0,
+                Layout {
+                    ways: Vec::new(),
+                    streets: Vec::new(),
+                    plots: vec![plot],
+                    lamps: Vec::new(),
+                },
+            );
+
+            let stand = |flat: Vec2| {
+                Vec3::new(
+                    flat.x,
+                    crate::world::town::stands_on(&terrain, &built, flat),
+                    flat.y,
+                )
+            };
+            // In at the door, from three metres out to the middle of the room, at
+            // the stride a jog covers in a frame.
+            let stride = JOG_SPEED / 60.0;
+            let mut walked = at - Vec2::new(0.0, half.y + 3.0);
+            let mut refused = 0;
+            let steps = ((half.y + 3.0) / stride).ceil() as i32;
+            for _ in 0..steps {
+                let next = walked + Vec2::new(0.0, stride);
+                if may_step(&terrain, &built, &[], &walls, stand(walked), stand(next)) {
+                    walked = next;
+                } else {
+                    refused += 1;
+                    walked = next;
+                }
+            }
+            assert_eq!(
+                refused, 0,
+                "{what:?} refused {refused} of {steps} steps of its own doorway",
+            );
+
+            // And having walked in, the warden is on the boards.
+            let inside = crate::world::town::stands_on(&terrain, &built, at);
+            let outside = terrain.walk_height(at.x, at.y - half.y - 3.0);
+            assert!(
+                inside > outside,
+                "{what:?}'s floor is at {inside:.2} and the ground outside is {outside:.2}",
+            );
+        }
+    }
+
     #[test]
     fn the_canyon_can_be_walked_from_the_desert_to_the_green_world() {
         let terrain = crate::world::terrain::Terrain::new();
@@ -1037,7 +1149,7 @@ mod tests {
         let mut worst = 0.0_f32;
         for step in -319..=320 {
             let next = crate::world::pass::way_through(step as f32);
-            if may_step(&terrain, &[], &[], stand(at), stand(next)) {
+            if may_step(&terrain, &crate::world::town::Built::default(), &[], &[], stand(at), stand(next)) {
                 at = next;
             } else {
                 refused += 1;
@@ -1091,15 +1203,15 @@ mod tests {
             "the scan never found the canyon floor"
         );
         assert!(
-            may_step(&terrain, &[], &[], stand(middle), stand(ahead)),
+            may_step(&terrain, &crate::world::town::Built::default(), &[], &[], stand(middle), stand(ahead)),
             "walking along the canyon floor is refused"
         );
         assert!(
-            !may_step(&terrain, &[], &[], stand(foot), stand(into_wall)),
+            !may_step(&terrain, &crate::world::town::Built::default(), &[], &[], stand(foot), stand(into_wall)),
             "the wall let the warden walk up it — the canyon gates nothing"
         );
         assert!(
-            may_step(&terrain, &[], &[], stand(into_wall), stand(foot)),
+            may_step(&terrain, &crate::world::town::Built::default(), &[], &[], stand(into_wall), stand(foot)),
             "the way back DOWN the wall is refused — a slope became a trap"
         );
     }
