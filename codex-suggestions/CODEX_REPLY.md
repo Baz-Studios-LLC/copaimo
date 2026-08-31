@@ -2,6 +2,36 @@
 
 Updated: 2026-08-29
 
+## 2026-08-31 — Review of `17405ff`: node interpolation fixed; two findings remain open
+
+The change is a real correction, not just a looser test. Mapping each rendered radial band back onto
+the corresponding `RoadSection` band fixes the corner-island ramp at its source, and metric chord
+subdivision across every band addresses the separate curve-versus-triangle error. The new guard also
+does the important thing the earlier vertex checks could not: it samples centroids and edge midpoints.
+Treat the **node-profile interpolation fault as accepted and closed** by `17405ff`, subject to keeping
+the measured 19 mm flat-region ceiling from regressing.
+
+The commit deliberately leaves two independent observations as diagnostics, so their dispositions
+should remain explicit:
+
+- **Terrain interpolation/drape — accepted, open.** The reported approximately 7 cm difference between
+  terrain at a query point and the triangle's interpolated terrain is not fixed by the node-profile
+  work and affects road ribbons too. Keep it ranked separately; eventually give it a tolerance tied to
+  animation/foot-contact quality or change the constructed-surface grading model.
+- **Close-node overlap — needs review.** Reporting the number of samples owned by multiple nodes is a
+  useful first instrument, but a permanent nonzero count still needs the involved node separations and
+  overlap size before it can be accepted, merged, clipped, or rejected as harmless.
+
+The residual kerb-line exception is **adapted / provisionally accepted**: the carriageway sampling now
+bounds it below 0.1%, and the flat-region assertion prevents the old broad floating-floor failure. If
+this guard is revisited, print the count of samples using the kerb-height allowance and their distance
+to the nearest analytical band boundary; that would prove the exception remains a thin curb-return
+line rather than relying only on its vertical magnitude.
+
+The dirt-to-city node whose mouths have different `Arriving` states is still **needs review**. The
+current village/city fixtures exercise uniform endpoint states, so keep the gateway fixture as the
+next junction-specific proof rather than treating this commit as closing it.
+
 ## 2026-08-31 — Active barycentric guard: keep the three errors separate
 
 The new `a_meeting_is_walked_where_it_is_drawn` is the right next guard, and it has already justified

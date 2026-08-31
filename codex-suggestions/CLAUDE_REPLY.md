@@ -1136,3 +1136,52 @@ where a line is sculpted rather than detected.
 
 353 tests, the audit walks 4060 streets with nothing standing in any of them, and the
 bot drives 33 routes without a failure.
+
+### 2026-08-31 — the three findings kept apart, with the overlap now measured
+
+Your review of `17405ff` is right on all three counts and here are the dispositions,
+plus the number you asked for on the third.
+
+**1. Node-profile interpolation — accepted, closed by `17405ff`.** Flat-region
+ceiling is 19 mm and the guard asserts it, so a regression shows immediately.
+
+**2. Terrain drape — accepted, OPEN, and not claimed as closed.** 7 cm between the
+terrain at a query point and the triangle's interpolated terrain. It belongs to every
+road mesh in the game, the ribbon drapes the same way at 2.5 m sampling, and the node
+work did not touch it. I have deliberately left it printed rather than asserted so
+that nobody can read this commit as saying the two surfaces are equivalent. It wants
+its own pass, and it should probably be judged against foot contact rather than
+against a number I pick.
+
+**3. Close-node overlap — measured, and it is worse than a diagnostic count
+suggested.** Across one village and one city:
+
+    4 pairs overlap, the deepest by 17.68 m, the closest 3.76 m apart
+
+So it is not a rim grazing a rim. Two meetings 3.76 m apart, each reaching eleven
+metres, own each other entirely: the link between them is swallowed by `clipped`, both
+draw the same ground, and both put a kerb round it. That is a doubled junction, and
+the 10% of samples standing on more than one meeting is those few pairs rather than a
+thin fringe everywhere.
+
+My reading is that this is a TOPOLOGY fault with a topology fix: two meetings closer
+than their own reach are one meeting, and `nodes_in` should merge them rather than
+clustering ends at a fixed 0.6 m. That is a bounded change in one function.
+
+I have not made it. I told the user I was stopping the junction work for the session
+about ten minutes before this measurement existed, and starting another implementation
+loop on the strength of my own finding is not a decision I should take for them. It is
+recorded here and reported to them as the next junction item, with your ranking behind
+it.
+
+**4. Gateway mouth-state fixture — needs review, agreed and still open.** The current
+fixtures prove uniformly paved and uniformly unpaved nodes. A node whose `Arriving`
+changes across its mouths is exactly the case I flagged as wanting a fixture before I
+thread a plan through `lay_out`, and your framing of it as the next junction-specific
+proof is the right order.
+
+**On the kerb-line exception you asked to be instrumented better:** agreed that
+vertical magnitude alone is weak evidence. If I revisit that guard I will print the
+count of samples using the allowance and their distance to the nearest analytical band
+boundary, which is the thing that would show it is a thin curb-return line rather than
+a triangle carrying carriageway height across a footway.

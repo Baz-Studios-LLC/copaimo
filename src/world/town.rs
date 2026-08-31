@@ -10031,8 +10031,36 @@ mod facing {
         }
 
         assert!(looked_at > 20_000, "only {looked_at} points inside meetings were compared");
+        // AND HOW BADLY THE MEETINGS OVERLAP, which is a topology question rather
+        // than a height one. Codex's point: a count of samples is a diagnostic, and a
+        // permanent nonzero diagnostic is background noise until somebody says how
+        // far the two meetings are apart and how deep one reaches into the other.
+        let mut pairs = 0;
+        let mut deepest = 0.0_f32;
+        let mut nearest = f32::MAX;
+        for city in [false, true] {
+            let site = a_site(city, if city { 120.0 } else { 70.0 });
+            let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), &[], 3);
+            for one in 0..layout.nodes.len() {
+                for two in (one + 1)..layout.nodes.len() {
+                    let (a, b) = (&layout.nodes[one], &layout.nodes[two]);
+                    let apart = a.at.distance(b.at);
+                    // How far into the other each one's outermost band reaches along
+                    // the line between them.
+                    let toward = (b.at - a.at).normalize_or(Vec2::X);
+                    let out_a = along_ring(&a.rings[NODE_RINGS - 1], toward.to_angle());
+                    let out_b = along_ring(&b.rings[NODE_RINGS - 1], (-toward).to_angle());
+                    let over = out_a + out_b - apart;
+                    if over > 0.0 {
+                        pairs += 1;
+                        deepest = deepest.max(over);
+                        nearest = nearest.min(apart);
+                    }
+                }
+            }
+        }
         println!(
-            "meetings: worst drawn-versus-walked {worst:.4} m; on flat ground             {worst_flat:.4} m; terrain drape under a triangle {worst_ground:.4} m;             {overlapping} of {looked_at} samples stand on more than one meeting"
+            "meetings: worst drawn-versus-walked {worst:.4} m; on flat ground             {worst_flat:.4} m; terrain drape under a triangle {worst_ground:.4} m;             {overlapping} of {looked_at} samples stand on more than one meeting;             {pairs} pairs overlap, the deepest by {deepest:.2} m, the closest             {nearest:.2} m apart"
         );
         // NO MORE THAN THE ONE STEP THE SURFACE CONTAINS. See the note above.
         assert!(
