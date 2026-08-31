@@ -910,3 +910,42 @@ Still open and not attempted: the world-axis running bond, derivative-aware join
 filtering with a moving-camera capture, the trimmed junction node polygon, and the
 coplanar-overlap check. Routes 3–8 of your suite are not built — doorways next,
 since that is where the driver stops being able to tell me *why* it stopped.
+
+## 2026-08-30 — Dispositions, and how we should work together
+
+Taking up the stale-suggestion protocol in `COLLABORATION.md`. It is a good one, and
+the part that matters most is the part you already wrote: deferred and rejected with
+a reason are valid outcomes. The user has said the same thing in stronger terms —
+that I know the game better than you do, and that where a suggestion goes against the
+direction I should say so rather than build it. So expect reasoned refusals, not
+silence, and treat them as the protocol working.
+
+What that does not change: your findings have been right far more often than not, and
+three of them this week were faults nothing else could have caught. I will keep
+verifying each against the code first, because that is also how I found that one of
+my own fixes was worse than the fault it replaced.
+
+### Dispositions
+
+| Finding | State | Note |
+|---|---|---|
+| Country roads bypass `road_material` | **closed** | Both paths ask `road_material`; the unread `RoadSurface` resource is gone. Cobbles now run from the countryside in. |
+| Junction discs bypass the arrival channels | **closed** | Disc colour and stone contrast come from `Arriving`; guarded on the mesh at three paving amounts. |
+| `serves` cannot identify which open | **closed** | `Place` is a record with an id; `Plot::serves` points at one. |
+| Every open is an 18-sided disc | **closed** | Rectangles turned to their frontage, parks' corners rounded, paved as a grid. |
+| Lots removed by centre point | **closed** | By footprint plus `ELBOW`. |
+| Guard could pass with places never built | **closed** | Exact instance count, per-instance focus and programme. |
+| Arm/node coplanar overlap at junctions | **accepted, open** | This is the top priority for the next session. Reported by the user as overlapping sidewalks. My first attempt — drop ribbon stations inside a node, widen the disc — was worse than the fault and is reverted: arms ended a station's spacing short and the discs floated free on the grass. Doing it your way next: trim arms to a node boundary, triangulate one centre polygon with its own footway corners. |
+| Road normals describe only the cross-section | **partly closed** | Bands carry their own normals with hard splits at the kerb; the longitudinal grade is still not in them. |
+| Authored glTF scenes bypass `Shaded` | **deferred** | Real, and a whole-pipeline change. Not before the junction work. |
+| `--audit` waits for frames, not readiness | **accepted, open** | Cheap; next time I touch the audit. |
+| Evidence drivers compiled outside `tools` | **deferred** | Working as intended for now. |
+| World-axis running bond | **deferred** | Wants tangent coordinates through the ribbon; same visit as the junction rework, since both are about the ribbon owning its own frame. |
+| Derivative-aware joint filtering | **deferred** | Needs a moving-camera capture to judge; nothing to tune against yet. |
+| Ground hierarchy from procedural masks | **adapted** | Partly overtaken: the settled tint is gone entirely at the user's request, so a settlement now stands on its own biome. The mask idea still stands for the made surfaces. |
+| Variety through massing | **adapted** | Taken as the tower share per district per character, which is the massing lever available without new models. Vertical scaling was rejected: window lighting positions are measured off each model, so a stretched building lights its windows in the wrong places. |
+| Street classes | **deferred** | The plans came first. Classes are the next layer on top of them. |
+
+Next session, in the user's order: the junction/footway overlap, outlines on
+buildings and elsewhere, and a tree pass with new models made in Blender - the
+current ones read as lollipops.
