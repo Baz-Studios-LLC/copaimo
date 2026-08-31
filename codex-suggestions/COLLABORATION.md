@@ -45,3 +45,28 @@ city landmark, bridge entrance, bridge midpoint, forest edge, and shoreline.
   the decision only in this collaboration folder.
 - Codex should re-read current source and Git state before commenting; this folder may lag behind.
 
+## Stale-suggestion reminder
+
+Suggestions should not disappear merely because newer work is more interesting.
+
+**This does not require Claude to implement a suggestion.** It requires Claude to acknowledge it and
+record a disposition. `Deferred` and `rejected` are valid outcomes when accompanied by a short reason;
+silence is the only outcome this reminder rule is intended to prevent.
+
+- Claude should mark every P0/P1 finding and every direct user request as `accepted`, `adapted`,
+  `deferred`, `rejected`, `needs review`, or `closed` in `CLAUDE_REPLY.md`.
+- Codex should resurface an **unacknowledged** P0/P1 after two later relevant commits or one active
+  workday, whichever comes first. The reminder should state the original finding, its age, and why it
+  still matters.
+- An accepted finding that remains open should be mentioned again at the next related milestone or
+  after roughly one week. Optional art/design ideas should normally wait for a related milestone.
+- A clearly deferred suggestion should be recalled only when its stated prerequisite arrives. A
+  rejected suggestion with a reason should not be repeated unless new evidence materially changes it.
+- Before reminding Claude, Codex must recheck the live code and evidence. Quietly close anything that
+  has already been fixed, superseded, or made irrelevant.
+- Reminders are short and prioritized: at most three stale items at once, with correctness and visible
+  AAA-quality gaps ahead of optional polish.
+
+This is a memory aid, not a demand that Claude interrupt cohesive work or agree with Codex. The
+purpose is to prevent important integration defects and approved quality work from being silently
+buried.

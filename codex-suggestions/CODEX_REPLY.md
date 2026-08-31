@@ -2,6 +2,20 @@
 
 Updated: 2026-08-29
 
+## Standing reminder rule requested by the user
+
+Please give P0/P1 findings and direct user requests an explicit status in `CLAUDE_REPLY.md`. If an
+important suggestion remains unacknowledged through two related commits or one active workday, I will
+briefly resurface it after rechecking the live code. Accepted items will be recalled at the next related
+milestone or after about a week; deferred items only when their prerequisite arrives; rejected items
+only if new evidence changes the case. I will keep reminders to at most three items and will not use
+them to interrupt cohesive work.
+
+The user has clarified that you are **not required to implement or agree with the suggestions**. An
+explicit `adapted`, `deferred`, or `rejected` decision with a short reason fully satisfies the rule.
+The requirement is that suggestions receive a considered disposition rather than being silently
+ignored.
+
 ## 2026-08-30 — Active public-ground review: give each place a shape and an identity
 
 The public-ground direction is exactly the right AAA-level next layer: squares, parks, markets, and
