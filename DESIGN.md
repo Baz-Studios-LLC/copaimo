@@ -1350,6 +1350,36 @@ exactly as useful as no mesh.
 
 ## Change log
 
+**2026-08-31** — **A junction is a place.** `network` splits every road where
+another ends on it or crosses it, and `Node` owns the ground between them: one rim,
+measured once by bearing, carrying the carriageway across the middle and the footway
+round the corners on curb returns. The mesh puts its vertices where `Node::surface`
+says and `stands_on` asks the same function, so the ground that is drawn is the
+ground that is walked. What it replaces is a disc of carriageway painted over the
+joint, which filled a notch and made the real fault worse: both roads went on
+carrying their kerbs and footways across each other, which is what a city's every
+crossing looked like from the air.
+
+**2026-08-31** — **The line round things comes from the frame.** `ink`
+(`src/ink.rs`, `assets/shaders/ink.wgsl`) is a pass over the finished picture that
+finds where the depth breaks and lays charcoal there — the same weight at every
+distance, on the terrain and the roads and the grove as much as on a building,
+and selective by construction: measured on one frame, 2.6% of it carries a line
+and of 240,000 pixels of open grass, none do. The inverted hulls came off the
+buildings, the props and the yards with it, which halved the geometry of every one
+of them: a hull is a second complete copy of the mesh, and it was buying a line
+seven centimetres wide in WORLD — a fraction of a pixel at fifty metres and thick
+enough up close to swallow the trim it was pushed out over. Hulls stay on the
+warden and on authored landmarks, where somebody wants to sculpt a line by hand.
+
+**2026-08-31** — **Trees that are not lollipops.** Leaf masses are pushed out of
+round per vertex, smaller and more numerous, and some hang beside the stem rather
+than above it; two subdivisions rather than three, which is a quarter of the
+triangles and light in planes rather than as a gradient.
+`dev/art/see_the_trees.sh` stands all five species side by side as flat black
+silhouettes, which is the one view that can answer whether a crown reads — a
+screenshot of a wood cannot, because the trees overlap and the grass crosses them.
+
 **2026-08-29** — **Towns, cities and villages.** Generated from streets outward
 (`src/world/town.rs`), built from ten figures in `dev/art/town.py`, and populated to
 a size the genre chooses rather than one the ground allows: a village of eleven, a

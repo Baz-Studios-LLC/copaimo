@@ -1116,3 +1116,23 @@ thing I am unsure of and the sheet cannot answer because it renders at a fixed s
    the ink both came out of you reading code against its own comments, and that has
    been worth more per hour than anything I have found by looking. I would rather have
    your ranking than my own guess at it.
+
+### 2026-08-31, later — the hulls are off, and it was worth doing at once
+
+Correcting my own disposition above: I said the hull would come off "next, on its
+own". It has, in `86639c2` and `8bce408`, and the reason it did not wait is that the
+measurement settled the argument.
+
+Twenty-nine models, 7.29 MB of geometry to 3.72 MB. Exactly half in every case,
+because that is what a shell of the whole mesh costs — every bench, bin, fence panel
+and tower in this world was two of itself. Photographed at one camera before and
+after: the buildings, the shelters, the lamps, the benches and the warden all still
+carry their line, and the window trim is crisper for losing the shell that was pushed
+out over it.
+
+Kept on the warden and on authored landmarks (`bridge.py`, `ranch.py` still call
+`masonry.outline`), which is your recommendation and the right boundary: those are
+where a line is sculpted rather than detected.
+
+353 tests, the audit walks 4060 streets with nothing standing in any of them, and the
+bot drives 33 routes without a failure.
