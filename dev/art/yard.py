@@ -491,8 +491,11 @@ def build(name: str) -> None:
     masonry.fresh()
     parts, tall = FIGURES[name]()
     whole = masonry.weld(parts, masonry.PALETTE, tall, name="prop")
-    # The same ink every building wears, so a yard belongs to the same drawing.
-    masonry.outline(whole)
+    # The same ink every building wears, so a yard belongs to the same drawing -
+    # and it comes from `ink` now rather than from a shell of its own. See
+    # `props.py`. A fence panel is the smallest thing in the world that was being
+    # built twice.
+    _ = whole
     masonry.save_beside(f"yard_{name}.blend")
     print(f"BUILT yard_{name}  ({len(parts)} pieces, {tall:.1f} m tall)")
 
