@@ -71,6 +71,7 @@ mod season;
 mod fall;
 mod weather;
 mod typeface;
+mod ink;
 mod shade;
 mod sky;
 mod states;
@@ -282,6 +283,11 @@ fn main() {
             world::lamp::LampPlugin,
             // The map a player pulls up with M.
             map::MapPlugin,
+            // The line round things, laid over the finished frame. Separate from
+            // `ShadePlugin` on purpose: one is what a surface looks like and the
+            // other is what the picture looks like, and Codex's research is firm
+            // that mixing the two costs you both.
+            ink::InkPlugin,
         ));
 
     // The maker's tools, and only in a maker's build.

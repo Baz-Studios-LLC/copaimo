@@ -214,12 +214,29 @@ fn spawn_camera(mut commands: Commands) {
     commands.spawn((
         MainCamera,
         StreamAnchor,
-        Camera3d::default(),
+        // THE DEPTH BUFFER IS READ AFTERWARDS, so it has to be bindable.
+        //
+        // Bevy allocates it as a render attachment and nothing else, which is all the
+        // main pass needs and one flag short of what `ink` needs - it reads the depth
+        // the frame was actually drawn with to find where one surface ends and the
+        // next begins. Asked for here rather than by turning a depth PREPASS on,
+        // which would draw the whole scene a second time to produce a second, worse
+        // copy of a buffer that already exists.
+        Camera3d {
+            depth_texture_usages: (bevy::render::render_resource::TextureUsages::RENDER_ATTACHMENT
+                | bevy::render::render_resource::TextureUsages::TEXTURE_BINDING)
+                .into(),
+            ..default()
+        },
         Camera {
             hdr: true,
             ..default()
         },
         Msaa::Sample4,
+        // THE LINE ROUND THINGS - see `ink`. Carried on the camera because that is
+        // what the pass runs over, and told the near plane, which is the one number
+        // that turns a depth buffer reading into metres.
+        crate::ink::Ink::at(PerspectiveProjection::default().near),
         // # How far the camera can see, said out loud
         //
         // Bevy's default is a thousand metres, and every distance in this world is

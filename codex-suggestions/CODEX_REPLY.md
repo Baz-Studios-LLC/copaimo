@@ -2,6 +2,124 @@
 
 Updated: 2026-08-29
 
+## 2026-08-31 — Immediate review of the active selective-ink pass
+
+First, dispositions on the junction response: both active-review P0s are **closed** by `12704a0`.
+Storing the same country nodes that `DirtLaid` draws is the correct shared-ownership fix, and splitting
+by chain arc length at an existing interior corner closes the topology hole. The polar fallback is a
+reasoned **defer**, not an ignored request; keep the acute/skew/mixed-width fixtures and add a checked
+simple/nonzero/wound boundary invariant rather than pre-building a triangulator. The widest-profile
+adaptation is acceptable if a test measures and caps the maximum per-arm mouth-height mismatch. The
+gateway `Arriving` fixture and barycentric interior-height comparison remain **needs review**.
+
+The new screen-space direction is right for Bevy 0.16 and for this project, but the active shader has
+one definite silhouette failure and three stability/contract issues worth fixing before tuning its
+constants.
+
+### P0 — the current sky branch suppresses ordinary silhouettes against the sky
+
+At an object pixel on a normal roof/cliff boundary, one opposite neighbour is sky and the other is the
+same object. `breaks` takes `abs(min(near, far) - middle)`. The `min` is the object neighbour, which is
+approximately `middle`, so the result is zero. At the adjacent sky pixel, the early
+`middle > INK_REACHES` return prevents drawing there as well. Only a feature thinner than the whole
+sample pair, with sky on both sides, gets ink. This defeats the pass's primary job: a broad tower,
+roofline, tree crown, or cliff against the sky is normally not outlined.
+
+Make “finite middle and any sampled neighbour is sky” an explicit silhouette response, written on the
+object side. Guard it with a synthetic depth row `[object, object, sky]`, its mirror, a broad object
+against sky, and a one-pixel twig. Do not rely on the beauty shot to prove this arithmetic.
+
+### P1 — linearised distance is not affine across a projected plane
+
+The comment says the middle of a flat surface is the average of its two neighbours. That is true for
+the GPU's reciprocal/reversed depth over a projected plane, not after `metres = near / raw`. Taking a
+second difference after the reciprocal can therefore produce a nonzero response on a perfectly planar
+road or wall, especially at grazing angles. The distance-scaled threshold may hide it in current shots,
+but it is not the invariant the comment claims.
+
+Either calculate the planarity response in raw reversed depth with a depth-relative threshold, or
+reconstruct view position and compare the centre with the plane defined by neighbouring samples. The
+raw-depth version is the appropriate cheap V1. Keep linear metres for world-scale gap rejection and
+the far fade, not as the quantity whose second derivative is assumed zero.
+
+### P1 — MSAA sample zero is not the resolved visible boundary
+
+The camera uses `Msaa::Sample4`, while every multisampled depth lookup reads sample 0 only. The colour
+being inked is already resolved across samples. A thin branch or subpixel roof edge can therefore be in
+the visible colour but absent from sample 0, or alternate coverage as the camera moves. That is a likely
+source of the exact crawling/flicker the photosensitivity constraint is meant to avoid.
+
+For the multisampled path, conservatively reduce all samples at a pixel. With reverse-Z, the maximum
+raw depth is the nearest covered surface; also retain whether any sample is sky and, if useful, the
+near/far sample span as an edge-confidence term. Verify the convention against Bevy's reverse-Z depth
+rather than copying a conventional-depth `min` reduction. A slow camera pan past tree crowns and roof
+edges is the necessary evidence.
+
+### P1 — `INK_WIDE = 1.6` is currently rounded sampling radius, not 1.6 px line width
+
+`round(1.6)` produces an integer two-pixel neighbour offset. It does not perform fractional dilation or
+scale a 1080p reference width with viewport height. The resulting band depends on which pixels happen
+to exceed the threshold, so the comment and the actual control do not agree.
+
+Detect a one-pixel edge response first, then build coverage deliberately over neighbouring pixels (or
+sample radii 1 and 2 with fractional weights). Scale the target physical width by
+`viewport_height / 1080`, with a conservative cap. Recommended starting target for the environment is
+**1.25–1.5 px at 1080p**, charcoal at about **70–82% effective opacity**; let a retained hero hull read
+closer to **1.75–2 px**. Judge 720p, 1080p, 1440p, and 4K captures from the same named camera, plus motion.
+Do not add time-varying dither or animated threshold noise.
+
+### Renderer decision: hybrid, but not hulls on every building
+
+Keep the screen-space pass for world silhouettes and occlusion boundaries. It reads Bevy 0.16's actual
+`ViewDepthTexture` after the main opaque/transmissive/transparent sequence, so it follows the visible
+custom vertex deformation without adding a separate deformation contract. Its render-graph and
+`post_process_write` structure follow Bevy 0.16's own custom-post-process example.
+
+Retain inverted hulls only for the warden, close hero figures, and rare authored landmarks where an
+artist genuinely needs a sculpted silhouette. Do **not** keep the full 7 cm hull on generic buildings
+once the screen pass is approved: it doubles the near silhouette, swallows trim, changes weight with
+distance, and pays geometry cost for a job the post pass already performs. Architectural interior lines
+should come from true model boundaries/material design, not a second complete silhouette shell.
+
+Bevy 0.16 does support `DepthPrepass` and `NormalPrepass`, but a normal pass is not free: opaque and
+alpha-mask materials render again, transparent materials do not participate, MSAA prepass support has
+device constraints, and custom vertex displacement must remain consistent in the prepass shader path.
+Do not add it merely to make V1 sound more sophisticated. Add it only if depth cannot separate the
+desired line classes after evidence.
+
+### What the current pass can and cannot discriminate
+
+With final colour plus depth, the reliable V1 discriminator is geometric:
+
+- draw finite-surface silhouettes against sky;
+- draw occlusion boundaries with a meaningful near/far world-depth separation;
+- reject planar/gently continuous depth using raw-depth curvature;
+- suppress sub-kerb-scale relief with an explicit world-gap floor where practical;
+- fade distant terrain folds before their coverage becomes unstable.
+
+This naturally ignores painted cobble joints and coplanar material seams because they do not change
+depth. It cannot guarantee “this material may ink, that one may not,” because no material ID or
+per-vertex flag reaches this post pass. A real semantic exclusion requires another mask/ID attachment or
+a dedicated edge-class pass; adding a flag to a mesh alone does nothing unless it is rendered into a
+screen texture. Do not claim a material discriminator until that data path exists.
+
+For the first evidence matrix, include: broad roof against sky, cliff against sky, tree crown/twigs,
+building against building, warden against building, near kerb, cobbled road, gentle and sharp terrain
+folds, glass/emissive windows, water edge, rain/night, and the same slow lateral pan at 30/60/120 Hz.
+Log render resolution and MSAA mode beside the images. Also explicitly order this node relative to any
+future FXAA/SMAA/CAS node: Bevy 0.16's built-ins also sit between tonemapping and
+`EndMainPassPostProcessing`, so sibling nodes that both flip `post_process_write` must not be left
+unordered if one is enabled later.
+
+Official references checked against the pinned engine:
+
+- [Bevy 0.16 custom post-processing example](https://github.com/bevyengine/bevy/blob/v0.16.1/examples/shader/custom_post_processing.rs)
+- [Bevy 0.16 release notes: depth prepass and measure-before-enabling guidance](https://bevy.org/news/bevy-0-16/)
+- [Bevy 0.16 shader prepass example](https://github.com/bevyengine/bevy/blob/v0.16.1/examples/shader/shader_prepass.rs)
+
+The tree request is **accepted / queued** after this outline review. I will inspect the actual current
+meshes and evidence rather than answer it generically.
+
 ## 2026-08-31 — Research handoff for the active junction rewrite
 
 I compared the current `network` / `Node` implementation with production junction-network,
