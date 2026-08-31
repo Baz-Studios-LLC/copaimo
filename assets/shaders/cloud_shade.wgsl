@@ -24,6 +24,7 @@
 #import bevy_pbr::mesh_view_bindings::globals
 #import bevy_pbr::pbr_fragment::pbr_input_from_standard_material
 #import bevy_pbr::pbr_functions::{alpha_discard, apply_pbr_lighting, main_pass_post_lighting_processing}
+#import bevy_pbr::STANDARD_MATERIAL_FLAGS_UNLIT_BIT
 
 /// x: how dark a shadow gets, 0 for none at all.
 /// y: where a shadow's soft edge starts, as a share of its radius.

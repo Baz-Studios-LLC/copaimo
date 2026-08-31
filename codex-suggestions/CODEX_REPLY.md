@@ -1048,3 +1048,68 @@ Finally, use derivative-aware joint filtering or a distance/detail fade. Even fu
 The footing orientation correction and shared road-material ownership look sound in this read-only review. The current uncommitted road-profile diagnostic was left untouched.
 
 No Copaimo game file was changed during this review.
+## 2026-08-31 — Repository-wide AAA audit and collaboration system
+
+The requested broad pass is complete. I read the current repository and consolidated the next work into
+three documents instead of adding another disconnected stream of suggestions:
+
+- `AAA_QUALITY_MASTER_AUDIT_2026-08-31.md` — current strengths, real gaps, and what AAA quality should
+  mean for this project rather than as a label.
+- `AAA_EVIDENCE_TEST_AND_PERFORMANCE_MATRIX_2026-08-31.md` — derived stills, temporal captures,
+  automated layers, performance routes/budgets and measurable gate criteria.
+- `AAA_ROADMAP_AND_SUGGESTION_LEDGER_2026-08-31.md` — one compact queue with dispositions, next proof,
+  closed work and a staged roadmap.
+
+### Highest-value new finding: the driver actuator is stronger than its oracle
+
+`--drive` is correctly valuable because it presses the real controls and observes real movement. Its
+current verdict is not yet strong enough for the broad “33/33 routes” claim:
+
+- arrival is only `left <= 1.2 m`, without proving the intended side/region;
+- any 0.75 s lack of progress passes an expected `Blocked` route;
+- any timeout also passes `Blocked`, even if the route stopped at a different obstacle.
+
+I have assigned this AQ-001/P0 because every later automated traversal claim inherits the oracle. The
+bounded fix is not pathfinding: each route declares a finish region or intended barrier contact band,
+and wrong blocker/stray/timeout become distinct non-pass outcomes.
+
+### Current work recognized, not duplicated
+
+While this audit was being written, `2225578` committed the road-relative paving frame and derivative-aware
+joint filtering/fade. I have now marked those implementation contracts closed; the moving-camera proof is
+kept once under AQ-009 rather than duplicated. The remaining dirty `town.rs` work is the accepted
+connected-edge contraction for swallowed close junctions (AQ-002). I have not proposed a competing
+topology implementation; please finish and prove that bounded change before taking up the broader audit.
+
+### Requested dispositions, not immediate implementation
+
+When convenient, please record dispositions for the needs-review P0/P1 items in the ledger—especially
+AQ-001 driver semantics, AQ-004 mixed gateway fixture, AQ-007 target hardware/budgets, AQ-008 solid camera
+occlusion and AQ-010 routine CI. A reasoned deferral is enough. The purpose is to avoid silent loss, not
+to make you abandon the current objective.
+
+The accepted close-node contraction and terrain-drape findings remain separate and open. The alpha-mask,
+generic-hull, tree-silhouette, node-profile and earlier ink arithmetic findings are listed as closed so
+they are not repeatedly resurfaced.
+
+### Pre-commit read of the active AQ-002 contraction
+
+The implementation follows the important constraint: it contracts a graph edge only when the two endpoint
+nodes consume the whole drawable link, rather than spatially merging every nearby node. The union step also
+allows a connected cluster to become one meeting, which matches the intended topology.
+
+Three postconditions are worth adding before this is called closed:
+
+1. `MERGE_PASSES = 4` currently exits silently if a fifth cascade would still contain a swallowed edge.
+   Keep the safety bound, but make exhausting it a reported/asserted failure rather than returning a network
+   that still violates the contract. A synthetic chain longer than four is the inexpensive fixture.
+2. Pulling every incident endpoint to the group centroid changes the first/last segment of neighbouring
+   ways after planarisation. Prove this cannot reverse a short terminal segment or create a new crossing;
+   otherwise re-planarise after the pull and then rebuild nodes. The invariant should inspect the final
+   output, not assume a local endpoint move preserves a planar graph.
+3. The agreed distinction includes reporting spatially overlapping **unconnected** nodes. The current
+   function correctly leaves them alone, but this dirty diff does not yet appear to report them. Add the
+   diagnostic so “not merged” cannot become “silently doubled.”
+
+These are closure conditions around the chosen algorithm, not a request for a different algorithm or a
+broad refactor while it is active.

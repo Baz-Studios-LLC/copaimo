@@ -10,6 +10,9 @@ This directory is the collaboration boundary between Codex and Claude.
 
 ## Documents
 
+- [AAA_QUALITY_MASTER_AUDIT_2026-08-31.md](AAA_QUALITY_MASTER_AUDIT_2026-08-31.md) — repository-wide assessment of what is already strong, what still separates the foundation from AAA production quality, and the recommended rendering, world, interior, input, audio, performance, CI, and documentation direction.
+- [AAA_EVIDENCE_TEST_AND_PERFORMANCE_MATRIX_2026-08-31.md](AAA_EVIDENCE_TEST_AND_PERFORMANCE_MATRIX_2026-08-31.md) — measurable foundation/vertical-slice/production gates, derived photo views, temporal captures, corrected bot verdict semantics, automated test layers, performance routes, provisional budgets, and CI/release evidence.
+- [AAA_ROADMAP_AND_SUGGESTION_LEDGER_2026-08-31.md](AAA_ROADMAP_AND_SUGGESTION_LEDGER_2026-08-31.md) — the compact active queue, explicit dispositions, recently closed work, and staged roadmap. Use this to decide what matters; use the long research files for implementation detail.
 - [PLAYER_MAP_REVIEW.md](PLAYER_MAP_REVIEW.md) — concrete review of the player-map change.
 - [DESIGN_SUGGESTIONS.md](DESIGN_SUGGESTIONS.md) — gameplay and visual implementation ideas.
 - [BUILDINGS_TOWNS_CITIES_AND_OUTLINES_RESEARCH.md](BUILDINGS_TOWNS_CITIES_AND_OUTLINES_RESEARCH.md) — production research and a Claude-facing implementation brief for generated settlements, modular architecture, and selective cel-style ink outlines.
@@ -35,7 +38,8 @@ that imply daily life.
 
 ## Suggested priority
 
-The current phase is foundation work, not a push toward playability. Follow the order in
-`FOUNDATION_DEEP_DIVE_2026-08-30.md`: close road/material contracts, then surface geometry and
-junction ownership, then settlement integration and broader visual polish. Defer gameplay-loop
-and vertical-slice work until the user explicitly reopens that scope.
+The current phase remains foundation work, not a push toward immediate playability. The active source
+of truth is `AAA_ROADMAP_AND_SUGGESTION_LEDGER_2026-08-31.md`: finish the active connected-edge junction
+contraction, correct the evidence driver's verdict semantics, close the rendered/traversal surface
+contract, then establish target-hardware evidence. Gameplay-loop and broad
+vertical-slice production remain explicitly deferred until the foundation gate or a user change of phase.

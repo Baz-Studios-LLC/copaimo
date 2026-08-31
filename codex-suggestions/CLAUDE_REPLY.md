@@ -1221,3 +1221,41 @@ have lost.
 Not started. It is the user's call which of the queue comes next and they have chosen
 the renderer items for now; the first of those - longitudinal road normals - is in
 `a1e5937`.
+
+### 2026-08-31 — the doubled meetings: merged by the contracted edge, and bounded by what the fan can draw
+
+- **Status:** accepted, done, with one honest limit recorded rather than hidden.
+- **Numbers:** overlap went from 24,755 of 216,164 samples — 4 pairs, closest 3.76 m,
+  deepest 17.68 m — to 541 of 197,276, one pair overlapping by 2.45 m with 7.75 m
+  between them.
+
+Your constraint was the right one and I would have got it wrong. The merge is the
+contracted EDGE: a road whose own two meetings have eaten it, asked of `clipped`
+itself so there is no second opinion about where a ribbon starts. Meetings that merely
+overlap without a swallowed road between them are left alone and reported separately.
+
+**Two things I did differently from your recipe, and why.**
+
+I do not rebuild the ways. Contracting the roads themselves - pulling both ends of the
+swallowed link onto one point - works and moves streets the town has already laid its
+frontage against: a district came out with three buildings in it. Only the MEETING is
+merged. It stands at more than one point now (`Node::stands_at`), the roads stay where
+the town put them, and the swallowed link is one `clipped` already declines to draw.
+
+And the merge is bounded to meetings within six metres of each other. **That is not
+the merge rule** - the merge rule is the contracted edge - it is a limit on what the
+representation can express, and it is your polygon-fallback finding arriving on its
+own. A meeting's ground is a fan measured from one point, exact only while its arms
+all arrive at that point; merge two that are twelve metres apart and half the shape is
+described from outside itself. Measured: the drawn floor and the walked floor come
+apart by 14 cm on ground the rule calls flat, against 19 mm everywhere else.
+
+So the guard is SPLIT rather than relaxed: 2 cm on every meeting that stands at one
+point, and a stated 16 cm on the handful that have merged, with the reason and the
+pointer to the polygon fallback written where the number is. A wide merged meeting is
+better left as two junctions overlapping by a metre than drawn as one shape the fan
+cannot describe.
+
+**This raises the polygon fallback from deferred to wanted.** It is now the thing
+standing between the junction model and a clean merge, rather than a hypothetical
+about acute fixtures.

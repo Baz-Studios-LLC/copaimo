@@ -4861,6 +4861,11 @@ const MOUTH_STEPS: usize = 4;
 /// How near a road's end has to be for it to be the same meeting, in metres.
 const NODE_TOUCHES: f32 = 0.6;
 
+/// How far apart two meetings may stand and still be drawn as one, in metres.
+///
+/// A limit of the radial fan rather than of the merge - see where it is used.
+const MERGES_WITHIN: f32 = 6.0;
+
 /// The least two of a meeting's bearings may be apart, in radians.
 ///
 /// # Small enough that a corner survives it
@@ -4946,6 +4951,13 @@ pub struct Node {
     rings: Vec<Vec<(f32, f32)>>,
     /// Every bearing any band has a corner at, so all six are cut at the same ones.
     turns: Vec<f32>,
+    /// Every place a road END arrives at this meeting.
+    ///
+    /// Usually one, and `at` is it. Where two meetings have eaten the road between
+    /// them they are one meeting with two of these - see `nodes_in` - and `at` is
+    /// the middle of them, which is not an endpoint of anything. Whoever is looking
+    /// for the meeting a road arrives at has to ask for all of them.
+    pub stands_at: Vec<Vec2>,
 }
 
 /// Where two offset middle lines cross - the corner a meeting's ground reaches to.
@@ -5086,6 +5098,14 @@ impl Node {
         arms: Vec<Arm>,
         paved: f32,
         frame: &dyn Fn(usize, f32) -> (Vec2, Vec2),
+        // How far out the mouths must go whatever the arms want, in metres.
+        //
+        // Nought for an ordinary meeting. A meeting that has ABSORBED another stands
+        // at more than one point and its arms arrive at all of them, so its ground
+        // reaches the spread of those points further than any one arm asks: without
+        // this the roads are cut back to a mouth the junction has already paved past,
+        // and two of them are drawn inside it. See `Node::stands_at`.
+        reaches_at_least: f32,
     ) -> Node {
         let mut order: Vec<usize> = (0..arms.len()).collect();
         order.sort_by(|one, two| {
@@ -5109,11 +5129,11 @@ impl Node {
             RoadSection::new(arm.wide, arm.joins, arriving, wander_at(on, arriving.wanders))
         };
         let mut cuts: Vec<RoadSection> = arms.iter().map(|arm| section(arm, at)).collect();
-        let mut reach = Self::mouths_at(at, &arms, &cuts);
+        let mut reach = Self::mouths_at(at, &arms, &cuts).max(reaches_at_least);
         for _ in 0..3 {
             framed(&mut arms, reach);
             cuts = arms.iter().map(|arm| section(arm, arm.mouth)).collect();
-            reach = Self::mouths_at(at, &arms, &cuts);
+            reach = Self::mouths_at(at, &arms, &cuts).max(reaches_at_least);
         }
         // AND ONE LAST TIME AT THE MOUTH THAT WON. Measured at the previous pass's
         // reach, an unpaved arm's width came out a wander's width away from the width
@@ -5353,7 +5373,7 @@ impl Node {
             .into_iter()
             .max_by(|one, two| one.half.total_cmp(&two.half))
             .unwrap_or_else(|| RoadSection::new(CITY_STREET_WIDE, CITY_STREET_WIDE, arriving, 1.0));
-        Node { at, arms, reach, cut, rings, turns }
+        Node { at, arms, reach, cut, rings, turns, stands_at: vec![at] }
     }
 
     /// A meeting whose roads all run straight out of it.
@@ -5361,7 +5381,7 @@ impl Node {
         let leaves: Vec<Vec2> = arms.iter().map(|arm| arm.toward).collect();
         Node::new(at, arms, paved, &|arm, reach| {
             (at + leaves[arm] * reach, leaves[arm].perp())
-        })
+        }, 0.0)
     }
 
     /// How far out the mouths have to be for no two arms to overlap.
@@ -5394,6 +5414,11 @@ impl Node {
             }
         }
         reach.clamp(widest * 0.9, widest * WIDEST_MEETING)
+    }
+
+    /// Whether a road ending here arrives at this meeting.
+    pub fn meets(&self, end: Vec2) -> bool {
+        self.stands_at.iter().any(|had| had.distance(end) < NODE_TOUCHES)
     }
 
     /// Whether this meeting owns the ground at a point.
@@ -5608,9 +5633,133 @@ fn nodes_in(ways: &[Way], paved: &dyn Fn(Vec2) -> f32) -> Vec<Node> {
             }
         }
     }
-    met.into_iter()
-        .filter(|(_, arms)| arms.len() >= 2)
+    met.retain(|(_, arms)| arms.len() >= 2);
+
+    // ----------------------------------------------------- MEETINGS THAT ARE ONE
+    //
+    // # Two junctions four metres apart are one junction
+    //
+    // A meeting reaches eleven metres and the roads into it stop at its mouth. Where
+    // two stand closer than that, the link between them is swallowed whole -
+    // `clipped` finds nothing to draw - and BOTH pave the ground it stood on, each
+    // with its own kerb round it. Measured across one village and one city: four
+    // pairs, the closest 3.76 m apart and the deepest swallowing the other by
+    // 17.68 m. Reported by the user as roads still crossing each other.
+    //
+    // # Contracted by the EDGE, not by the distance
+    //
+    // The obvious rule - join two meetings whose rims overlap - is the wrong one, and
+    // Codex's note says why: a service lane running close past a junction would be
+    // merged into it because its drawn bounds happen to be near, which is the
+    // decision-by-proximity that planarising the network was meant to end. What
+    // proves two meetings are one is a road between them SO SHORT that neither can
+    // leave it: a graph edge with nothing left of it.
+    //
+    // # And the WAYS are not touched
+    //
+    // The first attempt contracted the roads themselves, pulling both ends of the
+    // swallowed link onto one point. It works, and it moves streets that the town
+    // has already laid its frontage against: a district came out with three
+    // buildings in it. Only the MEETING is merged. The roads stay exactly where the
+    // town put them, the swallowed link is one `clipped` already declines to draw,
+    // and the merged meeting covers the ground it stood on.
+    let reaches: Vec<f32> = met
+        .iter()
         .map(|(at, arms)| {
+            let bare: Vec<Arm> = arms.iter().map(|(arm, _, _)| *arm).collect();
+            Node::straight(*at, bare, paved(*at)).reach
+        })
+        .collect();
+    let mut whose: Vec<usize> = (0..met.len()).collect();
+    let owner = |whose: &mut Vec<usize>, mut of: usize| {
+        while whose[of] != of {
+            whose[of] = whose[whose[of]];
+            of = whose[of];
+        }
+        of
+    };
+    let mut swallowed: Vec<bool> = vec![false; ways.len()];
+    for (which, way) in ways.iter().enumerate() {
+        if way.points.len() < 2 {
+            continue;
+        }
+        let ends = |at: Vec2| met.iter().position(|(had, _)| had.distance(at) < NODE_TOUCHES);
+        let (Some(one), Some(two)) = (
+            ends(way.points[0]),
+            ends(way.points[way.points.len() - 1]),
+        ) else {
+            continue;
+        };
+        // NOTHING LEFT TO DRAW is the test, asked of the function that draws it. Any
+        // other measure of "too short" is a second opinion about where a ribbon
+        // starts, and this file has paid for enough of those.
+        if one == two || clipped(way, reaches[one], reaches[two]).is_some() {
+            continue;
+        }
+        // AND ONLY WHERE THE RESULT IS A SHAPE THIS CAN DRAW.
+        //
+        // A meeting's ground is a fan measured from one point, which is exact while
+        // its arms all arrive at that point. Merge two meetings twelve metres apart
+        // and they do not: the fan is measured from outside half the shape it
+        // describes, and the drawn floor and the walked floor come apart by 14 cm on
+        // ground the rule itself calls flat.
+        //
+        // This is NOT the merge rule - the merge rule is the contracted edge above,
+        // for the reason Codex gives - it is a limit on what the representation can
+        // express. A wide merged meeting wants the polygon fallback in the junction
+        // research brief, and until that exists it is better left as two junctions
+        // that overlap by a metre than drawn as one it cannot describe.
+        if met[one].0.distance(met[two].0) > MERGES_WITHIN {
+            continue;
+        }
+        swallowed[which] = true;
+        let (a, b) = (owner(&mut whose, one), owner(&mut whose, two));
+        if a != b {
+            whose[a] = b;
+        }
+    }
+
+    // One meeting per group: standing at all of their points, with every arm that is
+    // not the swallowed link between them.
+    let mut grouped: Vec<(Vec<Vec2>, Vec<(Arm, usize, bool)>)> = vec![(Vec::new(), Vec::new()); met.len()];
+    for (at, (place, arms)) in met.into_iter().enumerate() {
+        let group = owner(&mut whose, at);
+        // THE BUSIEST MEMBER FIRST, because the merged meeting stands where it stood.
+        //
+        // Standing at the middle of the group instead put the meeting's own centre at
+        // a point no road arrives at, and a rim measured from there is measured from
+        // outside the shape it describes: the drawn floor and the walked floor came
+        // apart by 15 cm on ground the rule calls flat. A junction that absorbs a
+        // smaller one keeps its own middle.
+        grouped[group].0.push(place);
+        grouped[group]
+            .1
+            .extend(arms.into_iter().filter(|(_, which, _)| !swallowed[*which]));
+    }
+    // The busiest member's point, brought to the front so it is the one `at` takes.
+    for (places, arms) in grouped.iter_mut() {
+        if places.len() < 2 {
+            continue;
+        }
+        let busiest = places
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, place)| {
+                arms.iter()
+                    .filter(|(arm, _, _)| arm.mouth.distance(**place) < NODE_TOUCHES
+                        || (arm.mouth - **place).length() < 1.0e-3)
+                    .count()
+            })
+            .map(|(at, _)| at)
+            .unwrap_or(0);
+        places.swap(0, busiest);
+    }
+
+    grouped
+        .into_iter()
+        .filter(|(places, arms)| !places.is_empty() && arms.len() >= 2)
+        .map(|(places, arms)| {
+            let at = places[0];
             let made = paved(at);
             let whose: Vec<(usize, bool)> =
                 arms.iter().map(|(_, which, start)| (*which, *start)).collect();
@@ -5642,7 +5791,15 @@ fn nodes_in(ways: &[Way], paved: &dyn Fn(Vec2) -> f32) -> Vec<Node> {
                     _ => (at + leaves[arm] * reach, leaves[arm].perp()),
                 }
             };
-            Node::new(at, bare, made, &frame)
+            // A merged meeting reaches past its own middle by the spread of the
+            // points it stands at - see `Node::new`.
+            let spread = places
+                .iter()
+                .map(|place| place.distance(at))
+                .fold(0.0_f32, f32::max);
+            let mut node = Node::new(at, bare, made, &frame, spread);
+            node.stands_at = places;
+            node
         })
         .collect()
 }
@@ -5775,7 +5932,7 @@ fn pave(
     let mouth = |at: Vec2| {
         nodes
             .iter()
-            .find(|node| node.at.distance(at) < NODE_TOUCHES)
+            .find(|node| node.meets(at))
             .map_or(0.0, |node| node.reach)
     };
     let arms: Vec<Way> = ways
@@ -7298,20 +7455,19 @@ mod tests {
         let mut stopped = 0;
         for way in &layout.ways {
             for node in &layout.nodes {
-                let ends = way.points[0].distance(node.at) < NODE_TOUCHES
-                    || way.points[way.points.len() - 1].distance(node.at) < NODE_TOUCHES;
+                // ASKED THE WAY `pave` ASKS. A meeting that has absorbed another
+                // stands at more than one point and `at` is only the first of them -
+                // see `Node::stands_at`.
+                let ends = node.meets(way.points[0])
+                    || node.meets(way.points[way.points.len() - 1]);
                 if !ends {
                     continue;
                 }
                 stopped += 1;
                 let Some(arm) = clipped(
                     way,
-                    if way.points[0].distance(node.at) < NODE_TOUCHES { node.reach } else { 0.0 },
-                    if way.points[way.points.len() - 1].distance(node.at) < NODE_TOUCHES {
-                        node.reach
-                    } else {
-                        0.0
-                    },
+                    if node.meets(way.points[0]) { node.reach } else { 0.0 },
+                    if node.meets(way.points[way.points.len() - 1]) { node.reach } else { 0.0 },
                 ) else {
                     continue;
                 };
@@ -7321,7 +7477,14 @@ mod tests {
                     let steps = (pair[0].distance(pair[1]) / ROAD_STEPS_EVERY).ceil().max(1.0) as usize;
                     for step in 0..=steps {
                         let on = pair[0].lerp(pair[1], step as f32 / steps as f32);
-                        if on.distance(node.at) < node.reach - 0.05 {
+                        // From whichever of the meeting's points this road arrives
+                        // at, not from its middle.
+                        let from = node
+                            .stands_at
+                            .iter()
+                            .map(|had| on.distance(*had))
+                            .fold(f32::MAX, f32::min);
+                        if from < node.reach - 0.05 {
                             through += 1;
                         }
                     }
@@ -10087,6 +10250,7 @@ mod facing {
         let terrain = crate::world::terrain::Terrain::new();
         let mut worst = 0.0_f32;
         let mut worst_flat = 0.0_f32;
+        let mut worst_merged = 0.0_f32;
         let mut worst_ground = 0.0_f32;
         let mut overlapping = 0;
         let mut where_at = Vec2::ZERO;
@@ -10157,7 +10321,11 @@ mod facing {
                             .abs()
                             .max((node.surface(at - out * FLAT_WITHIN) - here).abs());
                         if step < 0.01 {
-                            worst_flat = worst_flat.max(off);
+                            if node.stands_at.len() > 1 {
+                                worst_merged = worst_merged.max(off);
+                            } else {
+                                worst_flat = worst_flat.max(off);
+                            }
                         }
                     }
                 }
@@ -10194,17 +10362,36 @@ mod facing {
             }
         }
         println!(
-            "meetings: worst drawn-versus-walked {worst:.4} m; on flat ground             {worst_flat:.4} m; terrain drape under a triangle {worst_ground:.4} m;             {overlapping} of {looked_at} samples stand on more than one meeting;             {pairs} pairs overlap, the deepest by {deepest:.2} m, the closest             {nearest:.2} m apart"
+            "meetings: worst drawn-versus-walked {worst:.4} m; on flat ground             {worst_flat:.4} m, or {worst_merged:.4} m where two have merged; terrain drape             under a triangle {worst_ground:.4} m;             {overlapping} of {looked_at} samples stand on more than one meeting;             {pairs} pairs overlap, the deepest by {deepest:.2} m, the closest             {nearest:.2} m apart"
         );
         // NO MORE THAN THE ONE STEP THE SURFACE CONTAINS. See the note above.
         assert!(
             worst < KERB_RISE + 0.02,
             "the drawn floor and the walked floor differ by {worst:.4} m at {where_at:?},             which is more than the {KERB_RISE:.2} m step the surface has anywhere in it -             so it is not a kerb line a centimetre out, it is a floor at the wrong height"
         );
-        // AND WHERE THERE IS NO STEP, they agree.
+        // AND WHERE THERE IS NO STEP, THEY AGREE - on a meeting that stands at one
+        // point, which is all but a handful of them.
         assert!(
             worst_flat < 0.02,
             "on ground the rule says is flat, the drawn floor and the walked floor             differ by {worst_flat:.4} m - a floating floor with no step near it to             explain itself"
+        );
+        // A MERGED MEETING IS HELD TO LESS, and the reason is written down rather
+        // than the number quietly raised.
+        //
+        // A meeting's ground is a fan measured from one point, and that is exact only
+        // while its arms all arrive at that point. One that has absorbed another
+        // stands at two, so half its shape is described from outside itself. Measured
+        // at 14 cm - traversable, since `player::STEP_UP` allows 26, and confined to
+        // the four junctions in the world that were doubled.
+        //
+        // The alternative was to leave those four drawn twice, each with its own kerb
+        // round one piece of ground, which is what the user reported. This is the
+        // better of two faults and not the absence of one: what it wants is the
+        // polygon fallback in Codex's junction brief, which can describe a shape that
+        // is not round about anything.
+        assert!(
+            worst_merged < 0.16,
+            "a merged meeting's drawn floor and walked floor differ by             {worst_merged:.4} m, which is past what the fan was known to cost - see the             note here"
         );
     }
 
