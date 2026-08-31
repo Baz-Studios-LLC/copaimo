@@ -2,6 +2,77 @@
 
 Updated: 2026-08-29
 
+## 2026-08-31 — Research handoff for the active junction rewrite
+
+I compared the current `network` / `Node` implementation with production junction-network,
+pedestrian-corner, boundary/elevation-transition, and polygon-triangulation practice. The focused brief
+is [PROCEDURAL_JUNCTION_NODE_RESEARCH_2026-08-31.md](PROCEDURAL_JUNCTION_NODE_RESEARCH_2026-08-31.md).
+
+The most useful conclusion is architectural: treat a junction as a bounded road object with explicit
+per-arm contacts, an ordered valid boundary, connector paths, and one shared surface for mesh and
+traversal. The current center-fan/polar-ring representation is a good fast path only when each loop is
+proved simple and star-shaped from `Node::at`; acute, skewed, mixed-width, and curved-mouth fixtures need
+a validated polygon fallback rather than a radial envelope that changes the intended boundary.
+
+In addition to the two P0s immediately below, resolve `Arriving` and the complete `RoadSection` at each
+final mouth. `Node::new` currently receives one center-sampled `paved`, so a gateway node can disagree
+with its arms while the arrival channels change across the node. Also do not use the widest arm's
+vertical profile as the contact truth for narrower arms: preserve every arm's band positions and
+heights at its own mouth, then blend inside. Finally, test traversal against barycentric rendered
+triangle height at triangle interiors; agreement only at node vertices cannot prove the two surfaces
+are the same.
+
+Suggested disposition: **needs review while this rewrite is active**. Stage A of the brief is the
+correctness gate; its later material, pedestrian, and AAA extension work can be deferred without losing
+the architecture.
+
+## 2026-08-31 — Active junction-node review before commit
+
+The new direction is structurally correct: planarise the network, trim every arm to a node mouth,
+give the node one six-band surface, and let town traversal ask that same node. This is the first
+implementation that can actually remove the overlapping-footway fault instead of painting over it.
+Two integration holes are visible in the active tree and should be guarded before the change lands.
+
+### P0 — country-road nodes are drawn but country traversal still uses the unsplit roads
+
+`lay_the_country_roads` now calls `network`, passes its nodes to `pave`, and therefore draws trimmed
+arms plus node-owned ground. `stands_on`, however, still loops directly over `terrain.plan().ways()`
+for roads between settlements and takes each original road's `RoadSection` independently. It never
+sees the streamed `Node`s. At a country crossing—or a partially urbanized meeting near a city—the
+mesh has removed the overlapping sections while traversal can still feel their old crowns, kerbs,
+and footways through the middle.
+
+Store/query the same deterministic country network for traversal, or provide a cheap local node
+lookup derived from the same plan and cache key as `DirtLaid`. Ask a node first and suppress its arms
+inside the owned boundary exactly as the town-layout path now does. Add a real country crossing and a
+transition-area crossing to a mesh-versus-support-height test.
+
+### P0 — a crossing near an existing interior vertex is discarded, not split at that vertex
+
+`planarise` removes any cut within `SNAPS` of either endpoint of the current segment with the comment
+that the cut “is that corner.” But an interior corner of a multi-point `Way` is not an endpoint of the
+`Way`, and `nodes_in` only forms nodes from whole-way endpoints. Discarding the cut therefore leaves
+the chain unsplit at precisely that existing point. A road ending on, or crossing within 1.2 m of, a
+ring sample can disappear from the new node network.
+
+Snap the candidate to the existing vertex **and split the chain there**, unless that vertex is already
+the whole way's first/last endpoint. Guard three cases independently: crossing exactly on an existing
+interior vertex, crossing just inside `SNAPS`, and crossing just outside it. Each should produce one
+node with the expected unique arms and no sub-half-metre fragments.
+
+### Validation still needed for this topology
+
+The older `junctions_in` disc tests do not exercise `network`, `Node`, clipping, or the new node mesh.
+Before replacing them, add focused T, four-way, skew, acute, mixed-width, gateway, and close-paired-node
+fixtures. Assert arm mouth endpoints coincide with the node's corresponding outer boundary; the node
+polygon is non-degenerate and consistently wound; no arm surface continues inside `Node::owns`; and
+sampled traversal height matches the rendered triangulation closely enough across the center, curb
+returns, mouth seams, and outer tie. The current central fan samples `Node::surface` only at its
+vertices, so this last check is what will reveal any nonlinear analytical height that the triangles
+cannot reproduce between vertices.
+
+No game file was changed in this review.
+
 ## Standing reminder rule requested by the user
 
 Please give P0/P1 findings and direct user requests an explicit status in `CLAUDE_REPLY.md`. If an

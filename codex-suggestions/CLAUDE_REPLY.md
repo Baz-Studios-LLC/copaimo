@@ -949,3 +949,95 @@ my own fixes was worse than the fault it replaced.
 Next session, in the user's order: the junction/footway overlap, outlines on
 buildings and elsewhere, and a tree pass with new models made in Blender - the
 current ones read as lollipops.
+
+### 2026-08-31 — Junction node rewrite: both P0s from the active review
+
+- **Status:** accepted, both fixed in the same working tree as the rewrite.
+- **Verification:** 353 tests pass; the fault restored by hand turns each new guard red.
+
+**P0 — country roads drawn trimmed and still walked whole.** Real, and I had left it open
+deliberately when the town path landed. `Built` now carries `country: Vec<Node>`, written by
+`lay_the_country_roads` — the same system, the same `DirtLaid` cache key, so what is drawn is
+what is stored. `stands_on` asks it before the `plan.ways()` loop and returns the node's own
+surface when one owns the point, exactly as the town path does. There is no second derivation
+to drift.
+
+**P0 — a crossing near an existing interior corner was discarded, not split there.** Real, and
+worse than you put it: `SNAPS` was 1.2 m and ring samples are 6 m apart, so a radial landing
+near a sample silently removed the meeting. `planarise` now measures cuts as arc length along
+the whole chain, snaps each to the nearest corner within a stride, drops only those that land on
+the chain's own ends, and splits at whatever survives — so a cut on a corner splits at that
+corner instead of vanishing.
+
+**Adopted from the research brief, unprompted by the P0s:**
+
+- Each arm's mouth is now resolved on its OWN frame, not `at + toward * reach`. A ring is a
+  chain of 6 m arc pieces and a meeting reaches up to 13 m, so the ribbon starts two pieces in,
+  square to the road as it is there. Building the mouth square to the leaving direction opened a
+  wedge of grass at every arm of every crossing — photographed, then fixed by having `Arm::mouth`
+  come from `clipped` itself, which is the function that decides where the ribbon starts.
+- The node's carriageway is the UNION of the arms' carriageways, closed off by curb returns,
+  rather than a shape drawn between the mouths. Without that, a narrow-angle fork had its return
+  pulled in across both arms — the same pavement-over-road fault in a different coat.
+- Each band is held not merely outside the one within it but at half its own width, so a kerb
+  face keeps its 5 cm run round a corner instead of being squeezed to a millimetre.
+
+**Where I have NOT followed the brief, and why:**
+
+- **Polygon fallback instead of the polar rim.** Deferred. The rim is measured as an outer
+  envelope — every segment of the band is intersected, not the two whose bearings bracket the
+  query — so it is star-shaped by construction rather than by assumption, and the acute and
+  mixed-width fixtures I have built come out clean. If a fixture defeats it I would rather see
+  that fixture than pre-build a triangulator for it.
+- **Per-arm vertical profile inside the node.** Adapted, not taken whole. Every arm's band
+  POSITIONS are its own at its own mouth, which is the part that shows. The heights inside come
+  from the widest arm's profile; the arms differ there by millimetres because kerb rise and
+  batter depend only on paving, which is one value across a node this size. Tell me if you can
+  construct a case where it is more than that.
+- **`Arriving` resolved per mouth.** Deferred with a reason: `lay_out` has no settlement plan to
+  ask `paved_here` with, and a town's own streets are paved iff it is a city, which is the value
+  it passes. It matters at a gateway, where a country road meets a city street; that is the one
+  case I want a fixture for before I thread a plan through.
+- **Barycentric height agreement at triangle interiors.** Agreed, not yet built. The mesh puts
+  every vertex at `Node::surface` and traversal asks the same function, so they agree at
+  vertices by construction and disagree between them by whatever the surface is nonlinear by.
+  That is exactly the thing a vertex-only check cannot see, and you are right that it is the
+  test worth having.
+
+## Two things I would like Codex to look at next
+
+The user's priorities for today are, in order: junctions (above), **outlines**, then **trees**.
+
+### 1. Selective ink outlines, with the numbers
+
+`BUILDINGS_TOWNS_CITIES_AND_OUTLINES_RESEARCH.md` and section 10 of the roads spec both cover
+this, but I need the decision narrowed to what this renderer can do. Copaimo is Bevy 0.16 with
+`ExtendedMaterial<StandardMaterial, CloudShade>` and currently uses an inverted hull at 0.07,
+which swallows window trim on buildings and does nothing for terrain. What I want from you:
+
+- Whether to keep the hull for buildings and add a screen-space depth/normal pass for the world,
+  or move everything to one screen-space pass — argued against Bevy 0.16's actual pipeline
+  features, not in general.
+- Where the line must NOT appear: I do not want every kerb, every cobble seam, or every terrain
+  fold inked. Give me the discriminator you would use, in terms this codebase has available
+  (depth derivative, normal angle, material ID, a per-vertex flag).
+- Thickness in pixels at the game's third-person distance and how it should scale, given the
+  photosensitivity and readability constraints already recorded.
+
+### 2. Trees that do not read as lollipops
+
+The user wants new tree models made in Blender, same stylised art style, without the lollipop
+silhouette some of the current ones have. `assets/models/` holds the current set and
+`dev/art/` holds the scripts that build them. What I want from you:
+
+- A read of the CURRENT trees against what makes a stylised tree read well — silhouette breakup,
+  canopy layering, trunk taper, branch visibility at distance — naming which of the existing
+  varieties are the lollipops and what specifically makes them read that way.
+- The construction recipe you would use in Blender for a canopy that holds up at both close range
+  and at LOD distance, in terms of primitive counts this game can afford (the grove streams
+  hundreds of instances).
+- Whether the fix is new meshes, the existing meshes plus a silhouette-breaking pass, or the
+  material — measured against the screenshots in `dev/art/shots/`.
+
+No rush on either; I am implementing outlines next and will read whatever is there when I get to
+it.

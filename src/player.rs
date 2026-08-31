@@ -1199,6 +1199,7 @@ mod tests {
                     opens: Vec::new(),
                     ways: Vec::new(),
                     streets: Vec::new(),
+                    nodes: Vec::new(),
                     plots: vec![plot],
                     lamps: Vec::new(),
                 },

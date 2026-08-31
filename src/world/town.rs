@@ -1414,6 +1414,7 @@ impl Way {
     /// throws the kerb into the next county, which is exactly how the first attempt
     /// at this produced spikes.
     fn across(&self) -> Vec<(Vec2, f32)> {
+
         let ways: Vec<Vec2> = self
             .points
             .windows(2)
@@ -1461,6 +1462,9 @@ pub struct Layout {
     /// The same roads cut into straight pieces, which is what every geometric
     /// question about them wants. Derived from `ways`, never built beside it.
     pub streets: Vec<Street>,
+    /// Where those roads meet, and the ground each meeting owns. Also derived from
+    /// `ways` - see `network`, which splits them at the meetings it finds.
+    pub nodes: Vec<Node>,
     pub plots: Vec<Plot>,
     pub lamps: Vec<Lamp>,
 }
@@ -2591,6 +2595,17 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // wander; a village's are dirt and do. It only reaches the clearance rules, which
     // need to know how wide a street can possibly be drawn - see `widest_half`.
     let made = f32::from(u8::from(site.city));
+    // SPLIT AT THE MEETINGS FIRST, before anything reads the network.
+    //
+    // A radial runs from the square out through every ring as one chain, so until
+    // this every crossing in every city was two roads drawn over each other. See
+    // `network`. Everything below - the segments, the frontage rules, the lamps -
+    // reads what comes out of it, so there is one network and not two.
+    //
+    // A village is unpaved and a city is not, which is what decides how wide a
+    // meeting's carriageway is against its footway. `paved_here` would say the same
+    // thing at these distances and would need a plan this does not have.
+    let (ways, nodes) = network(ways, &|_| f32::from(u8::from(site.city)));
     let laid: Vec<Street> = ways.iter().flat_map(|way| way.segments()).collect();
 
     // EVERY ROAD ON THIS GROUND, not only the ones the town laid.
@@ -3420,6 +3435,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         // THE TOWN'S OWN, because these are what it draws. The roads crossing it
         // belong to `settle` and are already drawn there - see the note on `streets`.
         streets: laid,
+        nodes,
         plots,
         lamps,
     }
@@ -3593,6 +3609,21 @@ pub struct Standing {
 #[derive(Resource, Default)]
 pub struct Built {
     pub standing: std::collections::HashMap<u32, Layout>,
+    /// Where the roads BETWEEN settlements meet, for the stretch that is streamed in.
+    ///
+    /// # A junction that is drawn has to be a junction that is walked
+    ///
+    /// `lay_the_country_roads` splits its roads at their meetings, trims every arm
+    /// back to a mouth and draws the ground between them - and `stands_on` went on
+    /// asking each unsplit road for its own section. So at a country crossing the mesh
+    /// had taken the crossing kerbs away and the warden could still feel them: an
+    /// invisible step in the middle of a junction, which is precisely the fault the
+    /// whole solve exists to remove, left standing at the one place nobody had
+    /// looked. Codex found it by reading the two paths against each other.
+    ///
+    /// Kept here rather than worked out again, because working it out again is how
+    /// there came to be two answers.
+    pub country: Vec<Node>,
 }
 
 impl Built {
@@ -3792,21 +3823,37 @@ pub fn stands_on(
     let mut on = terrain.walk_height(at.x, at.y);
     let ground = on;
     for layout in built.standing.values() {
-        for street in &layout.streets {
-            // ASKED ON THE MIDDLE LINE, which is where a road's section is decided.
-            let centre = street.nearest_point(at);
-            let across = at.distance(centre);
-            if across > RoadSection::most_it_reaches(street.wide, street.wide) {
-                continue;
-            }
-            let cut = RoadSection::at(
-                street.wide,
-                street.wide,
-                paved_here(terrain.plan(), centre),
-                centre,
-            );
-            if across <= cut.shoulder {
-                on = on.max(ground + cut.lift(across));
+        // A MEETING OWNS ITS OWN GROUND, and the roads into it stop at its mouth.
+        //
+        // Asked FIRST, and the streets skipped where it answers. A junction is the
+        // one place a road's own section is the wrong answer: at a crossing both
+        // roads claim the same ground, and taking the higher of the two put a kerb
+        // through the middle of a carriageway - which is exactly what the mesh used
+        // to draw and what `Node` was written to stop. See `Node::surface`.
+        let met = layout
+            .nodes
+            .iter()
+            .filter_map(|node| node.lift(at))
+            .fold(f32::NEG_INFINITY, f32::max);
+        if met > f32::NEG_INFINITY {
+            on = on.max(ground + met);
+        } else {
+            for street in &layout.streets {
+                // ASKED ON THE MIDDLE LINE, which is where a road's section is decided.
+                let centre = street.nearest_point(at);
+                let across = at.distance(centre);
+                if across > RoadSection::most_it_reaches(street.wide, street.wide) {
+                    continue;
+                }
+                let cut = RoadSection::at(
+                    street.wide,
+                    street.wide,
+                    paved_here(terrain.plan(), centre),
+                    centre,
+                );
+                if across <= cut.shoulder {
+                    on = on.max(ground + cut.lift(across));
+                }
             }
         }
         for plot in &layout.plots {
@@ -3828,6 +3875,16 @@ pub fn stands_on(
     // kerb on it, and feet in the middle of that is not a shoe. Found by Codex while
     // the footways were going in.
     let plan = terrain.plan();
+    // THE COUNTRY MEETINGS FIRST, and their arms suppressed inside them - the same
+    // division of labour the town layouts use. See `Built::country`.
+    let met = built
+        .country
+        .iter()
+        .filter_map(|node| node.lift(at))
+        .fold(f32::NEG_INFINITY, f32::max);
+    if met > f32::NEG_INFINITY {
+        return on.max(ground + met);
+    }
     for road in plan.ways() {
         // The cheap reject first - there are hundreds of these and this runs several
         // times a frame.
@@ -4080,7 +4137,7 @@ impl Arriving {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct RoadSection {
     /// How much of a city street this is, nought to one.
     /// What has arrived here, channel by channel. See `Arriving`.
@@ -4573,121 +4630,6 @@ pub(crate) fn paved_here(plan: &crate::world::settle::Settlements, at: Vec2) -> 
 /// Over what distance a country road turns into a city street, in metres.
 const PAVING_ARRIVES: f32 = 34.0;
 
-/// Where roads actually MEET, as (place, the widest road meeting there).
-///
-/// # A bend is not a junction
-///
-/// This used to answer "every endpoint of every segment", which was right when a
-/// road was a row of independent rectangles: consecutive pieces were square to
-/// different bearings, so every joint of a curved ring left a notch and every notch
-/// wanted a patch.
-///
-/// `Way` fixed that. A chain mitres its own bends - both pieces take one
-/// cross-section from `Way::across`, so they share an edge exactly and there is
-/// nothing left to fill. The discs went on being emitted anyway, at every
-/// subdivision of every curve, and once the cross-section grew a raised footway they
-/// stopped being harmless: a flat carriageway-coloured patch at each of them, over
-/// the kerb, all the way round every ring. Codex's research is blunt about the
-/// distinction and this is it, in code: cap where roads MEET, and leave a bend alone.
-///
-/// # And a road ends ON another road, not on one of its corners
-///
-/// The first version of this clustered shared VERTICES, which found the square where
-/// several radials start and missed almost everything else: a ring is drawn as a
-/// chain of arc samples, and a radial meets it wherever it happens to arrive - which
-/// is between two of those samples, not on one. So the caps vanished from most of the
-/// junctions in every settlement and the notch came back. Reported as roads not
-/// connecting properly to most cities and some towns, which is what it was.
-///
-/// An END of one road, tested against the LINE of every other. A way's interior
-/// bends are still left alone - those are mitred and were never the problem.
-fn junctions_in(ways: &[Way]) -> Vec<Meeting> {
-    // How near a road has to pass for an end to be ON it.
-    const TOUCHING: f32 = 0.6;
-
-    let near_way = |way: &Way, at: Vec2| {
-        way.points.windows(2).any(|pair| {
-            let run = pair[1] - pair[0];
-            let along = run.length_squared();
-            let part = if along > 1.0e-6 {
-                ((at - pair[0]).dot(run) / along).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-            at.distance(pair[0] + run * part) < TOUCHING
-        })
-    };
-
-    let mut met: Vec<Meeting> = Vec::new();
-    for (index, way) in ways.iter().enumerate() {
-        let (Some(first), Some(last)) = (way.points.first(), way.points.last()) else {
-            continue;
-        };
-        for end in [*first, *last] {
-            // WHO ELSE IS HERE. Every other road whose LINE passes through this end,
-            // not merely those with a vertex on it.
-            let mut arms = vec![(way.wide, way.joins)];
-            let mut whose = vec![index];
-            for (other, road) in ways.iter().enumerate() {
-                if other != index && near_way(road, end) {
-                    arms.push((road.wide, road.joins));
-                    whose.push(other);
-                }
-            }
-            if arms.len() < 2 {
-                continue;
-            }
-            match met.iter_mut().find(|node| node.at.distance(end) < TOUCHING) {
-                Some(node) => {
-                    for (arm, who) in arms.into_iter().zip(whose) {
-                        if !node.whose.contains(&who) {
-                            node.whose.push(who);
-                            node.arms.push(arm);
-                        }
-                    }
-                }
-                None => met.push(Meeting { at: end, arms, whose }),
-            }
-        }
-    }
-    met
-}
-
-/// A place where roads meet, and what meets there.
-///
-/// # The arms, not their widest
-///
-/// This kept only `max(wide)` and the patch was drawn at that road's carriageway. At
-/// a 10 m high street meeting an 8 m lane the patch came out 3 m across while the
-/// lane's carriageway is 2 m, so it paved a metre into the lane's footway - and the
-/// test written to prevent exactly that passed, because it only ever measured a 10 m
-/// patch against a 10 m road. Codex caught both the fault and the hole in its guard.
-///
-/// Each arm also carries what it JOINS. A country road arriving at a gateway is 4.6 m
-/// widening to 10, and a node that only knew 4.6 would resolve a section with the
-/// footways carved back out of it - the pinch `RoadSection` exists to prevent.
-pub struct Meeting {
-    pub at: Vec2,
-    /// Every road that meets here, as (its width, the width it joins).
-    pub arms: Vec<(f32, f32)>,
-    whose: Vec<usize>,
-}
-
-impl Meeting {
-    /// How far the patch may reach: the NARROWEST carriageway that meets here.
-    ///
-    /// A patch is there to fill the notch between carriageways. Reaching past the
-    /// tightest of them is paving somebody's pavement.
-    pub fn fills(&self, paved: f32) -> f32 {
-        self.arms
-            .iter()
-            .map(|(wide, joins)| {
-                RoadSection::new(*wide, *joins, Arriving::at(paved), 1.0).carriage
-            })
-            .fold(f32::MAX, f32::min)
-    }
-}
-
 /// How far a steep face leans its shading toward the sky, at vertical.
 ///
 /// Nought is physically honest and renders a kerb face as a black gap; one is a
@@ -4732,39 +4674,74 @@ fn splits_at(lane: usize) -> bool {
 /// in its own lighting band, which is a stronger and steadier line than any painted
 /// stripe. Everywhere the section merely bends - the crown, the tie into the ground -
 /// the stations stay shared and shade smoothly.
+/// The shading normal of a band that rises `rise` over `run`, on a section laid out
+/// along `side`.
+///
+/// Horizontal component against the rise, vertical component with the run: flat
+/// ground gives +Y, and a kerb face gives a normal looking back across the road it
+/// holds.
+///
+/// Shared by the ribbon's cross-section and by a meeting's rings, because a kerb at a
+/// junction is the same kerb as the one along the road and a second derivation of how
+/// it takes the light is a second kerb.
+/// How much a point's surface colour is darkened or lightened by wear.
+///
+/// One flat colour over the whole surface is half of why a road read as an object
+/// laid on a field rather than as ground. Packed earth is worn in patches - a wheel
+/// rut here, a dry spot there - so the colour is multiplied by a slow field and two
+/// faster ones, drawn in the world's own coordinates so the variation crosses a
+/// junction rather than stopping at the edge of whichever piece drew it.
+///
+/// # Wear is for ground that wears
+///
+/// Three scales of brushed variation is what turns packed earth into a track
+/// somebody walks. On a laid surface it is grime: the footway took the full
+/// treatment and came out looking scrubbed. So it fades out with the paving, and
+/// what a paved surface gets instead is its stones - which the carriageway has and
+/// the footway, asked for plain, does not.
+///
+/// Shared with the ground a meeting owns, so a junction wears like the roads into it.
+fn worn_at(at: Vec2, arriving: &Arriving) -> f32 {
+    let broad = terrain_core::forest::field(at / ROAD_WEARS_OVER, 517);
+    let fine = terrain_core::forest::field(at / (ROAD_WEARS_OVER * 0.21), 518);
+    // Three scales, because wear has three: where the carts go, where the puddles
+    // sit, and the scuff of the ground itself.
+    let close = terrain_core::forest::field(at / (ROAD_WEARS_OVER * 0.06), 519);
+    let wears = ROAD_WEARS * (1.0 - arriving.surface_made * 0.8);
+    1.0 + (broad - 0.5) * wears
+        + (fine - 0.5) * wears * 0.5
+        + (close - 0.5) * wears * 0.22
+}
+
+fn band_normal(side: Vec2, run: f32, rise: f32) -> [f32; 3] {
+    let square = Vec3::new(side.x * -rise, run, side.y * -rise).normalize_or_zero();
+
+    // AND TILTED BACK TOWARD THE SKY, the steeper it is.
+    //
+    // # A face that takes no light is a shadow, not a face
+    //
+    // The kerb face is very nearly vertical, which is what a kerb is. With the sun
+    // overhead a vertical surface catches almost nothing: measured off the shipped
+    // frame, the face came out at a tone of 54 against a carriageway and a kerb top
+    // both at 165, and a band that dark beside two bright ones does not read as the
+    // side of a stone. It reads as a gap with a shadow in it, and was reported
+    // exactly that way - "floating with a shadow underneath instead of a face".
+    //
+    // A kerb is a rectangle and both of its faces should be visible. So the shading
+    // normal leans back toward the sky in proportion to how steep the surface is,
+    // which is an ordinary stylisation - the geometry stays a wall and the lighting
+    // stops treating it as a cliff. Flat ground is untouched because there is
+    // nothing to lean.
+    let steep = 1.0 - square.y.abs();
+    square.lerp(Vec3::Y, steep * FACE_TAKES_LIGHT).normalize_or_zero().to_array()
+}
+
 fn cross_section(
     section: &[(f32, [f32; 4], f32, bool)],
     cut: &RoadSection,
     side: Vec2,
 ) -> Vec<(f32, [f32; 4], f32, [f32; 3])> {
-    // The normal of one band, from the profile it is built on. Horizontal component
-    // against the rise, vertical component with the run: flat ground gives +Y, and a
-    // kerb face gives a normal looking back across the road it holds.
-    let facing = |from: f32, to: f32| {
-        let rise = cut.lift(to) - cut.lift(from);
-        let run = to - from;
-        let square = Vec3::new(side.x * -rise, run, side.y * -rise).normalize_or_zero();
-
-        // AND TILTED BACK TOWARD THE SKY, the steeper it is.
-        //
-        // # A face that takes no light is a shadow, not a face
-        //
-        // The kerb face is very nearly vertical, which is what a kerb is. With the
-        // sun overhead a vertical surface catches almost nothing: measured off the
-        // shipped frame, the face came out at a tone of 54 against a carriageway and
-        // a kerb top both at 165, and a band that dark beside two bright ones does
-        // not read as the side of a stone. It reads as a gap with a shadow in it,
-        // and was reported exactly that way - "floating with a shadow underneath
-        // instead of a face".
-        //
-        // A kerb is a rectangle and both of its faces should be visible. So the
-        // shading normal leans back toward the sky in proportion to how steep the
-        // surface is, which is an ordinary stylisation - the geometry stays a wall
-        // and the lighting stops treating it as a cliff. Flat ground is untouched
-        // because there is nothing to lean.
-        let steep = 1.0 - square.y.abs();
-        square.lerp(Vec3::Y, steep * FACE_TAKES_LIGHT).normalize_or_zero().to_array()
-    };
+    let facing = |from: f32, to: f32| band_normal(side, to - from, cut.lift(to) - cut.lift(from));
 
     let mut lanes = Vec::with_capacity(SECTION_LANES);
     for (at, &(across, colour, grain, hard)) in section.iter().enumerate() {
@@ -4787,8 +4764,850 @@ fn cross_section(
     lanes
 }
 
+// ------------------------------------------------------------------- MEETINGS
+
+/// One road leaving a meeting.
+#[derive(Clone, Copy, Debug)]
+pub struct Arm {
+    /// Away from the meeting, along the road's own middle line.
+    pub toward: Vec2,
+    pub wide: f32,
+    /// The width this road converges to where it becomes a city street.
+    pub joins: f32,
+    /// Where this arm's mouth is, and the way the section lies across it.
+    ///
+    /// # Not simply `toward` times the reach
+    ///
+    /// A ring road is a chain of six-metre arc pieces and a meeting reaches thirteen
+    /// metres, so the ribbon starts two pieces in - square to the road AS IT IS
+    /// THERE, which on a curve is several degrees off the way it left. The meeting
+    /// built its mouth square to the leaving direction instead, so the two lines
+    /// crossed at the kerb and opened outward: a wedge of grass between the road's
+    /// footway and the junction's, widest at the back of the pavement. Photographed
+    /// at every arm of every crossing in the first city built this way.
+    ///
+    /// So both read the same frame, and it is the one `clipped` actually cuts on.
+    pub mouth: Vec2,
+    pub side: Vec2,
+}
+
+impl Arm {
+    /// An arm of a road that runs straight out of the meeting.
+    ///
+    /// The frame is filled in for real by `Node::new` from whatever the road
+    /// actually does; this is the answer for a road that does nothing.
+    pub fn of(toward: Vec2, wide: f32, joins: f32) -> Arm {
+        Arm { toward, wide, joins, mouth: Vec2::ZERO, side: toward.perp() }
+    }
+}
+
+/// How many bands the ground of a meeting is built from, outward from the kerb.
+///
+/// The same six an arm has: the foot of the kerb, the two edges of its top, the seam
+/// the footway starts at, the back of the footway, and the tie into the ground. A
+/// seventh would be a band no arm has, and the mouths would stop lining up.
+const NODE_RINGS: usize = 6;
+
+/// How many of those bands turn a proper corner rather than meeting at a point.
+///
+/// The four that make the kerb: a kerb turns through an arc - a curb return, which is
+/// the thing a road builder actually draws - while the back of a footway is where a
+/// block starts, and a block has corners.
+const NODE_RETURNS: usize = 4;
+
+/// How many pieces a curb return is drawn in.
+const RETURN_STEPS: usize = 6;
+
+/// How many pieces the mouth of an arm is drawn in.
+const MOUTH_STEPS: usize = 4;
+
+/// How near a road's end has to be for it to be the same meeting, in metres.
+const NODE_TOUCHES: f32 = 0.6;
+
+/// The least two of a meeting's bearings may be apart, in radians.
+///
+/// # Small enough that a corner survives it
+///
+/// This was a thousandth of a radian, which is a centimetre and a half at the far
+/// side of a junction and sounded harmless. It is not: what it throws away is
+/// sometimes the CORNER of an arm's mouth, and the rim then runs straight from the
+/// bearing beside it to the first point of the curb return - a chord across the
+/// corner, eight centimetres inside where the road's own footway ends. That is a
+/// hairline of grass at the mouth of every arm of every meeting, and it is what the
+/// junction looked like in the first photograph after this was built.
+///
+/// So the bearings stay fine and the triangles that come out with no area are simply
+/// not emitted - which is the honest fix, because a triangle with no area draws
+/// nothing whichever way it faces.
+const TURNS_APART: f32 = 2.0e-5;
+
+/// The least a triangle's cross product may be for it to be worth emitting.
+///
+/// Twice its area, so this is a tenth of a square millimetre. What it throws out is
+/// the sliver left where two of a meeting's bearings land on nearly the same line -
+/// twenty-five metres long and four microns wide, whose normal is noise.
+const HAS_AN_AREA: f32 = 1.0e-3;
+
+/// The least two of its bands may be apart, in metres.
+const BANDS_APART: f32 = 1.0e-3;
+
+/// How many times the widest road in it a meeting may reach, at its widest.
+///
+/// Two roads forking at a narrow angle have their corner a long way off, and a
+/// junction is not a car park. Real road design would build a splitter island there;
+/// this stops short of the horizon instead.
+const WIDEST_MEETING: f32 = 2.2;
+
+/// How far past the mouths it joins a corner may reach, as a multiple.
+///
+/// A square crossing puts its corner just inside the mouths; anything sharper puts
+/// it further out, and something has to stop it before it leaves the county.
+const CORNER_REACHES: f32 = 1.25;
+
+/// A place where roads meet, and the ground the meeting owns.
+///
+/// # Two roads cannot each carry a pavement across the other
+///
+/// A street was drawn as one ribbon from end to end, kerbs and footways included,
+/// and where two of them crossed both ribbons were drawn in full. So every crossing
+/// in every city had the ring road's pavement running over the radial's carriageway
+/// and the radial's running back over the ring's - a raised kerb through the middle
+/// of a road, twice, in a pale cross you can pick out from the air. Reported as
+/// overlapping sidewalks, which is exactly what it is.
+///
+/// A junction is a PLACE with ground of its own. The arms stop at its mouth; the
+/// node owns everything inside, carrying the carriageway straight across the middle
+/// and the footway round the corners. That is what a junction IS.
+///
+/// # One boundary, read by the mesh and by the warden's feet
+///
+/// The disc this replaces had the fault this family always has. `pave` drew a flat
+/// patch and `stands_on` went on believing both roads' whole sections, so the warden
+/// climbed an invisible kerb across the middle of a junction the mesh had paved
+/// level. Here the rim is worked out once and both of them read it, and `surface` is
+/// the one answer to how high the ground is - the mesh puts its vertices where that
+/// says, so there is nowhere for a second opinion to live.
+#[derive(Clone, Debug)]
+pub struct Node {
+    pub at: Vec2,
+    /// Every road leaving here, in bearing order.
+    pub arms: Vec<Arm>,
+    /// How far along each arm its mouth is - where that road's ribbon starts.
+    pub reach: f32,
+    /// The section this meeting's ground is built to: the widest arm's.
+    cut: RoadSection,
+    /// Each band's boundary, as (bearing, how far out), in bearing order.
+    rings: Vec<Vec<(f32, f32)>>,
+    /// Every bearing any band has a corner at, so all six are cut at the same ones.
+    turns: Vec<f32>,
+}
+
+/// Where two offset middle lines cross - the corner a meeting's ground reaches to.
+///
+/// Each is a point on a road's own edge and the way that edge runs; the pair bounds
+/// the wedge between two arms. `None` when the two run parallel, which is a road
+/// passing straight through rather than a corner at all.
+fn corner_of(at: Vec2, one: (Vec2, Vec2), two: (Vec2, Vec2), reaches: f32) -> Option<Vec2> {
+    let ((from, a), (to, b)) = (one, two);
+    let turn = a.perp_dot(b);
+    if turn.abs() < 1.0e-3 {
+        return None;
+    }
+    let corner = from + a * ((to - from).perp_dot(b) / turn);
+    let out = corner - at;
+    // BEHIND BOTH ARMS is not a corner between them: two roads leaving at a narrow
+    // angle cross behind the meeting, and the crossing is somebody else's ground.
+    if out.dot(a) < 0.0 && out.dot(b) < 0.0 {
+        return None;
+    }
+    // AND NOT OVER THE HORIZON. Arms a hundredth of a radian apart put their corner
+    // half a kilometre away; the fillet drawn to it bulged a junction 148 m across
+    // and wound its own triangles inside out. `the_paving_faces_the_sky` counted 16.
+    Some(at + out.clamp_length_max(reaches))
+}
+
+/// The offsets of a section's bands from its middle line, outward.
+///
+/// The same numbers, in the same order, that `pave` lays a cross-section at. Two
+/// lists would be two kerbs.
+fn rings_of(cut: &RoadSection) -> [f32; NODE_RINGS] {
+    let top = cut.carriage + cut.batter + KERB_TOP;
+    [
+        cut.carriage,
+        cut.carriage + cut.batter,
+        top,
+        top + SEAM,
+        cut.half,
+        cut.shoulder,
+    ]
+}
+
+/// How far out a band reaches at a bearing, measured on the band ITSELF.
+///
+/// The bearings the band carries are not read here - they are what SORTS it, and what
+/// this needs is only its corners. So any closed run of corners can be handed to it,
+/// which is how the arms' own carriageways are asked the same question.
+///
+/// # A chord is not a mouth
+///
+/// The rim is read as a radius per bearing, and the first version of this
+/// interpolated the radius between two of a band's corners. Across the straight mouth
+/// of an arm that bows the boundary outward by the sagitta of the chord - seven
+/// centimetres on a village lane, which is a notch where the meeting is supposed to
+/// hand the road back its own kerb. So the ray is intersected with the band's own
+/// edge instead, which is exact wherever the band is straight and is every mouth.
+fn reach_of(band: &[(f32, Vec2)], turn: f32) -> f32 {
+    if band.len() < 2 {
+        return band.first().map_or(0.0, |(_, out)| out.length());
+    }
+    // THE FURTHEST EDGE THE RAY MEETS, over the whole band rather than over the two
+    // corners whose bearings happen to bracket this one.
+    //
+    // # A band does not always run in bearing order
+    //
+    // A curb return is drawn as the curve leaving one kerb line for the next, and at
+    // a wide wedge that curve can start at a bearing BEHIND the mouth corner it
+    // leaves - so sorting the corners by bearing shuffles the mouth and the return
+    // into each other, and the segment bracketing a bearing is then not the segment
+    // the boundary is actually made of there. Measured: a footway's edge came out
+    // 8 cm inside its own mouth, which is a hairline of grass between the road and
+    // the junction it runs into, at every arm of every meeting in every city.
+    //
+    // The outer envelope has no such assumption in it. This runs at build time, once
+    // per settlement; what the game asks every frame is the table it fills in.
+    let dir = Vec2::from_angle(turn);
+    let mut out: f32 = 0.0;
+    for pair in 0..band.len() {
+        let from = band[pair].1;
+        let to = band[(pair + 1) % band.len()].1;
+        let run = to - from;
+        let across = dir.perp_dot(run);
+        if across.abs() < 1.0e-9 {
+            continue;
+        }
+        let along = dir.perp_dot(from) / -across;
+        if !(-1.0e-4..=1.0 + 1.0e-4).contains(&along) {
+            continue;
+        }
+        let reaches = from.perp_dot(run) / across;
+        if reaches > out {
+            out = reaches;
+        }
+    }
+    out
+}
+
+/// How far out a band reaches at a bearing, between the samples it was measured at.
+fn along_ring(ring: &[(f32, f32)], turn: f32) -> f32 {
+    match ring.len() {
+        0 => 0.0,
+        1 => ring[0].1,
+        _ => {
+            let last = ring.len() - 1;
+            if turn <= ring[0].0 || turn >= ring[last].0 {
+                // ACROSS THE SEAM AT THE BACK. A ring is a closed curve and the list
+                // has to be cut somewhere; the two ends of it are neighbours.
+                let span = ring[0].0 + std::f32::consts::TAU - ring[last].0;
+                let part = if turn >= ring[last].0 {
+                    turn - ring[last].0
+                } else {
+                    turn + std::f32::consts::TAU - ring[last].0
+                };
+                return ring[last].1 + (ring[0].1 - ring[last].1) * (part / span.max(1.0e-4));
+            }
+            let at = ring.partition_point(|(had, _)| *had <= turn).max(1);
+            let (before, after) = (ring[at - 1], ring[at]);
+            let span = (after.0 - before.0).max(1.0e-4);
+            before.1 + (after.1 - before.1) * ((turn - before.0) / span)
+        }
+    }
+}
+
+/// A point on the curve that leaves one kerb line and arrives on the next.
+fn bend(from: Vec2, through: Vec2, to: Vec2, part: f32) -> Vec2 {
+    let rest = 1.0 - part;
+    from * (rest * rest) + through * (2.0 * rest * part) + to * (part * part)
+}
+
+impl Node {
+    /// The meeting of these arms, with its ground worked out.
+    ///
+    /// `frame` answers where an arm's mouth lands and how the section lies across it,
+    /// given how far out the mouths go - which is not known until the widths are,
+    /// hence the closure. See `Arm::mouth`.
+    pub fn new(
+        at: Vec2,
+        arms: Vec<Arm>,
+        paved: f32,
+        frame: &dyn Fn(usize, f32) -> (Vec2, Vec2),
+    ) -> Node {
+        let mut order: Vec<usize> = (0..arms.len()).collect();
+        order.sort_by(|one, two| {
+            arms[*one].toward.to_angle().total_cmp(&arms[*two].toward.to_angle())
+        });
+        let mut arms: Vec<Arm> = order.iter().map(|at| arms[*at]).collect();
+        let framed = |arms: &mut Vec<Arm>, reach: f32| {
+            for (at, arm) in arms.iter_mut().enumerate() {
+                let (mouth, side) = frame(order[at], reach);
+                arm.mouth = mouth;
+                arm.side = side;
+            }
+        };
+        let arriving = Arriving::at(paved);
+        // TWO PASSES, because an arm's section is measured AT ITS MOUTH and the
+        // mouth is not placed until the sections are known. The first measures at the
+        // middle, which is within a wander of the answer; the second measures where
+        // the mouth actually landed, so the meeting's kerb lines up with the road's
+        // instead of standing a wander's width out from it.
+        let section = |arm: &Arm, on: Vec2| {
+            RoadSection::new(arm.wide, arm.joins, arriving, wander_at(on, arriving.wanders))
+        };
+        let mut cuts: Vec<RoadSection> = arms.iter().map(|arm| section(arm, at)).collect();
+        let mut reach = Self::mouths_at(at, &arms, &cuts);
+        for _ in 0..3 {
+            framed(&mut arms, reach);
+            cuts = arms.iter().map(|arm| section(arm, arm.mouth)).collect();
+            reach = Self::mouths_at(at, &arms, &cuts);
+        }
+        // AND ONE LAST TIME AT THE MOUTH THAT WON. Measured at the previous pass's
+        // reach, an unpaved arm's width came out a wander's width away from the width
+        // it has where the mouth actually is - nine centimetres, which is a notch
+        // between the meeting's kerb and the road's. `a_meeting_hands_every_arm_back
+        // _its_own_kerb` measures exactly that gap.
+        framed(&mut arms, reach);
+        cuts = arms.iter().map(|arm| section(arm, arm.mouth)).collect();
+
+        // THE BOUNDARY, BAND BY BAND. Each is a closed curve: straight across every
+        // arm's mouth, then round the corner into the next arm.
+        let offs: Vec<[f32; NODE_RINGS]> = cuts.iter().map(rings_of).collect();
+        let mut bands: Vec<Vec<Vec2>> = vec![Vec::new(); NODE_RINGS];
+        for one in 0..arms.len() {
+            let two = (one + 1) % arms.len();
+            let (a, b) = (arms[one].side, arms[two].side);
+            let (from, to) = (arms[one].mouth, arms[two].mouth);
+            for (ring, band) in bands.iter_mut().enumerate() {
+                let (off_a, off_b) = (offs[one][ring], offs[two][ring]);
+                let left = from + a * off_a;
+                let right = to - b * off_b;
+                // ACROSS THE MOUTH, not just its two ends. The rim is read as a
+                // radius per bearing, and a chord between two corners of a straight
+                // mouth bows it out by nearly half a metre - which is a mouth wider
+                // than the road it has to meet.
+                for step in 0..=MOUTH_STEPS {
+                    let part = step as f32 / MOUTH_STEPS as f32 * 2.0 - 1.0;
+                    band.push(from + a * (off_a * part));
+                }
+                // As far out as the two mouth corners it joins, and no further -
+                // the same bound `mouths_at` put on the meeting itself.
+                let bound = left.distance(at).max(right.distance(at)) * CORNER_REACHES;
+                match corner_of(
+                    at,
+                    (left, arms[one].toward),
+                    (right, arms[two].toward),
+                    bound,
+                ) {
+                    // A CURB RETURN on the bands that make the kerb: the curve that
+                    // leaves one road's kerb line and arrives tangent on the next.
+                    Some(corner) if ring < NODE_RETURNS => {
+                        for step in 1..RETURN_STEPS {
+                            band.push(bend(left, corner, right, step as f32 / RETURN_STEPS as f32));
+                        }
+                    }
+                    // And a plain corner on the two outside it.
+                    Some(corner) => band.push(corner),
+                    // NO CORNER TO TURN: the arms run parallel, or the wedge is the
+                    // OUTSIDE of a bend, where two offset lines cross behind the
+                    // meeting rather than in front of it. Neither has a corner; both
+                    // have an edge, and the edge is the arc between the two mouths.
+                    //
+                    // Left empty, this was a hole: a bend between an 8 m road and a
+                    // 10 m one had three and a third radians of its rim with nothing
+                    // in it, and the fan drew one triangle across the lot - inside
+                    // out, because a chord that wide does not keep the middle on its
+                    // left. `the_paving_faces_the_sky` counted 13.
+                    None => {
+                        let (from, out) = ((left - at).to_angle(), (left - at).length());
+                        let (to, back) = ((right - at).to_angle(), (right - at).length());
+                        let sweep = (to - from).rem_euclid(std::f32::consts::TAU);
+                        for step in 1..RETURN_STEPS {
+                            let part = step as f32 / RETURN_STEPS as f32;
+                            band.push(
+                                at + Vec2::from_angle(from + sweep * part) * (out + (back - out) * part),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        let edges: Vec<Vec<(f32, Vec2)>> = bands
+            .iter()
+            .map(|band| {
+                let mut corners: Vec<(f32, Vec2)> = band
+                    .iter()
+                    .map(|point| {
+                        let out = *point - at;
+                        (out.to_angle(), out)
+                    })
+                    .collect();
+                corners.sort_by(|one, two| one.0.total_cmp(&two.0));
+                // TWO CORNERS AT ONE BEARING is a band doubling back on itself, which
+                // a fan cannot draw. The one further out is the one bounding the
+                // ground, so it is the one kept.
+                corners.dedup_by(|one, two| {
+                    let same = (one.0 - two.0).abs() < 1.0e-4;
+                    if same && one.1.length() > two.1.length() {
+                        two.1 = one.1;
+                    }
+                    same
+                });
+                corners
+            })
+            .collect();
+
+        let mut turns: Vec<f32> = edges.iter().flatten().map(|(turn, _)| *turn).collect();
+        turns.sort_by(f32::total_cmp);
+        // WIDE ENOUGH APART TO HAVE AN AREA. Two bearings a ten-thousandth of a
+        // radian apart are a millimetre at the far side of a junction, which is a
+        // triangle whose cross product is nought in single precision - and a normal
+        // of nought counts as facing down.
+        turns.dedup_by(|one, two| (*one - *two).abs() < TURNS_APART);
+
+        // ONE TABLE, READ OUTWARD. Each band is measured at every bearing any of
+        // them has a corner at, and each is held outside the one within it.
+        //
+        // # A band that crosses the band inside it is a triangle wound backwards
+        //
+        // The curb return of a wide band and the curb return of a narrow one are
+        // different curves, and at a tight corner the wide one can cut inside the
+        // narrow one. Sorted into bearing order afterwards that reads as a band
+        // doubling back, and the quads across it come out inside out: 382 of a
+        // village's paving triangles faced down, which is a hole you can see through
+        // and a surface no lamp will ever light. Measured by `the_paving_faces_the_sky`.
+        // AND EACH BAND KEEPS ITS OWN WIDTH, not merely its order.
+        //
+        // # A kerb squeezed to a millimetre is a wall with no direction
+        //
+        // Holding each band a millimetre outside the one within it stops them
+        // crossing, and on the inside of a tight corner that millimetre is all they
+        // get: the kerb's FACE - five centimetres of run against twenty-two of rise -
+        // came out a thousandth of a metre wide, which is a vertical surface whose
+        // normal has no upward component at all. Eight of a city's quads then had a
+        // normal made of rounding error, and `the_paving_faces_the_sky` counted them
+        // as facing down. It was right to: a wall is not paving.
+        //
+        // So the floor is half of what that band is on the straight, and a kerb turns
+        // a corner still looking like a kerb.
+        let least = {
+            let offs = rings_of(&cuts.iter().fold(&cuts[0], |had, one| {
+                if one.half > had.half { one } else { had }
+            }).clone());
+            let mut least = [BANDS_APART; NODE_RINGS];
+            for ring in 1..NODE_RINGS {
+                least[ring] = ((offs[ring] - offs[ring - 1]) * 0.5).max(BANDS_APART);
+            }
+            least
+        };
+        // AND THE CARRIAGEWAY IS THE UNION OF THE CARRIAGEWAYS MEETING HERE.
+        //
+        // # A curb return that bites into the road it is meant to turn off
+        //
+        // A return is drawn as the curve from one kerb line to the next, and where two
+        // roads fork at a narrow angle their kerb lines cross a long way off. Bounded
+        // - as it has to be, or the junction leaves the county - that curve is pulled
+        // in across the fork, and what it pulls across is the carriageway of both
+        // arms. Which is the fault this whole solve is for, wearing a different coat:
+        // pavement over a road.
+        //
+        // A junction's carriageway is not a shape drawn between the arms. It is the
+        // arms, joined, with the returns closing the outside of each corner. So the
+        // kerb line is held out to whichever arm reaches furthest at each bearing, and
+        // the returns can only ever round off what is left.
+        let corridor = |turn: f32| -> f32 {
+            let mut out: f32 = 0.0;
+            for (arm, cut) in arms.iter().zip(&cuts) {
+                let quad = [
+                    (0.0, arm.toward.perp() * cut.carriage),
+                    (0.0, arm.mouth - at + arm.side * cut.carriage),
+                    (0.0, arm.mouth - at - arm.side * cut.carriage),
+                    (0.0, -arm.toward.perp() * cut.carriage),
+                ];
+                out = out.max(reach_of(&quad, turn));
+            }
+            out
+        };
+        let rings: Vec<Vec<(f32, f32)>> = {
+            let mut held: Vec<Vec<(f32, f32)>> = Vec::with_capacity(NODE_RINGS);
+            for (ring, band) in edges.iter().enumerate() {
+                let inside = held.last().cloned();
+                held.push(
+                    turns
+                        .iter()
+                        .enumerate()
+                        .map(|(at, turn)| {
+                            let mut out = reach_of(band, *turn);
+                            if ring == 0 {
+                                out = out.max(corridor(*turn));
+                            }
+                            match &inside {
+                                Some(inner) => (*turn, out.max(inner[at].1 + least[ring])),
+                                None => (*turn, out),
+                            }
+                        })
+                        .collect(),
+                );
+            }
+            held
+        };
+
+        let cut = cuts
+            .into_iter()
+            .max_by(|one, two| one.half.total_cmp(&two.half))
+            .unwrap_or_else(|| RoadSection::new(CITY_STREET_WIDE, CITY_STREET_WIDE, arriving, 1.0));
+        Node { at, arms, reach, cut, rings, turns }
+    }
+
+    /// A meeting whose roads all run straight out of it.
+    pub fn straight(at: Vec2, arms: Vec<Arm>, paved: f32) -> Node {
+        let leaves: Vec<Vec2> = arms.iter().map(|arm| arm.toward).collect();
+        Node::new(at, arms, paved, &|arm, reach| {
+            (at + leaves[arm] * reach, leaves[arm].perp())
+        })
+    }
+
+    /// How far out the mouths have to be for no two arms to overlap.
+    ///
+    /// The corner where one road's right-of-way crosses the next one's is the
+    /// furthest the meeting reaches, so the mouths go outside it and the arms cannot
+    /// cross. A shallow fork sends that corner off toward the horizon, so it is
+    /// capped: ground three times as wide as the widest road in it has stopped being
+    /// a junction and started being a car park.
+    fn mouths_at(at: Vec2, arms: &[Arm], cuts: &[RoadSection]) -> f32 {
+        // THE RIGHT-OF-WAY, not the shoulder outside it.
+        //
+        // A shoulder is the soft fringe where a track gives out into the ground, five
+        // and a half metres of it on a lane. Keeping THOSE from overlapping made a
+        // village fork a twenty-five metre patch of dirt, when what actually must not
+        // overlap is the made surface. Two ties crossing are two ground-coloured
+        // feathers at the same height, which is nothing to look at.
+        let widest = cuts.iter().map(|cut| cut.half).fold(0.0_f32, f32::max);
+        let mut reach: f32 = 0.0;
+        for one in 0..arms.len() {
+            let two = (one + 1) % arms.len();
+            if let Some(corner) = corner_of(
+                at,
+                (at + arms[one].toward.perp() * cuts[one].half, arms[one].toward),
+                (at - arms[two].toward.perp() * cuts[two].half, arms[two].toward),
+                widest * WIDEST_MEETING,
+            ) {
+                let out = corner - at;
+                reach = reach.max(out.dot(arms[one].toward).max(out.dot(arms[two].toward)));
+            }
+        }
+        reach.clamp(widest * 0.9, widest * WIDEST_MEETING)
+    }
+
+    /// Whether this meeting owns the ground at a point.
+    pub fn owns(&self, at: Vec2) -> bool {
+        let out = at - self.at;
+        out.length() <= along_ring(&self.rings[NODE_RINGS - 1], out.to_angle())
+    }
+
+    /// How high this meeting's ground stands at a point, if it owns it.
+    pub fn lift(&self, at: Vec2) -> Option<f32> {
+        self.owns(at).then(|| self.surface(at))
+    }
+
+    /// How high its ground stands, asked anywhere - the mesh puts its vertices on the
+    /// rim, and a vertex a float's width outside it is still that vertex.
+    ///
+    /// Inside the kerb the answer is the CROWN OF WHICHEVER ARM PASSES NEAREST, so
+    /// the middle of the junction meets the middle of each road rather than sitting
+    /// flat under all of them. Outside it the answer is that section walked outward
+    /// in metres - the kerb keeps its height and its run, so stepping off a corner is
+    /// the same step as stepping off the straight.
+    pub fn surface(&self, at: Vec2) -> f32 {
+        let out = at - self.at;
+        let (away, turn) = (out.length(), out.to_angle());
+        let foot = along_ring(&self.rings[0], turn);
+        if away <= foot {
+            let near = self
+                .arms
+                .iter()
+                .map(|arm| (out - arm.toward * out.dot(arm.toward).max(0.0)).length())
+                .fold(f32::MAX, f32::min);
+            return self.cut.lift(near.min(self.cut.carriage));
+        }
+        let back = along_ring(&self.rings[NODE_RINGS - 1], turn).max(foot + 0.01);
+        let face = (away - foot).min(self.cut.batter);
+        let rest =
+            ((away - foot - face) / (back - foot - self.cut.batter).max(0.01)).clamp(0.0, 1.0);
+        let flat = (self.cut.shoulder - self.cut.carriage - self.cut.batter).max(0.0);
+        self.cut.lift(self.cut.carriage + face + rest * flat)
+    }
+}
+
+/// Splits every road where another one ends on it or crosses it.
+///
+/// # A meeting the network does not know about cannot be built
+///
+/// A radial ran from the square to the outermost ring as ONE chain, straight through
+/// every ring on the way. The rings ended on it, so the crossing was findable - but
+/// as three arms when there are four, and with nowhere for either road to stop. So
+/// both were drawn whole, each carrying its kerb and its footway over the other's
+/// carriageway.
+///
+/// Splitting first is what a road network is meant to be. Afterwards every meeting is
+/// ends meeting ends, every arm can be cut back to it, and the meeting can own the
+/// ground between them.
+fn planarise(ways: Vec<Way>) -> Vec<Way> {
+    /// A cut this near a corner the road already has is that corner.
+    const SNAPS: f32 = 1.2;
+
+    let mut out: Vec<Way> = Vec::new();
+    for (index, way) in ways.iter().enumerate() {
+        if way.points.len() < 2 {
+            continue;
+        }
+        let mut cuts: Vec<(usize, f32)> = Vec::new();
+        for (piece, pair) in way.points.windows(2).enumerate() {
+            let (a, b) = (pair[0], pair[1]);
+            let run = b - a;
+            let along = run.length_squared();
+            if along < 1.0e-6 {
+                continue;
+            }
+            for (other, road) in ways.iter().enumerate() {
+                if other == index || road.points.len() < 2 {
+                    continue;
+                }
+                // AN END OF THEIRS, standing on this piece.
+                for end in [road.points[0], road.points[road.points.len() - 1]] {
+                    let part = ((end - a).dot(run) / along).clamp(0.0, 1.0);
+                    if (a + run * part).distance(end) < NODE_TOUCHES {
+                        cuts.push((piece, part));
+                    }
+                }
+                // OR A CROSSING, where neither of them ends at all.
+                for theirs in road.points.windows(2) {
+                    if let Some(part) = crosses(a, b, theirs[0], theirs[1]) {
+                        cuts.push((piece, part));
+                    }
+                }
+            }
+        }
+
+        // SNAPPED TO A CORNER, AND SPLIT THERE.
+        //
+        // This used to DISCARD a cut that landed within a stride of a corner, on the
+        // grounds that the cut "is that corner". It is - but a corner in the middle of
+        // a chain is not an end of the chain, and only ends become meetings. So a road
+        // landing on a ring within a stride of one of the ring's own samples left the
+        // ring unsplit, and the meeting it should have made did not exist at all.
+        // Codex found it by reading the rule against `nodes_in`.
+        //
+        // Measured along the road rather than piece by piece, because that is the one
+        // ruler both a corner and a cut can be laid against.
+        let mut run = vec![0.0_f32];
+        for pair in way.points.windows(2) {
+            run.push(run[run.len() - 1] + pair[0].distance(pair[1]));
+        }
+        let whole = run[run.len() - 1];
+        let mut along: Vec<f32> = cuts
+            .iter()
+            .map(|(piece, part)| run[*piece] + (run[*piece + 1] - run[*piece]) * *part)
+            .map(|want| {
+                // The nearest corner, if one is within a stride.
+                run.iter()
+                    .copied()
+                    .filter(|had| (had - want).abs() < SNAPS)
+                    .min_by(|one, two| (one - want).abs().total_cmp(&(two - want).abs()))
+                    .unwrap_or(want)
+            })
+            .filter(|want| *want > SNAPS && *want < whole - SNAPS)
+            .collect();
+        along.sort_by(f32::total_cmp);
+        along.dedup_by(|one, two| (*one - *two).abs() < SNAPS);
+
+        let mut chain: Vec<Vec2> = vec![way.points[0]];
+        let mut next = 0;
+        for (piece, pair) in way.points.windows(2).enumerate() {
+            while next < along.len() && along[next] < run[piece + 1] - 1.0e-4 {
+                let span = (run[piece + 1] - run[piece]).max(1.0e-4);
+                let at = pair[0].lerp(pair[1], ((along[next] - run[piece]) / span).clamp(0.0, 1.0));
+                if at.distance(chain[chain.len() - 1]) > 1.0e-3 {
+                    chain.push(at);
+                }
+                out.push(Way {
+                    points: std::mem::replace(&mut chain, vec![at]),
+                    wide: way.wide,
+                    joins: way.joins,
+                });
+                next += 1;
+            }
+            if pair[1].distance(chain[chain.len() - 1]) > 1.0e-3 {
+                chain.push(pair[1]);
+            }
+        }
+        out.push(Way { points: chain, wide: way.wide, joins: way.joins });
+    }
+    out.retain(|way| {
+        way.points.len() >= 2
+            && way.points.windows(2).map(|pair| pair[0].distance(pair[1])).sum::<f32>() > 0.5
+    });
+    out
+}
+
+/// How far along `a`-`b` two pieces cross, if they cross clear of either's ends.
+///
+/// The ends are left out on purpose: a road ENDING on another is already found by the
+/// search above, and finding it twice puts two cuts a hair apart.
+fn crosses(a: Vec2, b: Vec2, c: Vec2, d: Vec2) -> Option<f32> {
+    let (run, theirs) = (b - a, d - c);
+    let turn = run.perp_dot(theirs);
+    if turn.abs() < 1.0e-6 {
+        return None;
+    }
+    let ours = (c - a).perp_dot(theirs) / turn;
+    let mine = (c - a).perp_dot(run) / turn;
+    (ours > 0.01 && ours < 0.99 && mine > 0.01 && mine < 0.99).then_some(ours)
+}
+
+/// Every meeting in a network of roads that has already been split at them.
+fn nodes_in(ways: &[Way], paved: &dyn Fn(Vec2) -> f32) -> Vec<Node> {
+    // Each arm, with the road it belongs to and which end of it this is - because
+    // where a mouth LANDS is a question only the road can answer. See `Arm::mouth`.
+    let mut met: Vec<(Vec2, Vec<(Arm, usize, bool)>)> = Vec::new();
+    for (which, way) in ways.iter().enumerate() {
+        if way.points.len() < 2 {
+            continue;
+        }
+        let last = way.points.len() - 1;
+        for (at, toward, start) in [
+            (way.points[0], way.points[1] - way.points[0], true),
+            (way.points[last], way.points[last - 1] - way.points[last], false),
+        ] {
+            let arm = Arm::of(toward.normalize_or(Vec2::X), way.wide, way.joins);
+            match met.iter_mut().find(|(had, _)| had.distance(at) < NODE_TOUCHES) {
+                Some((_, arms)) => arms.push((arm, which, start)),
+                None => met.push((at, vec![(arm, which, start)])),
+            }
+        }
+    }
+    met.into_iter()
+        .filter(|(_, arms)| arms.len() >= 2)
+        .map(|(at, arms)| {
+            let made = paved(at);
+            let whose: Vec<(usize, bool)> =
+                arms.iter().map(|(_, which, start)| (*which, *start)).collect();
+            let bare: Vec<Arm> = arms.into_iter().map(|(arm, _, _)| arm).collect();
+            let leaves: Vec<Vec2> = bare.iter().map(|arm| arm.toward).collect();
+            // THE FRAME `clipped` WILL CUT ON, asked of `clipped` itself. Two ways of
+            // working out where a ribbon starts is two places for it to start.
+            let frame = |arm: usize, reach: f32| -> (Vec2, Vec2) {
+                let (which, start) = whose[arm];
+                let way = &ways[which];
+                let cut = if start {
+                    clipped(way, reach, 0.0)
+                } else {
+                    clipped(way, 0.0, reach)
+                };
+                match cut {
+                    Some(drawn) if drawn.points.len() >= 2 => {
+                        let last = drawn.points.len() - 1;
+                        let (on, next) = if start {
+                            (drawn.points[0], drawn.points[1])
+                        } else {
+                            (drawn.points[last], drawn.points[last - 1])
+                        };
+                        let along = (next - on).normalize_or(leaves[arm]);
+                        (on, along.perp())
+                    }
+                    // A road swallowed whole by the meetings at its two ends has no
+                    // mouth to find, so the meeting keeps the one it guessed.
+                    _ => (at + leaves[arm] * reach, leaves[arm].perp()),
+                }
+            };
+            Node::new(at, bare, made, &frame)
+        })
+        .collect()
+}
+
+/// A road network: the roads split wherever they meet, and the meetings themselves.
+///
+/// One call, because the two halves are no use apart. Meetings looked for on unsplit
+/// roads miss every crossing there is, and split roads with no meetings have nothing
+/// to stop them.
+pub fn network(ways: Vec<Way>, paved: &dyn Fn(Vec2) -> f32) -> (Vec<Way>, Vec<Node>) {
+    let ways = planarise(ways);
+    let nodes = nodes_in(&ways, paved);
+    (ways, nodes)
+}
+
+/// A road with its ends cut back by the meetings it runs into.
+///
+/// `None` when the meetings at its two ends swallow it whole, which is what a link
+/// shorter than the junctions on either side of it deserves.
+fn clipped(way: &Way, from: f32, to: f32) -> Option<Way> {
+    /// The shortest piece a clipped road is drawn in, in metres.
+    ///
+    /// # Short enough to fold, not sharp enough to notice
+    ///
+    /// A mitre swings the section between one station and the next by roughly the
+    /// road's own half-width times the turn. Over a six-metre arc sample that is a
+    /// few centimetres; over a piece three quarters of a metre long it is more than
+    /// the piece itself, and the outer bands cross - a fold covering a sixth of a
+    /// square metre with its back to the sky, at a bend of only eight degrees.
+    ///
+    /// Two metres is comfortably longer than the swing of any bend a road in this
+    /// world actually makes, and shorter than the six-metre samples an arc is drawn
+    /// in - so nothing is dropped that was carrying any shape.
+    const A_PIECE: f32 = 2.0;
+
+    if way.points.len() < 2 {
+        return None;
+    }
+    let mut run = vec![0.0_f32];
+    for pair in way.points.windows(2) {
+        run.push(run[run.len() - 1] + pair[0].distance(pair[1]));
+    }
+    let whole = run[run.len() - 1];
+    let (start, end) = (from, whole - to);
+    if end - start < A_PIECE * 2.0 {
+        return None;
+    }
+    let along = |want: f32| -> Vec2 {
+        let at = run.partition_point(|had| *had <= want).clamp(1, run.len() - 1);
+        let span = (run[at] - run[at - 1]).max(1.0e-4);
+        way.points[at - 1].lerp(way.points[at], (want - run[at - 1]) / span)
+    };
+    // NO PIECE SHORTER THAN A STRIDE, anywhere along it.
+    //
+    // `Way::across` mitres a bend by stretching the section across it, so a piece a
+    // couple of centimetres long running into a turn throws its outer bands past the
+    // section beside it and the quads between them come out inside out - measured, at
+    // the mouth of a city street, three triangles facing very nearly straight down.
+    //
+    // One rule rather than a special case at each end, because the cut and the corners
+    // are the same kind of thing: a corner is kept only if it stands clear of whatever
+    // was kept before it. The FIRST piece then always runs from the cut to a corner a
+    // stride away, which is the frame a meeting builds its mouth on - see `Arm::mouth`
+    // - and both read it from here.
+    let mut points = vec![along(start)];
+    let mut last = start;
+    for (at, had) in way.points.iter().enumerate() {
+        if run[at] > last + A_PIECE && run[at] < end - A_PIECE {
+            points.push(*had);
+            last = run[at];
+        }
+    }
+    points.push(along(end));
+    Some(Way { points, wide: way.wide, joins: way.joins })
+}
+
 fn pave(
     ways: &[Way],
+    nodes: &[Node],
     opens: &[Place],
     terrain: &crate::world::terrain::Terrain,
     low: Vec2,
@@ -4821,7 +5640,24 @@ fn pave(
     // there is nothing left to gap. Where a road ENDS the cross-section is square,
     // and where roads meet the junction disc covers the joint - which is the right
     // division of labour, because a junction is a place and a bend is not.
-    for way in ways {
+    // THE ARMS STOP AT THE MEETINGS - see `Node`. What used to run straight through
+    // a crossing, kerb and footway and all, now ends at its mouth and the meeting
+    // draws the ground between them.
+    let mouth = |at: Vec2| {
+        nodes
+            .iter()
+            .find(|node| node.at.distance(at) < NODE_TOUCHES)
+            .map_or(0.0, |node| node.reach)
+    };
+    let arms: Vec<Way> = ways
+        .iter()
+        .filter(|way| way.points.len() >= 2)
+        .filter_map(|way| {
+            clipped(way, mouth(way.points[0]), mouth(way.points[way.points.len() - 1]))
+        })
+        .collect();
+
+    for way in &arms {
         if way.points.len() < 2 {
             continue;
         }
@@ -5013,24 +5849,7 @@ fn pave(
                 // multiplied by a slow field and a faster one, drawn in the world's
                 // own coordinates so the variation crosses a junction rather than
                 // stopping at the edge of whichever piece drew it.
-                let broad = terrain_core::forest::field(at / ROAD_WEARS_OVER, 517);
-                let fine = terrain_core::forest::field(at / (ROAD_WEARS_OVER * 0.21), 518);
-                // Three scales, because wear has three: where the carts go, where
-                // the puddles sit, and the scuff of the ground itself.
-                let close = terrain_core::forest::field(at / (ROAD_WEARS_OVER * 0.06), 519);
-                // WEAR IS FOR GROUND THAT WEARS.
-                //
-                // Three scales of brushed variation is what turns packed earth into a
-                // track somebody walks. On a laid surface it is grime: the footway
-                // took the full treatment and came out looking scrubbed. So the wear
-                // fades out with the paving, and what a paved surface gets instead is
-                // its stones - which the carriageway has and the footway, asked for
-                // plain, does not.
-                let wears = ROAD_WEARS * (1.0 - arriving.surface_made * 0.8);
-                let mut worn = 1.0
-                    + (broad - 0.5) * wears
-                    + (fine - 0.5) * wears * 0.5
-                    + (close - 0.5) * wears * 0.22;
+                let mut worn = worn_at(at, &arriving);
 
                 // AND THE STONES THEMSELVES, on a city street.
                 //
@@ -5117,87 +5936,152 @@ fn pave(
         }
     }
 
-    // # THE JOINTS, and the notches they left
+    // # THE MEETINGS, and the ground they own
     //
     // Every street is laid as its own strip of quads, square across its own bearing.
-    // Where two meet at an angle - which is every joint of a curved ring and every
-    // junction in the town - the two strips are square to DIFFERENT bearings, so
-    // their corners do not line up and a wedge of bare ground shows between them.
-    // Around a ring built from six-metre arc pieces that is a notch at every joint,
-    // and from above it reads as a cog rather than a circle.
+    // Where two meet at an angle their corners do not line up, so a wedge of bare
+    // ground shows between them - and worse, each of them went on carrying its kerb
+    // and its footway straight over the other's carriageway.
     //
-    // The fix is the one a road builder uses: pave the junction itself. Every place
-    // a street ends gets a disc of road, wide enough to swallow the notch from any
-    // pair of bearings, laid at the same height as the rest. It costs a fan of eight
-    // triangles per joint and it is what makes a junction look like a junction
-    // rather than like two roads that happen to touch.
-    let ends = junctions_in(ways);
+    // The old answer was a disc of carriageway painted over the joint, which filled
+    // the wedge and made the second fault worse: a flat patch across two raised
+    // pavements. What a road builder does instead is build the junction. The arms
+    // above stop at its mouth; this lays what is between them, as one surface with
+    // the carriageway across the middle and the footway turning the corners - the
+    // same six bands the arms have, in the same order, so a mouth meets a mouth.
+    //
+    // See `Node`, which works out where each band reaches. Both this and the rule
+    // the warden's feet stand on read it, so the ground that is drawn is the ground
+    // that is walked.
 
-    const AROUND_A_JOINT: usize = 10;
-    for node in ends {
-        // ONLY AS BIG AS THE NARROWEST CARRIAGEWAY MEETING HERE.
-        //
-        // The disc had the radius of the whole right-of-way, which was right when a
-        // road was one flat band and is destructive now: it painted carriageway colour
-        // over both footways and cut through the kerb between them. Then it had the
-        // WIDEST arm's carriageway, which is wrong wherever two sizes of road meet.
-        // What a patch fills is the notch between carriageways - see `Meeting::fills`.
-        let at = node.at;
-        let paved = city.max(paved_here(at_plan, at));
-        let reach = node.fills(paved);
-        // The crown to lay it at is the widest arm's, so the patch meets the road it
-        // is filling rather than sitting under it.
-        let crown = node
-            .arms
-            .iter()
-            .map(|(wide, joins)| RoadSection::new(*wide, *joins, Arriving::at(paved), 1.0))
-            .max_by(|a, b| a.half.partial_cmp(&b.half).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|cut| (cut.lift(0.0), cut.lift(reach)))
-            .unwrap_or((ROAD_LIES, ROAD_LIES));
+    /// The stations one bearing of a meeting emits, as (which band, how far along it).
+    ///
+    /// The same eight the ribbon has, inward to outward: the middle, the carriageway
+    /// at 0.62 of its half-width - which is what keeps the road's own colour off its
+    /// kerb - then the kerb's foot, the top of its face, the back of the stone, the
+    /// seam, the back of the footway and the tie into the ground.
+    const NODE_STATIONS: [(usize, f32); 7] =
+        [(0, 0.62), (0, 1.0), (1, 1.0), (2, 1.0), (3, 1.0), (4, 1.0), (5, 1.0)];
+    /// Seven stations and the two extra are the kerb's foot and the top of its face,
+    /// each carrying two normals - the same split the ribbon makes. See `cross_section`.
+    const NODE_LANES: usize = NODE_STATIONS.len() + 2;
+
+    for node in nodes {
+        let paved = city.max(paved_here(at_plan, node.at));
+        let arriving = Arriving::at(paved);
+        let surface = mix(*ROAD_EARTH, *ROAD_STONE, arriving.surface_made);
+        let edge = mix(surface, *ROAD_KERB, arriving.kerb_stands);
+        let flag = mix(surface, *ROAD_FLAG, arriving.footway_made);
+
+        // What each station is made of. The ribbon's own list, read inward to
+        // outward - see the section in the loop above.
+        let paint = |station: usize, at: Vec2| -> ([f32; 4], f32) {
+            match station {
+                0 => (surface, COBBLE_IS),
+                1..=3 => (edge, 0.0),
+                4 | 5 => (flag, 0.0),
+                _ => (terrain.ground_colour(at.x, at.y), 0.0),
+            }
+        };
+        let laid = |at: Vec2, colour: [f32; 4], grain: f32, normal: [f32; 3]| -> ([f32; 3], [f32; 3], [f32; 4], [f32; 2]) {
+            let worn = worn_at(at, &arriving);
+            (
+                [
+                    at.x - low.x,
+                    terrain.drawn_height(at.x, at.y) + node.surface(at),
+                    at.y - low.y,
+                ],
+                normal,
+                [
+                    colour[0] * worn,
+                    colour[1] * worn,
+                    colour[2] * worn,
+                    grain / crate::shade::PAVING_STONE,
+                ],
+                [0.0, arriving.stone_contrast],
+            )
+        };
+
+        // THE MIDDLE, one vertex the whole fan turns about.
         let middle = places.len() as u32;
-        let height = terrain.drawn_height(at.x, at.y) + crown.0;
-        places.push([at.x - low.x, height, at.y - low.y]);
-        normals.push([0.0, 1.0, 0.0]);
-        // THROUGH THE SAME CHANNELS THE RIBBON USES.
-        //
-        // The disc mixed its colour and wrote its stone contrast from the raw paving
-        // amount while its own arms had moved to `Arriving`. So in a transition a
-        // junction could go stone-coloured and reveal its cobbles on one curve while
-        // every road leading into it was on another - a made circular patch arriving
-        // before its arms, or a ring where the stones do not match across the join.
-        // Codex caught it in the same commit that introduced the channels.
-        let cobbled = COBBLE_IS / crate::shade::PAVING_STONE;
-        let middle_arriving = Arriving::at(paved);
-        let mut middle_colour = mix(*ROAD_EARTH, *ROAD_STONE, middle_arriving.surface_made);
-        middle_colour[3] = cobbled;
-        colours.push(middle_colour);
-        uvs.push([0.0, middle_arriving.stone_contrast]);
+        let (place, normal, colour, uv) = laid(node.at, surface, COBBLE_IS, [0.0, 1.0, 0.0]);
+        places.push(place);
+        normals.push(normal);
+        colours.push(colour);
+        uvs.push(uv);
 
-        for step in 0..=AROUND_A_JOINT {
-            let turn = step as f32 / AROUND_A_JOINT as f32 * std::f32::consts::TAU;
-            let rim = at + Vec2::from_angle(turn) * reach;
-            // At the carriageway's own height where it meets it, so the patch is a
-            // crowned cone continuous with the road rather than a flat lid over it.
-            let height = terrain.drawn_height(rim.x, rim.y) + crown.1;
-            places.push([rim.x - low.x, height, rim.y - low.y]);
-            normals.push([0.0, 1.0, 0.0]);
-            // The SURFACE colour, not the kerb. A kerb around every joint beads the
-            // whole ring with visible cobbled discs - which is what a ring built
-            // from six-metre arc pieces looks like when each joint wears a rim. The
-            // disc is there to fill a notch, and a patch that fills a hole should
-            // not announce itself.
-            let rim_arriving = Arriving::at(city.max(paved_here(at_plan, rim)));
-            let mut rim_colour = mix(*ROAD_EARTH, *ROAD_STONE, rim_arriving.surface_made);
-            rim_colour[3] = cobbled;
-            colours.push(rim_colour);
-            uvs.push([turn, rim_arriving.stone_contrast]);
+        let rim = places.len() as u32;
+        for turn in &node.turns {
+            let out = Vec2::from_angle(*turn);
+            // HOW FAR EACH BAND REACHES AT THIS BEARING, from the one table that says.
+            let reach: Vec<f32> = node.rings.iter().map(|ring| along_ring(ring, *turn)).collect();
+            let far = |station: usize| {
+                let (band, part) = NODE_STATIONS[station];
+                reach[band] * part
+            };
+            // The PROFILE's own rise, not the ground's: a normal that followed the
+            // terrain under a junction would shade the hill and not the kerb.
+            let over = |station: usize| node.surface(node.at + out * far(station));
+            let facing = |from: usize, to: usize| {
+                band_normal(out, far(to) - far(from), over(to) - over(from))
+            };
+
+            for station in 0..NODE_STATIONS.len() {
+                let before = (station > 0).then(|| facing(station - 1, station));
+                let after = (station + 1 < NODE_STATIONS.len()).then(|| facing(station, station + 1));
+                let at = node.at + out * far(station);
+                let (colour, grain) = paint(station, at);
+                // A hard edge at the foot and the top of the kerb face, split the
+                // same way the ribbon splits them, and smooth everywhere else.
+                let facings: [Option<[f32; 3]>; 2] = match (before, after) {
+                    (Some(before), Some(after)) if matches!(station, 1 | 2) => {
+                        [Some(before), Some(after)]
+                    }
+                    (Some(before), Some(after)) => [
+                        Some((Vec3::from(before) + Vec3::from(after)).normalize_or_zero().to_array()),
+                        None,
+                    ],
+                    (Some(only), None) | (None, Some(only)) => [Some(only), None],
+                    (None, None) => [Some([0.0, 1.0, 0.0]), None],
+                };
+                for normal in facings.into_iter().flatten() {
+                    let (place, normal, colour, uv) = laid(at, colour, grain, normal);
+                    places.push(place);
+                    normals.push(normal);
+                    colours.push(colour);
+                    uvs.push(uv);
+                }
+            }
         }
-        for step in 0..AROUND_A_JOINT as u32 {
-            // Face up, like the ribbon - see the note on the ribbon's winding. The
-            // discs were the 670 triangles still facing down after that was fixed,
-            // and they showed as a ring of dark patches at every joint the moment
-            // the lamps started lighting the road properly.
-            indices.extend_from_slice(&[middle, middle + step + 2, middle + step + 1]);
+
+        let around = node.turns.len() as u32;
+        // A TRIANGLE WITH NO AREA IS NOT A TRIANGLE. Two bearings a hundred-thousandth
+        // of a radian apart are a fraction of a millimetre across, and its cross
+        // product underflows to nought - which draws nothing and counts as facing
+        // down. See `TURNS_APART`.
+        let mut face = |a: u32, b: u32, c: u32| {
+            let corner = |at: u32| Vec3::from(places[at as usize]);
+            let (one, two, three) = (corner(a), corner(b), corner(c));
+            if (two - one).cross(three - one).length() > HAS_AN_AREA {
+                indices.extend_from_slice(&[a, b, c]);
+            }
+        };
+        for step in 0..around {
+            let (here, next) = (rim + step * NODE_LANES as u32, rim + ((step + 1) % around) * NODE_LANES as u32);
+            // THE FAN, from the middle out to the first station. Wound face up, like
+            // everything else that paves - see the note on the ribbon's winding.
+            face(middle, next, here);
+            for lane in 0..(NODE_LANES as u32 - 1) {
+                // NOT ACROSS A SPLIT. The two vertices of a hard edge sit on the same
+                // line, so the band between them has no area and no normal.
+                if matches!(lane, 1 | 3) {
+                    continue;
+                }
+                let (inner, outer) = (here + lane, here + lane + 1);
+                let (along, beyond) = (next + lane, next + lane + 1);
+                face(inner, beyond, outer);
+                face(inner, along, beyond);
+            }
         }
     }
 
@@ -5526,7 +6410,7 @@ pub fn raise_the_towns(
         // precisely the shape of "still no roads" reported three times against a
         // paving mesh that measured correctly every time it was asked.
         let surface = road_surface.get_or_insert_with(|| materials.add(crate::shade::road_material()));
-        let paving = pave(&layout.ways, &layout.opens, &terrain.0, site.at, f32::from(u8::from(site.city)));
+        let paving = pave(&layout.ways, &layout.nodes, &layout.opens, &terrain.0, site.at, f32::from(u8::from(site.city)));
         commands.spawn((
             FromSite(key),
             Mesh3d(meshes.add(paving)),
@@ -5717,6 +6601,7 @@ fn lay_the_country_roads(
     mut surface: Local<Option<Handle<crate::shade::Shaded>>>,
     terrain: Res<TerrainSource>,
     mut laid: ResMut<DirtLaid>,
+    mut built: ResMut<Built>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
     standing: Query<Entity, With<CountryRoad>>,
 ) {
@@ -5734,7 +6619,17 @@ fn lay_the_country_roads(
         commands.entity(entity).despawn();
     }
 
-    let roads = country_roads_near(terrain.plan(), &terrain.0, here);
+    // SPLIT AT THEIR OWN MEETINGS, like a town's are - see `network`. A country
+    // road is unpaved and carries no footway, so what a meeting fixes out here is
+    // the notch between two crossing dirt tracks rather than a pavement over a
+    // carriageway; near a city it is the same fix the streets get.
+    let plan = terrain.plan();
+    let (roads, nodes) = network(
+        country_roads_near(plan, &terrain.0, here),
+        &|at| paved_here(plan, at),
+    );
+    // WHAT IS DRAWN IS WHAT IS WALKED. See `Built::country`.
+    built.country = nodes.clone();
     if roads.is_empty() {
         return;
     }
@@ -5765,7 +6660,7 @@ fn lay_the_country_roads(
     // boundary out in open country. `pave` asks how paved each POINT is now, so the
     // same road becomes a street over the last stretch of its approach.
     if !roads.is_empty() {
-        let mesh = pave(&roads, &[], &terrain.0, here, 0.0);
+        let mesh = pave(&roads, &nodes, &[], &terrain.0, here, 0.0);
         commands.spawn((
             CountryRoad,
             Mesh3d(meshes.add(mesh)),
@@ -5914,19 +6809,19 @@ mod tests {
     /// walks the whole section in two-centimetre steps and asks the same question
     /// `may_step` asks - because a kerb that refuses the player is an invisible wall
     /// down both sides of every street in every city, and nothing else would fail.
-    /// A bend gets no junction patch; a crossing does.
+    /// A bend is not a meeting; a crossing is.
     ///
     /// # The mesh test that could not have caught this
     ///
-    /// `the_paving_faces_the_sky` checks every triangle points up, and both the
-    /// footway and the patch laid over it point up - so a disc painting carriageway
-    /// colour across a raised pavement is invisible to it, which is exactly Codex's
-    /// point. What separates the two cases is not a normal, it is whether more than
-    /// one road is there at all, so that is what is asserted.
+    /// `the_paving_faces_the_sky` checks every triangle points up, and both a
+    /// footway and a patch laid over it point up - so a disc painting carriageway
+    /// colour across a raised pavement was invisible to it, which was Codex's point.
+    /// What separates the two cases is not a normal, it is whether more than one road
+    /// is there at all, so that is what is asserted.
     #[test]
-    fn a_bend_is_not_a_junction_and_a_crossing_is() {
+    fn a_bend_is_not_a_meeting_and_a_crossing_is() {
         // One road with two bends in it. `Way` mitres its own corners, so there is
-        // nothing to fill and nothing should be emitted.
+        // nothing to fill and no meeting to find.
         let bent = Way {
             points: vec![
                 Vec2::new(0.0, 0.0),
@@ -5937,115 +6832,271 @@ mod tests {
             wide: CITY_STREET_WIDE,
             joins: CITY_STREET_WIDE,
         };
-        let capped = junctions_in(std::slice::from_ref(&bent));
+        let (kept, capped) = network(vec![bent.clone()], &|_| 1.0);
         assert!(
             capped.is_empty(),
-            "a single winding road was given {} junction patches, one at every bend",
+            "a single winding road was given {} meetings, one at every bend",
             capped.len(),
         );
+        assert_eq!(kept.len(), 1, "a road with nothing crossing it was cut in two");
 
-        // A second road ending on the first one's middle. That IS a junction.
+        // A second road ending on the first one's middle. That IS a junction, and the
+        // road it lands on has to be CUT there - four arms, not three.
         //
-        // BETWEEN two of the bent road's samples, not on one of them. The first
-        // version of this joined at (38, 16), which is a point in `bent.points` - so
-        // the shared-vertex clustering this change replaced would have found it too,
-        // and the test proved nothing about the behaviour that motivated the change.
-        // Codex caught that the regression guard could not catch the regression.
-        // (29, 10) is exactly halfway along the segment from (20, 4) to (38, 16).
+        // BETWEEN two of the bent road's samples, not on one of them: the first
+        // version of this joined at a point already in `bent.points`, so the
+        // shared-vertex clustering it replaced would have found it too and the guard
+        // proved nothing about the behaviour that motivated the change. Codex caught
+        // that the regression guard could not catch the regression. (29, 10) is
+        // exactly halfway along the piece from (20, 4) to (38, 16).
         let joining = Way {
             points: vec![Vec2::new(29.0, 10.0), Vec2::new(29.0, -20.0)],
             wide: CITY_LANE_WIDE,
             joins: CITY_LANE_WIDE,
         };
-        let met = junctions_in(&[bent, joining]);
-        assert_eq!(met.len(), 1, "a crossroads got {} patches", met.len());
+        let (split, met) = network(vec![bent, joining], &|_| 1.0);
+        assert_eq!(met.len(), 1, "a crossroads got {} meetings", met.len());
         assert!(
             met[0].at.distance(Vec2::new(29.0, 10.0)) < 0.6,
-            "the patch landed at {:?} rather than where the roads meet",
+            "the meeting landed at {:?} rather than where the roads meet",
             met[0].at,
         );
-        // BOTH arms are kept, because a patch has to fit the narrower of them - see
-        // `a_junction_patch_does_not_pave_any_arm_s_footway`.
-        assert_eq!(met[0].arms.len(), 2, "the node forgot one of its roads");
+        assert_eq!(
+            met[0].arms.len(),
+            3,
+            "a road ending on another's middle makes three arms, not {}",
+            met[0].arms.len(),
+        );
+        assert_eq!(split.len(), 3, "the road it landed on was not cut at the meeting");
     }
 
-    /// A junction patch stays inside EVERY arm's carriageway, not just the widest.
+    /// A meeting's kerb line meets each arm's kerb line, arm by arm.
     ///
     /// # The version of this test that passed while the fault was there
     ///
-    /// It measured a 10 m patch against a 10 m road and an 8 m patch against an 8 m
-    /// road, and both fitted. A junction is where roads of DIFFERENT sizes meet, and
-    /// the patch was drawn at the widest arm's carriageway - so a high street meeting
-    /// a lane put 3 m of carriageway into a road whose own is 2 m, a metre out across
-    /// its pavement. Codex found the fault and the hole in the guard together, which
-    /// is the more useful half: a test that only ever asks the easy case is a test
-    /// that reports the answer you hoped for.
+    /// Its ancestor measured a 10 m patch against a 10 m road and an 8 m patch
+    /// against an 8 m road, and both fitted. A junction is where roads of DIFFERENT
+    /// sizes meet, and the patch was drawn at the widest arm's carriageway - so a
+    /// high street meeting a lane put 3 m of carriageway into a road whose own is 2 m,
+    /// a metre out across its pavement. Codex found the fault and the hole in the
+    /// guard together, which is the more useful half: a test that only ever asks the
+    /// easy case reports the answer you hoped for.
+    ///
+    /// Asked of the RIM now rather than of one radius, because a meeting no longer
+    /// has one: every arm's mouth carries that arm's own section, and this walks each
+    /// of them.
     #[test]
-    fn a_junction_patch_does_not_pave_any_arm_s_footway() {
-        let street = |wide: f32| Way {
-            points: vec![Vec2::ZERO, Vec2::new(0.0, 40.0)],
-            wide,
-            joins: wide,
-        };
-        // A high street meeting a lane, which is the case that was wrong.
-        let mixed = Meeting {
-            at: Vec2::ZERO,
-            arms: vec![
-                (CITY_STREET_WIDE, CITY_STREET_WIDE),
-                (CITY_LANE_WIDE, CITY_LANE_WIDE),
-            ],
-            whose: vec![0, 1],
-        };
+    fn a_meeting_hands_every_arm_back_its_own_kerb() {
         for paved in [0.0_f32, 0.5, 1.0] {
-            let reach = mixed.fills(paved);
-            for (wide, joins) in &mixed.arms {
-                let arm = RoadSection::new(*wide, *joins, Arriving::at(paved), 1.0);
+            let node = Node::straight(
+                Vec2::ZERO,
+                vec![
+                    Arm::of(Vec2::X, CITY_STREET_WIDE, CITY_STREET_WIDE),
+                    Arm::of(-Vec2::X, CITY_STREET_WIDE, CITY_STREET_WIDE),
+                    Arm::of(Vec2::Y, CITY_LANE_WIDE, CITY_LANE_WIDE),
+                    Arm::of(-Vec2::Y, CITY_LANE_WIDE, CITY_LANE_WIDE),
+                ],
+                paved,
+            );
+            for arm in &node.arms {
+                let arm_cut = RoadSection::new(
+                    arm.wide,
+                    arm.joins,
+                    Arriving::at(paved),
+                    wander_at(node.at + arm.toward * node.reach, Arriving::at(paved).wanders),
+                );
+                // Where the arm's own kerb stands at its mouth, asked of the meeting.
+                //
+                // ON the mouth, not a centimetre inside it. A point inside the mouth
+                // line at the same offset sits at a LARGER bearing than the corner
+                // does, which is out in the curb return - where the carriageway has
+                // correctly begun to pull back round the corner. Asking there and
+                // calling the answer a mismatch is the ruler misreading itself.
+                let mouth = node.at + arm.toward * node.reach;
+                let kerb = mouth + arm.toward.perp() * arm_cut.carriage;
+                let reaches = (kerb - node.at).length();
+                let rim = along_ring(&node.rings[0], (kerb - node.at).to_angle());
                 assert!(
-                    reach <= arm.carriage + 1.0e-4,
-                    "at {paved} paved a patch of {reach:.2} m reaches past a {wide} m arm's \
-                     {:.2} m carriageway and out onto its footway",
-                    arm.carriage,
+                    (rim - reaches).abs() < 0.01,
+                    "at {paved} paved a {} m arm's kerb stands {reaches:.2} m out and the \
+                     meeting puts its own at {rim:.2} m - the carriageway is being paved \
+                     across somebody's footway",
+                    arm.wide,
                 );
             }
         }
-        drop(street(CITY_STREET_WIDE));
     }
 
-    /// A gateway junction resolves each arm by what it JOINS, not by what it is.
+    /// A gateway meeting resolves each arm by what it JOINS, not by what it is.
     ///
-    /// A country road arriving at a city is 4.6 m widening to 10. A node that knew
+    /// A country road arriving at a city is 4.6 m widening to 10. A meeting that knew
     /// only the 4.6 would carve the footways back out of it - the pinched section
-    /// `RoadSection` exists to prevent, reintroduced at the one place the two road
-    /// kinds touch.
+    /// `RoadSection` exists to prevent, reintroduced at the one place the two kinds
+    /// of road touch.
     #[test]
-    fn a_gateway_junction_uses_what_each_arm_becomes() {
-        let gateway = Meeting {
-            at: Vec2::ZERO,
-            arms: vec![
-                (crate::config::ROAD_WIDE, CITY_STREET_WIDE),
-                (CITY_STREET_WIDE, CITY_STREET_WIDE),
-            ],
-            whose: vec![0, 1],
+    fn a_gateway_meeting_uses_what_each_arm_becomes() {
+        let gateway = |paved: f32| {
+            Node::straight(
+                Vec2::ZERO,
+                vec![
+                    Arm::of(Vec2::X, crate::config::ROAD_WIDE, CITY_STREET_WIDE),
+                    Arm::of(-Vec2::X, CITY_STREET_WIDE, CITY_STREET_WIDE),
+                    Arm::of(Vec2::Y, CITY_STREET_WIDE, CITY_STREET_WIDE),
+                ],
+                paved,
+            )
         };
-        // Fully paved, the country arm has BECOME the high street, so the patch is
-        // the high street's carriageway and nothing is pinched.
-        let full = gateway.fills(1.0);
+        // Fully paved, the country arm has BECOME the high street, so its mouth is the
+        // high street's and nothing is pinched.
+        let node = gateway(1.0);
         let street = RoadSection::new(CITY_STREET_WIDE, CITY_STREET_WIDE, Arriving::at(1.0), 1.0);
+        let arm = node.arms.iter().find(|arm| arm.wide < CITY_STREET_WIDE).expect("no country arm");
+        let mouth = node.at + arm.toward * (node.reach - 0.01);
+        let kerb = mouth + arm.toward.perp() * street.carriage;
+        let rim = along_ring(&node.rings[0], (kerb - node.at).to_angle());
         assert!(
-            (full - street.carriage).abs() < 1.0e-4,
-            "at the gateway the patch is {full:.2} m and the street's carriageway is {:.2} m",
-            street.carriage,
-        );
-        // And halfway in it is between the two, never narrower than the country road
-        // it started as.
-        let half = gateway.fills(0.5);
-        let country = RoadSection::new(crate::config::ROAD_WIDE, CITY_STREET_WIDE, Arriving::at(0.0), 1.0);
-        assert!(
-            half >= country.carriage - 1.0e-4 && half <= full + 1.0e-4,
-            "halfway through the gateway the patch is {half:.2} m, outside {:.2}..{full:.2}",
-            country.carriage,
+            (rim - (kerb - node.at).length()).abs() < 0.06,
+            "at the gateway the meeting puts its kerb {rim:.2} m out where the street it \
+             joins puts its own at {:.2} m",
+            (kerb - node.at).length(),
         );
     }
+
+    /// NO PAVEMENT CROSSES A CARRIAGEWAY.
+    ///
+    /// # The fault this whole solve exists for
+    ///
+    /// A street was drawn end to end, kerbs and footways included, and where two of
+    /// them crossed both were drawn whole - so a city's every crossing had one road's
+    /// pavement running over the other's carriageway, and the other's running back
+    /// over the first. Reported as overlapping sidewalks, and visible from the air as
+    /// a pale cross at every junction.
+    ///
+    /// This walks the carriageway of every arm of every meeting in a real city and
+    /// asks the height the warden's feet are given. Anything above the crown is a
+    /// kerb in the middle of a road.
+    ///
+    /// # And the ruler is checked against itself
+    ///
+    /// A guard that only ever finds level ground cannot tell a fixed junction from a
+    /// junction with no kerbs at all, so it also counts the corners where the ground
+    /// IS raised. Both halves have to hold: flat where the carts go, and a step where
+    /// the pavement is.
+    #[test]
+    fn no_pavement_crosses_a_carriageway() {
+        let site = a_site(true, 120.0);
+        let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), &[], 3);
+        assert!(!layout.nodes.is_empty(), "a city laid no meetings at all");
+
+        let mut in_the_road = 0;
+        let mut looked_at = 0;
+        let mut corners = 0;
+        for node in &layout.nodes {
+            for arm in &node.arms {
+                let cut = RoadSection::new(arm.wide, arm.joins, Arriving::at(1.0), 1.0);
+                let crown = cut.lift(0.0);
+                let kerbed = cut.lift(cut.carriage) + cut.kerb * 0.5;
+                // ACROSS the arm and ALONG it, from the middle of the meeting out to
+                // its mouth: the whole of the ground a cart drives over.
+                // JUST INSIDE THE MOUTH AND JUST INSIDE THE KERB. The four extreme
+                // corners of the carriageway are where the curb return has already
+                // turned, and ground under a curb return is pavement on purpose -
+                // that is what a corner IS. Everything else is road.
+                //
+                // Walked from the middle of the meeting to the arm's own mouth, which
+                // on a curve is not straight out along the way the road left - see
+                // `Arm::mouth`.
+                for step in 0..=10 {
+                    let part = 0.95 * step as f32 / 10.0;
+                    let on = node.at.lerp(arm.mouth, part);
+                    let side = arm.toward.perp().lerp(arm.side, part).normalize_or(arm.side);
+                    for lane in -6..=6 {
+                        let across = cut.carriage * 0.95 * lane as f32 / 6.0;
+                        let at = on + side * across;
+                        if !node.owns(at) {
+                            continue;
+                        }
+                        looked_at += 1;
+                        if node.surface(at) > crown + 1.0e-3 {
+                            in_the_road += 1;
+                        }
+                    }
+                }
+                // And out past the kerb, where there had better BE one.
+                for turn in 0..24 {
+                    let angle = turn as f32 / 24.0 * std::f32::consts::TAU;
+                    let out = Vec2::from_angle(angle);
+                    let rim = along_ring(&node.rings[4], angle);
+                    if node.surface(node.at + out * (rim - 0.05)) > kerbed {
+                        corners += 1;
+                    }
+                }
+            }
+        }
+        assert!(looked_at > 1_000, "only {looked_at} points of carriageway were looked at");
+        assert_eq!(
+            in_the_road, 0,
+            "{in_the_road} of {looked_at} points of carriageway inside a meeting stand \
+             above the crown - there is a pavement across a road"
+        );
+        assert!(
+            corners > 0,
+            "no point of any meeting's ground stands at kerb height, so this guard \
+             would pass on a city with no pavements in it at all"
+        );
+    }
+
+    /// The ribbons stop at the meetings, so nothing is drawn twice.
+    ///
+    /// The rule above measures the ground; this measures the MESH. A road whose
+    /// vertices still run through a junction is drawn over the junction's own
+    /// surface, and two surfaces at nearly the same height flicker.
+    #[test]
+    fn a_road_stops_where_the_meeting_starts() {
+        let site = a_site(true, 120.0);
+        let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), &[], 3);
+        let mut through = 0;
+        let mut stopped = 0;
+        for way in &layout.ways {
+            for node in &layout.nodes {
+                let ends = way.points[0].distance(node.at) < NODE_TOUCHES
+                    || way.points[way.points.len() - 1].distance(node.at) < NODE_TOUCHES;
+                if !ends {
+                    continue;
+                }
+                stopped += 1;
+                let Some(arm) = clipped(
+                    way,
+                    if way.points[0].distance(node.at) < NODE_TOUCHES { node.reach } else { 0.0 },
+                    if way.points[way.points.len() - 1].distance(node.at) < NODE_TOUCHES {
+                        node.reach
+                    } else {
+                        0.0
+                    },
+                ) else {
+                    continue;
+                };
+                // Every piece of what is actually drawn, sampled the way `pave`
+                // samples it, against the mouth it is supposed to start at.
+                for pair in arm.points.windows(2) {
+                    let steps = (pair[0].distance(pair[1]) / ROAD_STEPS_EVERY).ceil().max(1.0) as usize;
+                    for step in 0..=steps {
+                        let on = pair[0].lerp(pair[1], step as f32 / steps as f32);
+                        if on.distance(node.at) < node.reach - 0.05 {
+                            through += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(stopped > 8, "only {stopped} roads in a city end at a meeting");
+        assert_eq!(
+            through, 0,
+            "{through} points of road are drawn inside a meeting that has already \
+             paved that ground"
+        );
+    }
+
 
     #[test]
     fn a_kerb_is_a_step_and_not_a_wall() {
@@ -6759,7 +7810,7 @@ mod tests {
         let layout = lay_out(&site, plan.approach(site.at), &[], crate::config::WORLD_SEED);
         assert!(!layout.streets.is_empty(), "the town has no streets");
 
-        let paving = pave(&layout.ways, &layout.opens, &terrain, site.at, f32::from(u8::from(site.city)));
+        let paving = pave(&layout.ways, &layout.nodes, &layout.opens, &terrain, site.at, f32::from(u8::from(site.city)));
         let count = paving.count_vertices();
         assert!(count > 200, "the paving is {count} vertices, which is nothing");
 
@@ -6935,7 +7986,7 @@ mod tests {
         let site = plan.sites()[0];
         let layout = lay_out(&site, plan.approach(site.at), &[], crate::config::WORLD_SEED);
         println!("{} streets", layout.streets.len());
-        let mesh = pave(&layout.ways, &layout.opens, &terrain, site.at, f32::from(u8::from(site.city)));
+        let mesh = pave(&layout.ways, &layout.nodes, &layout.opens, &terrain, site.at, f32::from(u8::from(site.city)));
         use bevy::render::mesh::VertexAttributeValues;
         let places = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
             Some(VertexAttributeValues::Float32x3(v)) => v.clone(),
@@ -8035,6 +9086,16 @@ mod facing {
                         envelope = envelope.max(cut.lift(across));
                     }
                 }
+                // AND THE MEETINGS, which own ground no straight section reaches: the
+                // corner of a junction is further from every middle line than a
+                // shoulder is, and it is still road. Asked of `surface` rather than
+                // of `stands_on`, so this is still a second instrument and not the
+                // rule marking its own work.
+                for node in &built.standing[&0].nodes {
+                    if node.owns(at) {
+                        envelope = envelope.max(node.surface(at));
+                    }
+                }
                 let on = stands_on(&terrain, &built, at) - terrain.walk_height(at.x, at.y);
                 if on > envelope + 0.001 {
                     lifted += 1;
@@ -8168,7 +9229,7 @@ mod facing {
         let site = a_site(true, 120.0);
         let layout = lay_out(&site, Vec2::X, &[], 3);
         for paved in [0.3_f32, 0.5, 0.85] {
-            let mesh = pave(&layout.ways, &layout.opens, &terrain, site.at, paved);
+            let mesh = pave(&layout.ways, &layout.nodes, &layout.opens, &terrain, site.at, paved);
             let Some(VertexAttributeValues::Float32x2(uvs)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0)
             else {
                 panic!("the paving has no uvs");
@@ -8558,7 +9619,7 @@ mod facing {
             wide: CITY_STREET_WIDE,
             joins: CITY_STREET_WIDE,
         }];
-        let mesh = pave(&ways, &[], &terrain, Vec2::ZERO, 1.0);
+        let mesh = pave(&ways, &[], &[], &terrain, Vec2::ZERO, 1.0);
         let Some(VertexAttributeValues::Float32x3(facing)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
         else {
             panic!("the paving has no normals");
@@ -8633,7 +9694,7 @@ mod facing {
                 wide: CITY_STREET_WIDE,
                 joins: CITY_STREET_WIDE,
             }];
-            let mesh = pave(&ways, &[], &terrain, Vec2::ZERO, paved);
+            let mesh = pave(&ways, &[], &[], &terrain, Vec2::ZERO, paved);
             let Some(VertexAttributeValues::Float32x3(places)) =
                 mesh.attribute(Mesh::ATTRIBUTE_POSITION)
             else {
@@ -8679,9 +9740,66 @@ mod facing {
         }
     }
 
+    /// A meeting's ground reaches every corner of every mouth it opens.
+    ///
+    /// # A hairline of grass at the mouth of every arm
+    ///
+    /// The rim is a radius per bearing and the mesh reads it at the bearings it was
+    /// measured at. Drop the bearing of a mouth's CORNER - which a tolerance of a
+    /// thousandth of a radian happily did - and the boundary runs straight from the
+    /// bearing beside it to the first point of the curb return. That chord passes
+    /// eight centimetres inside the corner, and the road's own footway ends at the
+    /// corner, so between them the ground shows through. Photographed at every arm of
+    /// every junction in the first city built with this.
+    ///
+    /// Nothing else would have caught it: every triangle faces up, no pavement
+    /// crosses a carriageway, and every arm gets its own kerb width. What was wrong
+    /// was a corner, and a corner has to be asked about by name.
+    #[test]
+    fn a_meeting_reaches_the_corners_of_its_own_mouths() {
+        let site = a_site(true, 120.0);
+        let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), &[], 3);
+        assert!(!layout.nodes.is_empty(), "a city laid no meetings at all");
+        let mut worst = 0.0_f32;
+        let mut where_at = Vec2::ZERO;
+        let mut looked_at = 0;
+        for node in &layout.nodes {
+            for arm in &node.arms {
+                let cut = RoadSection::new(
+                    arm.wide,
+                    arm.joins,
+                    Arriving::at(1.0),
+                    wander_at(arm.mouth, Arriving::at(1.0).wanders),
+                );
+                for off in rings_of(&cut) {
+                    for side in [-1.0_f32, 1.0] {
+                        let corner = arm.mouth + arm.side * (off * side);
+                        let out = corner - node.at;
+                        looked_at += 1;
+                        let short = out.length() - along_ring(&node.rings[0], out.to_angle()).max(
+                            along_ring(&node.rings[NODE_RINGS - 1], out.to_angle()),
+                        );
+                        if short > worst {
+                            worst = short;
+                            where_at = corner;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(looked_at > 200, "only {looked_at} mouth corners were looked at");
+        assert!(
+            worst < 0.005,
+            "a meeting's ground stops {worst:.4} m short of a mouth corner at {where_at:?} -              the road ends where the junction has not started"
+        );
+    }
+
     /// Measured, not argued: this takes the cross product of each triangle's own
     /// edges. It has caught two separate windings - the ribbon and the junction
     /// discs, which were 670 triangles still facing down after the ribbon was fixed.
+    /// How far past vertical a surface has to lean to have its back to the sky.
+    const A_WALL: f32 = 0.02;
+
     #[test]
     fn the_paving_faces_the_sky() {
         use bevy::render::mesh::{Indices, VertexAttributeValues};
@@ -8689,7 +9807,7 @@ mod facing {
         for city in [false, true] {
             let site = a_site(city, if city { 120.0 } else { 70.0 });
             let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), &[], 3);
-            let mesh = pave(&layout.ways, &layout.opens, &terrain, site.at, f32::from(u8::from(city)));
+            let mesh = pave(&layout.ways, &layout.nodes, &layout.opens, &terrain, site.at, f32::from(u8::from(city)));
             let Some(VertexAttributeValues::Float32x3(places)) =
                 mesh.attribute(Mesh::ATTRIBUTE_POSITION)
             else {
@@ -8698,14 +9816,22 @@ mod facing {
             let Some(Indices::U32(index)) = mesh.indices() else {
                 panic!("the paving has no indices");
             };
-            let down = index
-                .chunks(3)
-                .filter(|tri| {
-                    let p = |i: u32| Vec3::from(places[i as usize]);
-                    let (a, b, c) = (p(tri[0]), p(tri[1]), p(tri[2]));
-                    (b - a).cross(c - a).y <= 0.0
-                })
-                .count();
+            // BELOW HORIZONTAL, not merely not-above it.
+            //
+            // A kerb FACE is a wall - that is what a kerb is - and a wall's normal
+            // has no upward component to speak of, so its sign is whatever the
+            // rounding gives. Asking `y <= 0` of one is asking a question it cannot
+            // answer: three of a city's kerb faces came out at a ten-millionth below
+            // nought and were counted as turned away from the sky. What is actually
+            // being looked for is a surface with its BACK to the sky, which is a
+            // degree or two the wrong side of vertical at the very least.
+            let tilt = |tri: &[u32]| {
+                let p = |i: u32| Vec3::from(places[i as usize]);
+                let (a, b, c) = (p(tri[0]), p(tri[1]), p(tri[2]));
+                let facing = (b - a).cross(c - a);
+                facing.y / facing.length().max(1.0e-12)
+            };
+            let down = index.chunks(3).filter(|tri| tilt(tri) < -A_WALL).count();
             assert_eq!(
                 down,
                 0,
