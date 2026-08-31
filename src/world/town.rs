@@ -4636,6 +4636,12 @@ const PAVING_ARRIVES: f32 = 34.0;
 /// flat-lit surface with no side to it at all. See `cross_section`.
 const FACE_TAKES_LIGHT: f32 = 0.55;
 
+/// How far either side a surface is sampled to find which way it is leaning.
+///
+/// Half a metre: long enough that the terrain's own noise does not dominate the
+/// slope, short enough that a road over a crest is not read as level.
+const ALONG_STEP: f32 = 0.5;
+
 /// How many vertices one cross-section of a street emits.
 ///
 /// Fifteen stations, and the four extra are the two ends of each kerb face carrying
@@ -4707,14 +4713,41 @@ fn worn_at(at: Vec2, arriving: &Arriving) -> f32 {
     // Three scales, because wear has three: where the carts go, where the puddles
     // sit, and the scuff of the ground itself.
     let close = terrain_core::forest::field(at / (ROAD_WEARS_OVER * 0.06), 519);
-    let wears = ROAD_WEARS * (1.0 - arriving.surface_made * 0.8);
+    // ALL THE WAY TO NOTHING on a made surface.
+    //
+    // This left a fifth of the wear on a fully paved street, which at the scale the
+    // fine field is sampled reads as a blotchy mottle over the cobbles - a city
+    // street looking dirty rather than laid. Reported as the roads still being
+    // messed up. Wear is for ground that WEARS: a cart track worn across a meadow
+    // has it and a stone carriageway does not, and what a paved surface gets
+    // instead is its stones.
+    let wears = ROAD_WEARS * (1.0 - arriving.surface_made);
     1.0 + (broad - 0.5) * wears
         + (fine - 0.5) * wears * 0.5
         + (close - 0.5) * wears * 0.22
 }
 
-fn band_normal(side: Vec2, run: f32, rise: f32) -> [f32; 3] {
-    let square = Vec3::new(side.x * -rise, run, side.y * -rise).normalize_or_zero();
+fn band_normal(side: Vec2, run: f32, rise: f32, along: Vec2, grade: f32) -> [f32; 3] {
+    // BOTH WAYS THE SURFACE LEANS, not one of them.
+    //
+    // # A road up a hillside lit as though it were flat
+    //
+    // This used to be built from the cross-section alone: `(side * -rise, run)`,
+    // which is the normal of the profile ACROSS the road and knows nothing about
+    // whether the road is climbing. So a lane over a ridge carried exactly the
+    // normals of the same lane on a plain - and the ground either side of it did
+    // not, because terrain normals come from the heightfield. On a banded cel light
+    // that is not a subtlety: the hillside steps down a band and the road running up
+    // it does not, so the road reads as a strip of flat ground pasted onto a slope.
+    // Codex's finding, and it is plain in the code rather than arguable.
+    //
+    // A surface has two tangents and its normal is their cross product. Across is the
+    // profile's own slope; along is the way the road runs and how fast it rises.
+    // With no grade this is the old expression exactly, which is the check that the
+    // handedness has not been turned over.
+    let across = Vec3::new(side.x * run, rise, side.y * run);
+    let forward = Vec3::new(along.x, grade, along.y);
+    let square = across.cross(forward).normalize_or_zero();
 
     // AND TILTED BACK TOWARD THE SKY, the steeper it is.
     //
@@ -4740,8 +4773,12 @@ fn cross_section(
     section: &[(f32, [f32; 4], f32, bool)],
     cut: &RoadSection,
     side: Vec2,
+    along: Vec2,
+    grade: f32,
 ) -> Vec<(f32, [f32; 4], f32, [f32; 3])> {
-    let facing = |from: f32, to: f32| band_normal(side, to - from, cut.lift(to) - cut.lift(from));
+    let facing = |from: f32, to: f32| {
+        band_normal(side, to - from, cut.lift(to) - cut.lift(from), along, grade)
+    };
 
     let mut lanes = Vec::with_capacity(SECTION_LANES);
     for (at, &(across, colour, grain, hard)) in section.iter().enumerate() {
@@ -5897,7 +5934,24 @@ fn pave(
                 (half, flag, 0.0, false),
                 (shoulder, hem(shoulder), 0.0, false),
             ];
-            for (across, colour, grain, normal) in cross_section(&section, &cut, side) {
+            // HOW FAST THE ROAD IS CLIMBING HERE.
+            //
+            // Asked of the ground at the middle line, half a metre either way. Once
+            // per station rather than once per vertex: it is the ROAD's grade, which
+            // is a property of a point on the middle line and not of where somebody
+            // stands across it - the same reason `RoadSection` is decided there.
+            let ahead = run.normalize_or(Vec2::X);
+            let grade = (terrain.drawn_height(
+                on.x + ahead.x * ALONG_STEP,
+                on.y + ahead.y * ALONG_STEP,
+            ) - terrain.drawn_height(
+                on.x - ahead.x * ALONG_STEP,
+                on.y - ahead.y * ALONG_STEP,
+            )) / (2.0 * ALONG_STEP);
+
+            for (across, colour, grain, normal) in
+                cross_section(&section, &cut, side, ahead, grade)
+            {
                 let at = on + side * across;
 
                 // CROWNED, and tucked in at the edges.
@@ -5927,6 +5981,25 @@ fn pave(
                 // own coordinates so the variation crosses a junction rather than
                 // stopping at the edge of whichever piece drew it.
                 let mut worn = worn_at(at, &arriving);
+
+                // AND NOT OUT ONTO THE GROUND.
+                //
+                // The outermost band carries the TERRAIN's own colour, so that the
+                // ribbon fades into whatever is actually there instead of stopping
+                // at a line. It was being multiplied by the road's wear as well, so
+                // what fringed every street was ground colour with a road's noise
+                // brushed over it - a band that matched neither the road nor the
+                // grass, and read as exactly what it was. Reported twice as a brush
+                // effect down the sides.
+                //
+                // The wear belongs to the made surface. It fades out across the tie,
+                // so the last thing before the grass is the grass.
+                if across.abs() > cut.half {
+                    let out = ((across.abs() - cut.half)
+                        / (cut.shoulder - cut.half).max(1.0e-3))
+                        .clamp(0.0, 1.0);
+                    worn = worn + (1.0 - worn) * out;
+                }
 
                 // AND THE STONES THEMSELVES, on a city street.
                 //
@@ -6099,8 +6172,29 @@ fn pave(
             // The PROFILE's own rise, not the ground's: a normal that followed the
             // terrain under a junction would shade the hill and not the kerb.
             let over = |station: usize| node.surface(node.at + out * far(station));
+            // AND THE WAY THE GROUND LEANS AROUND the meeting, which is the node's
+            // own version of a road's grade: the ring runs at right angles to the
+            // radius, so that is the direction to ask along.
+            //
+            // MINUS the perpendicular, not the perpendicular. `band_normal` crosses
+            // the across-tangent with the along-tangent, and a ribbon hands it
+            // `side = forward.perp()` - so the pair that comes out pointing at the
+            // sky needs `forward = -side.perp()`. Handed `out.perp()` instead, every
+            // normal in every junction pointed at the GROUND, and each one went black:
+            // photographed from above, a city of dark blobs where its crossings were.
+            let turning = -out.perp();
+            let sweep = |at: Vec2| {
+                terrain.drawn_height(
+                    at.x + turning.x * ALONG_STEP,
+                    at.y + turning.y * ALONG_STEP,
+                ) - terrain.drawn_height(
+                    at.x - turning.x * ALONG_STEP,
+                    at.y - turning.y * ALONG_STEP,
+                )
+            };
+            let sweep = sweep(node.at + out * far(0)) / (2.0 * ALONG_STEP);
             let facing = |from: usize, to: usize| {
-                band_normal(out, far(to) - far(from), over(to) - over(from))
+                band_normal(out, far(to) - far(from), over(to) - over(from), turning, sweep)
             };
 
             for station in 0..NODE_STATIONS.len() {
@@ -10071,6 +10165,100 @@ mod facing {
         assert!(
             worst_flat < 0.02,
             "on ground the rule says is flat, the drawn floor and the walked floor             differ by {worst_flat:.4} m - a floating floor with no step near it to             explain itself"
+        );
+    }
+
+    /// A road leans the way it climbs, and its normals say so.
+    ///
+    /// # A hillside that steps down a band and a road that does not
+    ///
+    /// A road's normals used to be built from its cross-section alone, so a lane over
+    /// a ridge carried exactly the normals of the same lane on a plain. The ground
+    /// either side of it did not - terrain normals come from the heightfield - and on
+    /// a banded cel light that is not a subtlety: the hill steps down a band and the
+    /// road running up it stays where it was, so the road reads as a strip of flat
+    /// ground pasted onto a slope. Codex found it by reading `band_normal`, where it
+    /// is plain rather than arguable.
+    ///
+    /// Measured on the shipped mesh, and only in the direction the fault was in: how
+    /// far the carried normal tips ALONG the road, against how fast the road is
+    /// actually climbing there. The cross-section term is a different question and
+    /// `the_kerb_face_is_not_lit_as_flat_ground` already asks it.
+    #[test]
+    fn a_road_up_a_hill_is_lit_like_a_hill() {
+        use bevy::render::mesh::VertexAttributeValues;
+        let terrain = crate::world::terrain::Terrain::new();
+
+        // SOMEWHERE THAT ACTUALLY SLOPES. Picked by measuring rather than by being
+        // remembered: a constant would go flat the day the world's seed changes.
+        /// The steepest a road in this world is ever built, as a rise over its run.
+        const A_ROAD_CLIMBS: f32 = 0.30;
+
+        let mut where_at = Vec2::ZERO;
+        let mut steepest = 0.0_f32;
+        for x in -30..30 {
+            for z in -30..30 {
+                let at = Vec2::new(x as f32 * 40.0, z as f32 * 40.0);
+                let fall = (terrain.drawn_height(at.x + 8.0, at.y)
+                    - terrain.drawn_height(at.x - 8.0, at.y))
+                    / 16.0;
+                // A ROAD'S SLOPE, not a cliff's. The steepest ground in this world
+                // is a canyon wall at nearly five to one, where no road is ever laid
+                // and no cross-section could follow the ground anyway. What this has
+                // to measure is a grade a lane actually climbs.
+                if fall.abs() > steepest && fall.abs() < A_ROAD_CLIMBS {
+                    steepest = fall.abs();
+                    where_at = at;
+                }
+            }
+        }
+        assert!(
+            steepest > 0.08,
+            "the steepest ground found anywhere was {steepest:.3}, which is flat -             this guard has nothing to measure"
+        );
+
+        // Laid ALONG the fall line, so what the normals have to show is the grade and
+        // not the camber.
+        let ways = vec![Way {
+            points: vec![where_at - Vec2::X * 30.0, where_at + Vec2::X * 30.0],
+            wide: CITY_STREET_WIDE,
+            joins: CITY_STREET_WIDE,
+        }];
+        let mesh = pave(&ways, &[], &[], &terrain, where_at, 1.0);
+        let Some(VertexAttributeValues::Float32x3(places)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("the paving has no positions");
+        };
+        let Some(VertexAttributeValues::Float32x3(facing)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
+        else {
+            panic!("the paving has no normals");
+        };
+
+        // The middle of the carriageway at each station: the one lane with no camber
+        // of its own, so all that is left to see is the grade.
+        let mut worst = 0.0_f32;
+        let mut looked_at = 0;
+        for (at, place) in places.iter().enumerate() {
+            let on = Vec2::new(place[0] + where_at.x, place[2] + where_at.y);
+            // Within a hand's breadth of the middle line.
+            if (on.y - where_at.y).abs() > 0.2 {
+                continue;
+            }
+            let fall = (terrain.drawn_height(on.x + ALONG_STEP, on.y)
+                - terrain.drawn_height(on.x - ALONG_STEP, on.y))
+                / (2.0 * ALONG_STEP);
+            // A surface leaning by `fall` has a normal tipped this far back along it.
+            let wants = -fall / (1.0 + fall * fall).sqrt();
+            let carried = facing[at][0];
+            looked_at += 1;
+            worst = worst.max((carried - wants).abs());
+        }
+
+        assert!(looked_at > 12, "only {looked_at} points of carriageway were looked at");
+        assert!(
+            worst < 0.05,
+            "on ground falling {steepest:.3} the carriageway's normals are out by             {worst:.4} along the road - they are describing the cross-section and             calling it the surface"
         );
     }
 

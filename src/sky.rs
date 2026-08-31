@@ -96,7 +96,7 @@ struct Cloud {
 
 /// The one material every cloud wears, retinted as the light changes.
 #[derive(Resource, Deref)]
-struct CloudSkin(Handle<StandardMaterial>);
+struct CloudSkin(Handle<crate::shade::Shaded>);
 
 pub struct SkyPlugin;
 
@@ -266,7 +266,9 @@ fn drive_the_sky(
     when: Res<TimeOfDay>,
     weather: Res<crate::weather::TheWeather>,
     skin: Option<Res<CloudSkin>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    // The clouds wear the shared material now, so they can tell the outline pass to
+    // leave them alone - see `shade::IS_A_CLOUD`.
+    mut materials: ResMut<Assets<crate::shade::Shaded>>,
     mut clear: ResMut<ClearColor>,
     mut ambient: ResMut<AmbientLight>,
     mut suns: Query<(&mut Transform, &mut DirectionalLight)>,
@@ -373,9 +375,9 @@ fn drive_the_sky(
         let lit = mix_colour(fair, laden, weather.overcast * CLOUD_DARKENS_BY);
         // Only when it differs — see the star skin in `carry_the_night` for why
         // an unconditional `get_mut` is a re-upload per frame for nothing.
-        if materials.get(&skin.0).is_some_and(|was| was.base_color != lit) {
+        if materials.get(&skin.0).is_some_and(|was| was.base.base_color != lit) {
             if let Some(material) = materials.get_mut(&skin.0) {
-                material.base_color = lit;
+                material.base.base_color = lit;
             }
         }
     }
@@ -385,7 +387,7 @@ fn drive_the_sky(
 fn spawn_clouds(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<crate::shade::Shaded>>,
 ) {
     // Each shape, and how much ground it shades. See `shade::footprint`.
     let shapes: Vec<(Handle<Mesh>, f32)> = (0..terrain_core::cloud::VARIETIES as u32)
@@ -399,7 +401,14 @@ fn spawn_clouds(
         })
         .collect();
 
-    let skin = materials.add(StandardMaterial {
+    // THE SHARED MATERIAL, so a cloud can say it wants no outline round it.
+    //
+    // `ink` is a pass over the finished frame and knows only pixels; the one way a
+    // surface gets to speak to it is the alpha channel, and only `Shaded` writes
+    // that. A cloud drawn with a black line round it is Wind Waker, and this game is
+    // aiming at Breath of the Wild. See `shade::IS_A_CLOUD`, which also keeps the
+    // weather sweep off it - a cloud is what casts the shadows.
+    let mut skin = crate::shade::shaded(StandardMaterial {
         base_color: DAY_CLOUD,
         // Unlit, and deliberately. A cloud's shading is baked into its vertices
         // because a directional light cannot tell the inside of one from its
@@ -408,6 +417,8 @@ fn spawn_clouds(
         unlit: true,
         ..default()
     });
+    skin.extension.ink = crate::shade::IS_A_CLOUD;
+    let skin = materials.add(skin);
     commands.insert_resource(CloudSkin(skin.clone()));
 
     let mut casters = Vec::with_capacity(CLOUDS);

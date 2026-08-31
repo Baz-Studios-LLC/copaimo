@@ -115,7 +115,7 @@ pub struct Ink {
 /// far apart the samples are and the width was whatever the threshold happened to
 /// produce. The shader scales it by the screen's own height and uses it to DILATE an
 /// edge found at one pixel, which is a width somebody chose.
-pub const INK_WIDE: f32 = 1.4;
+pub const INK_WIDE: f32 = 1.15;
 
 /// How far a surface has to bend, as a share of its own depth, to be an edge.
 ///
@@ -135,6 +135,16 @@ const INK_BREAKS_AT: f32 = 0.02;
 /// have.
 const INK_REACHES: f32 = 900.0;
 
+/// How much of the line is actually laid down.
+///
+/// # Breath of the Wild, not Wind Waker
+///
+/// At full strength every edge in the world is a hard black rule, which is a
+/// beautiful look and is not this one. What was asked for is semi-cel: the line is
+/// there, it reads, and it does not become the drawing. Seven tenths of a charcoal
+/// that is itself a darkening rather than a paint - see `Ink::deepens`.
+const INK_STRENGTH: f32 = 0.7;
+
 /// The near plane the ink assumes if the camera does not say.
 const NEAR_ENOUGH: f32 = 0.1;
 
@@ -148,7 +158,7 @@ const INK_DEEPENS: f32 = 0.25;
 impl Default for Ink {
     fn default() -> Self {
         Ink {
-            colour: Vec4::new(0.05, 0.055, 0.07, 1.0),
+            colour: Vec4::new(0.05, 0.055, 0.07, INK_STRENGTH),
             drawn: Vec4::new(INK_WIDE, INK_BREAKS_AT, INK_REACHES, NEAR_ENOUGH),
             deepens: Vec4::new(INK_DEEPENS, 0.0, 0.0, 0.0),
         }

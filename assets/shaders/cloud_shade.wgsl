@@ -62,6 +62,9 @@ struct Movers {
 // everything that is not a road.
 @group(2) @binding(104) var<uniform> paving: vec4<f32>;
 
+/// Whether the outline pass may draw a line on this, in x. See `shade::CloudShade::ink`.
+@group(2) @binding(105) var<uniform> ink: vec4<f32>;
+
 const TAU: f32 = 6.28318530718;
 
 /// What `bending.x` holds for the sea. Named, because two different questions are
@@ -439,5 +442,15 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     out.color = vec4<f32>(banded(out.color.rgb), out.color.a);
 
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
+
+    // AND WHETHER THE OUTLINE PASS MAY DRAW ON THIS, in the one channel that
+    // reaches it.
+    //
+    // `ink` runs over the finished frame and knows only pixels; it cannot ask what a
+    // surface is. Opaque surfaces all leave alpha at one and tonemapping carries it
+    // through untouched, so alpha is where a material gets to say. See
+    // `shade::CloudShade::ink` - and note this is set AFTER the lighting, because
+    // `alpha_discard` would have put it back to one.
+    out.color.a = ink.x;
     return out;
 }

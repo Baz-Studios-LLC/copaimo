@@ -102,6 +102,16 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let size = vec2<f32>(textureDimensions(depth));
     let at = vec2<i32>(in.uv * size);
 
+    // WHAT THE SURFACE SAID ABOUT ITSELF, in the alpha nothing else reads.
+    //
+    // A pass over the finished frame knows pixels and not things, so this is the one
+    // way a material can ask to be left alone - see `shade::CloudShade::ink`. Read
+    // from the MIDDLE pixel, so a line is drawn on the object's own side: a building
+    // against grass is inked and the grass beside it is not.
+    if painted.a < 0.5 {
+        return painted;
+    }
+
     let middle = reading(at);
     if middle <= 0.0 {
         // Nothing was drawn here, so there is no surface to draw the edge OF. The

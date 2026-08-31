@@ -58,7 +58,7 @@ pub struct HasCover;
 pub struct CoverMaterial(pub Handle<Shaded>);
 
 pub fn setup_material(mut commands: Commands, mut materials: ResMut<Assets<Shaded>>) {
-    let handle = materials.add(shaded(StandardMaterial {
+    let mut cover = shaded(StandardMaterial {
         // White, so the greens the crate baked into the vertices come through
         // exactly as mixed — the same bargain the terrain makes with its biome
         // colours.
@@ -70,8 +70,16 @@ pub fn setup_material(mut commands: Commands, mut materials: ResMut<Assets<Shade
         double_sided: true,
         cull_mode: None,
         ..default()
-    }));
-    commands.insert_resource(CoverMaterial(handle));
+    });
+    // NO OUTLINE ON GRASS.
+    //
+    // A blade is a single triangle a few centimetres across and there are thousands
+    // of them in view, so a pass that finds depth breaks finds one at every edge of
+    // every one: photographed at knee height, the field came out as scribble. The
+    // outline is for things with a silhouette worth reading, and a blade of grass is
+    // not one of them. See `shade::CloudShade::ink`.
+    cover.extension.ink = crate::shade::NO_INK;
+    commands.insert_resource(CoverMaterial(materials.add(cover)));
 }
 
 /// Starts building cover for loaded chunks near the viewer that have none.

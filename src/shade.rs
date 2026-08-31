@@ -124,7 +124,34 @@ pub struct CloudShade {
     /// paved" - the terrain, the buildings and the sea never enter the branch.
     #[uniform(104)]
     pub paving: Vec4,
+    /// Whether the outline pass may draw a line on this, in `x`, and whether the
+    /// weather may lay a cloud shadow on it, in `y`.
+    ///
+    /// # The one channel that reaches a pass over the finished frame
+    ///
+    /// `ink` runs after everything is drawn and knows only pixels: depth, and the
+    /// colour. It cannot ask what a surface IS, so left to itself it draws a line
+    /// round every blade of grass in the world - which is what it did, and it read
+    /// as a field of scribble rather than as grass.
+    ///
+    /// A material CAN say, if it has somewhere to write. Opaque surfaces all leave
+    /// the alpha channel at one, tonemapping carries it through untouched, and
+    /// nothing downstream of it looks - so that is where this goes. One at the
+    /// default, so a material that has never heard of outlines gets one; nought on
+    /// ground cover, which is the thing that has to stop.
+    #[uniform(105)]
+    pub ink: Vec4,
 }
+
+/// What `CloudShade::ink` says for ground cover: no outline, but shaded as usual.
+pub const NO_INK: Vec4 = Vec4::new(0.0, 1.0, 0.0, 0.0);
+
+/// And for everything else: drawn round, and shaded by the weather.
+pub const TAKES_INK: Vec4 = Vec4::new(1.0, 1.0, 0.0, 0.0);
+
+/// What a CLOUD says: neither. It is the thing casting the shadows, so it does not
+/// take one, and a line round it is Wind Waker rather than Breath of the Wild.
+pub const IS_A_CLOUD: Vec4 = Vec4::ZERO;
 
 /// What a vertex's alpha means on a paved surface: the size of the stone laid there,
 /// in metres, over this.
@@ -169,6 +196,9 @@ impl Default for CloudShade {
             // Standing still, which is what everything but grass does.
             bending: Vec4::ZERO,
             movers: [Vec4::ZERO; MOST_MOVERS],
+            // Drawn round unless somebody says otherwise. A material that has never
+            // heard of the outline pass should still get an outline.
+            ink: TAKES_INK,
         }
     }
 }
@@ -301,6 +331,12 @@ fn carry_the_shade(
     let weather = Vec4::new(strength, CLOUD_SHADE_SOFT, CLOUD_SPREAD, count as f32);
 
     for (_, material) in materials.iter_mut() {
+        // NOT ON THE CLOUDS THEMSELVES. They are what casts the shadows, and this
+        // sweep is the only reason they cannot simply wear the shared material -
+        // see `IS_A_CLOUD`.
+        if material.extension.ink.y < 0.5 {
+            continue;
+        }
         material.extension.weather = weather;
         material.extension.discs = discs;
     }

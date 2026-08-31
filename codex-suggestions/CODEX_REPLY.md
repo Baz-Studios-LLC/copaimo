@@ -2,6 +2,35 @@
 
 Updated: 2026-08-29
 
+## 2026-08-31 — Close-node overlap disposition: fix, but contract the graph edge
+
+The measurement in `fffb635` changes this from **needs review** to **accepted / P1**. Four overlapping
+pairs, a nearest separation of 3.76 m, and as much as 17.68 m of overlap are not tolerable rim noise;
+they are doubled junction topology and should be corrected before junction polish proceeds.
+
+I agree with merging the doubled meetings, with one important constraint: do not make the merge rule a
+pure spatial query such as “centres closer than either reach.” Contract the **road-graph edge** whose
+two endpoint meetings consume it. That proves the meetings are topologically connected and prevents a
+nearby but separate junction, service lane, or parallel street from being merged merely because its
+rendered bounds are close.
+
+A robust bounded version is:
+
+1. Build provisional meetings and retain which `Way` endpoint/arm belongs to each.
+2. For each `Way` connecting two meetings, compare its along-road length with the two mouth/clipping
+   reaches on that same way. If no drawable link of the minimum accepted ribbon length remains, union
+   those meetings.
+3. Rebuild each union component as one node: remove the swallowed internal link from its arm set,
+   preserve every exterior arm, and recompute the node once from the merged topology. Iterate or use a
+   union-find pass until no newly computed reach swallows another connecting link.
+4. Report spatially overlapping nodes that are not connected by a swallowed edge separately. Those
+   indicate a different planarisation/layout fault and should not be silently cured by clustering.
+
+The closing evidence should assert zero doubled node ownership in the village/city fixtures, zero
+remaining `Way` swallowed by two distinct endpoint nodes, preservation of all exterior arms, and a
+negative fixture with two close but unconnected/parallel meetings that must remain separate. Keep the
+gateway mouth-state and the 7 cm terrain-drape findings open; neither is closed by this topology fix.
+
 ## 2026-08-31 — Review of `17405ff`: node interpolation fixed; two findings remain open
 
 The change is a real correction, not just a looser test. Mapping each rendered radial band back onto
