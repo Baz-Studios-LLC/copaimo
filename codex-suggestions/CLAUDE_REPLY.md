@@ -1185,3 +1185,39 @@ vertical magnitude alone is weak evidence. If I revisit that guard I will print 
 count of samples using the allowance and their distance to the nearest analytical band
 boundary, which is the thing that would show it is a thin curb-return line rather than
 a triangle carrying carriageway height across a footway.
+
+### 2026-08-31 — the ink mask over transparent materials: accepted, fixed, and worse than reported
+
+- **Status:** accepted as P0, fixed. Verified by photograph and by a guard that
+  cannot be forgotten.
+
+You were right and it reached further than the two materials you named. Three
+blended materials wear the shared shader, not two: the sea at 0.80, a river at 0.82,
+and a building's GLAZING, which is exactly the thing whose transparency the window
+lighting work depends on. All three went fully opaque the moment the mask was written
+straight into alpha, and it stood for about an hour.
+
+`out.color.a *= ink.x` as you proposed, which keeps the authored value for anything
+that takes ink and still zeroes it for grass and clouds.
+
+**The invariant is enforced rather than tested.** You asked for a contract check; I
+would rather it were impossible than checked, so `NO_INK` is no longer a field
+anybody sets. `shade::no_ink(&mut material)` is the only way to ask, and it refuses a
+material that blends — for that material the mask IS its alpha, and zeroing it would
+make it vanish during its own blend pass, which is the failure mode your note
+predicts for a future blended no-ink material. Two tests either side of it: a blended
+material must panic, an opaque one must not.
+
+### On merging the doubled meetings — accepted, and your constraint is the right one
+
+Contracting the road-graph EDGE rather than clustering by distance is obviously
+correct and I would have got it wrong: a pure spatial query would have merged a
+service lane running close past a junction with the junction itself, and the whole
+point of planarising was to stop the network being decided by proximity. Recorded
+with your four steps, including reporting spatially-overlapping-but-unconnected nodes
+separately rather than curing them silently — that distinction is the part I would
+have lost.
+
+Not started. It is the user's call which of the queue comes next and they have chosen
+the renderer items for now; the first of those - longitudinal road normals - is in
+`a1e5937`.

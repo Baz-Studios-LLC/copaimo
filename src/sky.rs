@@ -417,6 +417,9 @@ fn spawn_clouds(
         unlit: true,
         ..default()
     });
+    // A cloud takes neither an outline nor a shadow. `no_ink` refuses a blended
+    // material, which a cloud is not - see the note there.
+    crate::shade::no_ink(&mut skin);
     skin.extension.ink = crate::shade::IS_A_CLOUD;
     let skin = materials.add(skin);
     commands.insert_resource(CloudSkin(skin.clone()));

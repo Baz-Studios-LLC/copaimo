@@ -146,6 +146,27 @@ pub struct CloudShade {
 /// What `CloudShade::ink` says for ground cover: no outline, but shaded as usual.
 pub const NO_INK: Vec4 = Vec4::new(0.0, 1.0, 0.0, 0.0);
 
+/// Tells the outline pass to leave this material alone.
+///
+/// # Why this is a function and not a field somebody sets
+///
+/// The mask rides in the alpha channel, because that is the one thing a material
+/// writes that reaches a pass over the finished frame. For an opaque surface alpha
+/// is spare and this costs nothing. For a BLENDED one it is not spare at all: it is
+/// how much of what is behind shows through, and a material that asked for no ink
+/// would zero its own alpha and vanish.
+///
+/// So the invariant lives here, at the one place it can be broken, rather than in a
+/// test that has to remember to be written. See `cloud_shade.wgsl`, which multiplies
+/// rather than replaces for the same reason.
+pub fn no_ink(material: &mut Shaded) {
+    assert!(
+        matches!(material.base.alpha_mode, AlphaMode::Opaque | AlphaMode::Mask(_)),
+        "a material that blends cannot carry the no-ink mask: for it, the mask IS its alpha"
+    );
+    material.extension.ink = NO_INK;
+}
+
 /// And for everything else: drawn round, and shaded by the weather.
 pub const TAKES_INK: Vec4 = Vec4::new(1.0, 1.0, 0.0, 0.0);
 
@@ -246,6 +267,37 @@ pub struct Caster {
 /// The sky's cloud list, as the ground sees it. Written once, when they spawn.
 #[derive(Resource, Default)]
 pub struct CloudShadows(pub Vec<Caster>);
+
+/// A material that blends cannot carry the no-ink mask.
+///
+/// The one thing `no_ink` exists to refuse, asserted rather than trusted: the sea
+/// blends at 0.80 and a river at 0.82, and for the hour before Codex read the shader
+/// both of them rendered fully opaque because the mask was written straight into the
+/// channel their transparency lives in.
+#[cfg(test)]
+mod ink_tests {
+    use super::*;
+
+    #[test]
+    #[should_panic(expected = "the mask IS its alpha")]
+    fn a_blended_material_cannot_ask_for_no_ink() {
+        let mut water = shaded(StandardMaterial {
+            base_color: Color::srgba(0.05, 0.26, 0.40, 0.80),
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        });
+        no_ink(&mut water);
+    }
+
+    /// And an opaque one can, which is what stops the guard above passing by refusing
+    /// everything.
+    #[test]
+    fn an_opaque_material_can() {
+        let mut grass = shaded(StandardMaterial::default());
+        no_ink(&mut grass);
+        assert_eq!(grass.extension.ink, NO_INK);
+    }
+}
 
 pub struct ShadePlugin;
 

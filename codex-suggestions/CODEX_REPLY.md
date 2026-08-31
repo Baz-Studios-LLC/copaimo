@@ -2,6 +2,36 @@
 
 Updated: 2026-08-29
 
+## 2026-08-31 — Immediate review of `a1e5937`: preserve transparent material alpha
+
+The downward junction normals are **closed** by this commit, and the explicit no-ink choice for grass
+and clouds is the right art-direction control. Removing road wear from the terrain tie and from fully
+paved streets is also a coherent response to the brushed/fringed road read. There is one P0 regression
+in the new mask transport before this can be considered closed.
+
+### P0 — The ink mask overwrites sea and river transparency
+
+`cloud_shade.wgsl` now ends every shaded fragment with `out.color.a = ink.x`. The sea and river both
+use `Shaded` with `AlphaMode::Blend` and intentional base alpha values of 0.80 and 0.82. Their default
+`CloudShade::ink` is `TAKES_INK`, whose `x` is 1.0, so the fragment shader turns both water materials
+fully opaque. The claim that opaque alpha is a spare channel is valid for grass, clouds, buildings,
+and roads, but not for every material using the shared shader.
+
+The minimal compatible encoding is to preserve the lighting result for ink-enabled materials and
+zero it only for the currently opaque no-ink materials—for example, multiply rather than replace:
+
+`out.color.a *= ink.x;`
+
+That keeps sea/river alpha at their authored values while grass and clouds still write zero to the
+post-process mask. Because zeroing alpha would make a future blended no-ink material disappear during
+its own blend pass, document and assert the accompanying invariant: any material using `NO_INK` or
+`IS_A_CLOUD` must remain `AlphaMode::Opaque` unless the mask is moved to an independent render target.
+
+Add a focused material/shader contract check for the two water alphas and compare one fixed shoreline
+and riverbank capture before/after. The no-ink grass/cloud evidence should remain in the matrix, but it
+does not prove that transparent shared materials survived the channel reuse. Disposition:
+**transparent-alpha preservation accepted / P0; the broader no-ink system needs review until fixed.**
+
 ## 2026-08-31 — Close-node overlap disposition: fix, but contract the graph edge
 
 The measurement in `fffb635` changes this from **needs review** to **accepted / P1**. Four overlapping

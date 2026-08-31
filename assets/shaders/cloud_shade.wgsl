@@ -451,6 +451,15 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // through untouched, so alpha is where a material gets to say. See
     // `shade::CloudShade::ink` - and note this is set AFTER the lighting, because
     // `alpha_discard` would have put it back to one.
-    out.color.a = ink.x;
+    //
+    // MULTIPLIED, NOT REPLACED. The sea blends at 0.80, a river at 0.82 and a lit
+    // window at whatever its glazing asks for, and all three wear this same shader -
+    // so writing the mask straight into alpha turned every one of them opaque. The
+    // claim that alpha is a spare channel is true of grass, clouds, buildings and
+    // roads, and it is not true of everything. Codex caught it the same hour it went
+    // in. The invariant that goes with this is enforced in `shade::no_ink`: a
+    // material carrying the mask has to be opaque, because for it the mask IS its
+    // alpha.
+    out.color.a *= ink.x;
     return out;
 }

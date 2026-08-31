@@ -78,7 +78,7 @@ pub fn setup_material(mut commands: Commands, mut materials: ResMut<Assets<Shade
     // every one: photographed at knee height, the field came out as scribble. The
     // outline is for things with a silhouette worth reading, and a blade of grass is
     // not one of them. See `shade::CloudShade::ink`.
-    cover.extension.ink = crate::shade::NO_INK;
+    crate::shade::no_ink(&mut cover);
     commands.insert_resource(CoverMaterial(materials.add(cover)));
 }
 
