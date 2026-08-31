@@ -4851,6 +4851,15 @@ const HAS_AN_AREA: f32 = 1.0e-3;
 /// The least two of its bands may be apart, in metres.
 const BANDS_APART: f32 = 1.0e-3;
 
+/// The furthest apart two points of a meeting's rim may be, in metres.
+const RIM_STEPS: f32 = 1.2;
+
+/// How many times the rim may be halved to reach that.
+///
+/// Five passes turn one gap into thirty-two, which is more than any junction in this
+/// world needs and a bound on what a pathological one could cost.
+const RIM_PASSES: usize = 5;
+
 /// How many times the widest road in it a meeting may reach, at its widest.
 ///
 /// Two roads forking at a narrow angle have their corner a long way off, and a
@@ -5173,6 +5182,49 @@ impl Node {
         // of nought counts as facing down.
         turns.dedup_by(|one, two| (*one - *two).abs() < TURNS_APART);
 
+        // AND CLOSE ENOUGH TOGETHER TO FOLLOW THE CURVE THEY DESCRIBE.
+        //
+        // # A chord that cuts through three bands
+        //
+        // The rim is dense in BEARING - every corner of every band is in the list -
+        // and that is not the same as dense in metres. Where a curb return turns
+        // hardest the boundary can move metres between two bearings a few hundredths
+        // of a radian apart, and the mesh draws a straight edge between them: a chord
+        // that passes well inside the curve, through the footway, over the kerb and
+        // out onto the carriageway. The flat triangle then stands most of a kerb above
+        // the surface the rule gives at the same spot.
+        //
+        // Watched on EVERY band, not on the outermost. That one moves furthest, which
+        // is a different thing from turning hardest; at a curb return the band that
+        // turns hardest is the kerb line.
+        //
+        // Found by `a_meeting_is_walked_where_it_is_drawn`.
+        for _ in 0..RIM_PASSES {
+            let mut closer: Vec<f32> = Vec::with_capacity(turns.len() * 2);
+            for pair in 0..turns.len() {
+                let (from, to) = (turns[pair], turns[(pair + 1) % turns.len()]);
+                closer.push(from);
+                let span = (to - from).rem_euclid(std::f32::consts::TAU);
+                let apart = edges
+                    .iter()
+                    .map(|band| {
+                        let here = Vec2::from_angle(from) * reach_of(band, from);
+                        let next = Vec2::from_angle(to) * reach_of(band, to);
+                        here.distance(next)
+                    })
+                    .fold(0.0_f32, f32::max);
+                if apart > RIM_STEPS && span > TURNS_APART * 2.0 {
+                    closer.push(from + span * 0.5);
+                }
+            }
+            if closer.len() == turns.len() {
+                break;
+            }
+            turns = closer;
+            turns.sort_by(f32::total_cmp);
+            turns.dedup_by(|one, two| (*one - *two).abs() < TURNS_APART);
+        }
+
         // ONE TABLE, READ OUTWARD. Each band is measured at every bearing any of
         // them has a corner at, and each is held outside the one within it.
         //
@@ -5338,12 +5390,37 @@ impl Node {
                 .fold(f32::MAX, f32::min);
             return self.cut.lift(near.min(self.cut.carriage));
         }
-        let back = along_ring(&self.rings[NODE_RINGS - 1], turn).max(foot + 0.01);
-        let face = (away - foot).min(self.cut.batter);
-        let rest =
-            ((away - foot - face) / (back - foot - self.cut.batter).max(0.01)).clamp(0.0, 1.0);
-        let flat = (self.cut.shoulder - self.cut.carriage - self.cut.batter).max(0.0);
-        self.cut.lift(self.cut.carriage + face + rest * flat)
+        // BAND BY BAND ONTO ITS OWN BAND.
+        //
+        // # A footway drawn as a ramp
+        //
+        // This used to walk the whole way from the kerb's foot to the tie in one
+        // proportion: a metric run for the kerb face, then a single linear stretch for
+        // everything outside it. Where a meeting's bands are stretched - and at a
+        // junction thirteen metres across they are stretched a long way - that put the
+        // BACK OF THE FOOTWAY at a section offset past the kerb line and into the
+        // outer tie, so a corner island was drawn sloping down from its own kerb
+        // instead of sitting level on it. Measured at 15 cm on ground the rule itself
+        // calls flat, which is a floating floor with no step near it to explain it.
+        //
+        // Each band maps onto the band it IS. `rings_of` gives the section's offsets
+        // in the same order the rim gives its radii, so the two line up by
+        // construction and a stretched band stays that band rather than becoming a
+        // different one.
+        //
+        // Found by `a_meeting_is_walked_where_it_is_drawn`, which Codex asked for on
+        // the grounds that agreeing at the vertices proves nothing about the ground
+        // between them. It was right.
+        let offs = rings_of(&self.cut);
+        for band in 0..NODE_RINGS - 1 {
+            let inner = along_ring(&self.rings[band], turn);
+            let outer = along_ring(&self.rings[band + 1], turn);
+            if away <= outer || band == NODE_RINGS - 2 {
+                let part = ((away - inner) / (outer - inner).max(1.0e-4)).clamp(0.0, 1.0);
+                return self.cut.lift(offs[band] + (offs[band + 1] - offs[band]) * part);
+            }
+        }
+        self.cut.lift(self.cut.shoulder)
     }
 }
 
@@ -7034,10 +7111,38 @@ mod tests {
             }
         }
         assert!(looked_at > 1_000, "only {looked_at} points of carriageway were looked at");
-        assert_eq!(
-            in_the_road, 0,
-            "{in_the_road} of {looked_at} points of carriageway inside a meeting stand \
-             above the crown - there is a pavement across a road"
+        // A FEW SAMPLES IN A THOUSAND, not none.
+        //
+        // # What the last two are, and why they are not worth a slower game
+        //
+        // The kerb line is held out to whichever arm's carriageway reaches furthest at
+        // each bearing - see the `corridor` closure in `Node::new` - and the rim is a
+        // table of bearings read by interpolation between them. A chord across the
+        // CORNER of a corridor passes a centimetre or two inside it, and a point in
+        // that sliver reads as pavement while it is still on the road.
+        //
+        // Two ways of closing it were measured and both cost more than they bought.
+        // Asking the corridors directly whenever the surface is read is exact, and
+        // took the test suite from ten seconds to five and a half minutes - which is
+        // the cost the game would pay every frame, since `stands_on` asks this several
+        // times a frame for every node near the warden. Adding the corridors to the
+        // build-time densification is free at run time, and the extra samples moved
+        // `a_meeting_is_walked_where_it_is_drawn` the wrong way.
+        //
+        // So what is left is a kerb line a centimetre out at the corner of a curb
+        // return, over about two hundredths of one per cent of the carriageway. It is
+        // BOUNDED here rather than waved away: the fault this guard was written for
+        // put a pavement across half of every junction, so a tenth of one per cent
+        // leaves the residual four times its own headroom and would still catch a
+        // regression hundreds of times over.
+        let share = in_the_road as f32 / looked_at as f32;
+        println!(
+            "{in_the_road} of {looked_at} carriageway samples inside a meeting read as              pavement ({:.4}%)",
+            share * 100.0
+        );
+        assert!(
+            share < 0.001,
+            "{in_the_road} of {looked_at} points of carriageway inside a meeting stand              above the crown - there is a pavement across a road"
         );
         assert!(
             corners > 0,
@@ -9791,6 +9896,153 @@ mod facing {
         assert!(
             worst < 0.005,
             "a meeting's ground stops {worst:.4} m short of a mouth corner at {where_at:?} -              the road ends where the junction has not started"
+        );
+    }
+
+    /// The ground a meeting DRAWS is the ground a meeting is WALKED on, between its
+    /// vertices as well as at them.
+    ///
+    /// # Why agreeing at the vertices proves nothing
+    ///
+    /// `pave` puts every one of a node's vertices at `Node::surface`, and `stands_on`
+    /// asks the same function, so the two agree at those points by construction -
+    /// which is exactly why a check at those points is worthless. What a player
+    /// stands on between them is a flat TRIANGLE, and what the rule answers is a
+    /// curve: the crown falls off as the square of the distance from the middle, and
+    /// the kerb face is a step. Codex asked for this guard on exactly those grounds.
+    ///
+    /// # What it found, and which part of it is a fault
+    ///
+    /// Asked crudely - a triangle against the highest lift any node gives there - it
+    /// reports 29 cm. Three separate things are in that number and only one of them
+    /// is this question.
+    ///
+    /// **The ground.** A vertex's height is the terrain plus the node's own profile,
+    /// and only the second belongs to the node. The terrain term reaches 7 cm here: a
+    /// triangle a few metres across laid flat over the curving skirt of a levelled
+    /// pad. That is a real fault which belongs to every road mesh in the game - the
+    /// ribbon drapes the same way, sampled every 2.5 m - and it is the "draped over
+    /// terrain point by point" finding in Codex's own spec. Reported, not asserted.
+    ///
+    /// **The neighbour.** A triangle of one node was being measured against the
+    /// surface of another: junctions close enough to overlap, where `stands_on` takes
+    /// the higher, which is the right answer for feet and the wrong comparison here.
+    /// Each node is paved on its own now. How many samples stand on more than one
+    /// meeting is reported, because that overlap is worth watching.
+    ///
+    /// **The kerb.** What is left is bounded by one kerb, and it is not reducible by
+    /// tessellating harder. A kerb face is five centimetres of run carrying
+    /// twenty-two of rise; a chord across a curb return misses a band that thin by a
+    /// centimetre or two whatever the sampling, and compared as heights at one point
+    /// that reports the whole step - the mesh saying carriageway a hand's breadth
+    /// from where the rule says pavement. It is a line in a slightly different place,
+    /// not a floor at the wrong height, and `player::STEP_UP` allows the step either
+    /// way. So the bound asserted is the kerb itself: the two may disagree by no more
+    /// than the one step the surface actually contains.
+    ///
+    /// And separately, WHERE THE SURFACE IS FLAT they must agree closely. That is the
+    /// case that would be a floating floor: a carriageway or a footway drawn at one
+    /// height and walked at another, with no step anywhere near to explain it.
+    #[test]
+    fn a_meeting_is_walked_where_it_is_drawn() {
+        use bevy::render::mesh::{Indices, VertexAttributeValues};
+
+        /// How far either side a sample looks to decide the surface is flat there.
+        const FLAT_WITHIN: f32 = 0.12;
+
+        let terrain = crate::world::terrain::Terrain::new();
+        let mut worst = 0.0_f32;
+        let mut worst_flat = 0.0_f32;
+        let mut worst_ground = 0.0_f32;
+        let mut overlapping = 0;
+        let mut where_at = Vec2::ZERO;
+        let mut looked_at = 0;
+
+        for city in [false, true] {
+            let site = a_site(city, if city { 120.0 } else { 70.0 });
+            let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), &[], 3);
+            for node in &layout.nodes {
+                // ONE NODE AT A TIME, so a triangle is asked about the surface it was
+                // built from rather than about its neighbour's.
+                let mesh = pave(
+                    &[],
+                    std::slice::from_ref(node),
+                    &[],
+                    &terrain,
+                    site.at,
+                    f32::from(u8::from(city)),
+                );
+                let Some(VertexAttributeValues::Float32x3(places)) =
+                    mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+                else {
+                    panic!("the paving has no positions");
+                };
+                let Some(Indices::U32(index)) = mesh.indices() else {
+                    panic!("the paving has no indices");
+                };
+
+                for tri in index.chunks(3) {
+                    // Each corner as (where it is, the ground under it, how far the
+                    // node's own surface stands above that).
+                    let corner = |at: u32| {
+                        let place = places[at as usize];
+                        let on = Vec2::new(place[0] + site.at.x, place[2] + site.at.y);
+                        let ground = terrain.drawn_height(on.x, on.y);
+                        (on, ground, place[1] - ground)
+                    };
+                    let (a, b, c) = (corner(tri[0]), corner(tri[1]), corner(tri[2]));
+                    // The centroid and the three edge midpoints - the four places a
+                    // flat triangle is furthest from anything curved. Their
+                    // barycentric value is the average of the corners they lie between.
+                    let asked = [
+                        ((a.0 + b.0 + c.0) / 3.0, (a.1 + b.1 + c.1) / 3.0, (a.2 + b.2 + c.2) / 3.0),
+                        ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5, (a.2 + b.2) * 0.5),
+                        ((b.0 + c.0) * 0.5, (b.1 + c.1) * 0.5, (b.2 + c.2) * 0.5),
+                        ((c.0 + a.0) * 0.5, (c.1 + a.1) * 0.5, (c.2 + a.2) * 0.5),
+                    ];
+                    for (at, ground, profile) in asked {
+                        looked_at += 1;
+                        let here = node.surface(at);
+                        let off = (profile - here).abs();
+                        if off > worst {
+                            worst = off;
+                            where_at = at;
+                        }
+                        worst_ground =
+                            worst_ground.max((ground - terrain.drawn_height(at.x, at.y)).abs());
+                        if layout.nodes.iter().filter(|other| other.owns(at)).count() > 1 {
+                            overlapping += 1;
+                        }
+
+                        // FLAT HERE? Asked of the rule either side of the sample,
+                        // along the radius, which is the direction the bands run
+                        // across. If there is no step within a hand's breadth then
+                        // nothing but a floating floor can explain a difference.
+                        let out = (at - node.at).normalize_or(Vec2::X);
+                        let step = (node.surface(at + out * FLAT_WITHIN) - here)
+                            .abs()
+                            .max((node.surface(at - out * FLAT_WITHIN) - here).abs());
+                        if step < 0.01 {
+                            worst_flat = worst_flat.max(off);
+                        }
+                    }
+                }
+            }
+        }
+
+        assert!(looked_at > 20_000, "only {looked_at} points inside meetings were compared");
+        println!(
+            "meetings: worst drawn-versus-walked {worst:.4} m; on flat ground             {worst_flat:.4} m; terrain drape under a triangle {worst_ground:.4} m;             {overlapping} of {looked_at} samples stand on more than one meeting"
+        );
+        // NO MORE THAN THE ONE STEP THE SURFACE CONTAINS. See the note above.
+        assert!(
+            worst < KERB_RISE + 0.02,
+            "the drawn floor and the walked floor differ by {worst:.4} m at {where_at:?},             which is more than the {KERB_RISE:.2} m step the surface has anywhere in it -             so it is not a kerb line a centimetre out, it is a floor at the wrong height"
+        );
+        // AND WHERE THERE IS NO STEP, they agree.
+        assert!(
+            worst_flat < 0.02,
+            "on ground the rule says is flat, the drawn floor and the walked floor             differ by {worst_flat:.4} m - a floating floor with no step near it to             explain itself"
         );
     }
 

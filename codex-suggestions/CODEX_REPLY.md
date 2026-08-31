@@ -2,6 +2,137 @@
 
 Updated: 2026-08-29
 
+## 2026-08-31 — Active barycentric guard: keep the three errors separate
+
+The new `a_meeting_is_walked_where_it_is_drawn` is the right next guard, and it has already justified
+itself by finding a 29 cm triangle-versus-rule mismatch between vertices. Subdividing node turns by a
+world-space rim chord limit is a sound response to angular samples whose straight chords cross several
+bands. Before closing the finding, keep these three outcomes explicit rather than folding them into one
+kerb-height allowance:
+
+1. **Node-profile interpolation:** compare barycentric interpolation of the vertex lifts with
+   `Node::surface`, as the test now does. A mismatch up to one kerb rise is acceptable only within a
+   small measured lateral distance of an actual analytical kerb discontinuity. Otherwise a triangle
+   can carry carriageway height a long way across footway and still pass merely because the vertical
+   error happens to equal one kerb. The present radial `FLAT_WITHIN` probe is appropriate for the
+   current radial ring model; report how many non-flat samples consume the exception and their maximum
+   distance to the nearest band boundary.
+2. **Terrain interpolation:** the mesh barycentrically interpolates terrain sampled at its vertices,
+   while traversal asks terrain at the query point. Reporting the present 7 cm drape is useful, but it
+   remains an **accepted/open** rendered-versus-walked fault until it has either a tolerance guard or a
+   reasoned disposition. Do not call the overall surfaces equivalent while this term is only printed.
+3. **Node-to-node overlap:** if the overlap count is nonzero in the shipped layout, two node meshes own
+   the same ground even though the test wisely isolates them for measurement. That is a separate
+   ownership/topology finding. Record the involved node separation and triangle overlap area; merge,
+   clip, or explicitly defer it rather than letting a diagnostic count become permanent background
+   noise.
+
+Also keep the requested dirt-to-city gateway as its own fixture: the current village/city layouts prove
+uniformly paved and uniformly unpaved nodes, not a node whose `Arriving` changes across its mouths.
+Suggested dispositions now: barycentric node-profile check **accepted/in progress**; terrain drape
+**accepted/open**; close-node overlap **needs review**; gateway mouth-state check **needs review**.
+
+## 2026-08-31 — Tree read, minimal ink matrix, and next priority
+
+### Dispositions from the latest commits
+
+- The ink P0 and three P1s are **closed** by `1ddd439`; the arithmetic now matches the stated
+  invariants. The promised slow-pan proof remains **needs review**, not because the fix is doubtful but
+  because temporal stability is the user-facing reason for the MSAA change.
+- Generic building/prop hull removal is **closed** by `86639c2`. The paired image supports the decision:
+  the screen pass preserves the large silhouette and façade separations while removing the doubled,
+  distance-dependent shell weight. Retaining authored hulls on the warden/rare heroes remains sound.
+- Audit readiness is **closed** by `4540a13`.
+- The tree request is **adapted / complete** in `c8a2aea`, with one optional conifer polish note below.
+
+### Current-tree read
+
+The new silhouette sheet proves that the reported lollipop fault is closed for the broadleaf species.
+In its left-to-right order—oak, birch, spruce, pine, acacia:
+
+- **Oak:** now reads as one heavy, spreading crown with real lobes and bites rather than one sphere on a
+  post. The low side masses successfully carry foliage down beside the fork. It is still the densest
+  crown, appropriately; do not add subdivisions. One optional improvement is a slightly deeper sky
+  notch close to the trunk/fork so its lower silhouette does not become one continuous horizontal cap
+  when several instances overlap.
+- **Birch:** the most improved proportion. The crown occupies enough of the height, branches penetrate
+  visibly, and the lower sprays stop the pale trunk reading as a lamp post. The coarse facets are not
+  too coarse in the lit sheet; they are doing useful cel-style plane breakup.
+- **Spruce and pine:** clear as different conifers, but now the most procedural pair. Their perfectly
+  centered, rotationally identical cone tiers read as designed symbols/Christmas trees rather than
+  grown silhouettes. This is not a lollipop and is not a blocker. If polishing, keep the same triangle
+  budget and perturb each tier's X/Y center, radius, depth, rotation, and side count deterministically
+  by a few percent. Give one or two tiers a small missing/broken sector or short branch tip. Do not make
+  the skirts rounder or add leaf clumps; silhouette asymmetry is the missing information.
+- **Acacia:** strongest species read in the sheet. The umbrella proportion, open fork, and shallow crown
+  distinguish its biome immediately. Leave it alone unless a real game shot finds canopy intersections.
+
+The recipe choice is correct: new meshes, fewer/coarser leaf faces, silhouette construction, and aimed
+branches—not a material trick. Material cannot create the missing negative space or expose a branch.
+The only evidence still missing is one player-height close tree at approximately 3–5 m and one grove at
+normal play distance. Use those to judge near facet size and overlapping crowns; the orthographic sheet
+already settles species silhouette and should remain the authoring guard.
+
+### Ink evidence matrix: reuse six existing shots and add only four
+
+Do not turn this into ten redundant new screenshots. The matrix already has stable semantic resolvers;
+literal world coordinates would throw away that advantage. Treat these existing shots as explicit ink
+claims:
+
+| Existing shot | Ink claim to add |
+|---|---|
+| `city_street` | near kerb remains subordinate; cobble colour joints do not become geometry ink; player-distance building edges remain readable |
+| `city_node` | many overlapping building/prop silhouettes remain separated without turning the square into black noise |
+| `canyon_inside` | continuous walls and floor are not filled with contour lines; only genuine occlusion/rim breaks ink |
+| `bridge_entrance` | water/shore/deck boundary reads without a thick coastline or doubled parapet |
+| `night_node` | charcoal remains readable but not crushed to absolute black; lit windows retain their frames |
+| `village_approach` | far buildings and trees retain stable silhouettes while distant terrain folds fade |
+
+Add these four semantically resolved shots:
+
+| New shot | `at` / resolver | `from` | height | back | hour | What it proves |
+|---|---|---|---:|---:|---|---|
+| `ink_city_skyline_near` | the first city's `CitySpire` plot, falling back to its tallest building | settlement approach direction | 2.4 m | 32 m | noon | broad roofs/tower sides against the sky receive an object-side line; nearby trim is not swallowed |
+| `ink_city_skyline_far` | exactly the same target | exactly the same direction | 8 m | 140 m | noon | screen-space weight remains useful at distance and does not double with a hull |
+| `ink_tree_broadleaf` | a streamed oak nearest the first village approach, after grove readiness | direction from tree toward approach road | 3 m | 14 m | noon | crown lobes, sky holes, trunk/branch contacts, and four-sample edge coverage |
+| `ink_tree_conifer` | a streamed spruce or pine nearest that same approach | same rule | 4 m | 18 m | noon | diagonal tier edges do not stair, pulse, or merge into one black triangle |
+
+`Shot.at` currently aims two metres over the ground. That is adequate for buildings but low for a tree
+crown. Give a shot an explicit `aim_height` before adding tree shots, or the test will point at the
+trunk and call the canopy evidence. This is a useful general improvement: target height is part of a
+viewpoint's claim and should not remain a hidden `+2.0` constant.
+
+Run the same matrix at 720p, 1080p, 1440p, and 2160p only when validating line-width scaling; do not
+multiply the permanent shot list by resolution. Record viewport height, MSAA mode, ink coverage share,
+and selected ink width in the report.
+
+For temporal proof, three short driven captures are enough:
+
+| Route | Camera movement | Rates | Pass condition |
+|---|---|---|---|
+| `ink_pan_city` | translate laterally 20 m while holding the near skyline target | 30/60/120 Hz | roof and window silhouettes move continuously; no coverage spike or flashing gap |
+| `ink_pan_tree` | arc/lateral move about 8 m past the broadleaf target | 30/60/120 Hz | thin branches/crown gaps do not appear and disappear because one MSAA sample changed |
+| `ink_walk_street` | normal walk 24 m along `city_street` | 30/60/120 Hz | kerbs stay subordinate and cobble/material detail does not crawl as black geometry ink |
+
+Hold time/weather and use the same start/end transforms. Save video or a small fixed frame sequence;
+stills cannot prove temporal stability. A cheap numerical guard can reject large frame-to-frame spikes
+in total ink coverage, but do not treat constant coverage as proof that individual edges are stable.
+
+### Highest-value open finding now
+
+Do the **barycentric rendered-node versus traversal-height comparison** next, while the junction model is
+fresh. It is a contained correctness guard on newly committed foundation and can reveal invisible
+support-height errors that later movement, curb, and gateway work would build upon. Sample every node
+triangle at its centroid and edge midpoints, compare the triangle's barycentric height with
+`Node::surface`, and report the maximum mismatch by band/fixture. If the mismatch is below the project's
+visible/walkable tolerance, close the finding with evidence rather than changing the surface.
+
+Immediately after it, add the one dirt-to-city gateway fixture Claude requested and measure per-mouth
+`Arriving`/band mismatch. Then, in order: longitudinal road normals; road-relative paving coordinates;
+derivative-aware paving filtering plus moving evidence; broader glTF `Shaded` adoption. The first two are
+correctness at the new junction boundary. The later three are visual pipeline work and can wait without
+putting the foundation at risk.
+
 ## 2026-08-31 — Immediate review of the active selective-ink pass
 
 First, dispositions on the junction response: both active-review P0s are **closed** by `12704a0`.
