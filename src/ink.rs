@@ -105,17 +105,27 @@ pub struct Ink {
 
 /// How wide the line is, in pixels at 1080p.
 ///
-/// One pixel is a hairline that disappears on a big screen; three is a cartoon. The
-/// research asks for a line that is stable in screen space and fades before it can
-/// double, and this is the width the rest of the numbers are tuned against.
-pub const INK_WIDE: f32 = 1.6;
-
-/// How far a surface has to bend, per metre of distance, to be an edge.
+/// One pixel is a hairline that disappears on a big screen; three is a cartoon.
+/// Codex's recommendation for an environment line is 1.25 to 1.5 at this height, with
+/// a hero hull - if one is kept - reading closer to two.
 ///
-/// Read as: at ten metres, the middle of three samples has to sit this many
-/// centimetres times ten off the line between its neighbours. Scaling with distance
-/// is what keeps a line the same weight across a street and across a valley.
-const INK_BREAKS_AT: f32 = 0.012;
+/// # It is a width now, and it was a sampling radius before
+///
+/// This was rounded straight into a neighbour offset, so what it actually set was how
+/// far apart the samples are and the width was whatever the threshold happened to
+/// produce. The shader scales it by the screen's own height and uses it to DILATE an
+/// edge found at one pixel, which is a width somebody chose.
+pub const INK_WIDE: f32 = 1.4;
+
+/// How far a surface has to bend, as a share of its own depth, to be an edge.
+///
+/// Asked of the RECIPROCAL depth the rasteriser interpolates rather than of metres -
+/// see the shader, and Codex's note on why the two are not the same question. Read
+/// as: the middle of three samples has to sit this far off the line between them,
+/// measured as a fraction of how deep it is. Two per cent is a step of twenty
+/// centimetres at ten metres and six at three hundred, which is what a line of
+/// constant weight in SCREEN space actually asks for.
+const INK_BREAKS_AT: f32 = 0.02;
 
 /// Beyond this, in metres, the line fades out.
 ///
