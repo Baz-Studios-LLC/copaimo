@@ -83,6 +83,18 @@ pub struct AuthoredWoods {
     taken: Vec<bool>,
 }
 
+impl AuthoredWoods {
+    /// Whether every species that has a file has reached the pool.
+    ///
+    /// The one honest readiness signal there is for the grove. Anything that
+    /// MEASURES a tree - `--audit` asks each variety how thick its trunk is - is
+    /// asking about the grown shape until this answers true, and the grown shape is
+    /// not the shape that ships.
+    pub fn all_taken(&self) -> bool {
+        self.taken.iter().all(|had| *had)
+    }
+}
+
 /// Asks for whatever authored species are actually on disk.
 ///
 /// Checked as FILES first rather than simply loading and letting a miss fail:

@@ -23,7 +23,20 @@ const LOOKS_EVERY: f32 = 0.16;
 
 #[derive(Resource, Default)]
 pub struct Auditing {
-    /// Frames still to wait for the pool and the grove to finish loading.
+    /// Frames still to wait before giving up on the grove ever being ready.
+    ///
+    /// # A count of frames is not a statement about loading
+    ///
+    /// This used to be the whole of the wait: a hundred and eighty frames, on the
+    /// grounds that the pool and the grove would surely be in by then. On a slow
+    /// disk they are not, and what the audit then measures is the GROWN tree rather
+    /// than the authored one - a different trunk, so a different answer about what
+    /// is standing in a road, arrived at silently. Codex pointed out that a frame
+    /// count is not a readiness test.
+    ///
+    /// `AuthoredWoods::all_taken` is the readiness test. This is only the backstop
+    /// that stops a missing asset hanging the audit for ever, and it says so when
+    /// it fires.
     pub settling: u32,
 }
 
@@ -73,14 +86,23 @@ pub fn audit_the_streets(
     terrain: Option<Res<crate::world::terrain::TerrainSource>>,
     grove: Option<Res<crate::world::stream::Grove>>,
     props: Option<Res<crate::world::prop::PropPool>>,
+    woods: Option<Res<crate::world::authored::AuthoredWoods>>,
     mut quit: EventWriter<AppExit>,
 ) {
     let (Some(terrain), Some(grove), Some(props)) = (terrain, grove, props) else {
         return;
     };
+    // READY, not merely LATE. See `Auditing::settling`.
+    let ready = woods.is_none_or(|woods| woods.all_taken());
     if auditing.settling > 0 {
         auditing.settling -= 1;
-        return;
+        if !ready {
+            return;
+        }
+    } else if !ready {
+        warn!(
+            "the authored trees never reached the pool; auditing the grown shapes             instead, which have different trunks"
+        );
     }
 
     let plan = terrain.0.plan();
