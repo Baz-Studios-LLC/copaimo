@@ -2562,3 +2562,82 @@ section it then built was scaled by a wander of up to +17%.
 **Solution.** Both bounds belong to the section. `pave` consumes `cut.shoulder`;
 `RoadSection::most_it_reaches` owns the reject's bound. When a fact has two
 derivations, the fix is never to correct the second one — it is to delete it.
+
+## Two roads each carrying a pavement across the other
+
+**Issue.** Every crossing in every city had the ring road's footway running over the
+radial's carriageway and the radial's running back over the ring's — a raised kerb
+through the middle of a road, twice, in a pale cross you could pick out from the air.
+Reported as overlapping sidewalks.
+
+**Solution.** A junction is a PLACE with ground of its own. `network` splits every road
+where another ends on it or crosses it, so a meeting is ends meeting ends and every arm
+has somewhere to stop; `Node` then owns the ground between them, carrying the
+carriageway across the middle and the footway round the corners on curb returns. One
+rim, measured once by bearing, read by the mesh that draws it and by `stands_on`. That
+last part is the load-bearing half: the disc this replaced painted a flat patch while
+traversal went on believing both roads' whole sections, so the warden climbed an
+invisible kerb through a junction the mesh had paved level.
+
+Five further faults were found by photographing the result and measuring it, each worth
+knowing on its own:
+
+- Bands crossing at tight corners wound 382 of a village's triangles inside out. Each
+  band is held outside the one within it by half its own width, so a kerb keeps its
+  face round a corner instead of being squeezed to a millimetre.
+- A corner bearing dropped by a tolerance of a thousandth of a radian cut the rim eight
+  centimetres inside the mouth — a hairline of grass at every arm of every meeting.
+- An arm's mouth was built square to the way the road LEFT. A ring is a chain of 6 m
+  arc pieces and a meeting reaches 13 m, so the ribbon starts two pieces in and square
+  to somewhere else; the two lines crossed at the kerb and opened outward. Both read
+  the frame `clipped` cuts on now.
+- A curb return at a narrow fork was pulled in across both arms — the same
+  pavement-over-road fault in another coat. A junction's carriageway is the UNION of
+  the carriageways meeting there, closed off by the returns.
+- A road clipped three quarters of a metre before a bend folded its own outer bands
+  over, at a bend of eight degrees: the mitre swings the section by about the road's
+  half-width times the turn, which over that distance is more than the distance. A
+  clipped piece is never shorter than two metres now.
+
+## An outline that vanished at fifty metres, and one that glowed at dusk
+
+**Issue.** Every figure carries an inverted hull, and up close it is very good. It is
+seven centimetres of WORLD, so at fifty metres it is a fraction of a pixel and a city
+of towers has no line on it at all — and it belongs to a model, so the terrain, the
+roads and the grove have no line under any circumstances.
+
+**Solution.** `ink`, a pass over the finished frame that finds where the depth breaks.
+Three things about it are worth keeping:
+
+- It reads `ViewDepthTexture`, the depth the main pass just wrote, and NOT a prepass.
+  `CloudShade` moves grass and water in the vertex stage, so a prepass on Bevy's
+  undeformed path would put its depth where the visible blade is not.
+  `Camera3d::depth_texture_usages` asks for the one flag that makes that buffer
+  bindable; nothing is drawn twice.
+- The planarity test is asked of the RAW reversed depth, not of metres. A flat surface
+  has its middle sample on the line between its neighbours only in the value the
+  rasteriser interpolates; convert to metres first and a planar road at a grazing angle
+  has a second difference that is not nought, so the rule silently becomes a threshold
+  big enough to hide the error.
+- It DARKENS rather than paints. Mixed toward its own charcoal the line came out
+  brighter than an unlit wall, and the first dusk photograph had a pale glow round every
+  building in the city.
+
+## A tree that was a ball on a stick
+
+**Issue.** The broadleaf species were built from smooth ico-spheres, and a few of those
+overlapping make one convex mass with a smooth outline. The ink pass made it plainer,
+because ink traces whatever curve is there.
+
+**Solution.** Every vertex of a leaf mass is pushed along its own direction by a
+repeatable amount, which turns a ball into a lump; the masses are smaller, more
+numerous and set at heights differing by more than their own radii, and some come down
+BESIDE the stem rather than sitting above it. Two subdivisions rather than three, which
+is a quarter of the triangles and light in planes rather than as a gradient.
+
+The instrument matters more than the numbers: `dev/art/see_the_trees.sh` stands all
+five species side by side as flat black silhouettes. A wood is the one place a
+screenshot cannot answer the question — the trees overlap, the grass crosses them, and
+which species you are objecting to is guesswork. After the first pass the sheet showed
+at a glance that the oak and the acacia read correctly and the birch was still a
+compact ball on a clean stem.

@@ -1041,3 +1041,78 @@ silhouette some of the current ones have. `assets/models/` holds the current set
 
 No rush on either; I am implementing outlines next and will read whatever is there when I get to
 it.
+
+### 2026-08-31 — Ink review: the P0 and all three P1s
+
+- **Status:** accepted, all four fixed in `1ddd439`.
+- **Verification:** photographed at noon, at dusk, in a city and in a canyon; and
+  measured against the same frame with no ink at all — 2.6% of it carries a line, and
+  of 240,000 pixels of open grass, none do.
+
+Every one of these was found by reading the arithmetic against the comment beside it.
+The photograph looked right in all four cases, which is the useful part.
+
+**P0, the sky branch.** Correct, and I want to be exact about why it did not show:
+`breaks` took the nearer of the two neighbours, which at a roof against the sky is the
+roof — the same reading as the middle — so it answered nought, exactly as you said. It
+never fired because this world's sky is a DOME at a finite distance rather than a
+cleared background, so the ordinary second-difference path handled every silhouette in
+every shot. The branch was dead code that would have come alive the first time
+anything rendered against a cleared target. Nothing drawn either side is now a
+silhouette, said outright.
+
+**P1, linearised distance is not affine.** Correct and the more valuable of the three.
+The planarity rule is asked of the raw reading now and divided by that reading, which
+also gave me a better threshold than the one I had: a relative depth change is what a
+line of constant weight in screen space actually wants, and it replaced a
+distance-scaled fudge that was covering the error you identified.
+
+**P1, MSAA sample zero.** Correct. Reduced with `max` over all four, which reverse-Z
+makes the nearest covered surface. I have not yet done the slow-pan evidence at three
+frame rates; the bot can drive that and it is the next thing I will point it at.
+
+**P1, `INK_WIDE`.** Correct — it was a rounded sampling radius wearing the name of a
+width. It scales by `viewport_height / 1080` now and dilates an edge found at one
+pixel, and the outer ring is skipped when it lands on the inner one, which at 1080p it
+does. Set to 1.4 from your 1.25–1.5 range. Opacity is still 100% of a charcoal that
+is itself a darkening rather than a paint; I would rather tune that against a
+photograph than against a number.
+
+### The hulls on generic buildings — adapted, not yet done
+
+I agree with the reasoning and I am not doing it in the same session as the pass that
+replaces it. Removing the 7 cm hull means rebuilding every figure in `dev/art` and
+re-exporting, and the one thing I would be unable to answer afterwards is which of two
+simultaneous changes caused whatever the user reports. The screen pass is committed and
+photographed on its own first; the hull comes off next, on its own, with a
+before-and-after pair at three distances.
+
+Recorded so it is not lost: keep hulls on the warden and on authored landmarks, take
+them off generic buildings, props and trees.
+
+### Trees — done, and the sheet is what found the fault
+
+`c8a2aea`. Leaf masses are pushed out of round per vertex, smaller and more numerous,
+and two of an oak's nine come down beside the stem. Coarser as well: two subdivisions
+rather than three, a quarter of the triangles, and light in planes rather than as a
+gradient.
+
+`dev/art/see_the_trees.py` stands all five side by side, orthographic, lit and as flat
+black silhouettes. It earned itself on the first run: after one pass the oak and the
+acacia read correctly and the birch was still a compact ball on a clean stem, which no
+screenshot of a wood had told me. Your read of the current meshes is still welcome —
+particularly on whether the near-camera facet size is too coarse, which is the one
+thing I am unsure of and the sheet cannot answer because it renders at a fixed size.
+
+### Two things I would like next
+
+1. **The evidence matrix you specified for the ink**, as a list I can drive. The bot
+   (`--drive`) already plays the real character at 30/60/120/240 Hz and the photo mode
+   takes named shots; what I do not have is your list turned into coordinates and
+   cameras. If you write it as a table of (name, position, facing, height, hour,
+   what it proves) I will wire it into the shot matrix and it becomes a standing
+   regression sheet rather than a one-off.
+2. **Whichever of your open findings you think is worth most now.** The junction and
+   the ink both came out of you reading code against its own comments, and that has
+   been worth more per hour than anything I have found by looking. I would rather have
+   your ranking than my own guess at it.
