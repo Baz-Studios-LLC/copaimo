@@ -5731,7 +5731,22 @@ fn pave(
     let mut places: Vec<[f32; 3]> = Vec::new();
     let mut normals: Vec<[f32; 3]> = Vec::new();
     let mut colours: Vec<[f32; 4]> = Vec::new();
+    // WHERE THIS POINT IS ON THE ROAD: across it, and along it, in metres.
+    //
+    // # A running bond laid square to the world
+    //
+    // The stones were laid from the world's own X and Z, so a road running at any
+    // angle but a right one had its courses slewing across it - and on a ring road
+    // the pattern swept round while the road curved away from it, which is the one
+    // thing a paved surface cannot do. What a sett course follows is the ROAD.
+    //
+    // So the ribbon carries its own frame: `uv` is the road's coordinates and the
+    // pattern is laid in those. See `laid_in` in `cloud_shade.wgsl`.
     let mut uvs: Vec<[f32; 2]> = Vec::new();
+    // And how paved this point is, which used to ride in `uv.y` and has been moved
+    // out to make room. A second channel rather than a spare component of the first,
+    // because the first now holds two things that are both distances.
+    let mut made: Vec<[f32; 2]> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
 
     // ------------------------------------------------------------------ MITRED
@@ -5775,6 +5790,9 @@ fn pave(
         if way.points.len() < 2 {
             continue;
         }
+        // How far along this road each piece begins, so the courses run on across a
+        // bend instead of restarting at every joint.
+        let mut laid_so_far = 0.0_f32;
         let across = way.across();
         for (piece, pair) in way.points.windows(2).enumerate() {
             let (from, to) = (pair[0], pair[1]);
@@ -6043,11 +6061,15 @@ fn pave(
                 places.push([at.x - low.x, height, at.y - low.y]);
                 normals.push(normal);
                 colours.push(colour);
-                // x is the station along the road, kept for anything that wants it.
-                // y is HOW PAVED this point is - see the note on the colour above.
-                uvs.push([step as f32, arriving.stone_contrast]);
+                // WHERE THIS POINT IS ON THE ROAD: across it, then along it. The
+                // pattern is laid in these, so a course runs across the carriageway
+                // and the next one is half a stone further on, whichever way the
+                // road happens to be pointing. See `laid_in`.
+                uvs.push([across, laid_so_far + length * part]);
+                made.push([arriving.stone_contrast, 0.0]);
             }
         }
+        laid_so_far += length;
 
         const LANES: usize = SECTION_LANES;
         let base = (places.len() - (steps + 1) * LANES) as u32;
@@ -6133,6 +6155,14 @@ fn pave(
                 _ => (terrain.ground_colour(at.x, at.y), 0.0),
             }
         };
+        // The frame the junction's stones are laid in: its widest arm's.
+        let widest = node
+            .arms
+            .iter()
+            .max_by(|one, two| one.wide.total_cmp(&two.wide))
+            .map_or((Vec2::Y, Vec2::X), |arm| (arm.toward, -arm.toward.perp()));
+        let (laid_along, laid_across) = widest;
+
         let laid = |at: Vec2, colour: [f32; 4], grain: f32, normal: [f32; 3]| -> ([f32; 3], [f32; 3], [f32; 4], [f32; 2]) {
             let worn = worn_at(at, &arriving);
             (
@@ -6148,7 +6178,11 @@ fn pave(
                     colour[2] * worn,
                     grain / crate::shade::PAVING_STONE,
                 ],
-                [0.0, arriving.stone_contrast],
+                // THE WIDEST ARM'S FRAME, so the courses run on through the
+                // junction rather than starting again in the middle of it. A
+                // crossroads cannot line up with both roads at once, and what a road
+                // builder does is carry the through road's paving across.
+                [(at - node.at).dot(laid_across), (at - node.at).dot(laid_along)],
             )
         };
 
@@ -6159,6 +6193,7 @@ fn pave(
         normals.push(normal);
         colours.push(colour);
         uvs.push(uv);
+        made.push([arriving.stone_contrast, 0.0]);
 
         let rim = places.len() as u32;
         for turn in &node.turns {
@@ -6221,6 +6256,7 @@ fn pave(
                     normals.push(normal);
                     colours.push(colour);
                     uvs.push(uv);
+                    made.push([arriving.stone_contrast, 0.0]);
                 }
             }
         }
@@ -6307,7 +6343,10 @@ fn pave(
                 places.push([at.x - low.x, height, at.y - low.y]);
                 normals.push([0.0, 1.0, 0.0]);
                 colours.push(colour);
-                uvs.push([local.x, arriving.stone_contrast]);
+                // A SQUARE HAS ITS OWN FRAME and is already laid in it: the flags
+                // run with the place's own facing rather than with the world's.
+                uvs.push([local.x, local.y]);
+                made.push([arriving.stone_contrast, 0.0]);
             }
         }
         let wide = across as u32 + 1;
@@ -6328,6 +6367,7 @@ fn pave(
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, places);
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, made);
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colours);
     mesh.insert_indices(bevy::render::mesh::Indices::U32(indices));
     mesh

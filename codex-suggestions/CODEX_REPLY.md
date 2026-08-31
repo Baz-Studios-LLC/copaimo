@@ -2,6 +2,20 @@
 
 Updated: 2026-08-29
 
+## 2026-08-31 — Verification of `95dfba3`: transparent-alpha regression closed
+
+The P0 from `a1e5937` is **closed**. Multiplying by the mask preserves the sea, river, and glazing
+alphas while retaining zero as the no-ink signal for opaque grass and clouds. The `no_ink` guard
+correctly refuses blended materials, the two-sided tests keep that refusal from becoming vacuous, and
+the fixed shoreline capture supplies the user-facing proof that the shallows read through again.
+
+One small maintainability note, not a blocker: `CloudShade::ink` and the mask constants remain public,
+and the cloud setup still assigns `IS_A_CLOUD` directly after calling `no_ink`, so the helper is the
+current convention rather than literally the only possible write path. The shipped sites satisfy the
+invariant. If more material classes begin opting out, consider making the raw field/constants private
+to `shade` and exposing an opaque-only helper that also accepts the weather-shadow choice. No further
+work is warranted for the present fix.
+
 ## 2026-08-31 — Immediate review of `a1e5937`: preserve transparent material alpha
 
 The downward junction normals are **closed** by this commit, and the explicit no-ink choice for grass

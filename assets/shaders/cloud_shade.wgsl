@@ -350,12 +350,27 @@ fn banded(colour: vec3<f32>) -> vec3<f32> {
 
 
 
+/// How many pixels wide a joint is held to, at least.
+///
+/// A hard line one pixel across shimmers as the camera moves; a line a pixel and a
+/// half across reads as a line and stays still.
+const JOINT_SOFTENS: f32 = 1.5;
+
+/// Where the pattern starts fading, and where it is gone, in stones per pixel.
+///
+/// A quarter of a stone to a pixel is still legible. A whole stone to a pixel is
+/// nothing but noise, and averaging it away is what the surface would look like from
+/// there anyway.
+const FADES_FROM: f32 = 0.25;
+const FADES_BY: f32 = 1.0;
+
 /// One number from a cell, so every stone gets its own tone.
 fn one_of(cell: vec2<f32>) -> f32 {
     return fract(sin(dot(cell, vec2<f32>(127.1, 311.7))) * 43758.545);
 }
 
-/// A courseway of stones laid in world space: which stone, and how far into it.
+/// A courseway of stones laid in the ROAD's own coordinates: which stone, and how
+/// far into it.
 ///
 /// # A running bond, because a grid is not a pavement
 ///
@@ -363,6 +378,14 @@ fn one_of(cell: vec2<f32>) -> f32 {
 /// that offset the joints line up in both directions and the surface reads as graph
 /// paper - the single thing that separates a drawn pavement from a real one is that
 /// its cross joints are broken.
+///
+/// # And laid along the road, not along the world
+///
+/// `at` used to be the world's own X and Z, so a road running at any angle but a
+/// right one had its courses slewing across it, and a ring road swept the pattern
+/// round while curving away from it. A course of setts follows the ROAD: across the
+/// carriageway, advancing along it. The ribbon carries that frame in its `uv` now -
+/// see `pave` - so this is the same function reading a better coordinate.
 ///
 /// Returns the stone's own number and its distance to the nearest joint, nought at
 /// the joint and a half in the middle of the stone.
@@ -397,13 +420,41 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // The pattern fades in with it; the stones keep their size the whole way. Fading
     // by shrinking - which is what multiplying the size by this did - turns a city's
     // whole approach into a band of ever-finer crawling gravel.
+#ifdef VERTEX_UVS_B
+    let made = clamp(in.uv_b.x, 0.0, 1.0);
+#else
     let made = clamp(in.uv.y, 0.0, 1.0);
+#endif
     if paving.x > 0.0 && stone > 0.02 && made > 0.01 {
-        let laid = laid_in(in.world_position.xz, stone);
+        let laid = laid_in(in.uv, stone);
+
+        // HOW BIG A STONE IS ON THE SCREEN, so the pattern can stop drawing itself
+        // when it is smaller than the pixel it is being drawn into.
+        //
+        // # The brush effect on the roads
+        //
+        // The joints are an analytic line - a `smoothstep` a few centimetres wide -
+        // and at a grazing angle or at any distance a few centimetres is a fraction
+        // of a pixel. What that samples to is not a line, it is speckle: the road
+        // came out looking brushed, or scrubbed, or dirty, and it was reported three
+        // times over two days as the sides of the roads being wrong. It was never
+        // the sides and never the wear. It was the pattern aliasing.
+        //
+        // `fwidth` is how far the coordinate moves between one pixel and the next.
+        // Widen the joint to at least that, and fade the whole pattern out as it
+        // approaches it: a stone smaller than a pixel becomes the average of a stone,
+        // which is a flat surface, which is what it should look like from there.
+        // This is the standard filter for a procedural pattern and Codex has it in
+        // the spec as derivative-aware fading.
+        let across = fwidth(in.uv) / max(stone, 1.0e-4);
+        let pixel = max(across.x, across.y);
+        let widened = max(paving.y, pixel * JOINT_SOFTENS);
+        let shows = 1.0 - smoothstep(FADES_FROM, FADES_BY, pixel);
+
         // Each stone its own tone, and a line of shadow where they meet.
-        let joint = smoothstep(0.0, paving.y, laid.y);
-        let tone = (1.0 + (laid.x - 0.5) * paving.x * made)
-            * mix(1.0 - paving.z * made, 1.0, joint);
+        let joint = smoothstep(0.0, widened, laid.y);
+        let tone = (1.0 + (laid.x - 0.5) * paving.x * made * shows)
+            * mix(1.0 - paving.z * made * shows, 1.0, joint);
         pbr_input.material.base_color = vec4<f32>(
             pbr_input.material.base_color.rgb * tone,
             pbr_input.material.base_color.a,
