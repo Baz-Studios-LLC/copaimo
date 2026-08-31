@@ -104,39 +104,101 @@ def skirt(radius, deep, z, sides=14):
 # A clump this big or bigger is worth the extra subdivision.
 #
 # Detail follows SIZE rather than being one number for everything. An oak's crown
-# fills a good part of the screen when you walk under it and its outline wants to
-# be round; the three little balls that make a desert bush never read as anything
-# but a bush, and paying four times the triangles for them buys nothing. The
-# threshold is in metres of radius, so it keeps deciding correctly as species are
-# added.
+# fills a good part of the screen when you walk under it; the three little balls
+# that make a desert bush never read as anything but a bush, and paying four times
+# the triangles for them buys nothing. The threshold is in metres of radius, so it
+# keeps deciding correctly as species are added.
 ROUND_ABOVE = 1.3
 
+# How far a leaf mass is pushed in and out of round, as a share of its radius.
+#
+# # A perfectly round crown is a lollipop
+#
+# The broadleaf species were built from smooth ico-spheres, and a few of those
+# overlapping make ONE convex mass with a smooth outline - which is precisely the
+# thing everybody draws when they draw a tree badly, and it is what the game's
+# trees were reported as. The outline pass made it plainer: ink traces whatever
+# curve is there, and what was there was a circle.
+#
+# What a real crown has, and what every stylised tree that reads well has, is a
+# BROKEN outline: lobes that stick out, bites that cut in, and gaps you can see
+# sky through. So every vertex is pushed along its own direction by a repeatable
+# amount, which turns a ball into a lump. A third is enough to break the curve
+# and little enough that a lump is still a lump.
+LEAVES_WANDER = 0.34
 
-def clump(radius, at, squash=0.82):
-    """One mass of foliage: a ball, flattened a little, round in proportion."""
+# How coarse a leaf mass is.
+#
+# Two subdivisions is eighty faces, which at the size these are drawn is a facet
+# per two or three pixels: enough to catch the light in planes rather than as a
+# gradient, which is what makes foliage read as leaves in this style rather than
+# as painted plastic. It is also a QUARTER of the triangles the round version
+# cost, and a wood is hundreds of instances.
+LEAVES_FACETS = 2
+
+
+def wobble(seed, salt):
+    """A repeatable number in 0..1, so a tree built twice is the same tree."""
+    value = math.sin(seed * 12.9898 + salt * 78.233) * 43758.5453
+    return value - math.floor(value)
+
+
+def clump(radius, at, squash=0.82, seed=0, rough=LEAVES_WANDER):
+    """One mass of foliage: a lump, flattened a little, out of round on purpose.
+
+    See `LEAVES_WANDER`. `seed` makes each mass its own shape while keeping the
+    whole tree repeatable - two builds of the same species are the same file.
+    """
     bpy.ops.mesh.primitive_ico_sphere_add(
-        subdivisions=3 if radius >= ROUND_ABOVE else 2, radius=radius, location=at
+        subdivisions=LEAVES_FACETS, radius=radius, location=at
     )
     ball = bpy.context.object
+    # Pushed along its own direction from the middle, so the mass keeps its centre
+    # and only its OUTLINE changes. Scaling would move the whole thing.
+    for at_vertex, vertex in enumerate(ball.data.vertices):
+        out = vertex.co.normalized()
+        much = 1.0 - rough * 0.5 + rough * wobble(seed + 1, at_vertex + 1)
+        vertex.co = out * (radius * much)
     ball.scale = (1.0, 1.0, squash)
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     return ball
 
 
 def oak():
-    """Broad and round: the shape most people draw when they draw a tree."""
+    """Broad and heavy, and NOT round.
+
+    # What was wrong with it
+
+    Four big overlapping balls on a bare stem, which merge into one smooth convex
+    mass: a lollipop, and reported as one. The masses are smaller and there are
+    more of them now, spread wider and set at heights that differ by more than
+    their own radii - so the outline has lobes and bites in it instead of a curve,
+    and there is sky between them. Two of them hang BELOW the fork, which is what
+    stops the crown reading as a cap balanced on a pole.
+    """
     # Where the trunk gives out and the crown starts.
-    fork = 4.1
+    fork = 3.6
     # Each mass of foliage: middle and radius. The crown is built from these and
     # so are the branches, so the two cannot disagree about where the leaves are.
     crown = [
-        ((0.0, 0.0, 6.4), 2.55),
-        ((1.75, 0.45, 5.5), 1.75),
-        ((-1.55, -0.70, 5.75), 1.62),
-        ((0.30, 1.45, 7.35), 1.40),
+        ((0.10, -0.10, 6.35), 2.05),
+        ((1.95, 0.55, 5.65), 1.55),
+        ((-1.80, -0.60, 5.95), 1.45),
+        ((0.35, 1.85, 6.60), 1.35),
+        ((-0.55, -1.90, 6.25), 1.25),
+        ((1.15, -1.05, 7.45), 1.20),
+        ((-1.25, 1.10, 7.30), 1.10),
+        # The two that come down the SIDES of the stem, not below it.
+        #
+        # Set out at 1.55 m and down at 4.35 they hung clear of everything else and
+        # read as fruit - a chain of separate balls under the crown. Tucked in and
+        # raised until they overlap the masses above, they do the job they are for:
+        # a lower edge with lobes in it instead of a line where the crown stops.
+        ((1.20, 0.70, 5.05), 1.15),
+        ((-1.05, -0.80, 5.20), 1.05),
     ]
-    wood = [trunk(0.44, 0.0, fork + 0.5, sides=12)]
-    leaves = [clump(radius, at) for at, radius in crown]
+    wood = [trunk(0.44, 0.0, fork + 0.6, sides=12)]
+    leaves = [clump(radius, at, seed=at_leaf) for at_leaf, (at, radius) in enumerate(crown)]
     # A limb from the fork into the middle of every outlying mass. Into the
     # MIDDLE, so the end of the branch is swallowed by the foliage rather than
     # stopping at its edge where a gap would show.
@@ -177,16 +239,35 @@ def birch():
     the fork, which is also how a birch actually looks — foliage well down the
     stem rather than a cap on the end of it.
     """
-    fork = 4.9
+    # # It was still a lollipop, and the silhouette sheet said so
+    #
+    # Measured on `dev/art/shots/trees_silhouette.png`: the crown was a compact
+    # ball three metres across sitting on four and a half metres of clean stem, so
+    # even at half the tree's height it read as a ball on a pole. What a birch
+    # actually is, and what fixes the read, is AIRY and WIDE for its weight -
+    # foliage hung in loose sprays that reach down beside the stem, not a cap on
+    # the end of it. So the fork comes down again, the masses reach half a metre
+    # further out, and four of the nine now sit below where the old crown started.
+    fork = 3.8
     crown = [
-        ((0.10, 0.00, 7.00), 2.00),
-        ((1.30, 0.35, 6.15), 1.40),
-        ((-1.20, -0.45, 6.35), 1.30),
-        ((0.20, 1.05, 8.00), 1.15),
-        ((-0.35, 0.55, 5.50), 1.05),
+        ((0.10, 0.00, 7.00), 1.40),
+        ((1.75, 0.45, 6.20), 1.15),
+        ((-1.70, -0.55, 6.45), 1.10),
+        ((0.30, 1.60, 7.70), 1.00),
+        ((1.30, -1.35, 7.30), 0.95),
+        ((-1.45, 1.30, 7.00), 0.90),
+        # The sprays down the stem, which is what a birch has and a lollipop does not.
+        ((-0.80, 0.70, 5.20), 0.95),
+        ((1.15, -0.60, 4.85), 0.90),
+        ((-1.10, -0.90, 5.60), 0.85),
     ]
     wood = [trunk(0.24, 0.0, fork + 0.7, sides=10, lean=math.radians(2.5))]
-    leaves = [clump(radius, at, squash=0.9) for at, radius in crown]
+    # Squashed less than an oak's and roughened more: a birch's leaves hang in
+    # loose sprays rather than in the solid masses an oak carries.
+    leaves = [
+        clump(radius, at, squash=0.94, seed=20 + at_leaf, rough=LEAVES_WANDER * 1.25)
+        for at_leaf, (at, radius) in enumerate(crown)
+    ]
     start = mathutils.Vector((0.0, 0.0, fork))
     for at, _ in crown[1:]:
         wood.append(branch_to(start, mathutils.Vector(at), 0.085))
@@ -211,14 +292,22 @@ def acacia():
     """
     fork = 2.9
     crown = [
-        ((0.00, 0.00, 5.05), 2.30),
-        ((2.35, 0.35, 4.65), 1.70),
-        ((-2.20, -0.40, 4.75), 1.60),
-        ((0.30, 2.05, 4.70), 1.45),
-        ((-0.40, -2.00, 4.60), 1.35),
+        ((0.00, 0.00, 5.05), 1.85),
+        ((2.45, 0.40, 4.70), 1.45),
+        ((-2.30, -0.45, 4.80), 1.35),
+        ((0.35, 2.15, 4.75), 1.25),
+        ((-0.45, -2.10, 4.65), 1.20),
+        ((1.55, -1.60, 4.95), 1.10),
+        ((-1.60, 1.50, 4.85), 1.05),
     ]
     wood = [trunk(0.38, 0.0, fork + 0.5, sides=10)]
-    leaves = [clump(radius, at, squash=0.42) for at, radius in crown]
+    # Flattened hard, which is what makes an umbrella an umbrella, and roughened
+    # least: a flat crown seen edge-on is mostly outline, and too much wander
+    # there reads as a torn edge rather than as a canopy.
+    leaves = [
+        clump(radius, at, squash=0.42, seed=40 + at_leaf, rough=LEAVES_WANDER * 0.7)
+        for at_leaf, (at, radius) in enumerate(crown)
+    ]
     start = mathutils.Vector((0.0, 0.0, fork))
     for at, _ in crown[1:]:
         wood.append(branch_to(start, mathutils.Vector(at), 0.13))
