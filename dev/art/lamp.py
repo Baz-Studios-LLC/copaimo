@@ -96,7 +96,7 @@ def build(name: str) -> None:
     masonry.fresh()
     parts, tall = FIGURES[name]()
     whole = masonry.weld(parts, masonry.PALETTE, tall, name="prop")
-    masonry.outline(whole)
+    # No inverted hull: the line comes from `ink` now. See `props.py`.
     masonry.save_beside(f"lamp_{name}.blend")
     print(f"BUILT lamp_{name}  ({len(parts)} pieces, {tall:.1f} m tall)")
 

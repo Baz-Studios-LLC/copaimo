@@ -279,11 +279,12 @@ def build(kind: str) -> None:
     whole.data.name = "prop"
     bpy.ops.object.shade_auto_smooth(angle=SHARP_ABOVE)
 
-    # An edge on it, like everything else in the world wears. See
-    # `masonry.outline` - the art direction is "almost but not quite cel shaded",
-    # and an outline is half of that; the banded light in `cloud_shade.wgsl` is the
-    # other half and already applies to everything this material touches.
-    whole = masonry.outline(whole)
+    # NO INVERTED HULL. The art direction is still "almost but not quite cel
+    # shaded" and an outline is still half of it - but the outline comes from
+    # `ink` now, a pass over the finished frame, which draws the same weight at
+    # every distance and costs the screen rather than a second copy of every
+    # bench, bin and fence panel in the world. A shell of its own was exactly
+    # half of one of these files.
 
     # On the floor, which the export gate insists on.
     low = min(

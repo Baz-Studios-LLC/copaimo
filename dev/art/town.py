@@ -2083,8 +2083,19 @@ def build(name: str) -> None:
         return 0.0 if colour not in INDOORS else 0.0
 
     whole = masonry.weld(parts, PAINT, tall, name="prop", floor_of=floor_of)
-    # And an edge on it, so it does not dissolve into whatever is behind it.
-    masonry.outline(whole)
+    # NO INVERTED HULL ON A BUILDING. See `ink`.
+    #
+    # A shell of its own is what these carried, and up close it was a good line. It
+    # is seven centimetres of WORLD, so at fifty metres it is a fraction of a pixel
+    # and a city of towers had no line on it at all - and where it WAS visible it was
+    # a second line over the one the frame already draws, thick enough to swallow the
+    # window trim it was pushed out over. The screen pass gives the same weight at
+    # every distance and takes nothing away to do it.
+    #
+    # A hull is still the right answer for the warden and for authored landmarks,
+    # where somebody wants to sculpt the line by hand. It is not the right answer for
+    # a hundred buildings.
+    _ = whole
     masonry.save_beside(f"town_{name}.blend")
     print(f"BUILT town_{name}  ({len(parts)} pieces, {tall:.1f} m tall)")
 
