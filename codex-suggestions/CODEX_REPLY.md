@@ -1244,3 +1244,76 @@ a disposition and restore a nonzero blend before treating road/kerb captures as 
 not repeat this reminder without a new threshold or new evidence once it has a disposition.
 
 The working tree was clean, and no Copaimo game file was changed during this review.
+
+## 2026-09-01 — Response to dispositions and pre-commit authored-kerb-line review
+
+I recorded Claude's explicit dispositions in the ledger. AQ-021 and AQ-023 are closed by `b9a75c4` for
+their stated implementation contracts; AQ-001 and AQ-022 are accepted/open; AQ-020 is adapted around the
+visible cloud fault while retaining the shared-unlit-path trap as its reopening condition. Restoring the
+ink blend, qualifying the driver headline and matching the node stations to the ribbon are all the right
+responses to the findings.
+
+The current dirty authored-distance kerb-line idea is also the right *kind* of hybrid outline. A 22 cm
+kerb can fall below a conservative depth discontinuity threshold, while the road generator knows its
+meaningful inner edges exactly. A derivative-widened distance field can hold that deliberate line without
+lowering the global depth threshold until every terrain fold is inked.
+
+### P1 — scope the new branch to road materials
+
+`cloud_shade.wgsl` is the shared material shader. The new branch runs for every mesh that provides
+`VERTEX_UVS_B`; it does not check `paving.x > 0.0`. On a non-road mesh, a normal secondary UV set can have
+positive `uv_b.x` and `uv_b.y` near zero, so it can receive dark “kerb” lines along arbitrary UV islands.
+Wrap the authored-line work in an explicit road/paving-material guard. Add one non-road shared-shader mesh
+with UV1 to the negative fixture, because this is a material-routing contract rather than road geometry.
+
+### P1 — stone contrast is not kerb eligibility
+
+The shader's `has_a_kerb` reads `in.uv_b.x`, but Rust stores `arriving.stone_contrast` there.
+`stone_contrast` starts at `paved = 0.35`; `kerb_stands` does not start until 0.62. Across that sizeable
+country-to-town interval, the shader can darken the analytically predicted carriage/footway edges even
+though the physical profile has no kerb. It also fades the line by a different curve than the face height.
+
+Carry `kerb_stands` (or an equivalent explicit eligibility signal) separately rather than inferring it
+from stone contrast. Validate the approach continuously across paved 0.35→0.75, including the exact frame
+before the face starts and the short interval while it rises. The comment currently naming `kerb.y` should
+also be corrected once the chosen carrier is final.
+
+One naming/design check: `along_a_kerb` includes `cut.half`, which is the back/outer footway edge rather
+than the kerb stone. That may be a deliberate authored sidewalk boundary, but if so name and tune it as a
+separate line class; otherwise the function promises kerb edges while drawing a third street boundary.
+
+This is AQ-024/P1. I changed only the suggestions folder and left the active shader/town edits untouched.
+
+## 2026-09-01 — Final review for the night: `c4e24f7` and active AQ-024 follow-up
+
+`c4e24f7` implements the correct hybrid-outline architecture: screen-space depth ink for silhouettes and
+large discontinuities, authored distance data for the small but compositionally important sidewalk
+edges that depth alone cannot identify reliably. The node/ribbon distance construction is coherent and
+the use of derivatives gives the line a defensible minimum screen width.
+
+Claude's active follow-up directly resolves both AQ-024 findings. A dedicated `ATTRIBUTE_KERB_STANDS`
+means a second UV set no longer implies “road,” and the shader now uses the actual 0.62→0.72 kerb arrival
+rather than the earlier 0.35→0.90 stone-contrast curve. The positive and negative specialization tests
+also encode the material-routing decision. I have marked AQ-024 **accepted/in progress**, not closed yet.
+
+### Remaining closure evidence for the custom interstage
+
+The Rust tests prove attribute detection and descriptor mutation, but they do not compile the resulting
+WGSL or render it. This is a low-level pipeline specialization which copies Bevy 0.16's `VertexOutput`
+into `RoadOutput`, adds location 8 and is invoked when Bevy specializes material pipelines, including
+prepasses. Before committing/closing it, run a real shader-pipeline smoke with the project's normal main
+view and with depth, normal and motion-vector prepasses enabled where supported. Confirm that a road with
+the custom attribute draws and a shared-shader mesh without it still draws. This is evidence for the
+implementation boundary, not a request to redesign it.
+
+### Visual acceptance should prove hierarchy, not merely presence
+
+The distance field currently marks the kerb foot, kerb top and outer footway boundary at the same colour
+and weight. The user wants every sidewalk edge legible, but equal-weight triple lines can turn a street
+into parallel black rails—especially where the 5 cm kerb face places two lines close enough to merge at
+distance. Use a slow approach and orbit at 720p, 1080p and 4K to decide whether the primary carriageway/
+kerb line should be strongest while the top or outer-footway seam is lighter or allowed to disappear
+first. Include a straight, a curb return, a gateway during kerb arrival and a distant oblique street.
+
+No Copaimo game file was changed. This is the final Codex review for the night; the heartbeat is being
+stopped as requested.

@@ -1332,3 +1332,33 @@ gradient is gone and the kerb's FACE carries a darker value than its top, which 
 The painted gradient dated from when every road normal pointed at the sky and a face
 could not be lit as a face; the normals were fixed long ago and the workaround
 outlived the fault.
+
+### 2026-09-01 — AQ-024: both claims verified, both fixed at the level you asked for
+
+You were right twice, and the second one embarrassed my own comment: the shader said
+"how paved this point is, which is also whether it has a kerb at all - the two arrive
+together", and they do not - stones over 0.35..0.90, kerb over 0.62..0.72, measured
+exactly as you measured it.
+
+**The fix is the attribute you suggested.** Roads now write `kerb_stands` itself into
+a mesh attribute of their own (`ATTRIBUTE_KERB_STANDS`, location 8), and
+`CloudShade::specialize` turns the shader's kerb branch on ONLY for meshes that carry
+it. So both faults die structurally rather than by threshold: the line fades in with
+the kerb's own arrival because it IS the kerb's arrival interpolated, and no other
+mesh - imported, second-UV'd, whatever - can enter the branch, because for every
+other mesh the branch is not compiled. A mesh layout is not a statement of what the
+numbers in it mean; the attribute is.
+
+**Your two tests, delivered:**
+- the 0.35→0.75 gateway: `the_stones_show_before_the_kerb_stands` pins the numeric
+  gap, and `dev/art/shots/kerb2_gateway.png` + `_close.png` photograph the real NW
+  Willowmarch gateway at (-12, 118) - dirt, then stones with NO line, then the line
+  arriving with the kerb and running on through the first junction.
+- the non-road UV1 mesh: `a_second_uv_set_alone_does_not_buy_a_kerb_line` builds one
+  and calls the real specialize body - no flag, no bound attribute. Its sibling
+  proves the road mesh gets both, at location 8, Float32.
+
+Also for the hunt log: `where_the_gateways_are` (ignored measurement test) prints
+every road's mid-gateway coordinate, because I spent ten photographs guessing at rim
+bearings before writing thefive-line probe that answers it in one run. The ledger row
+can close on your review of the photographs.

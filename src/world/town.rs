@@ -6074,6 +6074,10 @@ fn pave(
     // out to make room. A second channel rather than a spare component of the first,
     // because the first now holds two things that are both distances.
     let mut made: Vec<[f32; 2]> = Vec::new();
+    // How much of a kerb stands at each vertex - the line's own eligibility,
+    // carried as its own attribute so the shader's kerb branch is compiled for
+    // this mesh alone. See `ATTRIBUTE_KERB_STANDS` for why it is not `made[0]`.
+    let mut kerbs: Vec<f32> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
 
     // ------------------------------------------------------------------ MITRED
@@ -6426,6 +6430,7 @@ fn pave(
                 // road happens to be pointing. See `laid_in`.
                 uvs.push([across, laid_so_far + length * part]);
                 made.push([arriving.stone_contrast, along_a_kerb(across, &cut)]);
+                kerbs.push(arriving.kerb_stands);
             }
         }
         laid_so_far += length;
@@ -6579,6 +6584,7 @@ fn pave(
         uvs.push(uv);
         // The middle of a junction is as far from a kerb as anything gets.
         made.push([arriving.stone_contrast, AWAY_FROM_ANY_KERB]);
+        kerbs.push(arriving.kerb_stands);
 
         let rim = places.len() as u32;
         for turn in &node.turns {
@@ -6645,6 +6651,7 @@ fn pave(
                         arriving.stone_contrast,
                         along_a_kerb_at(far(station), &reach),
                     ]);
+                    kerbs.push(arriving.kerb_stands);
                 }
             }
         }
@@ -6736,6 +6743,7 @@ fn pave(
                 uvs.push([local.x, local.y]);
                 // A square has no kerb through it.
                 made.push([arriving.stone_contrast, AWAY_FROM_ANY_KERB]);
+                kerbs.push(arriving.kerb_stands);
             }
         }
         let wide = across as u32 + 1;
@@ -6757,6 +6765,7 @@ fn pave(
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, made);
+    mesh.insert_attribute(crate::shade::ATTRIBUTE_KERB_STANDS, kerbs);
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colours);
     mesh.insert_indices(bevy::render::mesh::Indices::U32(indices));
     mesh
@@ -7529,6 +7538,35 @@ mod tests {
         }
     }
 
+    /// The kerb line waits for the kerb; the stones do not wait for the line.
+    ///
+    /// AQ-024: the line was first gated on how strongly the STONES show, and the two
+    /// are different arrivals - stones over paved 0.35 to 0.90, the kerb over 0.62 to
+    /// 0.72 - so half a gateway wore a line around a kerb that was not there yet.
+    /// This pins the gap the mesh now carries explicitly: a mid-gateway station has
+    /// visible stones and no kerb, so any gate reading the stones is reading the
+    /// wrong channel.
+    #[test]
+    fn the_stones_show_before_the_kerb_stands() {
+        let mid_gateway = Arriving::at(0.5);
+        assert!(
+            mid_gateway.stone_contrast > 0.1,
+            "the stones should already show mid-gateway, not {}",
+            mid_gateway.stone_contrast,
+        );
+        assert!(
+            mid_gateway.kerb_stands == 0.0,
+            "there should be NO kerb mid-gateway, not {} of one - if the kerb now              arrives earlier, retune the line's gate to match",
+            mid_gateway.kerb_stands,
+        );
+        let with_kerb = Arriving::at(0.75);
+        assert!(
+            with_kerb.kerb_stands > 0.9,
+            "by three-quarters paved the kerb should stand, not {} of it",
+            with_kerb.kerb_stands,
+        );
+    }
+
     /// A gateway meeting resolves each arm by what it JOINS, not by what it is.
     ///
     /// A country road arriving at a city is 4.6 m widening to 10. A meeting that knew
@@ -8281,6 +8319,28 @@ mod tests {
         std::fs::create_dir_all(dir).ok();
         sheet.save(dir.join("town_plan.png")).expect("the plan should save");
         println!("drew dev/art/map/town_plan.png");
+    }
+
+    /// WHERE the real world's gateways are, for pointing a camera at one.
+    #[test]
+    #[ignore = "a measurement of the real world"]
+    fn where_the_gateways_are() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        for road in plan.ways() {
+            let run = road.to - road.from;
+            let long = run.length();
+            let mut step = 0.0;
+            while step < long {
+                let at = road.from + run * (step / long);
+                let paved = paved_here(plan, at);
+                if (0.45..0.55).contains(&paved) {
+                    println!("paved {paved:.2} at ({:.0}, {:.0})", at.x, at.y);
+                    break;
+                }
+                step += 5.0;
+            }
+        }
     }
 
 /// What the REAL world's settlements lay out to.

@@ -10,9 +10,14 @@
 //! the reasoning about the shadows themselves is written down. This side gathers
 //! the facts and hands them over.
 
-use bevy::pbr::{ExtendedMaterial, MaterialExtension};
+use bevy::pbr::{
+    ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
+};
 use bevy::prelude::*;
-use bevy::render::render_resource::{AsBindGroup, ShaderRef};
+use bevy::render::mesh::{MeshVertexAttribute, MeshVertexBufferLayoutRef};
+use bevy::render::render_resource::{
+    AsBindGroup, RenderPipelineDescriptor, ShaderRef, SpecializedMeshPipelineError, VertexFormat,
+};
 
 use crate::config::{CLOUD_SHADE, CLOUD_SHADE_FROM, CLOUD_SHADE_SOFT, CLOUD_SHADE_TO, CLOUD_SPREAD};
 use crate::sky::TimeOfDay;
@@ -224,6 +229,27 @@ impl Default for CloudShade {
     }
 }
 
+/// How much of a kerb stands at each vertex, nought to one. Roads carry it;
+/// nothing else does.
+///
+/// # Why the kerb line gets its own attribute
+///
+/// The kerb line was first gated on `uv_b.x`, which carries how strongly the
+/// paving stones show - and Codex measured the gap: the stones arrive over
+/// paved 0.35 to 0.90 while the kerb arrives over 0.62 to 0.72, so half a
+/// gateway wore a line around a kerb that was not there yet. Worse, ANY mesh
+/// with a second UV set would have walked into the branch, because a mesh
+/// layout is not a statement of what the numbers in it mean.
+///
+/// An attribute only roads write is both facts at once: the shader branch is
+/// compiled solely for meshes that carry it - see `specialize` - and the value
+/// in it is the kerb's own arrival, not another channel's borrowed one.
+pub const ATTRIBUTE_KERB_STANDS: MeshVertexAttribute =
+    MeshVertexAttribute::new("KerbStands", 968712403180538, VertexFormat::Float32);
+
+/// Where `ATTRIBUTE_KERB_STANDS` is bound. Bevy's own attributes stop at 7.
+const KERB_STANDS_AT: u64 = 8;
+
 impl MaterialExtension for CloudShade {
     fn fragment_shader() -> ShaderRef {
         "shaders/cloud_shade.wgsl".into()
@@ -235,6 +261,44 @@ impl MaterialExtension for CloudShade {
     fn vertex_shader() -> ShaderRef {
         "shaders/cloud_shade.wgsl".into()
     }
+
+    /// Turns the kerb line on for exactly the meshes that carry its data.
+    ///
+    /// The standard pipeline is already built when this runs; it appends one
+    /// attribute and one flag rather than restating the layout, so everything
+    /// Bevy chose - which attributes exist, where they sit, what the stride is -
+    /// stays chosen by Bevy.
+    fn specialize(
+        _pipeline: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        kerb_line_for_meshes_that_carry_it(descriptor, layout)
+    }
+}
+
+/// The body of `CloudShade::specialize`, apart so a test can call it: the trait
+/// method's pipeline and key parameters cannot be built without a GPU, and are
+/// not consulted.
+fn kerb_line_for_meshes_that_carry_it(
+    descriptor: &mut RenderPipelineDescriptor,
+    layout: &MeshVertexBufferLayoutRef,
+) -> Result<(), SpecializedMeshPipelineError> {
+    if !layout.0.contains(ATTRIBUTE_KERB_STANDS) {
+        return Ok(());
+    }
+    let kerb =
+        layout.0.get_layout(&[ATTRIBUTE_KERB_STANDS.at_shader_location(KERB_STANDS_AT as u32)])?;
+    let Some(buffer) = descriptor.vertex.buffers.first_mut() else {
+        return Ok(());
+    };
+    buffer.attributes.extend(kerb.attributes);
+    descriptor.vertex.shader_defs.push("KERB_LINE".into());
+    if let Some(fragment) = &mut descriptor.fragment {
+        fragment.shader_defs.push("KERB_LINE".into());
+    }
+    Ok(())
 }
 
 /// The radius of the circle that shades as much ground as a cloud does.
@@ -700,5 +764,108 @@ mod tests {
             (0.15..0.6).contains(&CLOUD_SHADE),
             "cloud shade of {CLOUD_SHADE} is not a cloud"
         );
+    }
+
+    // ------------------------------------------------------------- the kerb line
+    //
+    // AQ-024: the kerb line must be scoped to meshes that carry its data, not to
+    // any mesh that happens to have a second UV set. These call the specialize
+    // body with real mesh layouts and check who gets the flag.
+
+    /// A pipeline descriptor with the one buffer the mesh would have been given.
+    fn descriptor_for(mesh: &Mesh) -> (RenderPipelineDescriptor, MeshVertexBufferLayoutRef) {
+        use bevy::render::mesh::MeshVertexBufferLayouts;
+        use bevy::render::render_resource::{
+            FragmentState, MultisampleState, PrimitiveState, VertexState,
+        };
+        let layout = mesh.get_mesh_vertex_buffer_layout(&mut MeshVertexBufferLayouts::default());
+        let standard = layout
+            .0
+            .get_layout(&[
+                Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
+                Mesh::ATTRIBUTE_UV_0.at_shader_location(2),
+                Mesh::ATTRIBUTE_UV_1.at_shader_location(3),
+            ])
+            .expect("the test meshes all carry positions and both UV sets");
+        let descriptor = RenderPipelineDescriptor {
+            label: None,
+            layout: Vec::new(),
+            push_constant_ranges: Vec::new(),
+            vertex: VertexState {
+                shader: Handle::default(),
+                shader_defs: Vec::new(),
+                entry_point: "vertex".into(),
+                buffers: vec![standard],
+            },
+            primitive: PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: MultisampleState::default(),
+            fragment: Some(FragmentState {
+                shader: Handle::default(),
+                shader_defs: Vec::new(),
+                entry_point: "fragment".into(),
+                targets: Vec::new(),
+            }),
+            zero_initialize_workgroup_memory: false,
+        };
+        (descriptor, layout)
+    }
+
+    /// A mesh with both UV sets, which is what AQ-024 warned would walk into the
+    /// kerb branch uninvited.
+    fn a_mesh_with_two_uv_sets() -> Mesh {
+        use bevy::render::mesh::PrimitiveTopology;
+        use bevy::render::render_asset::RenderAssetUsages;
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0.0f32, 0.0, 0.0]; 3]);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32, 0.0]; 3]);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, vec![[0.0f32, 0.0]; 3]);
+        mesh
+    }
+
+    #[test]
+    fn a_second_uv_set_alone_does_not_buy_a_kerb_line() {
+        let mesh = a_mesh_with_two_uv_sets();
+        let (mut descriptor, layout) = descriptor_for(&mesh);
+        let before = descriptor.vertex.buffers[0].attributes.len();
+        kerb_line_for_meshes_that_carry_it(&mut descriptor, &layout).expect("nothing to look up");
+        assert!(
+            descriptor.vertex.shader_defs.is_empty()
+                && descriptor.fragment.as_ref().unwrap().shader_defs.is_empty(),
+            "a mesh with a second UV set but no kerb data was given the kerb line"
+        );
+        assert_eq!(
+            descriptor.vertex.buffers[0].attributes.len(),
+            before,
+            "an attribute was bound that the mesh does not carry"
+        );
+    }
+
+    #[test]
+    fn the_kerb_data_buys_the_kerb_line_in_both_stages() {
+        let mut mesh = a_mesh_with_two_uv_sets();
+        mesh.insert_attribute(ATTRIBUTE_KERB_STANDS, vec![0.0f32; 3]);
+        let (mut descriptor, layout) = descriptor_for(&mesh);
+        kerb_line_for_meshes_that_carry_it(&mut descriptor, &layout).expect("the attribute is there");
+        assert!(
+            descriptor.vertex.shader_defs.iter().any(|def| format!("{def:?}").contains("KERB_LINE")),
+            "the vertex stage was not told about the kerb data"
+        );
+        assert!(
+            descriptor
+                .fragment
+                .as_ref()
+                .unwrap()
+                .shader_defs
+                .iter()
+                .any(|def| format!("{def:?}").contains("KERB_LINE")),
+            "the fragment stage was not told about the kerb data"
+        );
+        let bound = descriptor.vertex.buffers[0]
+            .attributes
+            .iter()
+            .find(|attribute| attribute.shader_location == KERB_STANDS_AT as u32)
+            .expect("the kerb attribute was not bound");
+        assert_eq!(bound.format, VertexFormat::Float32);
     }
 }

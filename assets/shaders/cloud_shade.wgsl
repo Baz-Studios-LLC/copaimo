@@ -163,8 +163,48 @@ fn parted(at: vec3<f32>, along: f32) -> vec3<f32> {
     return at + vec3<f32>(leaned.x, -dropped, leaned.y);
 }
 
+#ifdef KERB_LINE
+// `VertexOutput` with one seat added, for the meshes that carry kerb data.
+//
+// Bevy's interstage struct cannot be extended in place, so the road pipelines -
+// and only they; see `specialize` on the Rust side - swap in this copy of it.
+// The first eight seats mirror `forward_io::VertexOutput` exactly, under the
+// same flags, so the shared fragment body can be handed a standard struct
+// rebuilt field for field.
+struct RoadOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) world_position: vec4<f32>,
+    @location(1) world_normal: vec3<f32>,
+#ifdef VERTEX_UVS_A
+    @location(2) uv: vec2<f32>,
+#endif
+#ifdef VERTEX_UVS_B
+    @location(3) uv_b: vec2<f32>,
+#endif
+#ifdef VERTEX_TANGENTS
+    @location(4) world_tangent: vec4<f32>,
+#endif
+#ifdef VERTEX_COLORS
+    @location(5) color: vec4<f32>,
+#endif
+#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+    @location(6) @interpolate(flat) instance_index: u32,
+#endif
+#ifdef VISIBILITY_RANGE_DITHER
+    @location(7) @interpolate(flat) visibility_range_dither: i32,
+#endif
+    // How much of a kerb stands here, nought to one - the kerb's own arrival,
+    // interpolated, so the line fades in exactly as the kerb it belongs to does.
+    @location(8) kerb_stands: f32,
+}
+#endif
+
 @vertex
+#ifdef KERB_LINE
+fn vertex(vertex: Vertex, @location(8) kerb_stands: f32) -> RoadOutput {
+#else
 fn vertex(vertex: Vertex) -> VertexOutput {
+#endif
     // Bevy's own vertex stage, with one thing added.
     //
     // There is no hook for "displace and then do what you were going to do", so
@@ -249,7 +289,34 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         vertex.instance_index, mesh_world_from_local[3]);
 #endif
 
+#ifdef KERB_LINE
+    var road: RoadOutput;
+    road.position = out.position;
+    road.world_position = out.world_position;
+    road.world_normal = out.world_normal;
+#ifdef VERTEX_UVS_A
+    road.uv = out.uv;
+#endif
+#ifdef VERTEX_UVS_B
+    road.uv_b = out.uv_b;
+#endif
+#ifdef VERTEX_TANGENTS
+    road.world_tangent = out.world_tangent;
+#endif
+#ifdef VERTEX_COLORS
+    road.color = out.color;
+#endif
+#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+    road.instance_index = out.instance_index;
+#endif
+#ifdef VISIBILITY_RANGE_DITHER
+    road.visibility_range_dither = out.visibility_range_dither;
+#endif
+    road.kerb_stands = kerb_stands;
+    return road;
+#else
     return out;
+#endif
 }
 
 /// How much light reaches a point on the ground, 0 dark to 1 open sky.
@@ -464,7 +531,34 @@ fn laid_in(at: vec2<f32>, size: f32) -> vec2<f32> {
 }
 
 @fragment
+#ifdef KERB_LINE
+fn fragment(road: RoadOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
+    // The standard struct rebuilt, so everything downstream is untouched.
+    var in: VertexOutput;
+    in.position = road.position;
+    in.world_position = road.world_position;
+    in.world_normal = road.world_normal;
+#ifdef VERTEX_UVS_A
+    in.uv = road.uv;
+#endif
+#ifdef VERTEX_UVS_B
+    in.uv_b = road.uv_b;
+#endif
+#ifdef VERTEX_TANGENTS
+    in.world_tangent = road.world_tangent;
+#endif
+#ifdef VERTEX_COLORS
+    in.color = road.color;
+#endif
+#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+    in.instance_index = road.instance_index;
+#endif
+#ifdef VISIBILITY_RANGE_DITHER
+    in.visibility_range_dither = road.visibility_range_dither;
+#endif
+#else
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> FragmentOutput {
+#endif
     var pbr_input = pbr_input_from_standard_material(in, is_front);
 
     // THE STONES, BEFORE THE LIGHT.
@@ -625,14 +719,16 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     //
     // Only where there IS a kerb: `kerb.y` is the paving's own arrival, so a country
     // lane worn across a meadow gets no line down it.
-#ifdef VERTEX_UVS_B
+#ifdef KERB_LINE
     let off_the_kerb = abs(in.uv_b.y);
     let wide = max(KERB_LINE_WIDE, fwidth(in.uv_b.y) * KERB_LINE_PIXELS);
-    // How paved this point is, which is also whether it has a kerb at all - the two
-    // arrive together. Read again here rather than borrowed from the paving branch
-    // above, which lives behind a different guard.
-    let has_a_kerb = clamp(in.uv_b.x, 0.0, 1.0);
-    let on_the_line = (1.0 - smoothstep(wide * 0.5, wide, off_the_kerb)) * has_a_kerb;
+    // Only as much line as there is kerb. This was first gated on `uv_b.x` - how
+    // strongly the paving stones show - and Codex measured the gap: stones arrive
+    // over paved 0.35 to 0.90 and the kerb over 0.62 to 0.72, so half a gateway
+    // wore a line around a kerb that was not there yet. The mesh now hands over
+    // the kerb's own arrival, and hands it only to road pipelines - nothing else
+    // compiles this branch at all.
+    let on_the_line = (1.0 - smoothstep(wide * 0.5, wide, off_the_kerb)) * road.kerb_stands;
     out.color = vec4<f32>(
         mix(out.color.rgb, min(out.color.rgb * KERB_LINE_DEEPENS, KERB_LINE), on_the_line),
         out.color.a,
