@@ -202,10 +202,16 @@ pub fn collect_cover(
     let Some(material) = material else {
         return;
     };
+    // Bounded, because grass lands in armfuls - see `StandingUp`.
+    let mut budget = super::StandingUp::begin();
     for (entity, mut task, dressing) in &mut pending {
+        if budget.spent() {
+            break;
+        }
         let Some(cover) = block_on(future::poll_once(&mut task.0)) else {
             continue;
         };
+        budget.one();
         // Whatever was standing here goes now, as the new is put down — not when
         // the ground was re-meshed. A chunk under the brush would otherwise be
         // bare for the frames the rebuild takes, which is the flicker.

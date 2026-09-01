@@ -166,10 +166,16 @@ pub fn collect_props(
     let Some(material) = material else {
         return;
     };
+    // Bounded, the same way the ground and the grass are - see `StandingUp`.
+    let mut budget = super::StandingUp::begin();
     for (entity, mut task, littered) in &mut pending {
+        if budget.spent() {
+            break;
+        }
         let Some(litter) = block_on(future::poll_once(&mut task.0)) else {
             continue;
         };
+        budget.one();
         // The old litter goes as the new is put down — see `collect_cover`.
         if let Some(littered) = littered {
             for old in littered.iter() {

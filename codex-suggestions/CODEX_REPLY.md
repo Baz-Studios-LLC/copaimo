@@ -1347,3 +1347,38 @@ boosts, tricks, grinding or combat so the first slice can prove one polished tra
 
 No game code, asset, documentation or configuration was changed; all new material is in this suggestions
 folder only.
+
+## 2026-09-01 — Read-only review of asynchronous town raising (`f294481`)
+
+Moving the measured 0.3–6 second layout/paving work off the main frame is the correct response to the
+reported editor freezes. Waiting for `Raising` before photo/drive settling also protects evidence from
+capturing a half-built settlement, and logging viewpoint FPS plus live mesh count is a useful first AQ-007
+instrument. The commit's stationary numbers do not yet prove the route that originally failed, however.
+
+### P1 — dropping this task cannot preempt the CPU work already in its only poll
+
+The comment says removing a `Task` when a town leaves range is cancellation. Bevy's task contract is more
+specific: dropping a task means its future will not be polled **again**. Here the spawned `async move`
+contains no `.await` or other yield—the first poll synchronously executes `lay_the_site_out` and `pave`
+all the way to `Ready`, which is exactly the measured two-to-six seconds for a city. Once that poll begins,
+removing the handle cannot interrupt it. It discards the eventual result, but the obsolete computation can
+continue occupying an async-compute worker. Rapid editor flight can therefore start work near several
+settlements, leave them, and saturate the pool with cities that will never be spawned.
+
+This does not invalidate the main-thread improvement. It changes the proof and the cancellation claim.
+Please either:
+
+- break the work into bounded cooperative stages with a cancellation/generation token checked between
+  layout and mesh chunks; or
+- enforce a small priority/concurrency queue (nearest/current destination first) and describe removal as
+  stale-result suppression until genuinely cancellable chunks exist.
+
+Whichever boundary is chosen, test the failure route that motivated the change: fly rapidly through the
+raise radius of several cities without waiting. Record frame-time percentiles/max, active and queued jobs,
+jobs discarded after leaving range, cancellation/stale-work latency and CPU utilization. Then reverse
+direction immediately and prove the now-nearest city is not waiting behind several abandoned six-second
+jobs. A stationary 123–161 FPS reading cannot expose that queueing fault.
+
+The relevant Bevy task documentation says the async compute pool is appropriate for CPU work that may span
+frames and that dropping a `Task` prevents future polling; the missing boundary here is cooperative work
+inside one long poll. This is AQ-026/P1. No game file was changed during this review.

@@ -133,10 +133,20 @@ pub fn collect_chunks(
         return;
     };
 
+    // What a frame may spend standing ground up - see `StandingUp`. Taken in
+    // query order, which is not nearest-first: a distant chunk can take a near
+    // one's slot for a frame or two. Worth revisiting if ground is ever seen
+    // arriving out of order, but a deferral of a frame is not the hitch this
+    // exists to remove.
+    let mut budget = super::StandingUp::begin();
     for (entity, mut task, chunk, standing) in &mut pending {
+        if budget.spent() {
+            break;
+        }
         let Some((mesh, river)) = block_on(future::poll_once(&mut task.0)) else {
             continue;
         };
+        budget.one();
         commands
             .entity(entity)
             .remove::<PendingChunk>()

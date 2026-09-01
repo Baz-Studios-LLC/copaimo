@@ -31,6 +31,51 @@ use bevy::prelude::*;
 use crate::config::CHUNK_SIZE;
 use crate::world::terrain::{Terrain, TerrainSource};
 
+/// How long one frame may spend standing finished streamed work up.
+///
+/// # Generation was off the frame; the standing-up never was
+///
+/// The chunks, the grass and the props are all worked out on the task pool and
+/// then handed to the world by a collector that took EVERY finished one on the
+/// frame it noticed them. Flying the map, a whole arc of them finishes together:
+/// `--flyby` measured nineteen frames over 100 ms in a twenty-five second
+/// flight, worst 325, and attributed none of them to settlements or to entities
+/// appearing - because the dressing collectors despawn the old as they spawn the
+/// new, so the count barely moves while the frame burns.
+///
+/// A time budget rather than a count, because what matters is the frame and the
+/// items are not the same size - a chunk that plants a wood costs many times a
+/// bare one. Always at least one through, so a single item bigger than the whole
+/// budget still lands and the world cannot stall.
+///
+/// Shared by all three collectors, because it is one concern: they differ in
+/// what they stand up, not in how long a frame is.
+pub struct StandingUp {
+    since: std::time::Instant,
+    done: usize,
+}
+
+/// A quarter of a sixty-hertz frame, so the world keeps arriving briskly while
+/// leaving the rest of the frame to the game.
+const STANDS_UP_FOR: std::time::Duration = std::time::Duration::from_micros(4_000);
+
+impl StandingUp {
+    pub fn begin() -> Self {
+        Self { since: std::time::Instant::now(), done: 0 }
+    }
+
+    /// Whether this frame has done enough. Never true before the first one.
+    pub fn spent(&self) -> bool {
+        self.done > 0 && self.since.elapsed() > STANDS_UP_FOR
+    }
+
+    /// One more stood up.
+    pub fn one(&mut self) {
+        self.done += 1;
+    }
+}
+
+
 /// Marks the entity that terrain streaming centers on. The camera carries it,
 /// because the camera is always where the viewer actually is — in follow mode
 /// and in free-fly alike.

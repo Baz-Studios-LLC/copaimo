@@ -5957,6 +5957,34 @@ fn pave(
     low: Vec2,
     city: f32,
 ) -> Mesh {
+    pave_while(ways, nodes, opens, terrain, low, city, &|| true)
+        .expect("a paving nothing can cancel came back cancelled")
+}
+
+/// The same, abandoned partway if `wanted` stops saying yes.
+///
+/// # A six-second job that cannot be called off
+///
+/// Paving a city is 97% of what raising one costs - two to six seconds, measured
+/// by `what_a_raise_costs` - and it runs on the async pool as ONE synchronous
+/// stretch. Dropping the task tells the executor not to poll it again, which is
+/// no help at all when the whole job is a single poll: the thread keeps grinding
+/// out a city the player has already flown past. Codex's AQ-026, and correct -
+/// the fix I shipped moved the cost off the frame and left the pool able to fill
+/// with work nobody wants.
+///
+/// So the loops ask. A way and a node are each small - hundreds to a town - so
+/// the answer is acted on within a millisecond or so of changing, and the thread
+/// goes back to whatever the player is actually near.
+fn pave_while(
+    ways: &[Way],
+    nodes: &[Node],
+    opens: &[Place],
+    terrain: &crate::world::terrain::Terrain,
+    low: Vec2,
+    city: f32,
+    wanted: &(dyn Fn() -> bool + Sync),
+) -> Option<Mesh> {
     let at_plan = terrain.plan();
     let mut places: Vec<[f32; 3]> = Vec::new();
     let mut normals: Vec<[f32; 3]> = Vec::new();
@@ -6021,6 +6049,9 @@ fn pave(
         .collect();
 
     for way in &arms {
+        if !wanted() {
+            return None;
+        }
         if way.points.len() < 2 {
             continue;
         }
@@ -6406,6 +6437,9 @@ fn pave(
     const NODE_LANES: usize = NODE_STATIONS.len() + 2;
 
     for node in nodes {
+        if !wanted() {
+            return None;
+        }
         let paved = city.max(paved_here(at_plan, node.at));
         let arriving = Arriving::at(paved);
         let surface = mix(*ROAD_EARTH, *ROAD_STONE, arriving.surface_made);
@@ -6671,7 +6705,7 @@ fn pave(
     mesh.insert_attribute(crate::shade::ATTRIBUTE_KERB_STANDS, kerbs);
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colours);
     mesh.insert_indices(bevy::render::mesh::Indices::U32(indices));
-    mesh
+    Some(mesh)
 }
 
 /// The country roads near the player, drawn as dirt.
@@ -6774,7 +6808,34 @@ fn country_roads_near(
 /// was a freeze at every settlement, reported as something killing the frame
 /// rate. The work is the same; it just does not belong on the frame.
 #[derive(Resource, Default)]
-pub struct Raising(std::collections::HashMap<u32, bevy::tasks::Task<(Layout, Mesh)>>);
+pub struct Raising {
+    working: std::collections::HashMap<
+        u32,
+        (
+            bevy::tasks::Task<Option<(Layout, Mesh)>>,
+            std::sync::Arc<std::sync::atomic::AtomicBool>,
+        ),
+    >,
+    /// What the pool has been asked to do, and how that turned out.
+    ///
+    /// Kept because AQ-026 is a claim about jobs nobody wants, and a claim about
+    /// jobs is only answerable by counting them. `--flyby` prints these.
+    pub started: u32,
+    pub landed: u32,
+    pub called_off: u32,
+    pub most_at_once: usize,
+}
+
+/// How many settlements may be worked out at once.
+///
+/// The pool's own width, so there is never a QUEUE: every job in flight is
+/// running, and a town the player has just reached starts the moment a thread
+/// frees rather than waiting behind cities they have already left. Without a cap
+/// a fast flight over the map spawns one job per settlement it passes, and the
+/// pool fills with work for places nobody is near - Codex's AQ-026.
+fn raises_at_once() -> usize {
+    bevy::tasks::AsyncComputeTaskPool::get().thread_num().max(1)
+}
 
 impl Raising {
     /// Whether any settlement is still being worked out.
@@ -6783,7 +6844,12 @@ impl Raising {
     /// nine-hundred-metre head start a walking player gives the tasks is nought
     /// frames for them - they hold until this is quiet instead.
     pub fn busy(&self) -> bool {
-        !self.0.is_empty()
+        !self.working.is_empty()
+    }
+
+    /// How many are being worked out right now.
+    pub fn at_work(&self) -> usize {
+        self.working.len()
     }
 }
 
@@ -6814,6 +6880,8 @@ pub fn raise_the_towns(
     let here = Vec2::new(anchor.translation().x, anchor.translation().z);
 
     let plan = terrain.plan();
+    // Every settlement wanting one, so the nearest can be chosen - see the cap.
+    let mut wants_raising: Vec<(f32, usize)> = Vec::new();
     for (index, site) in plan.sites().iter().enumerate() {
         // THE RANCH IS NOT A SETTLEMENT. It is a `Site` only so nothing else can
         // take its ground, and the player SPAWNS on it - a market cross stood on the
@@ -6827,10 +6895,11 @@ pub fn raise_the_towns(
             continue;
         }
         let key = index as u32;
-        let near = site.at.distance(here) < RAISES_WITHIN;
-        if !near {
-            // Left behind: take the whole town down at once, and stop working
-            // one out - dropping the task is the cancellation.
+        let away = site.at.distance(here);
+        if away >= RAISES_WITHIN {
+            // Left behind: take the whole town down at once, and CALL OFF one
+            // being worked out. Dropping the task only stops the next poll, and
+            // the whole job is one poll - see `pave_while`.
             if built.standing.remove(&key).is_some() {
                 for (entity, from) in &standing {
                     if from.0 == key {
@@ -6838,48 +6907,70 @@ pub fn raise_the_towns(
                     }
                 }
             }
-            raising.0.remove(&key);
+            if let Some((_, wanted)) = raising.working.remove(&key) {
+                wanted.store(false, std::sync::atomic::Ordering::Relaxed);
+                raising.called_off += 1;
+            }
             continue;
         }
-        if built.standing.contains_key(&key) || raising.0.contains_key(&key) {
-            continue;
+        if !built.standing.contains_key(&key) && !raising.working.contains_key(&key) {
+            wants_raising.push((away, index));
         }
+    }
 
+    // NEAREST FIRST, and never more at once than the pool can actually run.
+    wants_raising.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    for (_, index) in wants_raising {
+        if raising.working.len() >= raises_at_once() {
+            break;
+        }
         // OFF THE FRAME AND ONTO THE POOL. Everything here is arithmetic over
         // the immutable terrain - the entities are spawned below, when it lands.
         let ground = terrain.0.clone();
-        raising.0.insert(
-            key,
-            bevy::tasks::AsyncComputeTaskPool::get().spawn(async move {
-                let plan = ground.plan();
-                let site = &plan.sites()[index];
-                let layout = lay_the_site_out(plan, index, site);
-                let paving = pave(
-                    &layout.ways,
-                    &layout.nodes,
-                    &layout.opens,
-                    &ground,
-                    site.at,
-                    f32::from(u8::from(site.city)),
-                );
-                (layout, paving)
-            }),
+        let wanted = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let still = wanted.clone();
+        raising.started += 1;
+        raising.working.insert(
+            index as u32,
+            (
+                bevy::tasks::AsyncComputeTaskPool::get().spawn(async move {
+                    let plan = ground.plan();
+                    let site = &plan.sites()[index];
+                    let layout = lay_the_site_out(plan, index, site);
+                    let paving = pave_while(
+                        &layout.ways,
+                        &layout.nodes,
+                        &layout.opens,
+                        &ground,
+                        site.at,
+                        f32::from(u8::from(site.city)),
+                        &|| still.load(std::sync::atomic::Ordering::Relaxed),
+                    )?;
+                    Some((layout, paving))
+                }),
+                wanted,
+            ),
         );
+        raising.most_at_once = raising.most_at_once.max(raising.working.len());
     }
 
     // WHAT THE POOL HAS FINISHED comes up this frame.
     let landed: Vec<u32> = raising
-        .0
+        .working
         .iter_mut()
-        .filter(|(_, task)| task.is_finished())
+        .filter(|(_, (task, _))| task.is_finished())
         .map(|(key, _)| *key)
         .collect();
     for key in landed {
-        let Some(task) = raising.0.remove(&key) else {
+        let Some((task, _)) = raising.working.remove(&key) else {
             continue;
         };
-        let (layout, paving) =
-            bevy::tasks::futures_lite::future::block_on(task);
+        // `None` is a job called off partway - see `pave_while`. Nothing to
+        // stand up, and the site is no longer near, so nothing to retry either.
+        let Some((layout, paving)) = bevy::tasks::futures_lite::future::block_on(task) else {
+            continue;
+        };
+        raising.landed += 1;
         let site = &plan.sites()[key as usize];
         // What this settlement actually cost, per settlement.
         //
@@ -7167,6 +7258,16 @@ const DOOR_GIVE: f32 = 0.3;
 #[derive(Resource, Default)]
 pub struct DirtLaid {
     cell: Option<IVec2>,
+    /// The country mesh being worked out, if one is.
+    ///
+    /// Rebuilding every road within reach - planarising the network, then paving
+    /// it - is the same job a settlement is, and it ran on the frame that
+    /// noticed the anchor cross a 450 m cell. Flying, that is about once a
+    /// second: `--flyby` found nineteen frames over 100 ms in a twenty-five
+    /// second flight, worst 331, with the main schedule accounting for
+    /// essentially all of each. The towns were already off the frame and their
+    /// landings attributed to nothing, which left this.
+    working: Option<bevy::tasks::Task<Option<(Vec2, Vec<Node>, Mesh)>>>,
 }
 
 #[derive(Component)]
@@ -7188,66 +7289,88 @@ fn lay_the_country_roads(
     };
     let here = Vec2::new(anchor.translation().x, anchor.translation().z);
     let cell = (here / (RAISES_WITHIN * 0.5)).floor().as_ivec2();
+
+    // WHAT THE POOL HAS FINISHED, before anything is asked of it again.
+    if let Some(mut task) = laid.working.take() {
+        let Some(done) =
+            bevy::tasks::block_on(bevy::tasks::futures_lite::future::poll_once(&mut task))
+        else {
+            // Still going, and nothing else may start: two builds in flight is
+            // two country meshes standing in the same ground.
+            laid.working = Some(task);
+            return;
+        };
+        if let Some((at, nodes, mesh)) = done {
+            // The old one goes as the new one arrives, rather than when the
+            // rebuild was asked for - so the roads are never absent for the
+            // second or so the work takes.
+            for entity in &standing {
+                commands.entity(entity).despawn();
+            }
+            // WHAT IS DRAWN IS WHAT IS WALKED. See `Built::country`.
+            built.country = nodes;
+            // THE SAME MATERIAL THE TOWNS USE - see `shade::road_material`.
+            //
+            // # A road that carried its cobbles and had nothing to draw them with
+            //
+            // This built its own generic `shaded(StandardMaterial { .. })`, whose
+            // `CloudShade::paving` is nought - and the shader only draws stones
+            // where that is above zero. So every country road in the world carried
+            // a stone size in its vertex alpha and a paving amount in its UV,
+            // reported both correctly, and drew no stones at all; the pattern then
+            // appeared the instant the mesh changed owner at a town's edge. That is
+            // the abrupt dirt-to-city transition, and it survived every measurement
+            // because everything measured was right.
+            //
+            // Found by Codex reading the two spawn paths against each other. There
+            // were three descriptions of a road's material: this one, the towns',
+            // and a `RoadSurface` resource filled in at startup and never read. The
+            // resource is gone and both paths ask `road_material`.
+            let material = surface
+                .get_or_insert_with(|| materials.add(crate::shade::road_material()))
+                .clone();
+            commands.spawn((
+                CountryRoad,
+                Mesh3d(meshes.add(mesh)),
+                MeshMaterial3d(material),
+                Transform::from_xyz(at.x, 0.0, at.y),
+                Visibility::default(),
+                bevy::pbr::NotShadowCaster,
+            ));
+        }
+    }
+
     if laid.cell == Some(cell) {
         return;
     }
     laid.cell = Some(cell);
 
-    for entity in &standing {
-        commands.entity(entity).despawn();
-    }
-
-    // SPLIT AT THEIR OWN MEETINGS, like a town's are - see `network`. A country
-    // road is unpaved and carries no footway, so what a meeting fixes out here is
-    // the notch between two crossing dirt tracks rather than a pavement over a
-    // carriageway; near a city it is the same fix the streets get.
-    let plan = terrain.plan();
-    let (roads, nodes) = network(
-        country_roads_near(plan, &terrain.0, here),
-        &|at| paved_here(plan, at),
-    );
-    // WHAT IS DRAWN IS WHAT IS WALKED. See `Built::country`.
-    built.country = nodes.clone();
-    if roads.is_empty() {
-        return;
-    }
-    // THE SAME MATERIAL THE TOWNS USE - see `shade::road_material`.
-    //
-    // # A road that carried its cobbles and had nothing to draw them with
-    //
-    // This built its own generic `shaded(StandardMaterial { .. })`, whose
-    // `CloudShade::paving` is nought - and the shader only draws stones where that
-    // is above zero. So every country road in the world carried a stone size in its
-    // vertex alpha and a paving amount in its UV, reported both correctly, and drew
-    // no stones at all; the pattern then appeared the instant the mesh changed
-    // owner at a town's edge. That is the abrupt dirt-to-city transition, and it
-    // survived every measurement because everything measured was right.
-    //
-    // Found by Codex reading the two spawn paths against each other. There were
-    // three descriptions of a road's material: this one, the towns', and a
-    // `RoadSurface` resource that was filled in at startup and never read by
-    // anybody. The resource is gone and both paths ask `road_material`.
-    let material = surface
-        .get_or_insert_with(|| materials.add(crate::shade::road_material()))
-        .clone();
-
-    // ONE mesh, and the surface decides itself.
-    //
-    // This used to be two - a dirt run and a paved run, split by whether a leg's
-    // middle stood on a city's ground - which put a hard material change at a leg
-    // boundary out in open country. `pave` asks how paved each POINT is now, so the
-    // same road becomes a street over the last stretch of its approach.
-    if !roads.is_empty() {
-        let mesh = pave(&roads, &nodes, &[], &terrain.0, here, 0.0);
-        commands.spawn((
-            CountryRoad,
-            Mesh3d(meshes.add(mesh)),
-            MeshMaterial3d(material.clone()),
-            Transform::from_xyz(here.x, 0.0, here.y),
-            Visibility::default(),
-            bevy::pbr::NotShadowCaster,
-        ));
-    }
+    // AND OFF THE FRAME TO BUILD THE NEXT - see `DirtLaid::working` for what
+    // this cost while it was on one.
+    let ground = terrain.0.clone();
+    laid.working = Some(bevy::tasks::AsyncComputeTaskPool::get().spawn(async move {
+        let plan = ground.plan();
+        // SPLIT AT THEIR OWN MEETINGS, like a town's are - see `network`. A
+        // country road is unpaved and carries no footway, so what a meeting fixes
+        // out here is the notch between two crossing dirt tracks rather than a
+        // pavement over a carriageway; near a city it is the same fix the streets
+        // get.
+        let (roads, nodes) = network(country_roads_near(plan, &ground, here), &|at| {
+            paved_here(plan, at)
+        });
+        if roads.is_empty() {
+            return None;
+        }
+        // ONE mesh, and the surface decides itself.
+        //
+        // This used to be two - a dirt run and a paved run, split by whether a
+        // leg's middle stood on a city's ground - which put a hard material change
+        // at a leg boundary out in open country. `pave` asks how paved each POINT
+        // is now, so the same road becomes a street over the last stretch of its
+        // approach.
+        let mesh = pave(&roads, &nodes, &[], &ground, here, 0.0);
+        Some((here, nodes, mesh))
+    }));
 }
 
 pub struct TownPlugin;
@@ -8399,7 +8522,7 @@ mod tests {
     #[test]
     fn a_settlement_lays_its_streets_in_the_world() {
         let (mut app, _site) = a_world_with_a_town();
-        app.update();
+        until_it_is_raised(&mut app);
 
         let mut meshes = app.world_mut().query::<(&Mesh3d, &Transform)>();
         let found: Vec<_> = meshes.iter(app.world()).collect();
@@ -8458,23 +8581,30 @@ mod tests {
         (app, site)
     }
 
-    #[test]
-    fn standing_in_a_settlement_raises_it() {
-        let (mut app, site) = a_world_with_a_town();
-        // The work happens off the frame now - see `Raising` - so arriving
-        // spawns a task and the town lands a breath later. Update until it is
-        // quiet, bounded so a task that never lands is a failure rather than a
-        // hang; a village takes about a third of a second of pool time.
+    /// Runs the app until the settlements it is standing in have come up.
+    ///
+    /// The work happens off the frame - see `Raising` - so arriving spawns a
+    /// task and the town lands a breath later. Bounded, so a task that never
+    /// lands is a failure rather than a hang; a village takes about a third of
+    /// a second of pool time.
+    fn until_it_is_raised(app: &mut App) {
         for _ in 0..600 {
             app.update();
             if !app.world().resource::<Raising>().busy()
-                && app.world().resource::<Built>().standing.len() >= 1
+                && !app.world().resource::<Built>().standing.is_empty()
             {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
+        // One more, so what landed on the last one is spawned.
         app.update();
+    }
+
+    #[test]
+    fn standing_in_a_settlement_raises_it() {
+        let (mut app, site) = a_world_with_a_town();
+        until_it_is_raised(&mut app);
 
         let standing = app
             .world_mut()

@@ -64,6 +64,7 @@ mod motion;
 mod models;
 mod audit;
 mod drive;
+mod flyby;
 mod photo;
 mod player;
 mod save;
@@ -257,7 +258,12 @@ fn main() {
             // needs to ask how high the ground is.
             world::WorldPlugin,
             sky::SkyPlugin,
-            (photo::PhotoPlugin, drive::DrivePlugin, audit::AuditPlugin),
+            (
+                photo::PhotoPlugin,
+                drive::DrivePlugin,
+                flyby::FlybyPlugin,
+                audit::AuditPlugin,
+            ),
             season::SeasonPlugin,
             weather::WeatherPlugin,
             // A tuple takes sixteen, and this one is full - see the bridges
