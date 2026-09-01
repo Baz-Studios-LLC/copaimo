@@ -6222,11 +6222,23 @@ fn pave(
                 (-(top + SEAM), flag, 0.0, false),
                 (-top, edge, 0.0, false),
                 (-(walk + batter), edge, 0.0, true),
-                (-walk, edge, 0.0, true),
+                // THE COBBLE RUNS TO THE KERB.
+                //
+                // This carried no stone size, so across the last stretch of
+                // carriageway the size interpolated from a full cobble down to
+                // nothing - and every size in between got drawn, the small end of
+                // them as a fine scratch that aliases into lines. That is the streak
+                // down the side of every road in the game, and it survived three
+                // passes of tuning the pattern's fade because the fade was doing
+                // exactly what it was told.
+                //
+                // Setts run to the gutter in life too. What is left to interpolate is
+                // the kerb's own face, five centimetres of it, standing on edge.
+                (-walk, edge, COBBLE_IS, true),
                 (-walk * 0.62, surface, COBBLE_IS, false),
                 (0.0, surface, COBBLE_IS, false),
                 (walk * 0.62, surface, COBBLE_IS, false),
-                (walk, edge, 0.0, true),
+                (walk, edge, COBBLE_IS, true),
                 (walk + batter, edge, 0.0, true),
                 (top, edge, 0.0, false),
                 (top + SEAM, flag, 0.0, false),

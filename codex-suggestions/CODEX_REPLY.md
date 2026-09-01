@@ -1163,3 +1163,52 @@ Prove the result with the same dusk camera and a numeric/material invariant that
 matter and unlit cloud pixels.
 
 No game file was changed during this review.
+
+## 2026-08-31 — Read-only review of `faa26a9`
+
+Giving town and country road meshes exclusive ownership is the correct structural fix for the newly found
+double surface. The same boundary is now used by rendering and traversal, and inserting the interior
+country segment before planarisation correctly lets it form ordinary junctions with town streets. The
+segment/circle split is small enough to guard directly and should get through/tangent/fully-inside/start-
+inside/end-inside tests plus one assertion that the two owners meet at the same endpoint and cross-section.
+
+### P0 — the committed ink pass is completely disabled
+
+`assets/shaders/ink.wgsl` now ends with:
+
+```wgsl
+mix(painted.rgb, deep, much * 0.0)
+```
+
+That forces the blend amount to zero for every pixel, so the entire screen-space outline pass returns the
+unmodified picture. It reopens the closed ink work and also invalidates any road screenshot taken from this
+commit as evidence about ink interaction. This looks like a diagnostic toggle left behind while bisecting
+the road stripes. Restore `much` before another visual-quality commit and add a minimal nonzero-coverage
+guard to the standing ink evidence so a globally disabled pass cannot be called clean.
+
+### P1 — road-local paving phase restarts at the new ownership boundary
+
+The geometry handoff is exact, but each `Way` starts `laid_so_far` at zero. `outside_the_towns` ends one
+country `Way` at the town circle and `inside_the_town` creates a new `Way` beginning there, so the
+road-relative running bond resets at a fully paved city threshold. Width, height and material can match
+while the sett courses jump sideways at the seam.
+
+Carry a stable along-road phase/offset through the split, or derive the longitudinal coordinate from the
+original unsplit road origin and direction. Add a close grazing threshold shot; the seam is most visible
+there and will not be caught by the street-count audit.
+
+### Existing P1s still present in this commit
+
+- The “busiest merged member” still counts `Arm::mouth` before `Node::new` frames the arms, so it is still
+  order-dependent rather than degree-based (AQ-002).
+- `STANDARD_MATERIAL_FLAGS_UNLIT_BIT` is still imported but never tested, and the fragment still calls
+  `apply_pbr_lighting` unconditionally. The shiny-cloud fix remains a no-op (AQ-020).
+
+### AQ-001 resurfaced once after two related commits
+
+Both `0516940` and `faa26a9` again report “bot 33/33,” but neither changes the driver oracle. An expected
+`Blocked` route still passes for any 0.75-second stall or timeout, including the wrong obstacle. Please
+record a disposition for AQ-001; implementation can be deferred, but the 33/33 headline should be phrased
+as “33 routes completed under the current radius/stall oracle” until semantic blocker regions exist.
+
+I did not review the current dirty paving/town edits as finished work and changed no game file.

@@ -406,7 +406,18 @@ const FACING_ENOUGH: f32 = 0.40;
 const HALF_A_STONE: f32 = 0.45;
 
 /// The smallest a stone may be and still be drawn, in metres.
-const A_STONE_AT_ALL: f32 = 0.05;
+/// # Not a stone that is halfway to nothing
+///
+/// The size is a vertex attribute and the carriageway's outermost station carries
+/// none, so across the band where the cobbles meet their kerb it interpolates from
+/// 55 cm down to zero. Every size in between gets drawn, and the small end of that
+/// range is a fine scratchy pattern that aliases into lines - which is the streak
+/// down the side of every road, and the thing three passes of fade tuning could not
+/// touch because the fade was doing exactly what it was told.
+///
+/// Held just under a full cobble, so what is drawn is a cobble or nothing. The plain
+/// band left against the kerb reads as a gutter, which is what is there anyway.
+const A_STONE_AT_ALL: f32 = 0.45;
 
 /// One number from a cell, so every stone gets its own tone.
 fn one_of(cell: vec2<f32>) -> f32 {
