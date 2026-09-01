@@ -208,11 +208,20 @@ pub fn audit_the_streets(
             if way.from.distance(site.at) < site.radius + 120.0
                 || way.to.distance(site.at) < site.radius + 120.0
             {
-                roads.push(crate::world::town::Street {
-                    from: way.from,
-                    to: way.to,
-                    wide: crate::config::ROAD_WIDE,
-                });
+                // ONLY THE PARTS THAT ARE DRAWN. A road between settlements is
+                // planned middle to middle but stops at every town's edge - see
+                // `outside_the_towns` - and an audit that measured against the
+                // whole line reported the market cross at a village's own centre
+                // as standing in a country road that is not there.
+                for (from, to) in
+                    crate::world::town::outside_the_towns(plan, way.from, way.to)
+                {
+                    roads.push(crate::world::town::Street {
+                        from,
+                        to,
+                        wide: crate::config::ROAD_WIDE,
+                    });
+                }
             }
         }
 

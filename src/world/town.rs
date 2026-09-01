@@ -2354,30 +2354,6 @@ fn outside_the_circle(middle: Vec2, reach: f32, from: Vec2, to: Vec2) -> Vec<(Ve
     kept
 }
 
-/// The part of a road INSIDE one settlement, which is the town's to draw.
-pub fn inside_the_town(
-    site: &crate::world::settle::Site,
-    from: Vec2,
-    to: Vec2,
-) -> Option<(Vec2, Vec2)> {
-    let reach = town_reaches(site);
-    let run = to - from;
-    let along = run.length_squared();
-    if along < 1.0e-6 {
-        return None;
-    }
-    let toward = from - site.at;
-    let half = toward.dot(run) / along;
-    let under = half * half - (toward.length_squared() - reach * reach) / along;
-    if under <= 0.0 {
-        return None;
-    }
-    let spread = under.sqrt();
-    let (enters, leaves) = ((-half - spread).clamp(0.0, 1.0), (-half + spread).clamp(0.0, 1.0));
-    let (a, b) = (from + run * enters, from + run * leaves);
-    (a.distance(b) > 1.0).then_some((a, b))
-}
-
 /// The country roads that cross a settlement's ground.
 ///
 /// They run from one town's middle to the next and do not stop at anybody's edge, so
@@ -2631,22 +2607,20 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // wander; a village's are dirt and do. It only reaches the clearance rules, which
     // need to know how wide a street can possibly be drawn - see `widest_half`.
     let made = f32::from(u8::from(site.city));
-    // AND THE ROADS THAT CROSS THIS TOWN ARE THE TOWN'S, inside it.
+
+    // A ROAD ARRIVES AT A TOWN; IT DOES NOT CROSS IT.
     //
-    // A road between settlements runs from one middle to the next and stops at
-    // nobody's edge, and it used to be DRAWN that way: its ribbon carried straight
-    // through the city, over the rings and the radials, two paved surfaces a few
-    // centimetres apart. That is a z-fight, and it is what the streaking down the
-    // sides of every road has been. See `outside_the_towns`, where the country mesh
-    // now stops.
+    // The country mesh stops at the edge - see `outside_the_towns` - and nothing
+    // continues inside. This used to lay the road's whole chord through the
+    // town, and since the roads between settlements run middle to middle, that
+    // chord ran straight at the square from every gate: the user traced one on
+    // the map and read it as a path cut through the city to the guild hall,
+    // which is exactly what it was. The town's own radials are the way in - one
+    // pair of spokes IS the arriving road, carried through as the high street -
+    // and finding the guild is the player's own business.
     //
-    // Added before the network is split, so an approach meeting a ring road makes a
-    // junction like any other crossing rather than lying across it.
-    for road in crossing {
-        if let Some((from, to)) = inside_the_town(site, road.from, road.to) {
-            ways.push(Way { points: vec![from, to], wide: road.wide, joins: CITY_STREET_WIDE });
-        }
-    }
+    // The roads still count for CLEARANCE below, clipped to the ground they
+    // actually keep, so nothing builds over the road outside the gate.
 
     // SPLIT AT THE MEETINGS FIRST, before anything reads the network.
     //
@@ -2680,7 +2654,19 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // `crossing` is DRAWN BY SOMEBODY ELSE, so it is kept out of `layout.streets`.
     // Adding it there would have the town pave its own copy of a road that already
     // exists, which is the same fault wearing the opposite coat.
-    let streets: Vec<Street> = laid.iter().chain(crossing).cloned().collect();
+    //
+    // And only the parts OUTSIDE the edge, where the road is actually drawn. The
+    // full middle-to-middle line kept a phantom strip through every town clear of
+    // buildings - the ghost of the chord this file no longer lays.
+    let kept_clear: Vec<Street> = crossing
+        .iter()
+        .flat_map(|road| {
+            outside_the_circle(site.at, reach, road.from, road.to)
+                .into_iter()
+                .map(|(from, to)| Street { from, to, wide: road.wide })
+        })
+        .collect();
+    let streets: Vec<Street> = laid.iter().chain(kept_clear.iter()).cloned().collect();
 
     // THE GUILD HALL TAKES THE SQUARE, which is where a guild hall goes: the search
     // below walks the square's edge for a spot clear of every radial mouth.
@@ -3469,7 +3455,11 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         plots = kept;
     }
 
-    let lamps = light_the_streets(&streets, &plots, site.city);
+    // Lit along the town's OWN streets. `streets` also carries the country
+    // roads outside the edge for clearance, and lighting those marched lamp
+    // posts out along the dirt - a street lamp on an unpaved country road, ten
+    // to a road, at every town in the world.
+    let lamps = light_the_streets(&laid, &plots, site.city);
     Layout {
         opens,
         ways,
@@ -4694,9 +4684,16 @@ pub(crate) fn paved_here(plan: &crate::world::settle::Settlements, at: Vec2) -> 
         .iter()
         .filter(|site| site.city && !site.ranch)
         .map(|site| {
+            // Measured from the SAME edge the road hands over at - see
+            // `town_reaches`. This was `site.radius`, which is twenty metres
+            // further out, so every city wore a ring of fully kerbed street
+            // BEYOND the point where the town's ground ends: the approach
+            // finished dressing itself and then stood outside the gate. One
+            // edge, one derivation; the fade now completes exactly where the
+            // road ends and the town begins.
             crate::util::smoothstep(
-                site.radius + PAVING_ARRIVES,
-                site.radius,
+                town_reaches(site) + PAVING_ARRIVES,
+                town_reaches(site),
                 site.at.distance(at),
             )
         })
