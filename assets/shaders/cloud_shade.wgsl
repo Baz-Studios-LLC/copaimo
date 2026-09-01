@@ -382,20 +382,20 @@ const JOINT_SOFTENS: f32 = 1.5;
 ///
 /// So the pattern is gone by the time a stone is a fifth of a pixel wide, which is
 /// well before it could alias.
-/// # Found by bisection, not by theory
+/// # Set back once the real fault was found
 ///
-/// Every reasoned threshold left the stripes exactly where they were, and forcing the
-/// pattern fully off removed them completely - so the gate was right and my reading
-/// of where it had to sit was wrong by an order of magnitude. These are the numbers
-/// the picture actually comes out clean at: a stone is drawn only while it is some
-/// twenty pixels across, and is gone well before anything about it can alias.
+/// These were driven down to a twentieth of what they are while the streak down the
+/// side of every road was still being blamed on this fade. It was not this fade - it
+/// was the cobble's SIZE collapsing to nothing against its own kerb, and every size
+/// on the way down being drawn. With that gone at source the filter can go back to
+/// doing the job it was written for, which is to stop a stone drawing itself once it
+/// is smaller than the pixel it is drawn into.
 ///
-/// The cost is that the paving fades nearer than a texture-and-mipmap version would.
-/// That is the trade an analytic pattern makes - it has no mip chain to fall back on -
-/// and a stylised game showing its detail near and simplifying far is not the worst
-/// place to land.
-const FADES_FROM: f32 = 0.005;
-const FADES_BY: f32 = 0.05;
+/// Wound too far down, the paving reads as a faint suggestion a couple of metres from
+/// the camera - reported as "really faded". These are the numbers where a sett reads
+/// as a sett and nothing crawls.
+const FADES_FROM: f32 = 0.05;
+const FADES_BY: f32 = 0.30;
 
 /// How square-on a paved surface has to be for its stones to be drawn at all, and
 /// where they reach full strength. Cosines of the angle to the eye.

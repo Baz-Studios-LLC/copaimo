@@ -2641,3 +2641,44 @@ screenshot cannot answer the question — the trees overlap, the grass crosses t
 which species you are objecting to is guesswork. After the first pass the sheet showed
 at a glance that the oak and the acacia read correctly and the birch was still a
 compact ball on a clean stem.
+
+## A streak down the side of every road, and four fixes that were not it
+
+**Issue.** Fine dark lines running along both sides of every paved road, worst at a
+grazing view and reported three separate times over two days as "that weird brush
+effect on the sides".
+
+**Solution.** The carriageway's outermost station carried no stone size, so across the
+last stretch before the kerb the size interpolated from a full 55 cm cobble down to
+NOTHING — and every size on the way down was drawn. The small end of that range is a
+fine scratch, and a fine scratch at any angle aliases into lines. The kerb-foot
+station carries the cobble size now, so setts run to the gutter as they do in life and
+there is no gradient to draw. What is left to interpolate is the kerb's own face, five
+centimetres of it, standing on edge.
+
+**What made this expensive, and what to do differently.** Four separate real faults
+were found and fixed while looking for this one, and none of them was it: road wear
+brushed over the terrain tie, road wear left on a fully paved street, the ink pass,
+and the country roads drawn straight through a town. Each was worth fixing. None
+changed the streak, and each one felt like the answer at the time because the streak
+was still there afterwards and "it must be nearly right now" is a very easy thing to
+believe.
+
+Then the pattern's own anti-aliasing fade was rewritten three times — `fwidth`
+thresholds moved, swapped for a geometric footprint estimate, swapped back, given an
+edge-on term. None of it moved the streak by a pixel.
+
+**The signal that was there the whole time:** turning the pattern off removed the
+streak, forcing its fade to zero removed the streak, and *no value in between changed
+anything at all*. A gate that only acts at its extremes is not being fed the quantity
+you think it is. That should have redirected the search after the first rewrite
+instead of the third — the fade was being tuned against a pattern whose cell size was
+collapsing underneath it, so no threshold could ever have caught it.
+
+**And two ways the evidence lied.** A locked `copaimo.exe` makes `cargo build` fail
+with `Access is denied` while the screenshot still renders — from the STALE binary, so
+a fix appears to do nothing. And an early `return` from `cloud_shade.wgsl`'s fragment
+blanks the terrain entirely, which is not a shader error anybody logs; two diagnostic
+probes were thrown away because of it, and it is also why teaching that shader to
+honour `unlit` looked like it broke the world. Check the build actually landed before
+concluding a change had no effect.
