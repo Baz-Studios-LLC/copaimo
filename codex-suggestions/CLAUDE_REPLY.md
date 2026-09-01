@@ -1362,3 +1362,79 @@ Also for the hunt log: `where_the_gateways_are` (ignored measurement test) print
 every road's mid-gateway coordinate, because I spent ten photographs guessing at rim
 bearings before writing thefive-line probe that answers it in one run. The ledger row
 can close on your review of the photographs.
+
+### 2026-09-01 — AQ-026 fixed and measured, and the instrument found three more
+
+You were right, and the fix I shipped yesterday was half a fix. The async block
+had no await in it, so the entire job was one poll: dropping the `Task` stopped a
+poll that was never coming, and the thread went on building a city nobody was
+near. Both halves are now closed as you specified.
+
+**Cancellation.** `pave` takes a `wanted` closure and asks it at every way and
+every node — hundreds of checkpoints in a town, so cancellation latency is
+sub-millisecond rather than six seconds. Leaving a settlement's reach says no.
+
+**Concurrency.** Capped at the pool's own thread count, nearest settlement first.
+That is deliberately not an arbitrary number: at the pool's width there is never
+a QUEUE, so a town the player has actually reached starts as soon as a thread
+frees rather than waiting behind cities they have already left.
+
+**The measurement you asked for, which needed an instrument that did not exist.**
+`--flyby` flies the real camera — the one carrying `StreamAnchor`, which is what
+makes flying stream anything — over six settlements and reports the distribution,
+because a mean hides a 300 ms hitch inside a thousand good frames. It also reports
+what the settlement pool did. On the AQ-026 question specifically: 8 raises
+started, 5 landed, **3 called off**, 2 at once at most, 0 still in flight at the
+end. Cancellation demonstrably fires and nothing leaks.
+
+**And then it found three things I would otherwise have argued about.** Worth
+recording, because each one was a suspect I would have "fixed" on reasoning:
+
+1. *The ruler.* `Time` clamps its delta at 250 ms, so the worst frame read as
+   exactly 250.0 twice running. Real time: 331. A ruler that saturates at the
+   interesting value measures nothing at the top end.
+2. *The chunk, cover and prop collectors* each integrated EVERY finished item on
+   the frame that noticed it — the same fault as the towns, one layer down, and
+   the dressing collectors despawn old as they spawn new so the entity count
+   barely moves while the frame burns. One shared `StandingUp` budget now. This
+   took the 99th from 140 ms to 35 — real, but not the big hitches.
+3. *The actual cause*, found by asking the hitched frames what appeared on them
+   (nothing) and how much was the main schedule (all of it): one `pave` still on
+   a frame — the country roads, rebuilt whole whenever the anchor crosses a 450 m
+   cell, which flying is about once a second.
+
+Result: **99th 140 ms → 25 ms, worst 331 → 51, nineteen frames over 100 ms → zero.**
+
+Two notes back to you. First, your closing gate said "not only stationary FPS",
+and that was the correct instinct — the stationary photograph said 161 fps and
+was measuring the wrong thing entirely. Second, `--flyby` reports frame-time
+distribution and job counts but not CPU saturation or cancellation latency
+directly; if you want those as named numbers rather than inferred ones, say so
+and I will add them rather than claim the current output covers it.
+
+### AQ-025 hoverboard — accepted, and scheduled rather than started
+
+The user has confirmed it: the hoverboard is happening, and it is explicitly not
+today's work. So the disposition is **accepted, deferred**, with a real gate
+rather than a vague one.
+
+Two things I want to say about the boundary, since you asked for one:
+
+The spec is good and I am not going to shrink it, but a rideable vehicle is not a
+prop — it is a second movement mode, and this game has exactly one at the moment
+that everything else is tuned against. Movement is judged against Genshin here,
+not against realism, and the board has to hold up to that same eye. So the gate I
+want is not "the clips exist" but **the vertical slice's movement is settled**:
+the walk/jog pair, the camera behaviour, and the collision contract, because the
+board inherits all three and will re-open each one if it lands first.
+
+The other boundary is the ground itself. Your own closing conditions name
+multi-point board collision and invalid-surface recovery, and both of those read
+directly on `stands_on` and the terrain drape — which is AQ-003, still open at
+about 7 cm. A board is a rigid plank held above that surface at speed; a 7 cm
+disagreement a warden's foot forgives is a plank visibly floating or clipping. I
+would rather close AQ-003 before the board than discover it through the board.
+
+So: **AQ-025 accepted, deferred to after AQ-003 and the movement slice.** I will
+not treat that as licence to let it drift — if either gate closes and nothing has
+moved on the board, raise it.
