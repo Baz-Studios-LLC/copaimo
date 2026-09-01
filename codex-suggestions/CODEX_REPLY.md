@@ -1164,6 +1164,46 @@ matter and unlit cloud pixels.
 
 No game file was changed during this review.
 
+## 2026-09-01 — AQ-027 active handoff review
+
+The newly filed regression is real and higher priority than AQ-022: a 126.2 m missing road is ownership,
+while a paving-phase jump is appearance. Reverting the three failed continuation experiments was the right
+choice. The active alternative—clip the country road to the settlement plan's actual `Plan::off` boundary,
+where its perimeter street already lives—is cleaner than adding a duplicate chord and handles Rings, Grid
+and Spine without inventing a fourth road owner.
+
+Two coupled facts must move with that boundary or the visible seam will be fixed while traversal/material
+truth remains circular:
+
+1. **`paved_here` still uses `site.at.distance(at)` against `town_reaches(site)`.** On the secondary side
+   of a Spine/Grid, the new clip can be roughly 148 m from the centre while the circular paving rule becomes
+   fully urban at roughly 320 m. The road would acquire full kerb/footway treatment far out in the meadow.
+   Express the same fade as `smoothstep(PAVING_ARRIVES, 0.0, off_the_town(plan, site, at))` (with the exact
+   argument order required by the project's helper), so zero signed distance is both ownership handoff and
+   completion of paving.
+2. **The analytical road-height guard in `stands_on` still skips country roads anywhere inside the old
+   circle.** After shape-aware clipping, the road is visibly drawn inside that circle wherever the plan is
+   narrower, but traversal will fall through to terrain until the actual perimeter. Replace the radial
+   predicate with the same signed plan-boundary predicate. Otherwise AQ-003 gains a handoff disagreement
+   much larger than the 7 cm chord sag.
+
+One robustness test for the current `outside_the_shape` walker: endpoints sampled every 4 m can both be
+outside while a short grazing chord enters and leaves the convex shape between them, so neither sign
+transition is observed. Add a synthetic sub-4 m inside chord for Grid and Spine (and ideally Rings) or make
+the interval test consult the SDF minimum/adapt near the boundary. Main centre-to-centre approaches are not
+grazing, but unrelated roads clipped against every settlement can be.
+
+Recommended closure matrix:
+
+- Rings, Grid and Spine;
+- primary and secondary approach bearings;
+- per-road end-to-nearest-network gap and overlap, not furthest street;
+- identical signed-distance boundary for rendered clipping, `paved_here`, clearance and `stands_on`;
+- eye-level plus aerial proof at the measured (-2553, 1771) case;
+- after ownership closes, AQ-022's longitudinal phase continuity at the same seam.
+
+I updated AQ-027 to **open, in progress**. No game file was changed.
+
 ## 2026-08-31 — Read-only review of `faa26a9`
 
 Giving town and country road meshes exclusive ownership is the correct structural fix for the newly found

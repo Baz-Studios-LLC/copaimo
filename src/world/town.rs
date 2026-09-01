@@ -2301,9 +2301,8 @@ pub fn town_reaches(site: &crate::world::settle::Site) -> f32 {
 /// streaking down the sides of the roads has been all along. The user traced one on
 /// the map and it went in one side of the city and out the other.
 ///
-/// A town owns the ground inside it. The country road hands over at the edge and the
-/// town draws its own continuation, planarised with its streets so the crossings are
-/// junctions - see `lay_out`.
+/// A town owns the ground inside it, and the country road stops at its EDGE - the
+/// same edge the town's own perimeter road is laid along, so the two meet.
 pub fn outside_the_towns(
     plan: &crate::world::settle::Settlements,
     from: Vec2,
@@ -2314,10 +2313,9 @@ pub fn outside_the_towns(
         if site.ranch {
             continue;
         }
-        let reach = town_reaches(site);
         let mut left: Vec<(Vec2, Vec2)> = Vec::with_capacity(pieces.len() + 1);
         for (start, end) in pieces {
-            for piece in outside_the_circle(site.at, reach, start, end) {
+            for piece in outside_the_shape(&|at| off_the_town(plan, site, at), start, end) {
                 left.push(piece);
             }
         }
@@ -2326,29 +2324,99 @@ pub fn outside_the_towns(
     pieces
 }
 
-/// The parts of a segment outside a circle: nought, one or two of them.
-fn outside_the_circle(middle: Vec2, reach: f32, from: Vec2, to: Vec2) -> Vec<(Vec2, Vec2)> {
-    let run = to - from;
-    let along = run.length_squared();
-    if along < 1.0e-6 {
-        return if from.distance(middle) > reach { vec![(from, to)] } else { Vec::new() };
+/// How far outside a settlement a point is, in metres: negative within it.
+///
+/// # The town is not a circle, and the clip was
+///
+/// This cut country roads at `site.radius * FILLS`, a circle, on the reasoning that
+/// the town owns everything inside it and will draw its own streets there. But only
+/// a RINGS town is round. A grid is a rectangle and a spine is a capsule, and every
+/// plan lays its perimeter road along its own shape - so on a bearing where the
+/// shape is narrow, the road was cut at the circle and the nearest street was a long
+/// way inside it. Measured: a spine city cut its road at 319.6 m while its own edge
+/// on that bearing was 148.1 m, leaving 171 m of nothing, and the road simply ended
+/// in a meadow. A grid left 21 m the same way. Rings towns never showed it, because
+/// for them the two boundaries happen to be the same.
+///
+/// So both ask `Plan::off`, which is the shape itself - see `edge_at`, which the
+/// perimeter road is built from. One boundary, one derivation. The comment on
+/// `town_reaches` has demanded exactly that since the day it was written, and a
+/// circle was used anyway.
+pub fn off_the_town(
+    plan: &crate::world::settle::Settlements,
+    site: &crate::world::settle::Site,
+    at: Vec2,
+) -> f32 {
+    let approach = plan.approach(site.at);
+    off_the_town_facing(site, approach.y.atan2(approach.x), at)
+}
+
+/// The same, for callers that already hold the bearing the town faces.
+///
+/// `lay_out` is one: it has been handed the approach and computed `through` from it
+/// before anything else happens. It must ask the SAME question as the country roads
+/// or the two disagree about where the town ends, which is this file's oldest bug.
+pub fn off_the_town_facing(
+    site: &crate::world::settle::Site,
+    through: f32,
+    at: Vec2,
+) -> f32 {
+    site.plan.off(at - site.at, through, town_reaches(site))
+}
+
+/// The parts of a segment outside one settlement's shape.
+///
+/// Found by walking the segment rather than by solving it: `Plan::off` answers for
+/// three different shapes and a fourth would need a fourth solution, while a walk
+/// needs none. Stepped finely enough to catch a corner a road only clips.
+fn outside_the_shape(off: &dyn Fn(Vec2) -> f32, from: Vec2, to: Vec2) -> Vec<(Vec2, Vec2)> {
+    /// How far apart the samples are, in metres.
+    const LOOKS_EVERY: f32 = 4.0;
+    /// How finely a crossing is pinned down afterwards.
+    const PINS_TO: f32 = 0.05;
+
+    let long = from.distance(to);
+    if long < 1.0e-3 {
+        return if off(from) > 0.0 { vec![(from, to)] } else { Vec::new() };
     }
-    // Where the line crosses the circle, as the two roots of |from + t*run - middle| = reach.
-    let toward = from - middle;
-    let half = toward.dot(run) / along;
-    let under = half * half - (toward.length_squared() - reach * reach) / along;
-    if under <= 0.0 {
-        // Never touches it.
-        return vec![(from, to)];
+    let inside = |part: f32| off(from.lerp(to, part)) <= 0.0;
+    // Where a crossing lies between two samples, to within `PINS_TO`.
+    let pin = |mut low: f32, mut high: f32| {
+        let low_inside = inside(low);
+        while (high - low) * long > PINS_TO {
+            let mid = (low + high) * 0.5;
+            if inside(mid) == low_inside {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+        (low + high) * 0.5
+    };
+
+    let steps = ((long / LOOKS_EVERY).ceil() as usize).clamp(1, 4096);
+    let mut kept: Vec<(Vec2, Vec2)> = Vec::new();
+    let mut run_from: Option<f32> = (!inside(0.0)).then_some(0.0);
+    let mut was = inside(0.0);
+    for step in 1..=steps {
+        let part = step as f32 / steps as f32;
+        let now = inside(part);
+        if now != was {
+            let edge = pin((step - 1) as f32 / steps as f32, part);
+            if now {
+                // Going in: the outside run ends here.
+                if let Some(start) = run_from.take() {
+                    kept.push((from.lerp(to, start), from.lerp(to, edge)));
+                }
+            } else {
+                // Coming out: a new outside run starts here.
+                run_from = Some(edge);
+            }
+            was = now;
+        }
     }
-    let spread = under.sqrt();
-    let (enters, leaves) = (-half - spread, -half + spread);
-    let mut kept = Vec::new();
-    if enters > 0.0 {
-        kept.push((from, from + run * enters.min(1.0)));
-    }
-    if leaves < 1.0 {
-        kept.push((from + run * leaves.max(0.0), to));
+    if let Some(start) = run_from {
+        kept.push((from.lerp(to, start), to));
     }
     kept.retain(|(a, b)| a.distance(*b) > 1.0);
     kept
@@ -2661,7 +2729,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     let kept_clear: Vec<Street> = crossing
         .iter()
         .flat_map(|road| {
-            outside_the_circle(site.at, reach, road.from, road.to)
+            outside_the_shape(&|at| off_the_town_facing(site, through, at), road.from, road.to)
                 .into_iter()
                 .map(|(from, to)| Street { from, to, wide: road.wide })
         })
@@ -8565,6 +8633,72 @@ mod tests {
                 built.as_secs_f32() * 1000.0,
             );
         }
+    }
+
+    /// Every road arriving at a town meets its network there.
+    ///
+    /// # The gap a circle left
+    ///
+    /// A country road is cut where the town begins, and the town's perimeter road
+    /// is laid along its own shape. While the cut was a circle and the shape was
+    /// not, the two met only on a bearing where they happened to agree: a spine
+    /// city cut its road at 319.6 m with its own edge 148.1 m away on that
+    /// bearing, so the road ended in a meadow 126 m short of anything. Both ask
+    /// `Plan::off` now - see `off_the_town`.
+    ///
+    /// Asked per ARRIVING ROAD, because the first version of this measurement
+    /// asked each town for its furthest street and reported no gap anywhere. The
+    /// furthest street is not the one this road needed.
+    #[test]
+    fn every_arriving_road_meets_the_town_it_arrives_at() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        let mut worst = 0.0_f32;
+        let mut worst_where = Vec2::ZERO;
+        let mut arrivals = 0;
+
+        for (index, site) in plan.sites().iter().enumerate().filter(|(_, s)| !s.ranch) {
+            let mut layout: Option<Layout> = None;
+            for road in plan.ways() {
+                // Where this road stops, if it stops at this town at all.
+                for (from, to) in outside_the_towns(plan, road.from, road.to) {
+                    for end in [from, to] {
+                        // An end ON this town's edge, rather than one of the
+                        // road's own two ends out in the country.
+                        if off_the_town(plan, site, end).abs() > 1.0
+                            || end.distance(road.from) < 1.0
+                            || end.distance(road.to) < 1.0
+                        {
+                            continue;
+                        }
+                        arrivals += 1;
+                        let here = layout
+                            .get_or_insert_with(|| lay_the_site_out(plan, index, site));
+                        let near = here
+                            .ways
+                            .iter()
+                            .flat_map(|way| way.segments())
+                            .map(|street| street.nearest(end).0)
+                            .fold(f32::MAX, f32::min);
+                        if near > worst {
+                            worst = near;
+                            worst_where = end;
+                        }
+                    }
+                }
+            }
+        }
+
+        assert!(arrivals > 0, "no road arrives at any town, so this proves nothing");
+        // A road meets the perimeter within half a street's width. Not nought:
+        // the perimeter is a forty-sided polygon inscribed in the shape, so it
+        // falls inside by the sagitta between its corners.
+        assert!(
+            worst < 8.0,
+            "{arrivals} roads arrive; the worst ends {worst:.1} m from anything, at              ({:.0}, {:.0})",
+            worst_where.x, worst_where.y,
+        );
+        println!("{arrivals} arrivals, worst {worst:.1} m from the network");
     }
 
     /// WHERE the real world's gateways are, for pointing a camera at one.
