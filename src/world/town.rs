@@ -7676,6 +7676,107 @@ mod tests {
         );
     }
 
+    /// No kerb line before there is a kerb to draw one on.
+    ///
+    /// # The gap Codex measured
+    ///
+    /// The line was first gated on `stone_contrast` - how strongly the paving
+    /// stones show - on the reasoning that stones and a kerb arrive together.
+    /// They do not: stones come in over `paved` 0.35 to 0.90 and the kerb over
+    /// 0.62 to 0.72, so the whole of a gateway between those two carried a line
+    /// drawn around a kerb of no height at all. A stripe of ink down flat ground
+    /// where the pavement has not started.
+    ///
+    /// # Asked of a real approach, and of the built mesh
+    ///
+    /// The first version of this handed `pave` a paving gradient of its own and
+    /// proved nothing, because `pave` asks the terrain how paved a point is and
+    /// ignored the closure entirely - the road sat in open country with no kerb
+    /// anywhere on it. Its own "or this proves nothing" guard caught that, which
+    /// is the only reason it is not still passing vacuously.
+    ///
+    /// So it walks a REAL road into a REAL settlement until it finds one crossing
+    /// the band, and reads the attribute the shader reads rather than the number
+    /// the attribute is made from.
+    #[test]
+    fn a_gateway_gets_no_kerb_line_until_it_has_a_kerb() {
+        use bevy::render::mesh::VertexAttributeValues;
+
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+
+        // A country road with a stretch inside the gateway band on it.
+        let mut gateway: Option<(Vec2, Vec2)> = None;
+        for road in plan.ways() {
+            let run = road.to - road.from;
+            let long = run.length();
+            if long < 40.0 {
+                continue;
+            }
+            let mut below = false;
+            let mut above = false;
+            let mut step = 0.0;
+            while step < long {
+                let paved = paved_here(plan, road.from + run * (step / long));
+                below |= (0.30..0.55).contains(&paved);
+                above |= paved > 0.75;
+                step += 4.0;
+            }
+            if below && above {
+                gateway = Some((road.from, road.to));
+                break;
+            }
+        }
+        let (from, to) = gateway.expect("no road in the world crosses a gateway");
+
+        let way = Way {
+            points: vec![from, to],
+            wide: crate::config::ROAD_WIDE,
+            joins: CITY_STREET_WIDE,
+        };
+        let mesh = pave(&[way], &[], &[], &terrain, from, 0.0);
+        let Some(VertexAttributeValues::Float32x3(places)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("the paving has no positions");
+        };
+        let Some(VertexAttributeValues::Float32(kerbs)) =
+            mesh.attribute(crate::shade::ATTRIBUTE_KERB_STANDS)
+        else {
+            panic!("the paving carries no kerb data");
+        };
+        assert_eq!(places.len(), kerbs.len(), "one kerb reading per vertex");
+
+        // Every vertex: a line may only be drawn as strongly as the kerb it
+        // belongs to actually stands. The mesh is built about `from`, so a
+        // vertex's world place is its own plus that.
+        let mut inked_without_a_kerb = 0;
+        let mut worst_at = Vec2::ZERO;
+        let mut inked_with_one = 0;
+        for (place, ink) in places.iter().zip(kerbs) {
+            if *ink <= 1.0e-4 {
+                continue;
+            }
+            let at = from + Vec2::new(place[0], place[2]);
+            if Arriving::at(paved_here(plan, at)).kerb_stands > 1.0e-4 {
+                inked_with_one += 1;
+            } else {
+                inked_without_a_kerb += 1;
+                worst_at = at;
+            }
+        }
+        assert_eq!(
+            inked_without_a_kerb, 0,
+            "{inked_without_a_kerb} vertices draw a kerb line where no kerb stands, \
+             the last at ({:.0}, {:.0})",
+            worst_at.x, worst_at.y,
+        );
+        assert!(
+            inked_with_one > 0,
+            "no vertex draws a kerb line at all, so this proves nothing"
+        );
+    }
+
     /// A gateway meeting resolves each arm by what it JOINS, not by what it is.
     ///
     /// A country road arriving at a city is 4.6 m widening to 10. A meeting that knew

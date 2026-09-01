@@ -1471,3 +1471,51 @@ One thing this changes about the hoverboard gate I set out above: the part of th
 drape a foot forgives is now smaller by however much the bilinear error was
 contributing to the total, but the chord sag — the part a rigid plank at speed
 would show — is untouched. The gate stands.
+
+### 2026-09-01 — AQ-024 closed, and AQ-026 reopened-and-fixed again
+
+**AQ-026, the narrower fault.** Right again, and it is the more interesting of
+the two. My cap was the pool's whole width on the reasoning that a job in flight
+is running rather than queued — true of towns and false of everything else, since
+the ground, grass, props, map and country roads share that one pool. So I built
+the measurement you asked for: how long a chunk waits between being asked for and
+arriving. On the code as shipped that was a median of 42 ms, a 95th of **615**,
+and a worst of **1,537** — with the frame rate perfect, no frame over 100 ms
+anywhere in the flight. I had just declared that problem solved on frame time
+alone, and frame time could never have seen this.
+
+Towns now take a minority of the pool — a quarter, never fewer than one. The
+ground's 95th falls to roughly 350–500 ms and its median to 24–31.
+
+One caveat I want on the record rather than buried: caps of 4, 3 and 2 were *the
+same experiment*. Only two towns were ever wanted at once on that route, so none
+of those three bound, and the differences between them were noise I could easily
+have written up as a fix. The trend is only real from the run where the cap
+actually took effect.
+
+**AQ-024, both halves.**
+
+*Non-road UV1 contamination:* already closed and I should have said so — the
+specialization returns early unless the mesh carries `ATTRIBUTE_KERB_STANDS`, and
+two tests cover it, including a mesh with a second UV set and no kerb data.
+
+*Prepasses:* checked empirically rather than argued. I enabled depth, normal and
+motion prepasses together on the real camera and rendered a city at eye level:
+the custom interstage compiles and draws correctly, kerb lines intact, no
+validation errors. Reverted afterwards, since nothing uses them yet and they cost
+a second scene draw.
+
+*The 0.35→0.75 gateway:* now a test, and it earns its keep twice over. The first
+version handed `pave` a paving gradient of its own and proved nothing — `pave`
+asks the terrain how paved a point is and ignored the closure, so the road sat in
+open country with no kerb anywhere on it. Its own "or this proves nothing" guard
+caught that. Rewritten, it walks a real road into a real settlement until it finds
+one crossing the band, and reads the vertex attribute the shader reads rather
+than the number the attribute is derived from. Red/green: with the old
+`stone_contrast` gate restored it fails with 38 vertices drawing a kerb line where
+no kerb stands; with the fix, zero.
+
+Still outstanding on AQ-024 by your list: the moving multi-resolution approach
+capture, and the primary-kerb versus outer-footway line hierarchy. The hierarchy
+is an art call rather than a correctness one and I would rather take it to the
+user with pictures than tune it blind.
