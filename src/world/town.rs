@@ -4637,6 +4637,22 @@ const STONE_VARIES: f32 = 0.16;
 // up. A kerb the colour of the road is a road with a step in it.
 static ROAD_KERB: LazyLock<[f32; 4]> = LazyLock::new(|| srgb(0.30, 0.29, 0.28));
 
+/// The kerb's FACE, which is darker than its top.
+///
+/// # Where a road's dark edge is supposed to come from
+///
+/// The road used to fade into the kerb's colour across the outer third of every
+/// lane, which is a painted shadow a metre wide down both sides of every street -
+/// reported as exactly that. Taking it away leaves the road one honest colour, and
+/// leaves the question it was covering for: what draws the line at the edge?
+///
+/// A kerb does. It is five centimetres of near-vertical stone, it stands in its own
+/// light, and it is darker than the top it holds up - the top catches the sky and the
+/// face does not. Given its own value the face reads as one clean line the length of
+/// the street, which is what the production spec asks for and what the painted
+/// gradient was imitating badly.
+static ROAD_KERB_FACE: LazyLock<[f32; 4]> = LazyLock::new(|| srgb(0.20, 0.195, 0.19));
+
 /// How wide the margin is where a road gives out into the ground, in metres.
 ///
 /// Not a kerb and not a verge anybody walks on - it is the distance over which the
@@ -6147,6 +6163,9 @@ fn pave(
             // A kerb only where there is paving to kerb, and it arrives with the
             // paving rather than all at once.
             let edge = mix(surface, *ROAD_KERB, arriving.kerb_stands);
+            // And the face of it, darker, which is the line down the side of the
+            // street - see `ROAD_KERB_FACE`.
+            let face = mix(surface, *ROAD_KERB_FACE, arriving.kerb_stands);
 
             // AND A SHOULDER EITHER SIDE.
             //
@@ -6216,12 +6235,29 @@ fn pave(
             // gently, true at the foot and the top of the kerb face, which is the one
             // place a street has a wall in it.
             let top = walk + batter + KERB_TOP;
+            // THE CARRIAGEWAY KEEPS ITS OWN COLOUR TO THE KERB LINE.
+            //
+            // # A painted shadow down both sides of every road
+            //
+            // The station at the kerb line used to carry the KERB's colour, which is
+            // thirty per cent darker than the road - so the outer third of each lane
+            // was a gradient from the carriageway into the kerb, over a metre wide,
+            // running the length of every street in the world. It reads exactly as
+            // what it is: a soft dark smear along both edges that no light in the
+            // scene is casting. Reported as fake shadows that should not exist, and
+            // they should not.
+            //
+            // A road has a real edge and it is the kerb: five centimetres of face
+            // with its own normal, its own darker stone, and a line the outline pass
+            // draws down it. That is where the dark is meant to come from. Painting
+            // more of it onto the road was covering for a face that was not being
+            // lit properly, back when every road normal pointed at the sky.
             let section = [
                 (-shoulder, hem(-shoulder), 0.0, false),
                 (-half, flag, 0.0, false),
                 (-(top + SEAM), flag, 0.0, false),
                 (-top, edge, 0.0, false),
-                (-(walk + batter), edge, 0.0, true),
+                (-(walk + batter), face, 0.0, true),
                 // THE COBBLE RUNS TO THE KERB.
                 //
                 // This carried no stone size, so across the last stretch of
@@ -6234,12 +6270,12 @@ fn pave(
                 //
                 // Setts run to the gutter in life too. What is left to interpolate is
                 // the kerb's own face, five centimetres of it, standing on edge.
-                (-walk, edge, COBBLE_IS, true),
+                (-walk, surface, COBBLE_IS, true),
                 (-walk * 0.62, surface, COBBLE_IS, false),
                 (0.0, surface, COBBLE_IS, false),
                 (walk * 0.62, surface, COBBLE_IS, false),
-                (walk, edge, COBBLE_IS, true),
-                (walk + batter, edge, 0.0, true),
+                (walk, surface, COBBLE_IS, true),
+                (walk + batter, face, 0.0, true),
                 (top, edge, 0.0, false),
                 (top + SEAM, flag, 0.0, false),
                 (half, flag, 0.0, false),

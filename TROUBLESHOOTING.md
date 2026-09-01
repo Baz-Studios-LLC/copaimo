@@ -2682,3 +2682,31 @@ blanks the terrain entirely, which is not a shader error anybody logs; two diagn
 probes were thrown away because of it, and it is also why teaching that shader to
 honour `unlit` looked like it broke the world. Check the build actually landed before
 concluding a change had no effect.
+
+## A painted shadow down both sides of every road
+
+**Issue.** A soft dark band a metre wide running the length of both sides of every
+street, which no light in the scene was casting. Reported as "fake shadows that
+shouldn't exist" — and the paving reading as faint at the same time.
+
+**Solution.** The cross-section's station at the kerb LINE carried the kerb's own
+colour, which is thirty per cent darker than the carriageway. So the outer third of
+every lane was a gradient from road into kerb, painted on, at every point of every
+road in the world. The carriageway holds its own colour to the kerb line now.
+
+That leaves the question the gradient was covering for: what draws the dark edge? A
+kerb does. It is five centimetres of near-vertical stone standing in its own light,
+and it is darker than the top it holds up — the top catches the sky and the face does
+not. `ROAD_KERB_FACE` gives it that value, and the result is one clean line the length
+of the street from real geometry rather than an imitation of one smeared across the
+road.
+
+**Worth knowing.** The painted gradient dated from when every road normal pointed at
+the sky, so the face could not be lit as a face and something had to stand in for it.
+The normals were fixed long before this; the workaround outlived the fault it was
+written for, which is the usual way these survive. When a surface is being darkened
+by hand, ask what geometry ought to be doing it.
+
+The same change let the paving pattern's distance fade go back to its proper range:
+it had been wound down twentyfold while the streak (above) was still being blamed on
+it, which is why the setts read as a faint suggestion until both were fixed together.

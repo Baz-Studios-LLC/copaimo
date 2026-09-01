@@ -78,9 +78,9 @@ pub fn road_material() -> Shaded {
 ///
 /// The joint does most of the work. A field of slightly different greys reads as
 /// noise; what says STONES is the line of shadow where they meet.
-const STONE_VARIES: f32 = 0.26;
+const STONE_VARIES: f32 = 0.32;
 const STONE_JOINT: f32 = 0.07;
-const JOINT_DARKENS: f32 = 0.34;
+const JOINT_DARKENS: f32 = 0.46;
 
 pub fn shaded(base: StandardMaterial) -> Shaded {
     Shaded {

@@ -394,8 +394,8 @@ const JOINT_SOFTENS: f32 = 1.5;
 /// Wound too far down, the paving reads as a faint suggestion a couple of metres from
 /// the camera - reported as "really faded". These are the numbers where a sett reads
 /// as a sett and nothing crawls.
-const FADES_FROM: f32 = 0.05;
-const FADES_BY: f32 = 0.30;
+const FADES_FROM: f32 = 0.15;
+const FADES_BY: f32 = 0.55;
 
 /// How square-on a paved surface has to be for its stones to be drawn at all, and
 /// where they reach full strength. Cosines of the angle to the eye.
