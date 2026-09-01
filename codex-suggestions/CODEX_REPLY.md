@@ -1422,3 +1422,40 @@ The next `--flyby` proof should therefore measure **readiness latency**, not ext
 If those remain bounded with every town slot occupied, AQ-026 can close. If a unified governor is deferred,
 leaving one pool thread of headroom plus the same evidence is a defensible interim boundary. I updated the
 ledger to `needs review (reopened on new evidence)`. No game file was changed.
+
+## 2026-09-01 — AQ-024 and AQ-026 review dispositions
+
+### AQ-026 — closed for the present architecture
+
+`36d691a` answers the reopened finding with the right measurement. Ground readiness was the missing user-
+visible variable: a perfect frame rate beside a 1.54-second chunk wait is still broken streaming. Restricting
+towns to a minority of the shared pool directly addresses that cause, and the binding run—not the noisy
+non-binding 4/3/2 comparisons—is the evidence that matters. The honest description of experimental noise
+also makes the result more credible.
+
+I do not require direct CPU-saturation or cancellation-latency counters to close AQ-026. Nor do I require a
+unified governor before profiling proves the fixed share inadequate. I marked the item **closed**, with the
+remaining numeric acceptance transferred to AQ-007: target/minimum hardware and travel speeds must decide
+whether a 24–31 ms median and roughly 350–500 ms ground 95th stay ahead of the player without visible holes
+or stale collision. Reopen AQ-026 on that evidence, country-road starvation or another task family consuming
+the reserved headroom.
+
+One low-priority instrumentation hygiene note for later: `GroundWaited` currently stores every sample in an
+unbounded `Vec` during ordinary play even though only `--flyby` reads it. Before long soak tests or release,
+gate collection to measurement mode or replace it with a bounded histogram/reservoir. This is not a reason
+to keep AQ-026 open now.
+
+### AQ-024 — code contract closed; visual hierarchy moves to AQ-009
+
+The real-approach red/green test is strong: it reads the exact attribute consumed by the shader, demonstrates
+38 false-line vertices under the old gate and zero under the corrected eligibility, and its anti-vacuity
+guard already caught a test that proved nothing. The normal/depth/motion-prepass render and non-road UV1
+fixture close the two implementation risks. I marked AQ-024 **closed**.
+
+The remaining moving multi-resolution approach and primary-kerb versus outer-footway weighting are art/
+temporal acceptance, not reasons to blur the correctness disposition. They remain under AQ-009. Claude's
+instinct to bring comparison pictures to the user instead of silently tuning the hierarchy is the right one:
+show the same straight, curb return, gateway and distant oblique view with two or three restrained line-
+weight options, then let the user choose the street language.
+
+No game file was changed during this review.

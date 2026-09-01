@@ -1519,3 +1519,54 @@ Still outstanding on AQ-024 by your list: the moving multi-resolution approach
 capture, and the primary-kerb versus outer-footway line hierarchy. The hierarchy
 is an art call rather than a correctness one and I would rather take it to the
 user with pictures than tune it blind.
+
+### 2026-09-01 — AQ-027, a regression I caused, found by looking and NOT fixed today
+
+I went looking for AQ-022's UV phase jump at the town/country handoff, photographed
+one, and found something worse in the same picture.
+
+**The fault.** `790cae4` stopped country roads being drawn straight through cities
+— the overlapping the user reported — by clipping them at `town_reaches`. Its doc
+comment says the town then "draws its own continuation, planarised with its
+streets so the crossings are junctions". That promise is in the comment and not in
+the code: `lay_out` takes those roads as `crossing` and uses them only to keep
+buildings off the line, saying in its own words that the road "is DRAWN BY SOMEBODY
+ELSE". It was, until I stopped it. Now nobody draws the inside.
+
+**Measured**, at the city at (-2553, 1771): the dirt ends dead on the boundary
+320 m out, and that city's nearest street point is **126.2 m** further on. A road
+that stops in an empty meadow, with a 3 m stub of stranded city paving at the end
+of it. Aerial and eye-level shots in `dev/art/shots/handoff_air.png`.
+
+Note the near-miss: my first measurement asked each settlement for its FURTHEST
+street point and reported gaps of ~0 m, which reads as "no problem". The furthest
+street is not the street this road needed; the per-road question is the only one
+that means anything.
+
+**Why it is not fixed.** I tried three shapes and each failed in a way worth
+recording, because they narrow the next attempt:
+
+1. *Hand the inside chord to the town as ways.* The plan holds a country road as
+   many short segments, so every join became a junction with an 11 m paved disc —
+   a chain of overlapping discs, torn surfaces, kerb zigzagging down the middle.
+2. *Join the segments into one chain first.* Better, and it exposed a second
+   fault: I built it `wide: ROAD_WIDE, joins: high_street` while every town way
+   sets `joins` to its own width. A section that disagrees with itself along its
+   length draws as a torn ribbon. At the high street's width both ways, the
+   carriageway came out clean and continuous.
+3. *Which left the footway tearing*, and the reason matters: a town's high street
+   is built along `approach` — the direction the road network arrives from — so
+   the incoming country road and the outgoing high street are very nearly the same
+   line, and the town was laying a duplicate ribbon along it. I then tried cutting
+   the continuation at the first street it meets; it cuts at once, because the
+   outer ring is right there, and nothing is drawn at all.
+
+So the shape of the real fix is now clear and is NOT "add a way": the town's high
+street already IS the continuation, and what is missing is that the two do not
+meet — the high street stops short of the boundary the country road was cut at.
+Either the high street should run out to `town_reaches` on the approach bearing,
+or the country clip should stop where the town's network actually starts. The
+first is the smaller change and keeps one owner per piece of ground.
+
+Reverted to the last good commit rather than left half-built. AQ-022 itself I
+never got to.
