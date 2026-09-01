@@ -744,6 +744,7 @@ pub const GROWS_ITS_OWN_WORLD: bool = false;
 /// than a number that has to be discovered by looking.
 pub struct Landmass {
     /// What it is called. Used by the tests and by anyone reading a failure.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub name: &'static str,
     /// Centre, in world metres.
     pub at: (f32, f32),
@@ -917,7 +918,9 @@ pub const SETTLEMENTS: [(f32, f32, bool); 13] = [
     (-708.0, 6211.0, true),
 ];
 
+#[cfg(test)] // exported in world.json for Opificium; the game itself no longer reads it
 pub const CITIES: usize = 10;
+#[cfg(test)] // exported in world.json for Opificium; the game itself no longer reads it
 pub const TOWNS: usize = 28;
 
 /// How far the level ground reaches at each, in meters.
@@ -935,7 +938,9 @@ pub const CITY_RADIUS: f32 = 340.0;
 pub const TOWN_RADIUS: f32 = 116.0;
 
 /// How far apart they must stand.
+#[cfg(test)] // exported in world.json for Opificium; the game itself no longer reads it
 pub const CITY_SPACING: f32 = 1_100.0;
+#[cfg(test)] // exported in world.json for Opificium; the game itself no longer reads it
 pub const TOWN_SPACING: f32 = 420.0;
 
 /// How far the leveling eases back into the surrounding land, so a town sits
@@ -949,12 +954,15 @@ pub const SITE_SKIRT: f32 = 140.0;
 // up to 700 m of noise, so 70 m inland is still on the shoulder of a beach - and
 // levelling a site there cut a 1.55 m lip into the ground at -4972, 930, which
 // `levelling_never_puts_a_step_in_the_ground` caught and no brush could take out.
+#[cfg(test)] // exported in world.json for Opificium; the game itself no longer reads it
 pub const SITE_MIN_INLAND: f32 = 150.0;
+#[cfg(test)] // exported in world.json for Opificium; the game itself no longer reads it
 pub const SITE_MAX_HEIGHT: f32 = 130.0;
 // 0.10 from 2026-08-28, down from 0.13. With the world grown there are 29 towns
 // where there were 14, and more sites means more chances to land on ground that
 // cannot be levelled without cutting a lip into its edge - one did, 1.37 m over a
 // quarter-metre at 246, -826. Refusing the steeper ground is the fix at the cause.
+#[cfg(test)] // exported in world.json for Opificium; the game itself no longer reads it
 pub const SITE_MAX_SLOPE: f32 = 0.10;
 
 /// Half-width of the graded road between sites, and its shoulders.
@@ -1003,20 +1011,6 @@ pub const ROAD_BATTER: f32 = 3.0;
 /// striking out across country is worse than either.
 pub const LINK_TOWNS_WITH_ROADS: bool = true;
 
-/// How long one leg of a country road is, in metres.
-///
-/// Short enough that the road can bend around things, long enough that it is not a
-/// scribble: at 90 m a run between towns two kilometres apart is about twenty-two
-/// legs, each graded separately.
-pub const ROAD_LEG: f32 = 90.0;
-
-/// How far a country road wanders off the straight line, as a share of its length.
-///
-/// "Natural, not narrow." A road between two places is not a ruled line and it is
-/// not a random walk either - it is a line that gives way to the country. This is
-/// how far it is allowed to give.
-pub const ROAD_WANDERS: f32 = 0.16;
-
 /// How wide a country road is, in metres. Narrower than a town's high street: this
 /// is a cart track between places, not a street with houses on it.
 pub const ROAD_WIDE: f32 = 4.6;
@@ -1042,11 +1036,8 @@ pub const ROAD_STEP: f32 = 22.0;
 ///
 /// About one in eight. Steep enough to cross real country without levelling
 /// half of it, gentle enough that a cart could take it.
+#[cfg(test)] // exported in world.json for Opificium; the game itself no longer reads it
 pub const ROAD_GRADE: f32 = 0.13;
-
-/// How many times the grading walks the profile. Each pass moves height between
-/// neighbours; a handful converges and more buys nothing.
-pub const GRADE_PASSES: usize = 24;
 
 // ------------------------------------------------------------------- water
 

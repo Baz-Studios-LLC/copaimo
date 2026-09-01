@@ -73,15 +73,6 @@ impl WorldBounds {
             && coord.y <= self.max_chunk.y
     }
 
-    /// Keeps a flat position inside the map, well in from the border.
-    ///
-    /// What a tunnel head is held by while it drives: a bore that ran off the edge
-    /// of the world would be a hole into nothing.
-    pub fn clamp_flat(&self, at: Vec2) -> Vec2 {
-        let limit = (self.half - Vec2::splat(CHUNK_SIZE)).max(Vec2::ZERO);
-        at.clamp(-limit, limit)
-    }
-
     /// Keeps a world position inside the map. `margin` holds the subject that
     /// far in from the border so it can't stand half-off the edge of the world.
     pub fn clamp(&self, position: Vec3, margin: f32) -> Vec3 {

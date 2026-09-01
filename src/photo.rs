@@ -82,15 +82,11 @@ pub struct Shot {
 pub enum Lighting {
     /// Midday. For everything the lighting is not the subject of.
     Noon,
-    /// The sun on the horizon, where a fade has to complement what is left of the sky.
-    Dusk,
     /// Full dark. `lamps` says whether this viewpoint stands close enough to a
     /// settlement for its lighting to be part of the evidence - an approach shot
     /// from outside the boundary is a night shot with nothing lit in it on purpose,
     /// and the checker cannot tell that from the name.
     Night { lamps: bool },
-    /// A particular hour, when none of the above is the point.
-    At(f32),
     /// Whatever the machine says. Only for looking at the real thing.
     Live,
 }
@@ -100,9 +96,7 @@ impl Lighting {
     pub fn hour(self) -> Option<f32> {
         match self {
             Lighting::Noon => Some(EVIDENCE_HOUR),
-            Lighting::Dusk => Some(DUSK_HOUR),
             Lighting::Night { .. } => Some(AFTER_DARK),
-            Lighting::At(hour) => Some(hour),
             Lighting::Live => None,
         }
     }
@@ -110,9 +104,7 @@ impl Lighting {
     fn called(self) -> String {
         match self {
             Lighting::Noon => "noon".into(),
-            Lighting::Dusk => "dusk".into(),
             Lighting::Night { .. } => "night".into(),
-            Lighting::At(hour) => format!("{hour:.1}h"),
             Lighting::Live => "live".into(),
         }
     }
@@ -274,16 +266,10 @@ fn as_promised(
                 ));
             }
         }
-        // Dusk is the hour where neither test means anything, which is why it is
-        // worth photographing. The hour check above is the whole of its contract.
-        Lighting::Dusk | Lighting::At(_) | Lighting::Live => {}
+        Lighting::Live => {}
     }
     Ok(row)
 }
-
-/// Frames counted since the world came up.
-#[derive(Resource, Default)]
-pub struct Waiting(pub u32);
 
 impl Photo {
     /// Reads `--photo` and friends from the command line, if they are there.
@@ -794,8 +780,6 @@ const EVIDENCE_HOUR: f32 = 12.0;
 /// and no dusk left in the sky to flatter them.
 const AFTER_DARK: f32 = 22.0;
 
-/// The sun on the horizon, where a fade has to sit against what is left of the sky.
-const DUSK_HOUR: f32 = 18.4;
 
 /// Holds the clock and the sky still, so two photographs differ only by their subject.
 ///
@@ -868,7 +852,6 @@ impl Plugin for PhotoPlugin {
             return;
         };
         app.insert_resource(photo)
-            .init_resource::<Waiting>()
             .init_resource::<Taking>()
             .add_systems(Startup, start_playing)
             .add_systems(

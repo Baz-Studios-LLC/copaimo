@@ -144,7 +144,6 @@ impl Standing {
     ///
     /// Unused until there is a gizmo to drag. Here because it is the whole point
     /// of things having names, and a test exercises it.
-    #[allow(dead_code)]
     pub fn get_mut(&mut self, id: u32) -> Option<&mut Placed> {
         self.unsaved = true;
         self.things.iter_mut().find(|t| t.id == id)

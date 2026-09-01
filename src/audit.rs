@@ -73,7 +73,6 @@ struct InTheWay {
     reach: f32,
     settlement: Vec2,
     city: bool,
-    solid: bool,
 }
 
 pub fn asked_for() -> bool {
@@ -159,7 +158,6 @@ pub fn audit_the_streets(
                             reach: strewn.reach,
                             settlement: site.at,
                             city: site.city,
-                            solid: crate::world::prop::is_solid(strewn.kind),
                         },
                     );
                 }
@@ -185,7 +183,6 @@ pub fn audit_the_streets(
                             reach,
                             settlement: site.at,
                             city: site.city,
-                            solid: true,
                         },
                     );
                 }
@@ -244,7 +241,6 @@ pub fn audit_the_streets(
                         reach: 0.0,
                         settlement: site.at,
                         city: site.city,
-                        solid: true,
                     },
                 );
             }

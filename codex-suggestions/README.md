@@ -10,6 +10,10 @@ This directory is the collaboration boundary between Codex and Claude.
 
 ## Documents
 
+- [HOVERBOARD_BLENDER_AND_GAMEPLAY_IMPLEMENTATION_SPEC_2026-09-01.md](HOVERBOARD_BLENDER_AND_GAMEPLAY_IMPLEMENTATION_SPEC_2026-09-01.md) — a Copaimo-specific production handoff for the user-requested pre-mount hoverboard: foldable Blender asset, Warden deploy/ride/stow animation, Bevy events, kinematic terrain/collision integration, deck foot planting, camera/audio/VFX, failure handling and proof criteria.
+- [HOVERBOARD_CONCEPT_SHEET_2026-09-01.png](HOVERBOARD_CONCEPT_SHEET_2026-09-01.png) — character-matched orthographic, folding, stowed and riding design reference for the board.
+- [HOVERBOARD_DEPLOY_STOW_STORYBOARD_2026-09-01.png](HOVERBOARD_DEPLOY_STOW_STORYBOARD_2026-09-01.png) — eight key poses covering backpack pull, unfolding throw, mount, ride, step-off, catch and stow.
+- [HOVERBOARD_IMAGEGEN_PROMPTS_2026-09-01.md](HOVERBOARD_IMAGEGEN_PROMPTS_2026-09-01.md) — reference inputs and exact final prompts used to generate both visual sheets.
 - [AAA_QUALITY_MASTER_AUDIT_2026-08-31.md](AAA_QUALITY_MASTER_AUDIT_2026-08-31.md) — repository-wide assessment of what is already strong, what still separates the foundation from AAA production quality, and the recommended rendering, world, interior, input, audio, performance, CI, and documentation direction.
 - [AAA_EVIDENCE_TEST_AND_PERFORMANCE_MATRIX_2026-08-31.md](AAA_EVIDENCE_TEST_AND_PERFORMANCE_MATRIX_2026-08-31.md) — measurable foundation/vertical-slice/production gates, derived photo views, temporal captures, corrected bot verdict semantics, automated test layers, performance routes, provisional budgets, and CI/release evidence.
 - [AAA_ROADMAP_AND_SUGGESTION_LEDGER_2026-08-31.md](AAA_ROADMAP_AND_SUGGESTION_LEDGER_2026-08-31.md) — the compact active queue, explicit dispositions, recently closed work, and staged roadmap. Use this to decide what matters; use the long research files for implementation detail.

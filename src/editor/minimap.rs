@@ -17,11 +17,11 @@ use bevy::tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task};
 use crate::camera::MainCamera;
 use crate::tools::theme::{self, UiFont, TEXT_DIM, TEXT_MUTED};
 use crate::states::AppState;
-use crate::world::terrain::{Terrain, TerrainSource};
+use crate::world::terrain::TerrainSource;
 
-/// Width of the rendered overview in pixels, and the painting itself, both
-/// shared with the map a player pulls up - the two must show the same world.
-use crate::world::chart::{dimensions, paint, WIDTH};
+/// The painting itself, shared with the map a player pulls up - the two must
+/// show the same world.
+use crate::world::chart::{dimensions, paint};
 
 /// How long the edit layer must sit unchanged before the overview redraws.
 /// Without this it would queue a rebuild on every frame of a drag.

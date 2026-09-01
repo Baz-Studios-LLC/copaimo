@@ -75,33 +75,45 @@ const INK_SHADER: &str = "shaders/ink.wgsl";
 ///
 /// Carried on the camera so it can be tuned from the game rather than from a number
 /// buried in a shader - the same reason `CloudShade`'s weather rides on a uniform.
-#[derive(Component, Clone, Copy, ExtractComponent, ShaderType)]
-pub struct Ink {
-    /// The line's colour, and how much of it is laid down.
-    ///
-    /// Charcoal rather than black: a line at absolute nought belongs to no lighting
-    /// and reads as a hole cut in the picture. This is the same value the models'
-    /// own hulls are painted, so the two kinds of line match where both appear.
-    pub colour: Vec4,
-    /// How wide the line is in pixels, how sharply a break has to bend before it
-    /// counts, how much of the far distance is left alone, and the camera's near
-    /// plane - which is what turns a depth buffer reading into metres.
-    pub drawn: Vec4,
-    /// How far a line darkens what it is drawn on, at most.
-    ///
-    /// # A line that came out WHITE at dusk
-    ///
-    /// The ink was mixed toward its own colour, which is charcoal - and charcoal is
-    /// brighter than an unlit wall. Photographed at seven in the evening, every
-    /// building in the city was drawn with a pale line round it, which is the exact
-    /// opposite of the effect. It read as a glow.
-    ///
-    /// A line is not a colour, it is a DARKENING: whichever is darker of the
-    /// charcoal and this share of what is already there. In daylight that is the
-    /// charcoal and the line is a strong one; at night it is a fraction of an
-    /// already dark surface, and the line stays a line.
-    pub deepens: Vec4,
+// In a module of its own for one reason: the `ShaderType` derive expands a
+// per-field `check` helper that nothing calls, the dead-code lint pins its
+// warning to the field spans, and no attribute ON the struct or its fields
+// reaches the scope the derive puts them in. The allow is scoped to exactly
+// this struct; everything else in the file still gets the lint.
+mod uniform {
+    #![allow(dead_code)]
+
+    use super::*;
+
+    #[derive(Component, Clone, Copy, ExtractComponent, ShaderType)]
+    pub struct Ink {
+        /// The line's colour, and how much of it is laid down.
+        ///
+        /// Charcoal rather than black: a line at absolute nought belongs to no lighting
+        /// and reads as a hole cut in the picture. This is the same value the models'
+        /// own hulls are painted, so the two kinds of line match where both appear.
+        pub colour: Vec4,
+        /// How wide the line is in pixels, how sharply a break has to bend before it
+        /// counts, how much of the far distance is left alone, and the camera's near
+        /// plane - which is what turns a depth buffer reading into metres.
+        pub drawn: Vec4,
+        /// How far a line darkens what it is drawn on, at most.
+        ///
+        /// # A line that came out WHITE at dusk
+        ///
+        /// The ink was mixed toward its own colour, which is charcoal - and charcoal is
+        /// brighter than an unlit wall. Photographed at seven in the evening, every
+        /// building in the city was drawn with a pale line round it, which is the exact
+        /// opposite of the effect. It read as a glow.
+        ///
+        /// A line is not a colour, it is a DARKENING: whichever is darker of the
+        /// charcoal and this share of what is already there. In daylight that is the
+        /// charcoal and the line is a strong one; at night it is a fraction of an
+        /// already dark surface, and the line stays a line.
+        pub deepens: Vec4,
+    }
 }
+pub use uniform::Ink;
 
 /// How wide the line is, in pixels at 1080p.
 ///

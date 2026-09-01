@@ -55,7 +55,7 @@ const SWELL: [(f32, f32, f32); 2] = [(0.20, 1800.0, 24.0), (0.12, 900.0, 15.0)];
 /// push the player about) — but it is the only statement in this program of
 /// what the drawn surface does, and the day something wants the live waterline
 /// this is it.
-#[allow(dead_code)]
+#[allow(dead_code)] // kept on purpose: the live waterline, for the day something wants it
 pub fn sea_height(at: Vec2, seconds: f32) -> f32 {
     let tide = (seconds / TIDE_PERIOD * std::f32::consts::TAU).sin() * TIDE;
     let mut swell = 0.0;

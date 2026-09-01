@@ -239,14 +239,6 @@ impl Terrain {
         terrain.settlements = Settlements::plan(
             half,
             &|at| terrain.dry_height(at.x, at.y),
-            &|at| terrain.shore_meters(at.x, at.y),
-            // Where a river would be drawn, asked of the rivers alone. There are
-            // no settlements yet to level anything, so this is the same question
-            // `river_surface` asks with nothing standing in the way of it.
-            &|at| {
-                terrain.rivers.bed_at(at.x, at.y) >= RIVER_EDGE
-                    && terrain.rivers.cut_at(at.x, at.y) >= CHANNEL_LEAST
-            },
             // SAND AND SNOW ARE DEAR TO CROSS.
             //
             // Not forbidden - a settlement out in either still has to be reachable -
@@ -1350,6 +1342,7 @@ impl Terrain {
     }
 
     /// Which landmass a point belongs to, if any. `None` is open water.
+    #[cfg(test)]
     pub fn landmass_at(&self, x: f32, z: f32) -> Option<&'static str> {
         let (px, pz) = self.coast_warped(x, z);
         let mut best: Option<(&'static str, f32)> = None;
@@ -2897,7 +2890,7 @@ mod tests {
 #[cfg(test)]
 mod survey {
     use super::*;
-    use crate::config::{LANDMASSES, RANCH_AT};
+    use crate::config::RANCH_AT;
 
     /// What the landmass table actually produced. Not a gate - a ruler.
     ///
@@ -3179,7 +3172,7 @@ mod landmasses {
 #[cfg(test)]
 mod atlas {
     use super::*;
-    use crate::config::{LANDMASSES, RANCH_AT};
+    use crate::config::RANCH_AT;
 
     /// Draws the world to `dev/art/map/world.png`, with a companion `world.json`
     /// naming everything on it.

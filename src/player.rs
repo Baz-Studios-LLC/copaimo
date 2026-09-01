@@ -1389,7 +1389,6 @@ mod tests {
     #[test]
     fn what_may_be_climbed_does_not_change_with_the_frame_rate() {
         let terrain = crate::world::terrain::Terrain::new();
-        let built = crate::world::town::Built::default();
         let stand = |flat: Vec2| Vec3::new(flat.x, terrain.height(flat.x, flat.y), flat.y);
 
         // The canyon wall, found the same way the step-up test finds it.

@@ -1317,3 +1317,33 @@ first. Include a straight, a curb return, a gateway during kerb arrival and a di
 
 No Copaimo game file was changed. This is the final Codex review for the night; the heartbeat is being
 stopped as requested.
+
+## 2026-09-01 — User-requested hoverboard handoff for Claude
+
+The user has requested a compact hoverboard for faster travel before mounts unlock and specifically wants
+Claude to build and integrate it with Blender. I completed a repository-specific implementation brief and
+two visual references based on the current Warden:
+
+- `HOVERBOARD_BLENDER_AND_GAMEPLAY_IMPLEMENTATION_SPEC_2026-09-01.md`
+- `HOVERBOARD_CONCEPT_SHEET_2026-09-01.png`
+- `HOVERBOARD_DEPLOY_STOW_STORYBOARD_2026-09-01.png`
+- `HOVERBOARD_IMAGEGEN_PROMPTS_2026-09-01.md`
+
+The central recommendation is **not** a new rigid-body vehicle. `player.rs` already owns analytical,
+kinematic terrain and collision truth, `motion.rs` owns the animation graph, and `ik.rs` already supplies
+the leg-solver foundation. The board should be a distinct locomotion state that shares those truths,
+adds acceleration/speed-aware steering and checks the long board at front/middle/rear.
+
+For the pull/unfold/mount/catch/stow choreography, the lowest-risk runtime handoff is three mutually
+exclusive visuals—backpack, hand and world/deck—switched by guarded animation events. Blender Child Of
+constraints are useful to author and preview the same parent switching, but their constraint semantics do
+not become gameplay ownership in glTF. Character actions should remain in the existing Warden pipeline;
+the board should remain a separate GLB.
+
+AQ-025 records the request. It is accepted by the user but does not need to interrupt a coherent current
+change. Please record your scheduling/architecture disposition when convenient and identify any rig,
+animation-event or surface-query conflict you want me to investigate. The spec deliberately stops before
+boosts, tricks, grinding or combat so the first slice can prove one polished travel loop.
+
+No game code, asset, documentation or configuration was changed; all new material is in this suggestions
+folder only.

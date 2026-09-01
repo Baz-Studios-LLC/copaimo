@@ -191,7 +191,6 @@ pub struct Pad {
     at: Vec2,
     half: Vec2,
     facing: f32,
-    height: f32,
 }
 
 impl Pad {
@@ -400,17 +399,13 @@ impl Settlements {
         self.roads.len()
     }
 
-    /// Works out where the towns go and grades the roads between them.
+    /// Works out where the towns go and lays the roads between them.
     ///
-    /// `ground` answers the height BEFORE any of this is applied, `shore` the
-    /// distance to the coast, and `wet` whether a river would be drawn at a
-    /// point. All three must be free of settlements or this would be reading its
-    /// own output.
+    /// `ground` answers the height BEFORE any of this is applied, and must be
+    /// free of settlements or this would be reading its own output.
     pub fn plan(
         half: Vec2,
         ground: &dyn Fn(Vec2) -> f32,
-        shore: &dyn Fn(Vec2) -> f32,
-        wet: &dyn Fn(Vec2) -> bool,
         // What a road pays for crossing a place, on top of the ground itself.
         avoid: &dyn Fn(Vec2) -> f32,
     ) -> Self {
@@ -540,9 +535,6 @@ impl Settlements {
                     // levelling anything else would level the wrong rectangle.
                     half: plot.what.footprint() * 0.5,
                     facing: plot.facing,
-                    // The town's own level, which is what the streets outside the
-                    // door are already at.
-                    height: site.height,
                 });
             }
         }
@@ -624,10 +616,6 @@ impl Settlements {
             shares += share;
         }
         (shares > 0.0).then(|| (target / shares, governs))
-    }
-
-    pub fn lanes(&self) -> &[Lane] {
-        &self.lanes
     }
 
     /// Files every feature into the cells its reach touches.
@@ -1073,104 +1061,6 @@ fn link(
     (roads, bridges)
 }
 
-/// Works out the height a road holds along its length.
-///
-/// Samples the land it crosses, then walks the profile back and forth moving
-/// height between neighbours until no step is steeper than a cart can manage.
-/// Material moves BOTH ways — cut off the rises, filled into the dips — so what
-/// comes out follows the country instead of ignoring it.
-///
-/// The ends are pinned to their towns after every pass. A road that grades itself
-/// beautifully and then does not meet the town it leads to is no use.
-fn grade(
-    ground: &dyn Fn(Vec2) -> f32,
-    from: Vec2,
-    to: Vec2,
-    from_height: f32,
-    to_height: f32,
-) -> Vec<f32> {
-    let length = from.distance(to);
-    let steps = ((length / ROAD_STEP).ceil() as usize).clamp(1, 512);
-    let step = length / steps as f32;
-
-    let mut profile: Vec<f32> = (0..=steps)
-        .map(|i| {
-            let along = i as f32 / steps as f32;
-            ground(from.lerp(to, along))
-        })
-        .collect();
-
-    let most = ROAD_GRADE * step;
-    for _ in 0..GRADE_PASSES {
-        for i in 1..profile.len() {
-            settle_pair(&mut profile, i - 1, i, most);
-        }
-        for i in (1..profile.len()).rev() {
-            settle_pair(&mut profile, i - 1, i, most);
-        }
-        // Pinned last, so the towns always win.
-        *profile.first_mut().unwrap() = from_height;
-        *profile.last_mut().unwrap() = to_height;
-    }
-    profile
-}
-
-/// Moves height between two neighbouring samples until the step between them is
-/// something a cart could take, giving half the correction to each.
-fn settle_pair(profile: &mut [f32], low: usize, high: usize, most: f32) {
-    let drop = profile[high] - profile[low];
-    if drop.abs() <= most {
-        return;
-    }
-    let excess = (drop.abs() - most) * 0.5 * drop.signum();
-    profile[high] -= excess;
-    profile[low] += excess;
-}
-
-/// How steep the ground is at a point, sampled wide enough to catch a hillside
-/// rather than a bump.
-/// Whether any river would be drawn inside a site of this size.
-///
-/// Stepped at half the river grid's own spacing. The narrowest channel is seven
-/// metres across and the grid it is recorded on is twenty, so anything coarser
-/// than this could step straight over one and call the ground dry.
-fn crosses_water(wet: &dyn Fn(Vec2) -> bool, at: Vec2, radius: f32) -> bool {
-    let step = RIVER_SPACING * 0.5;
-    let mut dz = -radius;
-    while dz <= radius {
-        let mut dx = -radius;
-        while dx <= radius {
-            if dx * dx + dz * dz <= radius * radius && wet(at + Vec2::new(dx, dz)) {
-                return true;
-            }
-            dx += step;
-        }
-        dz += step;
-    }
-    false
-}
-
-fn steepness(ground: &dyn Fn(Vec2) -> f32, at: Vec2) -> f32 {
-    const STEP: f32 = 24.0;
-    let dx = ground(at + Vec2::X * STEP) - ground(at - Vec2::X * STEP);
-    let dz = ground(at + Vec2::Y * STEP) - ground(at - Vec2::Y * STEP);
-    (dx * dx + dz * dz).sqrt() / (2.0 * STEP)
-}
-
-/// A repeatable 0..1 from a seed and a counter.
-///
-/// Hashed rather than drawn from a generator so that the same seed gives the
-/// same towns in both programs, whatever order anything else asks for numbers.
-fn unit(seed: u32, n: u32) -> f32 {
-    let mut h = seed ^ n.wrapping_mul(0x9E37_79B9);
-    h ^= h >> 16;
-    h = h.wrapping_mul(0x7feb_352d);
-    h ^= h >> 15;
-    h = h.wrapping_mul(0x846c_a68b);
-    h ^= h >> 16;
-    h as f32 / u32::MAX as f32
-}
-
 #[cfg(test)]
 mod roads {
     use super::*;
@@ -1216,70 +1106,6 @@ mod roads {
             wall_slope(30.0) < square * 0.5,
             "battering should at least halve it"
         );
-    }
-
-    /// A steep hill between two towns, both down at ten metres.
-    fn hill(at: Vec2) -> f32 {
-        let across = (at.x / 220.0).clamp(-1.0, 1.0);
-        10.0 + 70.0 * (1.0 - across * across).max(0.0)
-    }
-
-    #[test]
-    fn a_road_climbs_a_hill_instead_of_cutting_through_it() {
-        // The gorges. A road graded as a straight line between two towns at the
-        // same height holds that height under everything between them, so a
-        // seventy-metre hill was carved out to a seventy-metre trench with a
-        // skirt of twenty-six to blend its walls.
-        let (from, to) = (Vec2::new(-700.0, 0.0), Vec2::new(700.0, 0.0));
-        let profile = grade(&hill, from, to, 10.0, 10.0);
-        let steps = profile.len() - 1;
-        let step = from.distance(to) / steps as f32;
-
-        let mut deepest = 0.0_f32;
-        for (i, &height) in profile.iter().enumerate() {
-            let along = i as f32 / steps as f32;
-            deepest = deepest.max(hill(from.lerp(to, along)) - height);
-        }
-        // A straight line cuts the full seventy. Following the land, what is
-        // left is a shallow notch over the crown rather than a canyon.
-        assert!(
-            deepest < 18.0,
-            "still cutting {deepest:.0} m out of the hill"
-        );
-
-        // And it is still a road: nothing steeper than a cart could take.
-        for (i, pair) in profile.windows(2).enumerate() {
-            let grade = (pair[1] - pair[0]).abs() / step;
-            assert!(
-                grade <= ROAD_GRADE * 1.4,
-                "step {i} climbs at {grade:.2}, steeper than {ROAD_GRADE}"
-            );
-        }
-
-        // A road that grades itself beautifully and misses the town it leads to
-        // is no use.
-        assert!((profile[0] - 10.0).abs() < 1.0e-3, "the near end must meet its town");
-        assert!((profile[steps] - 10.0).abs() < 1.0e-3, "and so must the far end");
-    }
-
-    #[test]
-    fn ground_a_cart_could_already_take_is_left_alone() {
-        // A gentle rise inside the grade needs no earthworks at all, and a road
-        // that levels it anyway is the same fault in miniature.
-        let slope = |at: Vec2| 10.0 + (at.x + 700.0) * 0.05;
-        let (from, to) = (Vec2::new(-700.0, 0.0), Vec2::new(700.0, 0.0));
-        let profile = grade(&slope, from, to, 10.0, 80.0);
-        let steps = profile.len() - 1;
-
-        for (i, &height) in profile.iter().enumerate() {
-            let along = i as f32 / steps as f32;
-            let natural = slope(from.lerp(to, along));
-            assert!(
-                (height - natural).abs() < 1.5,
-                "sample {i} moved {:.1} m for no reason",
-                height - natural
-            );
-        }
     }
 }
 

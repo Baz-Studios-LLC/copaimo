@@ -60,7 +60,7 @@ pub struct Raised {
     /// storehouse are the same boxes to the renderer — but what a building is
     /// FOR is the first thing anything built on top of this will want, and it
     /// is a fact the drawing already carries.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // kept on purpose: carried until something asks
     pub kind: String,
 }
 
@@ -74,7 +74,7 @@ pub struct Purpose {
     /// `door`, and whatever else a drawing marks. Not read yet: there is nobody
     /// to walk through a door. Spawned regardless, because the alternative is
     /// re-reading every file the day there is.
-    #[allow(dead_code)]
+    #[allow(dead_code)] // kept on purpose: carried until something asks
     pub mark: String,
 }
 

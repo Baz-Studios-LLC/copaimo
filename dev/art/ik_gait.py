@@ -248,24 +248,6 @@ def aim_the_pole(rig, side: str, pole, hold, forward, leg_length: float,
     return best_at
 
 
-def ankle_rests_above_the_sole(rig, mesh, feet, side: str) -> float:
-    """How high the ankle sits above the sole with the foot flat, in model units.
-
-    The IK target drives the ANKLE, and an ankle is not a sole - it sits about 4.3 cm
-    up inside the shoe on this character. Aiming the target at the floor therefore
-    buries the foot by exactly that much before anything else goes wrong, which is part
-    of why every frame of the walk had a foot through the ground.
-    """
-    evaluated = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
-    baked = evaluated.to_mesh()
-    try:
-        matrix = evaluated.matrix_world
-        sole = min((matrix @ baked.vertices[i].co).z for i in feet[side])
-    finally:
-        evaluated.to_mesh_clear()
-    return (rig.matrix_world @ rig.pose.bones[f"{side}_Foot"].head).z - sole
-
-
 def the_foot_is_down(own: float, share: float) -> bool:
     """Whether a foot at this own-phase is carrying weight. The ONE definition.
 
@@ -290,48 +272,6 @@ def the_foot_is_down(own: float, share: float) -> bool:
     # Tolerance because `own` is built by float division and a modulo, and an exact
     # boundary that misses by one ulp is the whole fault this exists to prevent.
     return own <= share + 1e-9
-
-
-def where_the_soles_go(rig, facing, contact: float, share: float, phase: float,
-                       leg_length: float, ground: float):
-    """Where each ankle should be at this instant, in armature space.
-
-    Through STANCE the foot is still on the ground and the body travels over it, so
-    relative to the body it slides backward at a constant rate - linearly, because the
-    body's speed is constant and any easing here is a limp. Through SWING it arcs
-    forward and lifts.
-
-    The path is stated relative to each hip socket, so the two legs get the same path
-    half a cycle apart and cannot disagree.
-    """
-    forward, _ = facing
-    out = {}
-    for side in "LR":
-        own = (phase + (0.5 if side == "L" else 0.0)) % 1.0
-        socket = rig.matrix_world @ rig.pose.bones[f"{side}_Thigh"].head
-        if the_foot_is_down(own, share):
-            # Planted: front to back, linearly, on the ground.
-            along = contact * (0.5 - own / share)
-            lift = 0.0
-        else:
-            through = (own - share) / max(1e-6, 1.0 - share)
-            along = contact * (through - 0.5)
-            lift = CLEARS_BY * leg_length * math.sin(math.pi * through)
-        # Where the SOLE should be, not the ankle. An ankle is 14 cm up inside this
-        # character's shoe with the foot flat, and further as the foot tilts - up to 7
-        # cm either way over a 17 cm foot. Aiming the ankle at a fixed height therefore
-        # buries or floats the foot by an amount that changes every frame, which is
-        # what put the feet 20 cm through the floor. The sole is what touches the
-        # ground, so the sole is what the path is for; `solve_the_target` then works
-        # out where the ankle has to be to put it there.
-        out[side] = mathutils.Vector(
-            (
-                socket.x + forward.x * along,
-                socket.y + forward.y * along,
-                ground + lift,
-            )
-        )
-    return out
 
 
 def solve_the_target(rig, mesh, feet, targets, wanted, pitches, tries: int = 4,

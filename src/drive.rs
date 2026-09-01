@@ -86,9 +86,8 @@ pub struct Ran {
     pub route: Route,
     pub passed: bool,
     pub why: String,
-    /// Where it ended, and how far that is from the aim.
+    /// Where it ended.
     pub ended: Vec2,
-    pub left: f32,
     pub seconds: f32,
     pub went: f32,
     /// The largest single-update change in the ground under the warden's feet. A
@@ -494,7 +493,6 @@ pub fn watch(
         passed,
         why,
         ended: here,
-        left,
         seconds: driving.seconds,
         went: driving.went,
         worst_snap: driving.worst_snap,

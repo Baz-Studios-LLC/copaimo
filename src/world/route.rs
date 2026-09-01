@@ -335,7 +335,8 @@ impl Land {
     ///
     /// `None` when there is no such walk - which is not a failure but an answer: it
     /// means the two are on different landmasses and want a bridge.
-    pub fn route(&self, from: Vec2, to: Vec2) -> Option<Vec<Vec2>> {
+     #[cfg(test)]
+   pub fn route(&self, from: Vec2, to: Vec2) -> Option<Vec<Vec2>> {
         self.walk_from(from)?.route_to(self, to)
     }
 

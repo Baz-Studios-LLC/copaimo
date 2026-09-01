@@ -164,7 +164,7 @@ impl Chain {
     // Kept because they are how the module's own claims are checked - the extension cap, the
     // fold limit, and whether a target was actually met - and a measurement that only exists
     // inside an assertion is a measurement nobody can take by hand when something looks wrong.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn straight(&self) -> f32 {
         self.upper() + self.lower()
     }
@@ -172,7 +172,7 @@ impl Chain {
     /// Hip to ankle as it currently stands, as a share of straight.
     ///
     /// 0.999 in this rig's bind pose, which is the measurement that shapes this whole module.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn extension(&self) -> f32 {
         let straight = self.straight();
         if straight < NO_DIRECTION {
@@ -185,7 +185,7 @@ impl Chain {
     ///
     /// Non-zero means the target was out of reach and the leg clamped. Worth checking rather
     /// than assuming, because clamping is silent.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn missed_by(&self, target: Vec3) -> f32 {
         self.end.distance(target)
     }
@@ -363,7 +363,7 @@ pub struct Planted {
     // Read by the tests, which assert on it directly rather than inferring it from where the
     // ankle ended up - the two differ whenever the leg clamps, and that difference is the thing
     // worth checking.
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub shift: f32,
 }
 

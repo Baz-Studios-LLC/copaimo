@@ -442,69 +442,6 @@ def under_the_foot(rig, side: str):
     )
 
 
-def where_each_sole_rests(rig):
-    """Each of those points' height above the ground, measured in the REST pose.
-
-    # Why a flat minimum will not do
-
-    Taking the lowest of the three directly gives a sole that jumps. The ankle sits
-    higher off the ground than the toe does, so the instant the lowest point switches
-    from one bone to another - which is exactly what happens between heel strike and
-    toe-off - the measured sole steps by the difference between them, and planting
-    against it steps the hips with it.
-
-    Measured, that produced a walk whose hips rose 10.6 cm with THREE high points per
-    cycle instead of two: the real one at the up pose, and two artefacts where the
-    lowest bone changed hands.
-
-    So each point carries its own rest height. Subtracting it makes all three agree in
-    the rest pose - a flat foot on flat ground - and each then tracks the sole
-    correctly as the ankle rolls, which is the whole point.
-
-    # And each FOOT gets its own ground, which matters more than it sounds
-
-    This model does not stand level: the right sole rests 1.4 cm higher than the left.
-    Planting both feet against one shared ground therefore made the two halves of the
-    cycle geometrically different, and the hips peaked at 21% of the cycle in one half
-    and 62% in the other where a symmetric walk peaks at 25 and 75. An asymmetric bob
-    is a LIMP, and it is the most likely thing behind "the legs do not feel like they
-    are moving correctly" while every direction measures correct.
-
-    Per-foot grounds fix it exactly, and the arithmetic says why: at rest, each sole's
-    height plus that leg's vertical extent equals the same hip height, because that is
-    what the rest pose IS. So planting each foot to its own rest level makes both
-    halves agree pose for pose, while planting both to a shared level forces the
-    difference into the hips.
-    """
-    rest(rig)
-    bpy.context.view_layer.update()
-    # ONE ground for both feet, and it is the lower of the two rest soles so that
-    # nothing sinks through it.
-    #
-    # # Per-foot grounds were tried, and they are the limp
-    #
-    # It seemed right: this model does not stand level, the right sole resting 1.4 cm
-    # higher than the left, so planting each foot to its own rest level looked like
-    # respecting the asset. The argument was that a sole's height plus its leg's
-    # extent equals the hip height at rest, so both would agree.
-    #
-    # That argument is wrong, and the run made it obvious - one half of the cycle
-    # bobbing 0.024 and the other 0.034. The rest extents are only unequal BECAUSE
-    # the soles are: pose both legs to the same angles and their extents become
-    # equal, at which point two different grounds put the hips at two different
-    # heights, once per step. That is a limp of exactly the 1.4 cm the rest pose was
-    # out by.
-    #
-    # A shared ground makes the two halves identical by construction. The per-point
-    # offsets stay per-foot, because those really are properties of each foot - and
-    # measured, they agree to within 0.6 mm anyway.
-    ground = min(min(under_the_foot(rig, side)) for side in "LR")
-    return {
-        side: (ground, tuple(z - min(under_the_foot(rig, side)) for z in under_the_foot(rig, side)))
-        for side in "LR"
-    }
-
-
 def across_the_body(rig):
     """The unit vector along the body's travel, and the one across it.
 
@@ -2723,37 +2660,6 @@ def how_hard_the_solver_pulls(down, lift, first, last, loops):
     return offset, strength
 
 
-def where_he_crosses_over(ankles, across, first, last):
-    """Where the two feet have gone PAST each other, and how far, frame by frame.
-
-    # The pair, not the midline
-
-    The first version of this asked each foot to stay on its own side of the body's centre line,
-    and flagged 28 of 48 foot-frames. That is not a crossover, that is running: a runner's feet land
-    close to the line of travel and at speed they land very nearly on it, so a rule written against
-    the midline condemns most of a normal stride.
-
-    What was actually reported is narrower and is a fact about the two feet together - "his lead leg
-    crosses over IN FRONT OF the back leg". So the test is on the pair: his left foot may come as
-    close to his right as it likes, and may not end up to the right of it. Measured that way the
-    delivered jog crosses on three frames, 10 to 12, by up to 11.73 cm, which is the thing that was
-    seen.
-
-    The correction is SPLIT between the two feet, half each, so neither is singled out and the pair
-    stays centred where the animator put it.
-    """
-    room = -THE_FEET_MAY_CROSS_BY / 170.0
-    strayed = {"L": {}, "R": {}}
-    for frame in range(first, last + 1):
-        apart = (ankles["L"][frame] - ankles["R"][frame]).dot(across)
-        if apart >= room:
-            continue
-        half = (room - apart) * 0.5
-        strayed["L"][frame] = across * half
-        strayed["R"][frame] = across * -half
-    return strayed
-
-
 def how_the_toe_bends(rig, side):
     """How far a toe is bent at the ball, in degrees, in its own foot's plane. Up is positive."""
     foot = rig.pose.bones[f"{side}_Foot"]
@@ -3170,96 +3076,6 @@ def how_far_the_foot_turns_out(rig, side, faces, across):
         return 0.0
     forward.normalize()
     return math.degrees(math.atan2(forward.dot(across) * hand, forward.dot(faces)))
-
-
-def hold_the_ankle_inside_its_range(rig, mesh, feet, ground, scene, faces, across, level,
-                                    first, last, loops):
-    """Clamps each foot's pitch, and its toe's bend, to what an ankle and a toe can actually do.
-
-    A clamp, not a correction: a frame already inside the band is left exactly as delivered. Only
-    the frames outside it move, and only as far as the edge.
-
-    The pitch is SOLVED rather than turned by the difference, for the reason `copy_the_foot_from_
-    the_other_side` gives - a degree about the body's lateral is not a degree of pitch on a foot
-    that is also rolled, and is not reliably even the same sign.
-
-    Only the frames whose soles are actually being laid on the floor are skipped, and they are
-    skipped by measuring the SOLE rather than by asking whether the solver has any influence there.
-    Those are not the same set: the plant's influence ramps over frames either side of a contact,
-    and on those frames the foot is several centimetres up and the flattening - which follows the
-    floor - has already let go of it. Frame 4 sat in exactly that gap, getting neither, which is
-    the frame that was reported.
-    """
-    caught = {"foot": 0, "roll": 0, "toe": 0}
-    worst = 0.0
-    for frame in range(first, last + 1):
-        scene.frame_set(frame)
-        bpy.context.view_layer.update()
-        for side in "LR":
-            # Only a foot that is genuinely ON the floor is exempt. The earlier version stood
-            # down wherever the flattening had any say, and the flattening's say is PARTIAL over
-            # its last few centimetres - at 2 cm up it is a third applied - so a foot could be
-            # plantarflexed 39 degrees, be flattened a third of the way out of it, and be skipped
-            # by the clamp for the other two thirds. Frame 4 was exactly that.
-            if ik_gait.lowest_sole(rig, mesh, feet, side) - ground <= (A_FOOT_IS_DOWN / 170.0):
-                continue
-
-            pitch = how_far_the_foot_points(rig, side, faces)
-            wants = max(-THE_FOOT_LIFTS_AT_MOST, min(THE_FOOT_POINTS_AT_MOST, pitch))
-            if abs(wants - pitch) > 0.05:
-                caught["foot"] += 1
-                worst = max(worst, abs(wants - pitch))
-                bone = f"{side}_Foot"
-                for _ in range(8):
-                    here = how_far_the_foot_points(rig, side, faces)
-                    by = wants - here
-                    if abs(by) < 0.05:
-                        break
-                    turn_further_absolutely(rig, bone, 1.0, across)
-                    bpy.context.view_layer.update()
-                    answers = how_far_the_foot_points(rig, side, faces) - here
-                    turn_further_absolutely(rig, bone, -1.0, across)
-                    bpy.context.view_layer.update()
-                    if abs(answers) < 1e-6:
-                        break
-                    turn_further_absolutely(rig, bone, max(-90.0, min(90.0, by / answers)), across)
-                    bpy.context.view_layer.update()
-                posed = rig.pose.bones[bone]
-                posed.rotation_mode = "QUATERNION"
-                posed.keyframe_insert("rotation_quaternion", frame=frame)
-
-            twist, axis = how_far_the_foot_rolls(rig, side)
-            allowed = max(-THE_FOOT_ROLLS_AT_MOST, min(THE_FOOT_ROLLS_AT_MOST, twist))
-            if axis is not None and abs(allowed - twist) > 0.05:
-                caught["roll"] += 1
-                worst = max(worst, abs(allowed - twist))
-                bone = f"{side}_Foot"
-                # About the foot's OWN length, which is what twist means, so nothing it does fore
-                # and aft is disturbed - only which way the sole faces.
-                for _ in range(8):
-                    here, along = how_far_the_foot_rolls(rig, side)
-                    if along is None or abs(allowed - here) < 0.05:
-                        break
-                    turn_further_absolutely(rig, bone, allowed - here, along)
-                    bpy.context.view_layer.update()
-                posed = rig.pose.bones[bone]
-                posed.rotation_mode = "QUATERNION"
-                posed.keyframe_insert("rotation_quaternion", frame=frame)
-
-            bend, hinge = how_the_toe_bends(rig, side)
-            if hinge is None:
-                continue
-            rest = the_bind_toe_bend(rig, side)
-            free = bend - rest
-            held = max(-THE_TOE_HANGS_AT_MOST, min(THE_TOE_LIFTS_AT_MOST, free))
-            if abs(held - free) > 0.05:
-                caught["toe"] += 1
-                turn_further_absolutely(rig, f"{side}_ToeBase", held - free, hinge)
-                posed = rig.pose.bones[f"{side}_ToeBase"]
-                posed.rotation_mode = "QUATERNION"
-                posed.keyframe_insert("rotation_quaternion", frame=frame)
-                bpy.context.view_layer.update()
-    return caught, worst
 
 
 def keep_the_legs_apart(rig, mesh, scene, pull, rigged, faces, first, last, loops):

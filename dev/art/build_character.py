@@ -2070,43 +2070,6 @@ def stand_him_up(rig, mesh, out_by):
     return turned
 
 
-def let_the_arms_hang(rig):
-    """Superseded by stand_him_up. Kept because the idle used to be built this way."""
-    down = rig.matrix_world.to_3x3().inverted() @ mathutils.Vector((0.0, 0.0, -1.0))
-    down.normalize()
-    across = rig.matrix_world.to_3x3().inverted() @ mathutils.Vector((0.0, 1.0, 0.0))
-    across.normalize()
-    ahead = rig.matrix_world.to_3x3().inverted() @ mathutils.Vector((1.0, 0.0, 0.0))
-    ahead.normalize()
-
-    aimed = {}
-    for side, out in (("Left", 1.0), ("Right", -1.0)):
-        arm = rig.pose.bones.get(f"{side}Arm") or rig.pose.bones.get(f"{side[0]}_Upperarm")
-        hand = rig.pose.bones.get(f"{side}Hand") or rig.pose.bones.get(f"{side[0]}_Hand")
-        if arm is None or hand is None:
-            continue
-        now = (hand.head - arm.head)
-        if now.length < 1e-6:
-            continue
-        now.normalize()
-        # Which way is "out" for this side, measured off the rig rather than assumed.
-        sideways = across * out
-        if sideways.dot(now) < 0.0:
-            sideways = -sideways
-        want = (down
-                + sideways * math.tan(math.radians(THE_ARMS_HANG_OUT))
-                + ahead * math.tan(math.radians(THE_ARMS_HANG_FORWARD)))
-        want.normalize()
-        turn = now.rotation_difference(want)
-        arm.matrix = (mathutils.Matrix.Translation(arm.head)
-                      @ turn.to_matrix().to_4x4()
-                      @ mathutils.Matrix.Translation(-arm.head)
-                      @ arm.matrix)
-        bpy.context.view_layer.update()
-        aimed[side] = math.degrees(now.angle(want))
-    return aimed
-
-
 def zip_the_pinholes(mesh):
     """Welds each truly open boundary vertex onto its nearest neighbour. See ZIPS_THE_PINHOLES."""
     import bmesh
@@ -3337,25 +3300,6 @@ def spread_the_twist(rig, clip, mesh):
             adds = 1.0 if abs(share - 1.0) < 1e-9 else adds + share
             spread[side].append((bone.split("_", 1)[1], adds))
     return spread
-
-
-def which_way_points_the_toe_down(rig, side):
-    """The foot's own axis that pitches its toe toward the floor.
-
-    Derived the same way as `which_way_abducts`, and for the same reason - guessing a sign per
-    side is how the finger curls went wrong. Rotating a direction `u` about `n` moves it by
-    `n x u`, so `u.z` falls fastest about `-(u x z)`.
-    """
-    foot = rig.pose.bones[f"{side}_Foot"]
-    along = ((rig.matrix_world @ rig.pose.bones[f"{side}_ToeBase"].bone.head_local)
-             - (rig.matrix_world @ foot.bone.head_local))
-    if along.length < 1e-9:
-        refuse(f"the {side} foot has no length, so no pitch axis exists")
-    down = -along.normalized().cross(mathutils.Vector((0.0, 0.0, 1.0)))
-    if down.length < 1e-9:
-        refuse(f"the {side} foot points straight up or down, so its pitch is undefined")
-    rest = (rig.matrix_world @ foot.bone.matrix_local).to_3x3()
-    return (rest.inverted() @ down.normalized()).normalized()
 
 
 def the_feet_pitch(rig, clip, scene):

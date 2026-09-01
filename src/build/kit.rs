@@ -1035,7 +1035,6 @@ impl Bench {
     /// blocks. Kept because the alternative is tests reaching into private state
     /// to check what the bench holds, and a bench nobody can ask what is on it is
     /// a bench nobody can test.
-    #[allow(dead_code)]
     pub fn pieces(&self) -> &[Piece] {
         &self.pieces
     }

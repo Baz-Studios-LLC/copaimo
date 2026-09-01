@@ -30,7 +30,7 @@ use bevy::tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task};
 
 use crate::states::AppState;
 use crate::typeface::UiFont;
-use crate::world::chart::{dimensions, paint, WIDTH};
+use crate::world::chart::{dimensions, paint};
 use crate::world::terrain::TerrainSource;
 
 /// How much of the window's shorter side the map fills.
@@ -487,6 +487,6 @@ mod tests {
             (world - drawn).abs() < 0.02,
             "the world is {world:.3} wide for its height and the map is {drawn:.3}",
         );
-        assert_eq!(size.x, WIDTH);
+        assert_eq!(size.x, crate::world::chart::WIDTH);
     }
 }

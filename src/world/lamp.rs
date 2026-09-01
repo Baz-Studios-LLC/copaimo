@@ -417,7 +417,7 @@ const INDOORS_GLOW: Color = Color::srgb(1.0, 0.82, 0.58);
 ///
 /// Only the nearest handful, because a real light is expensive and you can only be
 /// at one door at a time. No shadows, like everything else here.
-pub fn light_the_insides(
+fn light_the_insides(
     mut commands: Commands,
     clock: Res<crate::sky::TimeOfDay>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
@@ -485,7 +485,7 @@ pub fn light_the_insides(
 /// then. What makes that safe is that a fitting is now spawned with its glass
 /// already right - see `stand_the_lamps` - because a system that only looks on the
 /// threshold cannot notice anything that arrives between two of them.
-pub fn open_the_glass(
+fn open_the_glass(
     clock: Res<crate::sky::TimeOfDay>,
     mut glass: Query<&mut Visibility, With<Glass>>,
     mut showing: Local<Option<bool>>,
@@ -516,7 +516,7 @@ pub fn open_the_glass(
 /// radius, so anything joining or leaving is already almost out; and the set has
 /// HYSTERESIS - a lamp is admitted only well inside, and kept until it crosses the
 /// outer edge - so nothing sits on the boundary flickering in and out.
-pub fn light_them_at_night(
+fn light_them_at_night(
     mut commands: Commands,
     clock: Res<crate::sky::TimeOfDay>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
@@ -621,7 +621,7 @@ pub fn light_them_at_night(
 }
 
 /// Turns the lights on in the towers.
-pub fn light_the_windows(
+fn light_the_windows(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut paints: ResMut<Assets<StandardMaterial>>,

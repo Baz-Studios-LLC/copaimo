@@ -33,10 +33,6 @@ struct Palette {
     silt: Vec3,
     /// Bare earth, for roads and yards and the worn ground round a door.
     dirt: Vec3,
-    /// What a modern city stands on. Cool and pale, so it reads as a made surface
-    /// rather than as very dry ground - the two ages of the world have to be
-    /// different underfoot as well as overhead.
-    paving: Vec3,
     shallow: Vec3,
     sand: Vec3,
     lush_grass: Vec3,
@@ -59,7 +55,6 @@ static PALETTE: LazyLock<Palette> = LazyLock::new(|| Palette {
     // lands in the top band and is stepped to nearly white, so the constant has to
     // clear the band's lower edge rather than merely be darker than it was. Same
     // mechanism that once made two perfectly good browns photograph grey.
-    paving: linear(0.22, 0.22, 0.235),
     shallow: linear(0.22, 0.38, 0.46),
     sand: linear(0.74, 0.68, 0.50),
     lush_grass: linear(0.26, 0.47, 0.22),

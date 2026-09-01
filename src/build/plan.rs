@@ -130,7 +130,6 @@ pub struct Block {
     /// What the box IS — `walls`, `roof`, `footings`. Carried rather than used:
     /// it is what a game showing building work would raise things in order by,
     /// and it is enough to do that without reading a level's phases at all.
-    #[allow(dead_code)]
     pub stage: String,
 }
 
@@ -164,11 +163,8 @@ pub struct Plan {
     /// Nothing lays out a street yet, so nothing asks. It is read because it is
     /// the number that decides whether two buildings fit, and that question
     /// arrives the moment a site holds more than one.
-    #[allow(dead_code)]
     pub half_w: f32,
-    #[allow(dead_code)]
     pub half_d: f32,
-    #[allow(dead_code)]
     pub high: f32,
     pub boxes: Vec<Block>,
     pub marks: Vec<Mark>,

@@ -57,7 +57,6 @@
 use bevy::prelude::*;
 use std::sync::LazyLock;
 
-use crate::config::WORLD_SEED;
 use crate::world::settle::Site;
 
 /// How wide a street is, kerb to kerb.
@@ -298,8 +297,6 @@ pub struct Ground {
     pub middle: Vec2,
     /// How far the built-up part reaches from the middle.
     pub reach: f32,
-    /// Half the width of the open middle, whatever shape the plan gives it.
-    pub square: f32,
     /// How deep a block is, which is the deepest building plus its air.
     pub depth: f32,
     /// Middle to middle of two parallel streets with a block of lots between them.
@@ -780,6 +777,7 @@ impl Building {
     /// A landmark takes no lot and keeps no frontage: it stands in the open where
     /// people gather, which is what makes a node a node.
     /// How many kinds there are.
+    #[cfg(test)]
     const KINDS: usize = 19;
 
     /// Where each kind sits in `ALL`.
@@ -795,6 +793,7 @@ impl Building {
     /// somebody gives it a place. `the_list_of_kinds_is_every_kind` then checks that
     /// every place from nought to `KINDS` is filled exactly once, which fails until
     /// `ALL` and `KINDS` have been extended too. Neither half is enough alone.
+    #[cfg(test)]
     fn place(self) -> usize {
         match self {
             Building::Cottage => 0,
@@ -826,6 +825,7 @@ impl Building {
     /// without being added to it - so the one guard that proves a `Building` names a
     /// file that exists stopped covering a third of them, silently, which is the
     /// only way that guard can fail.
+    #[cfg(test)]
     pub const ALL: [Building; Self::KINDS] = [
         Building::Cottage,
         Building::Townhouse,
@@ -925,28 +925,6 @@ impl Building {
         }
     }
 
-    /// How many floors this has, and how tall one is.
-    ///
-    /// Measured off the exported models, like the footprints, and kept in step with
-    /// `FLOOR_TALL` in `dev/art/town.py`. Only the city knows: the old world's
-    /// buildings have windows placed one at a time rather than a band a storey.
-    /// How many GLAZED storeys a curtain-walled figure has.
-    ///
-    /// # It used to answer for the old world too, and it was wrong
-    ///
-    /// It said a cottage had two. A cottage has one - `shell` is called with one
-    /// storey - so the lamps lit a second floor's worth of windows at 5.3 m on a wall
-    /// that stops at 3.6, out in the air above the eaves. The shop and the guild hall
-    /// were wrong as well, in both directions.
-    ///
-    /// Nothing asks now: an old-world building's windows are measured off the model
-    /// and read from `town.txt` - see `world::lamp::WINDOWS` - and the number of
-    /// floors comes from the windows themselves. This delegates to `facade` rather
-    /// than repeating its third field, so the one number left cannot drift either.
-    pub fn storeys(self) -> Option<usize> {
-        self.facade().map(|(_, _, floors)| floors)
-    }
-
     /// The name `dev/art/town.py` builds this under, which is how the measured
     /// contract in `assets/models/town.txt` is keyed.
     ///
@@ -955,18 +933,6 @@ impl Building {
         self.model()
             .trim_start_matches("models/")
             .trim_end_matches(".glb")
-    }
-
-    /// Whether its windows come as a band of glass a storey or as separate panes.
-    ///
-    /// A tower's facade is a curtain wall and a lit floor is a lit BAND. A cottage
-    /// has windows in a wall, and lighting the whole wall of one would read as a
-    /// building on fire.
-    pub fn glazed_in_bands(self) -> bool {
-        matches!(
-            self,
-            Building::CityBlock | Building::CityTower | Building::CitySpire
-        )
     }
 
     /// Whether this is a yard rather than a building.
@@ -997,16 +963,6 @@ impl Building {
         )
     }
 
-    /// The tall thing a settlement of this kind is known by, seen from the road in.
-    pub fn weenie(city: bool) -> Building {
-        if city {
-            Building::CitySpire
-        } else {
-            Building::GuildHall
-        }
-    }
-
-    /// The landmark that stands on the square, and the one at a lesser junction.
     /// What a lot with no building on it is FOR, by where it stands.
     ///
     /// District-led, because that is what districts are: a market street trades, a
@@ -1791,20 +1747,6 @@ impl Place {
         out.max(Vec2::ZERO).length() + out.x.max(out.y).min(0.0) - round
     }
 
-    /// A point on its edge, on a bearing in its own frame.
-    pub fn edge(&self, turn: f32) -> Vec2 {
-        let way = Vec2::from_angle(turn);
-        let (mut near, mut far) = (0.0_f32, self.half.length() * 1.6);
-        for _ in 0..20 {
-            let mid = (near + far) * 0.5;
-            if self.off(self.at + way * mid) < 0.0 {
-                near = mid;
-            } else {
-                far = mid;
-            }
-        }
-        self.at + way * (near + far) * 0.5
-    }
 }
 
 /// How far from the middle a settlement's edge is, on a given bearing.
@@ -2182,7 +2124,6 @@ fn arc_streets(
     const PIECES_TO_A_PARCEL: usize = 3;
     let mut parcel_from = from;
 
-    let mut last = from;
     // ONE road, kept as the line it runs along - see `Way`.
     let mut line = vec![from];
     for step in 1..=steps {
@@ -2201,7 +2142,6 @@ fn arc_streets(
             frontage_parcels(parcels, middle, parcel_from, next, wide, depth, ring);
             parcel_from = next;
         }
-        last = next;
     }
     ways.push(Way { points: line, wide, joins: wide });
 }
@@ -2567,7 +2507,6 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     let on = Ground {
         middle: site.at,
         reach,
-        square,
         depth,
         band,
         through,
@@ -2860,9 +2799,6 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         let asked = Open::wanted(site.character);
         for (which, open) in asked.iter().enumerate() {
             let half = band * open.spans() * 0.5;
-            // Turned to face the way the town does, so a square is square ON to the
-            // frontage that encloses it rather than at an angle to every street.
-            let facing = through;
             let want = if which == 0 {
                 middle_of_town
                     + Vec2::from_angle(through + std::f32::consts::PI)
@@ -3400,15 +3336,6 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         // city, and it is the one building the game needs to be able to find.
         // Thinned WITHIN each district, in proportion to what that district had.
         //
-        // One stride across the whole list is not the same thing: the list runs ring
-        // by ring, so a single stride over it kept 1 building in the outskirts of a
-        // 28-building city and left the districts - the thing that makes a town
-        // legible at all - as a name on two of them. Each district gives up the same
-        // share of itself, so all three survive at any size.
-        let (inner, outer) = {
-            let mut out: Vec<f32> = plots.iter().map(|p| p.at.distance(site.at)).collect();
-            District::divisions(&mut out)
-        };
         // The hall and every landmark survive whatever the size: a city without its
         // guild hall is not a city, and a node without its landmark is a junction.
         let keep_always: Vec<usize> = (0..plots.len())
@@ -4566,7 +4493,6 @@ static ROAD_STONE: LazyLock<[f32; 4]> = LazyLock::new(|| srgb(0.42, 0.41, 0.40))
 /// twice a cobble, so the two surfaces have visibly different grain even where the
 /// colours are close.
 static ROAD_FLAG: LazyLock<[f32; 4]> = LazyLock::new(|| srgb(0.60, 0.585, 0.55));
-const FLAG_IS: f32 = 1.15;
 
 /// How big a cobble is, in metres, and how much one differs from the next.
 ///
@@ -4581,7 +4507,6 @@ const COBBLE_IS: f32 = 0.55;
 /// setts, which is what tells the two apart where they meet. The production spec
 /// puts sidewalk flags at 0.6 to 1.2 m.
 const FOOTWAY_FLAG: f32 = 0.95;
-const COBBLES_VARY: f32 = 0.30;
 
 /// What a VILLAGE's lanes are made of: packed earth and cobble, warm and rough.
 ///
@@ -4622,14 +4547,7 @@ const COBBLES_VARY: f32 = 0.30;
 // its comment.
 
 static ROAD_EARTH: LazyLock<[f32; 4]> = LazyLock::new(|| srgb(0.62, 0.42, 0.24));
-static ROAD_COBBLE: LazyLock<[f32; 4]> = LazyLock::new(|| srgb(0.46, 0.43, 0.39));
 
-/// How much one paving stone differs from its neighbour.
-///
-/// A road of one flat colour is a painted stripe. Varying each quad a little is what
-/// turns it into stones - it costs nothing, because the paving is already built as
-/// quads and every quad already carries a colour.
-const STONE_VARIES: f32 = 0.16;
 // The kerb of a PAVED street. A dirt track has no kerb - see `pave`, which uses the
 // surface colour at its edges when there is no city to put a kerb on.
 // DARKER than either surface it divides - the carriageway is 0.42 and the footway
@@ -4753,18 +4671,6 @@ const KEEPS_CLEAR: f32 = 34.0;
 // last of itself - see `Settlements::ground_at` - so arriving still has a moment,
 // and the moment is a change underfoot rather than a fence with a gap in it.
 
-
-/// Joins one unbroken stretch of boundary into triangles.
-fn stitch(indices: &mut Vec<u32>, run: &[usize]) {
-    for pair in run.windows(2) {
-        let (a, b) = (pair[0] as u32, pair[1] as u32);
-        for rung in 0..5u32 {
-            let (p, q) = (a + rung, a + rung + 1);
-            let (r, t) = (b + rung, b + rung + 1);
-            indices.extend_from_slice(&[p, r, q, q, r, t]);
-        }
-    }
-}
 
 /// Builds one town's streets as a mesh laid on the ground.
 /// Mixes two road colours.
@@ -7074,6 +6980,7 @@ impl Plot {
         Some(ground + (top - ground) * (1.0 - out / floor.reach.max(0.01)))
     }
 
+    #[cfg(test)]
     pub fn walls(&self) -> Vec<(Vec2, Vec2, f32)> {
         let mut walls = Vec::new();
         self.walls_into(&mut walls);
@@ -8598,11 +8505,6 @@ mod tests {
         let site = a_site(true, 190.0);
         let layout = lay_out(&site, Vec2::X, &[], 9);
 
-        let (inner, outer) = {
-            let mut out: Vec<f32> = layout.plots.iter().map(|p| p.at.distance(site.at)).collect();
-            District::divisions(&mut out)
-        };
-
         let mut counts = std::collections::HashMap::new();
         for plot in &layout.plots {
             if plot.what.is_landmark() {
@@ -9277,9 +9179,6 @@ mod doorstep {
                 .join("assets/models/town.txt");
             let said = std::fs::read_to_string(&note)
                 .unwrap_or_else(|_| panic!("run dev/art/build.sh: {} is missing", note.display()));
-            let number = |line: &str, tag: &str| -> Option<f32> {
-                line.strip_prefix(tag)?.trim().parse().ok()
-            };
             let mut plan = Plan { doors: Vec::new(), rects: Vec::new(), spots: Vec::new() };
             for line in said.lines() {
                 if let Some(rest) = line.strip_prefix("DOORWAY ") {

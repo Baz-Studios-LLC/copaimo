@@ -35,11 +35,11 @@ use crate::player::{Player, Striding};
 // so the threshold sat BELOW walking pace and the walk clip never played once. Any
 // value here must lie strictly between `player::WALK_SPEED` and
 // `player::JOG_SPEED`, which `the_gait_threshold_lies_between_the_speeds` checks.
-#[allow(dead_code)]
 // 2.0, down from 3.4. It has to lie strictly between `player::WALK_SPEED` and
 // `player::JOG_SPEED`, and 3.4 was chosen when the jog ran at 4.80 - so when the authored stride
 // brought the jog to 2.90 the threshold sat ABOVE it and the test caught exactly what it exists
 // to catch: a threshold past the top speed means the faster clip can never play.
+#[cfg(test)]
 const BREAKS_INTO_A_RUN: f32 = 2.0;
 
 // # EVERY NUMBER BELOW WAS MEASURED OFF A CHARACTER THAT NO LONGER EXISTS
@@ -200,7 +200,6 @@ const JOG_COVERS: f32 = 2.982;
 // Read by the pacing tests rather than at runtime, which is why the non-test build calls it
 // dead - the same case as `FPS` and the frame counts above. It is a checked record of how many
 // cycles each clip holds, not a comment.
-#[allow(dead_code)]
 // The jog is TWO, not one. It was one while the clip was authored, and the delivered clip that
 // replaced it holds two: measured on the built asset, its hips dip once every 6.25 frames and each
 // foot plants twice in the 24-frame cycle, which is four contacts and two cycles. Left at one, the
@@ -216,11 +215,10 @@ const CYCLES: &[(&str, f32)] = &[("walk", 1.0), ("jog", 1.0)];
 /// it. The upper bound is `STRIDE_WARPS_TO`, because that is what the animation system will
 /// actually stretch before it has to raise the tempo instead.
 // Read by the pacing tests rather than at runtime - the same case as `FPS`.
-#[allow(dead_code)]
+#[cfg(test)]
 const PLAYS_BETWEEN: (f32, f32) = (0.80, STRIDE_WARPS_TO);
 
 /// How many cycles a named clip holds, or 1.0 for one nothing has been measured about.
-#[allow(dead_code)]
 fn cycles_in(gait: &str) -> f32 {
     CYCLES
         .iter()
@@ -289,15 +287,12 @@ const GAITS: &[(&str, f32, f32)] = &[
 // `the_declared_frame_counts_match_the_clips` compares them against the actual file -
 // so they are a checked record, not a comment. `BREAKS_INTO_A_RUN` below is the same
 // case and was already in it.
-#[allow(dead_code)]
 const FPS: f32 = 24.0;
 // Measured off the built asset with `dev/art/inspect_glb.py`, which reads the accessors' own
 // times rather than counting anything: walk runs 0.0417 to 2.3750 and run 0.0000 to 1.0000.
 // They are not authored at the same rate - the walk's first key lands at 1/24 s and the run's
 // at 0 - which is exactly why nothing here converts between them by counting frames.
-#[allow(dead_code)]
 const WALK_FRAMES: f32 = 25.0;
-#[allow(dead_code)]
 const JOG_FRAMES: f32 = 15.0;
 
 
@@ -313,7 +308,7 @@ const JOG_FRAMES: f32 = 15.0;
 /// The error made every ceiling about 4% too generous, which is exactly the direction that
 /// lets a too-fast gait pass. A ratio is only a ratio if both ends measure the same thing.
 // Read by the pacing tests rather than at runtime - the same case as `FPS`.
-#[allow(dead_code)]
+#[cfg(test)]
 const LEGS_SHORTER_BY: f32 = 1.019;
 
 /// The cadence band each tier lives in, in steps a minute, before the tier above takes
@@ -343,11 +338,10 @@ const LEGS_SHORTER_BY: f32 = 1.019;
 /// Scaled by `LEGS_SHORTER_BY`, which is not a realism concession - it is this character's
 /// legs being genuinely shorter than the figure the numbers were written for.
 // Read by the pacing tests rather than at runtime - the same case as `FPS`.
-#[allow(dead_code)]
+#[cfg(test)]
 const CHURNS_BETWEEN: [(f32, f32); 3] = [(60.0, 180.0), (140.0, 330.0), (200.0, 400.0)];
 
 /// What a clip carries at its own natural rate, in metres a second.
-#[allow(dead_code)]
 const fn natively_carries(covers: f32, frames: f32) -> f32 {
     covers * FPS / frames
 }
