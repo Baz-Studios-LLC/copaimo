@@ -179,6 +179,7 @@ impl Plugin for WorldPlugin {
         app.insert_resource(TerrainSource(Arc::new(terrain)))
             .insert_resource(bounds)
             .init_resource::<stream::ChunkMap>()
+            .init_resource::<stream::GroundWaited>()
             .add_systems(
                 Startup,
                 (

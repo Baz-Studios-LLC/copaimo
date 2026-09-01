@@ -158,6 +158,7 @@ fn fly(
     mut mode: ResMut<crate::camera::CameraMode>,
     terrain: Option<Res<crate::world::terrain::TerrainSource>>,
     raising: Res<crate::world::town::Raising>,
+    waited: Res<crate::world::stream::GroundWaited>,
     // REAL time, not virtual. `Time` is clamped to a maximum delta - a quarter
     // of a second by default - so a worse frame than that reads as exactly
     // 250.0 ms, which is what the first flight reported twice running. A ruler
@@ -212,7 +213,7 @@ fn fly(
     }
 
     if flying.leg + 1 >= flying.over.len() {
-        report(&flying, &raising);
+        report(&flying, &raising, &waited);
         quit.write(AppExit::Success);
         return;
     }
@@ -248,7 +249,11 @@ fn ground_at(terrain: &crate::world::terrain::TerrainSource, at: Vec2) -> f32 {
 }
 
 /// What the flight cost, as a distribution rather than an average.
-fn report(flying: &Flying, raising: &crate::world::town::Raising) {
+fn report(
+    flying: &Flying,
+    raising: &crate::world::town::Raising,
+    waited: &crate::world::stream::GroundWaited,
+) {
     if flying.frames.is_empty() {
         warn!("the flight recorded no frames");
         return;
@@ -296,6 +301,27 @@ fn report(flying: &Flying, raising: &crate::world::town::Raising) {
     info!(
         "  still in flight when the route ended: {}",
         raising.at_work()
+    );
+    // HOW LONG THE GROUND WAITED, which is the cross-family question: towns and
+    // chunks share one pool, and a town is seconds of work that never yields.
+    // A town queue that looks empty proves nothing if the ground is queued
+    // behind it - see `GroundWaited`.
+    let mut ground: Vec<f32> = waited.0.clone();
+    if !ground.is_empty() {
+        ground.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let pick = |share: f32| ground[((ground.len() - 1) as f32 * share) as usize];
+        info!(
+            "  ground waited: {} chunks, median {:.0} ms, 95th {:.0}, worst {:.0}",
+            ground.len(),
+            pick(0.5),
+            pick(0.95),
+            pick(1.0),
+        );
+    }
+    info!(
+        "  the pool is {} threads wide; towns may take {}",
+        bevy::tasks::AsyncComputeTaskPool::get().thread_num(),
+        crate::world::town::raises_at_once(),
     );
     info!(
         "  of {} hitched frames, {} were a settlement standing up; worst of the rest {:.1} ms",

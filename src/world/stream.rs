@@ -28,7 +28,21 @@ pub struct ChunkMap {
 /// component (by despawning the chunk) cancels the task, so walking away from
 /// an area that hasn't finished generating costs nothing.
 #[derive(Component)]
-pub struct PendingChunk(Task<(Mesh, Option<Mesh>)>);
+pub struct PendingChunk(Task<(Mesh, Option<Mesh>)>, std::time::Instant);
+
+/// How long chunks have been waiting between being asked for and arriving.
+///
+/// # Why the ground's wait is worth recording
+///
+/// Every task family in the game shares one `AsyncComputeTaskPool` - the ground,
+/// the grass, the props, the map, and a settlement being worked out. A town is
+/// seconds of non-yielding work and a chunk is milliseconds, so a cap that lets
+/// towns take every worker starves the ground the player is standing on while
+/// the town queue itself looks perfectly empty. Codex's reopened AQ-026, and the
+/// only honest way to answer it is to time the ground's wait rather than the
+/// town's.
+#[derive(Resource, Default)]
+pub struct GroundWaited(pub Vec<f32>);
 
 /// Spawns generation tasks for chunks that are in range but don't exist yet,
 /// nearest first so the ground closest to the viewer fills in soonest.
@@ -113,7 +127,7 @@ pub fn spawn_chunk_mesh(
 ) {
     let generator = terrain.0.clone();
     let task = AsyncComputeTaskPool::get().spawn(async move { build_chunk(&generator, coord) });
-    commands.entity(entity).insert(PendingChunk(task));
+    commands.entity(entity).insert(PendingChunk(task, std::time::Instant::now()));
 }
 
 /// Attaches finished meshes to their chunk entities, and plants their trees.
@@ -126,6 +140,7 @@ pub fn collect_chunks(
     mut meshes: ResMut<Assets<Mesh>>,
     mut pending: Query<(Entity, &mut PendingChunk, &Chunk, Option<&Children>)>,
     dressed: Query<(), Or<(With<super::cover::Cover>, With<super::prop::Props>)>>,
+    mut waited: ResMut<GroundWaited>,
 ) {
     // The shared material is created in Startup; on the very first frames a
     // task could finish before it exists, so hold the mesh until it does.
@@ -147,6 +162,7 @@ pub fn collect_chunks(
             continue;
         };
         budget.one();
+        waited.0.push(task.1.elapsed().as_secs_f32() * 1000.0);
         commands
             .entity(entity)
             .remove::<PendingChunk>()

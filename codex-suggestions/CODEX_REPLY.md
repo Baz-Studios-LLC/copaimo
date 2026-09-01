@@ -1382,3 +1382,43 @@ jobs. A stationary 123–161 FPS reading cannot expose that queueing fault.
 The relevant Bevy task documentation says the async compute pool is appropriate for CPU work that may span
 frames and that dropping a `Task` prevents future polling; the missing boundary here is cooperative work
 inside one long poll. This is AQ-026/P1. No game file was changed during this review.
+
+## 2026-09-01 — AQ-026 follow-up review and hoverboard disposition accepted
+
+The AQ-025 disposition is sound: **accepted, deferred behind AQ-003 and the movement slice** is a concrete
+gate, not neglect. The board inherits the controller, camera and surface contract, and a rigid 1.25 m deck
+will expose chord sag more harshly than one planted foot. I will resurface it only when either named gate
+closes without hoverboard movement or if new evidence changes that dependency.
+
+`138f801` also resolves the exact cancellation fault I raised. Checking `wanted` through the expensive
+paving loops converts stale-town cancellation from a false task-handle claim into cooperative work, and
+the six-settlement fly route is the right kind of evidence. The improvement—99th 140→25 ms, worst 331→51,
+and 19 frames over 100 ms→zero—is meaningful. Direct CPU-saturation and cancellation-latency counters are
+not necessary merely to decorate those already useful results.
+
+### P1 — the cap prevents a town queue, not the shared compute-pool queue
+
+One narrower issue remains. `raises_at_once()` returns the complete
+`AsyncComputeTaskPool::thread_num()`, while chunk meshing, cover, props, both maps and the newly asynchronous
+country-road build all spawn on that same global pool. A city job remains one non-yielding poll while it is
+wanted; the new closure checks cancel it but do not yield it. If every worker is occupied by a wanted city,
+there is no queue **among town jobs**, but there can still be a queue containing the nearer chunk or country
+road the player needs now. On the measured host the town count reached the pool width of two, so this is the
+actual configuration, not a hypothetical thread count.
+
+Please reserve at least one worker's worth of headroom for other streaming families, or preferably place
+town, country-road, chunk, cover and prop jobs behind one shared priority/concurrency governor. The closest
+ground and collision-bearing road should outrank decoration and a city that is still hundreds of metres
+away.
+
+The next `--flyby` proof should therefore measure **readiness latency**, not extra CPU trivia:
+
+- age from a chunk/country-road request to its replacement landing;
+- maximum number of old meshes retained while a newer one waits;
+- queued/in-flight counts by task family;
+- one flight that enters two town radii while also crossing a country-road rebuild cell, then immediately
+  reverses.
+
+If those remain bounded with every town slot occupied, AQ-026 can close. If a unified governor is deferred,
+leaving one pool thread of headroom plus the same evidence is a defensible interim boundary. I updated the
+ledger to `needs review (reopened on new evidence)`. No game file was changed.

@@ -6828,13 +6828,31 @@ pub struct Raising {
 
 /// How many settlements may be worked out at once.
 ///
-/// The pool's own width, so there is never a QUEUE: every job in flight is
-/// running, and a town the player has just reached starts the moment a thread
-/// frees rather than waiting behind cities they have already left. Without a cap
-/// a fast flight over the map spawns one job per settlement it passes, and the
-/// pool fills with work for places nobody is near - Codex's AQ-026.
-fn raises_at_once() -> usize {
-    bevy::tasks::AsyncComputeTaskPool::get().thread_num().max(1)
+/// # A cap on the town queue is not a cap on the pool
+///
+/// This was the pool's whole width, on the reasoning that a job in flight is a
+/// job running rather than queued, so there would never be a wait. That is true
+/// of TOWNS and false of everything else: the ground, the grass, the props, the
+/// map and the country roads all share this one `AsyncComputeTaskPool`. A town
+/// is seconds of work that never yields; a chunk is milliseconds and is the
+/// ground under the player's feet. Letting towns hold every worker starves the
+/// ground while the town queue itself reads empty - Codex reopened AQ-026 on
+/// exactly this, and `--flyby` then measured it: chunks waiting a median of
+/// 42 ms but a 95th of 615 and a worst of 1,537, with the frame rate perfect
+/// throughout. A frame-time measurement alone would have called that a success.
+///
+/// So a long non-yielding family gets a MINORITY of the pool. Measured over the
+/// same route, letting towns take fewer workers walks the ground's 95th wait
+/// down monotonically - 615 ms at the pool's full width, 602 at all-but-one,
+/// 509 at half, 322 at a quarter - while the frame rate is unchanged throughout,
+/// which is why frame time alone could never have found this. The worst single
+/// wait is noisy run to run and is not what this is tuned on.
+///
+/// A quarter, and never less than one: on this machine's four threads that is
+/// one city at a time with three workers left for the ground, and it scales the
+/// right way on wider pools rather than pinning a number nobody can justify.
+pub fn raises_at_once() -> usize {
+    (bevy::tasks::AsyncComputeTaskPool::get().thread_num() / 4).max(1)
 }
 
 impl Raising {
