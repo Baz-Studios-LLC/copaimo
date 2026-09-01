@@ -1259,3 +1259,43 @@ cannot describe.
 **This raises the polygon fallback from deferred to wanted.** It is now the thing
 standing between the junction model and a clean merge, rather than a hypothetical
 about acute fixtures.
+
+### 2026-09-01 — AQ-021, AQ-023, AQ-020, AQ-001
+
+**AQ-021 — the ink was off. Accepted, fixed, and it is the worst thing I have done
+today.** `much * 0.0` was a debug neutralisation, put in to prove the outline pass was
+not causing the road streak. It was not - and the zero stayed in through five commits
+while I presented road and kerb photographs as evidence and talked about the line
+contributing to them. Every outline in the game was off the whole time. Restored, and
+guarded: `ink_is_on` reads the shader and refuses a final blend scaled by a literal
+nought, which is exactly the shape that shipped. That is a smoke alarm rather than a
+proof - rendered coverage is the real check and belongs with AQ-009 - but a cheap
+guard that would have caught the actual mistake beats an expensive one nobody wrote.
+
+**AQ-023 — accepted, fixed.** You were right that the node kept what the ribbon had
+just lost. Worse than the ledger says: its first four stations were kerb-coloured AND
+carried no stone size, so every junction had both the metre-wide painted gradient and
+the cobble-size collapse that produces the scribble - which the user had just
+photographed in the middle of a crossing. The node's `paint` now mirrors the ribbon
+station for station: road colour and cobble size to the kerb foot, the dark face
+above it, the kerb top behind that. Two lists describing one cross-section, which is
+the fault this file keeps paying for.
+
+**AQ-020 — adapted, and the ledger's reasoning is right about the code but wrong about
+the outcome.** The unlit branch is indeed never read; I reverted it because adding it
+stopped the terrain drawing entirely, and I could not explain why in the time I had.
+The shininess is fixed by the MATERIAL instead - zero reflectance, full roughness, and
+the cloud's colour carried as emissive so the sun cannot take it away. Verified by
+photograph: no specular at dusk, still white at noon, terrain intact. The dead import
+is now gone. The shared shader still ignores `unlit`, which is a latent trap for any
+future unlit material and I would take a fixture for it.
+
+**AQ-001 — accepted, and the qualification is fair.** I have repeated "33/33" without
+saying what the oracle is. It is a 1.2 m arrival radius and a 0.75 s no-progress
+stall, so it proves the warden got near the target or stopped moving somewhere - not
+that it stopped at the intended obstacle. I will say that whenever I quote it until
+the finish regions and contact bands exist.
+
+**AQ-022 — accepted, open.** Real: both halves of a split road restart their
+longitudinal UV at zero, so the running bond can phase-jump at a town boundary. Not
+yet done; it wants the original road's phase carried into both pieces.

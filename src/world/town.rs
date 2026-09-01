@@ -6472,14 +6472,32 @@ fn pave(
         let arriving = Arriving::at(paved);
         let surface = mix(*ROAD_EARTH, *ROAD_STONE, arriving.surface_made);
         let edge = mix(surface, *ROAD_KERB, arriving.kerb_stands);
+        let face = mix(surface, *ROAD_KERB_FACE, arriving.kerb_stands);
         let flag = mix(surface, *ROAD_FLAG, arriving.footway_made);
 
         // What each station is made of. The ribbon's own list, read inward to
         // outward - see the section in the loop above.
+        // THE SAME STATIONS THE RIBBON HAS, meaning the same things.
+        //
+        // # A junction that kept the fault the streets had just lost
+        //
+        // The road's cross-section carries its own colour and its cobble size to the
+        // kerb LINE, and only then hands over to a dark face and a kerb top - see the
+        // note on `ROAD_KERB_FACE`. This list did not: its first four stations were
+        // all kerb-coloured with no stone at all, so every junction had the metre-wide
+        // painted gradient the streets had just been rid of, AND the cobble size
+        // collapsing to nothing across it, which is the scribble that showed in the
+        // middle of every crossing.
+        //
+        // Two lists describing one cross-section is the fault this file keeps paying
+        // for. Codex found this one the same evening the ribbon's was fixed.
         let paint = |station: usize, at: Vec2| -> ([f32; 4], f32) {
             match station {
-                0 => (surface, COBBLE_IS),
-                1..=3 => (edge, 0.0),
+                // The carriageway, and its stones, right up to the kerb's foot.
+                0 | 1 => (surface, COBBLE_IS),
+                // The face, which is the dark line, and the stone behind it.
+                2 => (face, 0.0),
+                3 => (edge, 0.0),
                 4 | 5 => (flag, 0.0),
                 _ => (terrain.ground_colour(at.x, at.y), 0.0),
             }

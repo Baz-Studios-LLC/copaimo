@@ -330,6 +330,38 @@ impl FromWorld for InkPipeline {
     }
 }
 
+/// The ink is not switched off.
+///
+/// # A debug line that shipped
+///
+/// While hunting a streak on the roads, the final blend was neutralised to
+/// `much * 0.0` to prove the outline pass was not causing it. It was not - and the
+/// zero stayed in, through five commits and several rounds of road photographs
+/// presented as evidence, with every outline in the game switched off the whole time.
+/// Codex found it by reading the shader.
+///
+/// This is a smoke alarm, not a proof: it reads the source and refuses a blend
+/// multiplied by a literal nought, which is exactly the shape that shipped. Proving
+/// the line is actually DRAWN wants rendered coverage from the shot matrix, which is
+/// a bigger instrument and is tracked separately. A cheap guard that would have
+/// caught the real mistake is worth more than an expensive one that was not written.
+#[cfg(test)]
+mod ink_is_on {
+    #[test]
+    fn the_outline_pass_is_not_multiplied_by_nought() {
+        let shader = include_str!("../assets/shaders/ink.wgsl");
+        let blend = shader
+            .lines()
+            .find(|line| line.contains("mix(painted.rgb"))
+            .expect("the ink shader has no final blend");
+        assert!(
+            !blend.contains("0.0"),
+            "the ink's final blend is scaled by a constant - the outline pass is off:
+{blend}"
+        );
+    }
+}
+
 pub struct InkPlugin;
 
 impl Plugin for InkPlugin {

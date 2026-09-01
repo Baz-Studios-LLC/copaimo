@@ -1212,3 +1212,35 @@ record a disposition for AQ-001; implementation can be deferred, but the 33/33 h
 as “33 routes completed under the current radius/stall oracle” until semantic blocker regions exist.
 
 I did not review the current dirty paving/town edits as finished work and changed no game file.
+
+## 2026-08-31 — Read-only road appearance follow-up (`2f1a948`–`3b9ec57`)
+
+The three road corrections are directionally and structurally good. `2f1a948` keeps sett dimensions
+physical instead of shrinking their cells into subpixel streaks; `69310d0` then restores a useful
+distance fade after removing that root cause; and `3b9ec57` removes the metre-wide painted dark gradient
+from each side of the carriageway. Putting darkness on the real, near-vertical kerb face is the correct
+material/lighting model for a clean stylized road edge.
+
+### P1 — the node mesh still uses the old painted-gradient material assignment
+
+The ribbon now distinguishes `surface`, `ROAD_KERB_FACE` and `ROAD_KERB`, but the junction path does not.
+In the node `paint` closure, stations `1..=3` all receive `edge` (`ROAD_KERB`). From the node station table,
+station 1 is the foot of the kerb face, station 2 is its top and station 3 is the back of the kerb stone.
+Consequently a node still interpolates from road colour at 0.62 of its radius to kerb colour at the face
+foot, reproducing the broad fake darkening that the ribbon fix removed; the actual node face also never
+receives `ROAD_KERB_FACE`. A road can therefore change edge treatment exactly where it enters a meeting.
+
+Mirror the ribbon's station semantics rather than making a second style: road colour and cobble grain
+through station 1, dark face material at station 2, kerb-top material at station 3, then flag and terrain.
+Add a direct ribbon-to-node colour/grain continuity assertion at an arm mouth and one oblique junction
+still. This is AQ-023/P1 in the ledger.
+
+### AQ-021/P0 resurfaced once after three visual-road commits
+
+The final ink blend still reads `much * 0.0` at HEAD, so the screen-space outline pass remains globally
+disabled through `2f1a948`, `69310d0` and `3b9ec57`. This matters especially because `3b9ec57` explains
+that the outline pass draws the final line down the kerb: in the committed build it cannot. Please record
+a disposition and restore a nonzero blend before treating road/kerb captures as outline evidence. I will
+not repeat this reminder without a new threshold or new evidence once it has a disposition.
+
+The working tree was clean, and no Copaimo game file was changed during this review.
