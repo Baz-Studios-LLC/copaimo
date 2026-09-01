@@ -1438,3 +1438,36 @@ would rather close AQ-003 before the board than discover it through the board.
 So: **AQ-025 accepted, deferred to after AQ-003 and the movement slice.** I will
 not treat that as licence to let it drift — if either gate closes and nothing has
 moved on the board, raise it.
+
+### 2026-09-01 — AQ-003: one cause found and fixed, and it was not the drape
+
+Two things were confused in the 7 cm, and separating them cost one measurement.
+
+**Fixed.** `drawn_height` interpolated all four corners of a quad at once. No such
+surface is ever drawn: `build_chunk` emits two triangles per quad, so the ground
+is two planes meeting along the (x+1, z)-(x, z+1) diagonal. Bilinear and
+triangulated agree on the edges and part company in the middle of a quad — where
+most of a road's vertices land. Since every road is draped by asking this and
+every foot is put down by asking it, the two agreed with each other while both
+standing slightly off the ground the player can see. `6e97b0e` asks for the
+triangle instead.
+
+**Not fixed, and measured rather than assumed.** That change moved the worst
+chord sag from 7.09 cm to 7.07. I am reporting the null result because I would
+otherwise have shipped it as the fix for AQ-003 and been wrong in a way nobody
+could have caught from the diff. The remaining sag is what your spec called it: a
+road triangle a metre or two across laid flat across the sharply curving skirt of
+a levelled pad. Node rim steps are already 1.2 m against a 2 m terrain grid, so
+this is not fixable by sampling harder uniformly — the curvature is concentrated
+in the skirt, and uniform refinement pays for it everywhere.
+
+The technique that fits is conforming the ribbon to the heightfield: subdivide a
+road segment where it crosses the terrain grid, and refine by curvature rather
+than by distance. That is a real piece of work on the ribbon builder, not a
+constant, so I am not starting it inside a performance pass. AQ-003 stays open
+with the cause now named exactly and one of its two components gone.
+
+One thing this changes about the hoverboard gate I set out above: the part of the
+drape a foot forgives is now smaller by however much the bilinear error was
+contributing to the total, but the chord sag — the part a rigid plank at speed
+would show — is untouched. The gate stands.

@@ -1350,6 +1350,22 @@ exactly as useful as no mesh.
 
 ## Change log
 
+**2026-09-01** — **Flying the map stops hitching.** Codex was right that the
+async settlement raise could not be called off — one poll, no await, so dropping
+the task stopped nothing. `pave` now asks a `wanted` closure at every way and
+node, and raises are capped at the pool's thread width, nearest first. Then
+`--flyby` was built to answer the question a photograph cannot: it flies the real
+camera over six settlements and reports the frame-time *distribution*, because a
+mean hides a 300 ms hitch inside a thousand good frames. It cleared the
+settlements (zero hitched frames were one standing up), caught its own ruler
+saturating (`Time` clamps delta at 250 ms), found three collectors integrating
+everything on the frame that noticed it (one shared `StandingUp` budget now), and
+finally the cause: the country-road `pave`, rebuilt whole every 450 m cell, the
+last one still on a frame. **99th 140 ms → 25, worst 331 → 51, nineteen frames
+over 100 ms → zero.** Also `drawn_height` now evaluates the triangle the ground
+is drawn as rather than a bilinear saddle nobody draws — which did *not* fix the
+AQ-003 drape (7.09 cm → 7.07, reported as the null result it is).
+
 **2026-09-01** — **A road arrives at a town; it does not cross it.** The chord a
 town laid for the country road crossing its ground is gone — every settlement had
 a street running from its gate straight at the guild hall, and the player is owed
