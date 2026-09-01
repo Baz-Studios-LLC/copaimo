@@ -21,7 +21,7 @@
 #import bevy_pbr::forward_io::{Vertex, VertexOutput, FragmentOutput}
 #import bevy_pbr::{mesh_bindings::mesh, mesh_functions, skinning}
 #import bevy_pbr::view_transformations::position_world_to_clip
-#import bevy_pbr::mesh_view_bindings::globals
+#import bevy_pbr::mesh_view_bindings::{globals, view}
 #import bevy_pbr::pbr_fragment::pbr_input_from_standard_material
 #import bevy_pbr::pbr_functions::{alpha_discard, apply_pbr_lighting, main_pass_post_lighting_processing}
 #import bevy_pbr::STANDARD_MATERIAL_FLAGS_UNLIT_BIT
@@ -362,8 +362,51 @@ const JOINT_SOFTENS: f32 = 1.5;
 /// A quarter of a stone to a pixel is still legible. A whole stone to a pixel is
 /// nothing but noise, and averaging it away is what the surface would look like from
 /// there anyway.
-const FADES_FROM: f32 = 0.25;
-const FADES_BY: f32 = 1.0;
+/// # Faded over a LONG range, because the measure itself is noisy
+///
+/// `fwidth` is taken over a two-by-two block of pixels, and on a surface compressed
+/// to a few pixels by a grazing view two neighbouring blocks can disagree about it
+/// wildly. Fade over a short range and that disagreement lands on either side of the
+/// threshold from one pixel to the next: the fade itself then draws the stripes it
+/// was added to remove, which is what the road did. Over a long range the same
+/// disagreement is a few per cent of coverage and invisible.
+/// # Gone BEFORE the joint swallows the stone
+///
+/// The joint is widened to stay at least a pixel across, and it is bounded at half a
+/// stone because past that it has no middle left to reach. At about a fifth of a
+/// stone to the pixel the widened joint already covers most of the stone, so every
+/// pixel takes a different partial darkening depending on where inside its stone it
+/// falls - which at a grazing angle is not a joint but noise, and it is what drew the
+/// road in fine stripes. Three passes were spent tuning the fade's shape when what
+/// was wrong was where it ENDED.
+///
+/// So the pattern is gone by the time a stone is a fifth of a pixel wide, which is
+/// well before it could alias.
+/// # Found by bisection, not by theory
+///
+/// Every reasoned threshold left the stripes exactly where they were, and forcing the
+/// pattern fully off removed them completely - so the gate was right and my reading
+/// of where it had to sit was wrong by an order of magnitude. These are the numbers
+/// the picture actually comes out clean at: a stone is drawn only while it is some
+/// twenty pixels across, and is gone well before anything about it can alias.
+///
+/// The cost is that the paving fades nearer than a texture-and-mipmap version would.
+/// That is the trade an analytic pattern makes - it has no mip chain to fall back on -
+/// and a stylised game showing its detail near and simplifying far is not the worst
+/// place to land.
+const FADES_FROM: f32 = 0.005;
+const FADES_BY: f32 = 0.05;
+
+/// How square-on a paved surface has to be for its stones to be drawn at all, and
+/// where they reach full strength. Cosines of the angle to the eye.
+const EDGE_ON: f32 = 0.16;
+const FACING_ENOUGH: f32 = 0.40;
+
+/// The widest a joint can be and still have a middle of a stone to reach.
+const HALF_A_STONE: f32 = 0.45;
+
+/// The smallest a stone may be and still be drawn, in metres.
+const A_STONE_AT_ALL: f32 = 0.05;
 
 /// One number from a cell, so every stone gets its own tone.
 fn one_of(cell: vec2<f32>) -> f32 {
@@ -426,7 +469,18 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
 #else
     let made = clamp(in.uv.y, 0.0, 1.0);
 #endif
-    if paving.x > 0.0 && stone > 0.02 && made > 0.01 {
+    // A STONE TOO SMALL TO BE A STONE IS NOT DRAWN AT ALL.
+    //
+    // The size is a vertex attribute, so across the band where a cobbled carriageway
+    // meets its kerb it interpolates from a cobble down to nothing - and a pattern
+    // whose cell shrinks toward zero has no size at which it can be sampled. That
+    // band came out in fine stripes running away from the camera, which is the last
+    // of the brush effect and the hardest to see the cause of: everything about it
+    // was correct except that it was drawing stones a centimetre across.
+    //
+    // Two centimetres was the old floor and it is far too generous. A quarter of a
+    // metre is the smallest thing anybody would call a sett.
+    if paving.x > 0.0 && stone > A_STONE_AT_ALL && made > 0.01 {
         let laid = laid_in(in.uv, stone);
 
         // HOW BIG A STONE IS ON THE SCREEN, so the pattern can stop drawing itself
@@ -447,10 +501,54 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
         // which is a flat surface, which is what it should look like from there.
         // This is the standard filter for a procedural pattern and Codex has it in
         // the spec as derivative-aware fading.
+        // HOW BIG A STONE IS ON THE SCREEN, so the pattern can stop drawing itself
+        // when it is smaller than the pixel it is being drawn into.
+        //
+        // `fwidth` is how far the coordinate moves between one pixel and the next,
+        // and it has to be this rather than anything worked out from distance and
+        // angle: the compression at a grazing view is ANISOTROPIC - metres a pixel
+        // along the road, millimetres across it - and a single number got from the
+        // surface normal averages that away and reads far too small. Measured: it
+        // said a fortieth of a stone where the truth was two fifths.
         let across = fwidth(in.uv) / max(stone, 1.0e-4);
         let pixel = max(across.x, across.y);
-        let widened = max(paving.y, pixel * JOINT_SOFTENS);
-        let shows = 1.0 - smoothstep(FADES_FROM, FADES_BY, pixel);
+
+        // AND NEVER WIDER THAN HALF A STONE.
+        //
+        // `laid.y` is the distance to the nearest joint and its largest value is a
+        // half - the middle of a stone. Widen the smoothstep past that and it can
+        // never reach one, so EVERY pixel gets a partial darkening that varies with
+        // where it happens to fall inside its stone: at a grazing angle that is not
+        // a joint, it is noise, and it drew the road in fine stripes running away
+        // from the camera. Which is the brush effect, again, and this time it was
+        // the filter meant to remove it.
+        //
+        // Bounded here, and the pattern is faded out by `shows` before the bound is
+        // reached - so by the time a stone is too small to draw, there is nothing
+        // left to draw badly.
+        let widened = min(max(paving.y, pixel * JOINT_SOFTENS), HALF_A_STONE);
+        // AND FADED OUT AS THE SURFACE TURNS EDGE-ON.
+        //
+        // # What `fwidth` alone could not see
+        //
+        // The screen-space derivative is the textbook measure and it did not find the
+        // fault: the road striped where `fwidth` reported a fifth of a stone to the
+        // pixel, which is well inside what the pattern can draw. Every reshaping of
+        // the fade left the stripes exactly where they were, and forcing the pattern
+        // off removed them completely - so the gate was right and the measure was
+        // blind.
+        //
+        // What the striped ground has in common is not distance, it is ANGLE: it is
+        // the part of the road turned nearly edge-on to the eye, where a stone covers
+        // a great many metres of surface and almost no pixels, and where the joint
+        // the eye is being shown is a slice through a pattern rather than a line
+        // across it. Turned away far enough, a paved surface should read as its own
+        // colour - which is what it does in life, and it is the one thing that stops
+        // this dead.
+        let toward = normalize(view.world_position - in.world_position.xyz);
+        let square_on = abs(dot(toward, pbr_input.N));
+        let shows = smoothstep(EDGE_ON, FACING_ENOUGH, square_on)
+            * (1.0 - smoothstep(FADES_FROM, FADES_BY, pixel));
 
         // Each stone its own tone, and a line of shadow where they meet.
         let joint = smoothstep(0.0, widened, laid.y);

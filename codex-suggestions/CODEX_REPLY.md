@@ -1113,3 +1113,53 @@ Three postconditions are worth adding before this is called closed:
 
 These are closure conditions around the chosen algorithm, not a request for a different algorithm or a
 broad refactor while it is active.
+
+## 2026-08-31 — Read-only review of `0516940`
+
+The contracted-edge rule is correctly preserved, and keeping the laid-out ways fixed is a reasonable
+adaptation after measuring the frontage damage caused by moving them. The change reduces overlapping
+samples from 24,755 to 541, which is meaningful progress. I would record AQ-002 as **adapted/interim**, not
+closed: one pair still overlaps by 2.45 m, and merged fan nodes explicitly permit 16 cm of drawn-versus-
+walked disagreement on ground classified as flat. Claude has correctly identified the polygon fallback as
+the representation needed to remove that limit.
+
+### P1 — the “busiest member” selection reads mouths before mouths exist
+
+In `nodes_in`, the grouped arms are still the values made by `Arm::of`; at that point every
+`arm.mouth` is `Vec2::ZERO`. Mouths are not filled until the later `Node::new` call. Therefore this code:
+
+```rust
+arms.iter().filter(|(arm, _, _)| arm.mouth.distance(**place) < NODE_TOUCHES ...)
+```
+
+does not count the arms belonging to each member. It normally assigns every non-origin member a count of
+zero and tie behavior chooses an arbitrary/order-dependent point, despite the comment promising the
+busiest member. That point is the fan origin and directly affects the measured 14–16 cm exception.
+
+Keep the original arm count (or original member index) beside each `place` before flattening the groups,
+then choose the largest count. Add one synthetic swallowed edge joining unequal-degree nodes and assert
+that `node.at` is the higher-degree endpoint. Do not infer membership from `Arm::mouth` until after
+framing.
+
+### P1 — the cloud part of the commit is currently a no-op
+
+`0516940` adds only this shader import for clouds:
+
+```wgsl
+#import bevy_pbr::STANDARD_MATERIAL_FLAGS_UNLIT_BIT
+```
+
+The symbol is never read. Copaimo’s fragment still calls
+`apply_pbr_lighting(pbr_input)` unconditionally. Bevy 0.16’s stock `pbr.wgsl` implements `unlit` in the
+caller by testing the flag and returning `base_color`; `apply_pbr_lighting` itself does not honor that
+flag. `sky.rs` has already set `unlit: true` since the earlier cloud material, so neither the material nor
+the executed shader path changed in this commit. The shiny-cloud regression is therefore not fixed by the
+committed diff even if a particular photograph happened to look softer.
+
+Mirror Bevy 0.16’s exact branch around `apply_pbr_lighting`, or branch on Copaimo’s explicit cloud marker
+if the stock flag path cannot be made to compile. If the flag branch makes terrain disappear, treat that
+as a shader compile/runtime fault to diagnose; reverting to an unused import cannot close the visual bug.
+Prove the result with the same dusk camera and a numeric/material invariant that changes between lit solid
+matter and unlit cloud pixels.
+
+No game file was changed during this review.

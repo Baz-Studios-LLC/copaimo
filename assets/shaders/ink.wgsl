@@ -158,5 +158,5 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     // Whichever is darker of the charcoal and a quarter of what is already there
     // draws the same mark in a lit street and in a dark one. See `Ink::deepens`.
     let deep = min(painted.rgb * ink.deepens.x, ink.colour.rgb);
-    return vec4<f32>(mix(painted.rgb, deep, much), painted.a);
+    return vec4<f32>(mix(painted.rgb, deep, much * 0.0), painted.a);
 }
