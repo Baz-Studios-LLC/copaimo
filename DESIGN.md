@@ -1350,6 +1350,20 @@ exactly as useful as no mesh.
 
 ## Change log
 
+**2026-09-01** — **A road arrives at a town; it does not cross it.** The chord a
+town laid for the country road crossing its ground is gone — every settlement had
+a street running from its gate straight at the guild hall, and the player is owed
+the finding. One edge, one derivation: the paving fade now completes exactly at
+`town_reaches`, where the road actually hands over, instead of twenty metres past
+it; lamps light the town's own streets rather than marching out along the dirt;
+and the audit measures against the trimmed roads the mesh draws. Same day:
+**settlements are worked out off the frame.** Raising a city cost the frame that
+noticed it two to six seconds (`what_a_raise_costs` measures every site); the
+layout and paving now build on the async pool while the player closes the last
+nine hundred metres, and the photo and drive harnesses — which teleport, and get
+no such head start — hold until `Raising` is quiet. Every `--photo` logs its
+frame rate and live mesh count, the first numbers toward the AQ-007 baseline.
+
 **2026-08-31** — **A junction is a place.** `network` splits every road where
 another ends on it or crosses it, and `Node` owns the ground between them: one rim,
 measured once by bearing, carrying the carriageway across the middle and the footway

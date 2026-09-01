@@ -294,6 +294,7 @@ fn a_city_kerb(terrain: &crate::world::terrain::Terrain) -> Option<(Vec2, Vec2)>
 pub fn start_the_route(
     mut driving: ResMut<Driving>,
     terrain: Option<Res<crate::world::terrain::TerrainSource>>,
+    raising: Res<crate::world::town::Raising>,
     towns: Res<crate::world::town::Built>,
     mut wardens: Query<&mut Transform, With<crate::player::Player>>,
     mut orbit: ResMut<crate::camera::Orbit>,
@@ -338,6 +339,12 @@ pub fn start_the_route(
 
     if left > 0 {
         driving.phase = Phase::Settling(left - 1);
+        return;
+    }
+    // The warden was teleported here, so the towns get no head start: hold at
+    // the last settling frame until everything in reach is standing. A route
+    // driven through a town still being worked out measures nothing.
+    if raising.busy() {
         return;
     }
 

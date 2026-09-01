@@ -6762,6 +6762,31 @@ fn country_roads_near(
         .collect()
 }
 
+/// The settlements being worked out off the main thread, keyed like `Built`.
+///
+/// # Six seconds is not a frame
+///
+/// Laying a city out and paving it costs whole seconds - measured by
+/// `what_a_raise_costs`: two to six for a city's 140-310 thousand vertices,
+/// a third of one for a village - and all of it used to happen inside a single
+/// frame of `raise_the_towns` the moment the player came within reach. On foot
+/// that read as a stutter at every gate; flying the editor around the map it
+/// was a freeze at every settlement, reported as something killing the frame
+/// rate. The work is the same; it just does not belong on the frame.
+#[derive(Resource, Default)]
+pub struct Raising(std::collections::HashMap<u32, bevy::tasks::Task<(Layout, Mesh)>>);
+
+impl Raising {
+    /// Whether any settlement is still being worked out.
+    ///
+    /// The photo and drive harnesses TELEPORT to their subjects, so the
+    /// nine-hundred-metre head start a walking player gives the tasks is nought
+    /// frames for them - they hold until this is quiet instead.
+    pub fn busy(&self) -> bool {
+        !self.0.is_empty()
+    }
+}
+
 /// Builds the settlements near the player, and takes down the ones left behind.
 ///
 /// # Why it is keyed on the site and not on chunks
@@ -6779,6 +6804,7 @@ pub fn raise_the_towns(
     mut footing: Local<Option<(Handle<Mesh>, Handle<crate::shade::Shaded>)>>,
     terrain: Res<TerrainSource>,
     mut built: ResMut<Built>,
+    mut raising: ResMut<Raising>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
     standing: Query<(Entity, &FromSite)>,
 ) {
@@ -6802,21 +6828,59 @@ pub fn raise_the_towns(
         }
         let key = index as u32;
         let near = site.at.distance(here) < RAISES_WITHIN;
-        if near == built.standing.contains_key(&key) {
-            continue;
-        }
         if !near {
-            // Left behind: take the whole town down at once.
-            for (entity, from) in &standing {
-                if from.0 == key {
-                    commands.entity(entity).despawn();
+            // Left behind: take the whole town down at once, and stop working
+            // one out - dropping the task is the cancellation.
+            if built.standing.remove(&key).is_some() {
+                for (entity, from) in &standing {
+                    if from.0 == key {
+                        commands.entity(entity).despawn();
+                    }
                 }
             }
-            built.standing.remove(&key);
+            raising.0.remove(&key);
+            continue;
+        }
+        if built.standing.contains_key(&key) || raising.0.contains_key(&key) {
             continue;
         }
 
-        let layout = lay_the_site_out(plan, key as usize, site);
+        // OFF THE FRAME AND ONTO THE POOL. Everything here is arithmetic over
+        // the immutable terrain - the entities are spawned below, when it lands.
+        let ground = terrain.0.clone();
+        raising.0.insert(
+            key,
+            bevy::tasks::AsyncComputeTaskPool::get().spawn(async move {
+                let plan = ground.plan();
+                let site = &plan.sites()[index];
+                let layout = lay_the_site_out(plan, index, site);
+                let paving = pave(
+                    &layout.ways,
+                    &layout.nodes,
+                    &layout.opens,
+                    &ground,
+                    site.at,
+                    f32::from(u8::from(site.city)),
+                );
+                (layout, paving)
+            }),
+        );
+    }
+
+    // WHAT THE POOL HAS FINISHED comes up this frame.
+    let landed: Vec<u32> = raising
+        .0
+        .iter_mut()
+        .filter(|(_, task)| task.is_finished())
+        .map(|(key, _)| *key)
+        .collect();
+    for key in landed {
+        let Some(task) = raising.0.remove(&key) else {
+            continue;
+        };
+        let (layout, paving) =
+            bevy::tasks::futures_lite::future::block_on(task);
+        let site = &plan.sites()[key as usize];
         // What this settlement actually cost, per settlement.
         //
         // Codex's invariant: adding more provisional lot candidates must not silently
@@ -6924,7 +6988,6 @@ pub fn raise_the_towns(
         // precisely the shape of "still no roads" reported three times against a
         // paving mesh that measured correctly every time it was asked.
         let surface = road_surface.get_or_insert_with(|| materials.add(crate::shade::road_material()));
-        let paving = pave(&layout.ways, &layout.nodes, &layout.opens, &terrain.0, site.at, f32::from(u8::from(site.city)));
         commands.spawn((
             FromSite(key),
             Mesh3d(meshes.add(paving)),
@@ -7192,6 +7255,7 @@ pub struct TownPlugin;
 impl Plugin for TownPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Built>()
+            .init_resource::<Raising>()
             .init_resource::<DirtLaid>()
             .add_systems(
                 Update,
@@ -8225,6 +8289,42 @@ mod tests {
         println!("drew dev/art/map/town_plan.png");
     }
 
+    /// WHAT one raise costs, which is what a frame pays when a town comes up.
+    #[test]
+    #[ignore = "a measurement of the real world"]
+    fn what_a_raise_costs() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        for (index, site) in plan.sites().iter().enumerate() {
+            if site.ranch {
+                continue;
+            }
+            let start = std::time::Instant::now();
+            let layout = lay_the_site_out(plan, index, site);
+            let laid = start.elapsed();
+            let start = std::time::Instant::now();
+            let mesh = pave(
+                &layout.ways,
+                &layout.nodes,
+                &layout.opens,
+                &terrain,
+                site.at,
+                f32::from(u8::from(site.city)),
+            );
+            let built = start.elapsed();
+            let verts = mesh.count_vertices();
+            println!(
+                "  {} at ({:6.0},{:6.0}): laid {:3} streets in {:5.1} ms, meshed {:6} vertices in {:5.1} ms",
+                if site.city { "city" } else { "town" },
+                site.at.x, site.at.y,
+                layout.streets.len(),
+                laid.as_secs_f32() * 1000.0,
+                verts,
+                built.as_secs_f32() * 1000.0,
+            );
+        }
+    }
+
     /// WHERE the real world's gateways are, for pointing a camera at one.
     #[test]
     #[ignore = "a measurement of the real world"]
@@ -8361,6 +8461,19 @@ mod tests {
     #[test]
     fn standing_in_a_settlement_raises_it() {
         let (mut app, site) = a_world_with_a_town();
+        // The work happens off the frame now - see `Raising` - so arriving
+        // spawns a task and the town lands a breath later. Update until it is
+        // quiet, bounded so a task that never lands is a failure rather than a
+        // hang; a village takes about a third of a second of pool time.
+        for _ in 0..600 {
+            app.update();
+            if !app.world().resource::<Raising>().busy()
+                && app.world().resource::<Built>().standing.len() >= 1
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
         app.update();
 
         let standing = app

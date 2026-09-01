@@ -678,6 +678,7 @@ fn write_the_report(photo: &Photo, taking: &Taking) {
 pub fn take_the_photo(
     mut commands: Commands,
     photo: Res<Photo>,
+    raising: Res<crate::world::town::Raising>,
     mut taking: ResMut<Taking>,
     mut quit: EventWriter<AppExit>,
     clock: Res<crate::sky::TimeOfDay>,
@@ -685,6 +686,8 @@ pub fn take_the_photo(
     suns: Query<&DirectionalLight>,
     points: Query<&PointLight>,
     spots: Query<&SpotLight>,
+    diagnostics: Res<bevy::diagnostic::DiagnosticsStore>,
+    drawn: Query<(), With<Mesh3d>>,
 ) {
     let Some(shot) = photo.shot(&taking) else {
         // NOTHING YET IS NOT NOTHING LEFT.
@@ -702,6 +705,13 @@ pub fn take_the_photo(
         return;
     };
 
+    // A photograph teleports to its subject, so the head start a walking player
+    // gives the town tasks is nought frames here. Hold the settle clock until
+    // every settlement in reach is standing - evidence of a town half up is
+    // evidence of nothing.
+    if raising.busy() && !taking.taken {
+        return;
+    }
     taking.waited += 1;
     if taking.taken {
         // A few frames after the shutter, so the file is written before either the
@@ -753,6 +763,15 @@ pub fn take_the_photo(
         shot.at.y,
         out.display()
     );
+    // WHAT THE FRAME COSTS FROM HERE, in the same breath as what it shows. The
+    // settle frames are as real a flight as the editor's, so a viewpoint that
+    // kills the frame rate says so in every photograph taken from it.
+    if let Some(fps) = diagnostics
+        .get(&bevy::diagnostic::FrameTimeDiagnosticsPlugin::FPS)
+        .and_then(bevy::diagnostic::Diagnostic::smoothed)
+    {
+        info!("this viewpoint runs at {fps:.0} fps with {} meshes alive", drawn.iter().count());
+    }
     commands
         .spawn(Screenshot::primary_window())
         .observe(save_to_disk(out));
