@@ -1048,9 +1048,35 @@ impl Terrain {
         let (tx, tz) = (gx - x0, gz - z0);
 
         let corner = |cx: f32, cz: f32| self.height(cx * step, cz * step);
-        let near = corner(x0, z0) * (1.0 - tx) + corner(x0 + 1.0, z0) * tx;
-        let far = corner(x0, z0 + 1.0) * (1.0 - tx) + corner(x0 + 1.0, z0 + 1.0) * tx;
-        near * (1.0 - tz) + far * tz
+        let (near_left, near_right) = (corner(x0, z0), corner(x0 + 1.0, z0));
+        let (far_left, far_right) = (corner(x0, z0 + 1.0), corner(x0 + 1.0, z0 + 1.0));
+
+        // THE TRIANGLE THE GROUND IS ACTUALLY DRAWN AS, not a bilinear patch
+        // over the same four corners.
+        //
+        // # One quad, two answers
+        //
+        // This interpolated all four corners at once, which is a saddle surface
+        // - and no such surface is ever drawn. `build_chunk` emits two triangles
+        // per quad, `[a, c, b]` and `[b, c, d]`, so the ground is two flat planes
+        // meeting along the diagonal from (x+1, z) to (x, z+1). Bilinear and
+        // triangulated agree only on the edges and disagree most in the middle
+        // of a quad, which is where most of a road's vertices land.
+        //
+        // Every road in the game is draped by asking this, and every foot is put
+        // down by asking it too - so the two agreed with each other and both
+        // stood a little off the ground the player can see. The same fact with
+        // two derivations, which is the fault this file keeps paying for.
+        //
+        // Which triangle a point is in follows from that diagonal: it runs where
+        // the two offsets sum to one.
+        if tx + tz <= 1.0 {
+            // The near-left triangle, from its right-angled corner.
+            near_left + (near_right - near_left) * tx + (far_left - near_left) * tz
+        } else {
+            // And the far-right one, from its own.
+            far_right + (far_left - far_right) * (1.0 - tx) + (near_right - far_right) * (1.0 - tz)
+        }
     }
 
     /// The generated ground with the rivers cut into it, and nothing else.
