@@ -4637,6 +4637,36 @@ const STONE_VARIES: f32 = 0.16;
 // up. A kerb the colour of the road is a road with a step in it.
 static ROAD_KERB: LazyLock<[f32; 4]> = LazyLock::new(|| srgb(0.30, 0.29, 0.28));
 
+/// How far a point is from the nearest edge a kerb draws a line along, in metres.
+///
+/// # A line the outline pass cannot find
+///
+/// `ink` finds where DEPTH breaks, and a kerb barely breaks it: twenty-two
+/// centimetres at ten metres is two per cent of the distance, which is the floor of
+/// what the pass can tell from noise, while a building is metres of break and sails
+/// over it. So the buildings, the benches and the lamps all carry a line and the
+/// kerbs - the one edge a street is actually read by - carry none.
+///
+/// Lowering the pass's threshold far enough to catch a kerb would catch every fold of
+/// ground with it. What a kerb has that a terrain fold does not is that we know
+/// exactly where it is: it is a station in a cross-section this file writes. Codex's
+/// research calls this out as the case for authored line data - the inner lines a
+/// silhouette method cannot infer - and this is that.
+///
+/// Carried per vertex as a DISTANCE rather than a flag, so the shader can hold the
+/// line to a constant width in pixels however far away it is, instead of a band that
+/// thins to nothing at range.
+/// What a point carries when there is no kerb anywhere near it, in metres.
+const AWAY_FROM_ANY_KERB: f32 = 99.0;
+
+fn along_a_kerb(across: f32, cut: &RoadSection) -> f32 {
+    let top = cut.carriage + cut.batter;
+    [cut.carriage, top, cut.half]
+        .into_iter()
+        .map(|edge| (across.abs() - edge).abs())
+        .fold(f32::MAX, f32::min)
+}
+
 /// The kerb's FACE, which is darker than its top.
 ///
 /// # Where a road's dark edge is supposed to come from
@@ -6395,7 +6425,7 @@ fn pave(
                 // and the next one is half a stone further on, whichever way the
                 // road happens to be pointing. See `laid_in`.
                 uvs.push([across, laid_so_far + length * part]);
-                made.push([arriving.stone_contrast, 0.0]);
+                made.push([arriving.stone_contrast, along_a_kerb(across, &cut)]);
             }
         }
         laid_so_far += length;
@@ -6532,6 +6562,13 @@ fn pave(
                 [(at - node.at).dot(laid_across), (at - node.at).dot(laid_along)],
             )
         };
+        // The same three edges the ribbon draws, as radii here - see `along_a_kerb`.
+        let along_a_kerb_at = |away: f32, rim: &[f32]| -> f32 {
+            [rim[0], rim[1], rim[4]]
+                .into_iter()
+                .map(|edge| (away - edge).abs())
+                .fold(f32::MAX, f32::min)
+        };
 
         // THE MIDDLE, one vertex the whole fan turns about.
         let middle = places.len() as u32;
@@ -6540,7 +6577,8 @@ fn pave(
         normals.push(normal);
         colours.push(colour);
         uvs.push(uv);
-        made.push([arriving.stone_contrast, 0.0]);
+        // The middle of a junction is as far from a kerb as anything gets.
+        made.push([arriving.stone_contrast, AWAY_FROM_ANY_KERB]);
 
         let rim = places.len() as u32;
         for turn in &node.turns {
@@ -6603,7 +6641,10 @@ fn pave(
                     normals.push(normal);
                     colours.push(colour);
                     uvs.push(uv);
-                    made.push([arriving.stone_contrast, 0.0]);
+                    made.push([
+                        arriving.stone_contrast,
+                        along_a_kerb_at(far(station), &reach),
+                    ]);
                 }
             }
         }
@@ -6693,7 +6734,8 @@ fn pave(
                 // A SQUARE HAS ITS OWN FRAME and is already laid in it: the flags
                 // run with the place's own facing rather than with the world's.
                 uvs.push([local.x, local.y]);
-                made.push([arriving.stone_contrast, 0.0]);
+                // A square has no kerb through it.
+                made.push([arriving.stone_contrast, AWAY_FROM_ANY_KERB]);
             }
         }
         let wide = across as u32 + 1;

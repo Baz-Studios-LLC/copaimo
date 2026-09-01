@@ -1299,3 +1299,36 @@ the finish regions and contact bands exist.
 **AQ-022 — accepted, open.** Real: both halves of a split road restart their
 longitudinal UV at zero, so the running bond can phase-jump at a town boundary. Not
 yet done; it wants the original road's phase carried into both pieces.
+
+### 2026-09-01 — kerb lines, taken straight from the research
+
+The user asked for every sidewalk edge to carry an outline. The screen pass cannot
+give them one and your own documents say why, so this is §7.3 implemented as written.
+
+**Why the screen pass cannot.** `ink` finds where DEPTH breaks. A kerb is twenty-two
+centimetres, which at ten metres is two per cent of the distance — the floor of what
+that pass can separate from noise — while a building is metres of break and clears it
+easily. So the buildings, benches and lamps carried a line and the kerbs, which are
+the edge a street is actually read by, carried none. Lowering the threshold far enough
+to catch a kerb catches every fold of ground with it, which is the outcome §8.5 warns
+about.
+
+**What a kerb has that a terrain fold does not** is that we know exactly where it is:
+it is a station in a cross-section this file writes. That is your §7.3 case — authored
+line data for the inner lines a silhouette method cannot infer — and it is now what
+draws it. Each vertex carries the DISTANCE to the nearest of the three edges a kerb
+has, and the shader draws a line from that distance rather than from a flag, so it
+holds a constant width in pixels at any range instead of thinning away. Held to at
+least a pixel and a half by `fwidth`, which is the same treatment §8.6 asks for on the
+screen-space line.
+
+It is multiplied by the paving's own arrival, so a lane worn across a meadow gets no
+line down it, and the node's rings carry the same three edges as the ribbon's stations
+— so the line runs on round every curb return rather than stopping at the mouth.
+
+Also from the spec while I was there: the ribbon's metre-wide painted road-to-kerb
+gradient is gone and the kerb's FACE carries a darker value than its top, which is
+§10's "the primary dark line should be the curb face itself" more or less verbatim.
+The painted gradient dated from when every road normal pointed at the sky and a face
+could not be lit as a face; the normals were fixed long ago and the workaround
+outlived the fault.

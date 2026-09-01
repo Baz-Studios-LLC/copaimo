@@ -418,6 +418,15 @@ const HALF_A_STONE: f32 = 0.45;
 /// band left against the kerb reads as a gutter, which is what is there anyway.
 const A_STONE_AT_ALL: f32 = 0.45;
 
+/// How wide the line along a kerb's edges is, in metres and in pixels at least.
+const KERB_LINE_WIDE: f32 = 0.045;
+const KERB_LINE_PIXELS: f32 = 1.6;
+
+/// The charcoal it is drawn in, and the most of a surface it may leave - the same
+/// bargain `ink` strikes, so the two kinds of line match where both appear.
+const KERB_LINE: vec3<f32> = vec3<f32>(0.05, 0.055, 0.07);
+const KERB_LINE_DEEPENS: f32 = 0.25;
+
 /// One number from a cell, so every stone gets its own tone.
 fn one_of(cell: vec2<f32>) -> f32 {
     return fract(sin(dot(cell, vec2<f32>(127.1, 311.7))) * 43758.545);
@@ -600,6 +609,35 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     // march about as the view moves, which is the one thing that would make this
     // read as a bug rather than as a style.
     out.color = vec4<f32>(banded(out.color.rgb), out.color.a);
+
+    // THE KERB DRAWS ITS OWN LINE.
+    //
+    // `ink` finds where depth breaks, and a kerb barely breaks it - twenty-two
+    // centimetres at ten metres is two per cent of the distance, the floor of what
+    // that pass can tell from noise. So every building, bench and lamp carried a line
+    // and the kerbs, which are the edge a street is actually read by, carried none.
+    //
+    // A kerb knows where it is: the mesh writes the distance to the nearest of its
+    // three edges into the channel beside the paving amount - see `along_a_kerb`.
+    // Drawn from a DISTANCE rather than a flag, the line can be held to a constant
+    // width in pixels at any range instead of thinning away, which is the whole
+    // reason the hull was replaced by a screen pass in the first place.
+    //
+    // Only where there IS a kerb: `kerb.y` is the paving's own arrival, so a country
+    // lane worn across a meadow gets no line down it.
+#ifdef VERTEX_UVS_B
+    let off_the_kerb = abs(in.uv_b.y);
+    let wide = max(KERB_LINE_WIDE, fwidth(in.uv_b.y) * KERB_LINE_PIXELS);
+    // How paved this point is, which is also whether it has a kerb at all - the two
+    // arrive together. Read again here rather than borrowed from the paving branch
+    // above, which lives behind a different guard.
+    let has_a_kerb = clamp(in.uv_b.x, 0.0, 1.0);
+    let on_the_line = (1.0 - smoothstep(wide * 0.5, wide, off_the_kerb)) * has_a_kerb;
+    out.color = vec4<f32>(
+        mix(out.color.rgb, min(out.color.rgb * KERB_LINE_DEEPENS, KERB_LINE), on_the_line),
+        out.color.a,
+    );
+#endif
 
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
 
