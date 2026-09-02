@@ -736,13 +736,24 @@ def bed(parts, at):
 
 
 def table(parts, at, wide, deep):
-    parts.append(box((wide, deep, 0.10), (at[0], at[1], 0.80), "counter"))
+    """A table, at the height a table is.
+
+    The top stood at 0.85 m, which is a hand's breadth above any table anybody
+    eats at - 0.72 to 0.76 is the whole ordinary range - and beside a 1.70 m
+    warden that reads as furniture built for somebody taller. Found by Codex
+    checking the kit against real dimensions rather than by looking, which is
+    exactly the kind of fault a photograph hides: nothing in the scene disagrees
+    with it until a person stands next to it.
+    """
+    top, thick = 0.75, 0.10
+    parts.append(box((wide, deep, thick), (at[0], at[1], top - thick * 0.5), "counter"))
+    leg = top - thick
     for sx in (-1.0, 1.0):
         for sy in (-1.0, 1.0):
             parts.append(
                 box(
-                    (0.10, 0.10, 0.75),
-                    (at[0] + sx * (wide * 0.5 - 0.12), at[1] + sy * (deep * 0.5 - 0.12), 0.38),
+                    (0.10, 0.10, leg),
+                    (at[0] + sx * (wide * 0.5 - 0.12), at[1] + sy * (deep * 0.5 - 0.12), leg * 0.5),
                     "inbeam",
                 )
             )

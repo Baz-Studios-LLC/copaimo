@@ -58,6 +58,7 @@ tools=(
   see_the_bridge    # assembles a bridge in a scene to look at.
   see_the_character # assembles the character in a scene to look at.
   see_the_town      # assembles a town in a scene to look at.
+  see_the_trees     # the five species side by side, lit and as silhouettes.
   sheet             # renders one figure from four sides. Takes --figure.
 )
 

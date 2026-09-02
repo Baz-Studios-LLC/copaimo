@@ -264,11 +264,24 @@ def _bench(parts, at, span=1.9, turn=0.0):
     sin, cos = math.sin(turn), math.cos(turn)
     out = lambda x, y: (at[0] + x * cos - y * sin, at[1] + x * sin + y * cos)
     seat = out(0.0, 0.0)
-    parts.append(box((span, 0.5, 0.11), (seat[0], seat[1], 0.46), "timber", tilt=(0.0, 0.0, turn)))
-    parts.append(box((span, 0.12, 0.42), (seat[0], seat[1], 0.75), "timber", tilt=(0.0, 0.0, turn)))
+    # SEAT HEIGHT, which was 0.515 m and is 0.45 - the top of the ordinary range
+    # rather than seven centimetres above it. A bench too high leaves a 1.70 m
+    # warden's feet dangling, which is the tell that reads as toy furniture.
+    # Codex measured it; the back and the legs come down with it so the bench is
+    # the same bench, sitting properly.
+    top, thick = 0.45, 0.11
+    parts.append(
+        box((span, 0.5, thick), (seat[0], seat[1], top - thick * 0.5), "timber", tilt=(0.0, 0.0, turn))
+    )
+    parts.append(
+        box((span, 0.12, 0.42), (seat[0], seat[1], top + 0.24), "timber", tilt=(0.0, 0.0, turn))
+    )
     for side in (-1.0, 1.0):
         leg = out(side * span * 0.38, 0.0)
-        parts.append(box((0.09, 0.46, 0.46), (leg[0], leg[1], 0.23), "steel", tilt=(0.0, 0.0, turn)))
+        stands = top - thick
+        parts.append(
+            box((0.09, 0.46, stands), (leg[0], leg[1], stands * 0.5), "steel", tilt=(0.0, 0.0, turn))
+        )
 
 
 def city_green():
