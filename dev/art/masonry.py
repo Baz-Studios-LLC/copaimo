@@ -262,6 +262,37 @@ def lean(span, deep, high, at, colour, drops_to=0.0):
     return _from_points("lean", places, faces, at, colour)
 
 
+def wobble(seed, salt):
+    """A repeatable number in 0..1, so a thing built twice is the same thing."""
+    value = math.sin(seed * 12.9898 + salt * 78.233) * 43758.5453
+    return value - math.floor(value)
+
+
+def lump(radius, at, colour, squash=0.82, seed=0, rough=0.34, facets=2):
+    """One rounded mass, flattened a little and out of round on purpose.
+
+    The shape language every piece of foliage in the game is made of. It lived in
+    `trees.py` as `clump`, which meant anything else wanting a rounded mass had to
+    settle for a box - and a garden's fruit tree did exactly that: a 1.7 m cube on
+    a thin trunk, which photographs as a green crate hovering over the beds while
+    every tree in the wood behind it is a properly faceted clump.
+
+    `seed` makes each mass its own shape while keeping the whole thing repeatable,
+    so two builds of one figure are the same file.
+    """
+    bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=facets, radius=radius, location=at)
+    ball = bpy.context.object
+    # Pushed along its own direction from the middle, so the mass keeps its centre
+    # and only its OUTLINE changes. Scaling would move the whole thing.
+    for at_vertex, vertex in enumerate(ball.data.vertices):
+        out = vertex.co.normalized()
+        much = 1.0 - rough * 0.5 + rough * wobble(seed + 1, at_vertex + 1)
+        vertex.co = out * (radius * much)
+    ball.scale = (1.0, 1.0, squash)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    return (ball, colour)
+
+
 def tube(radius, deep, at, colour, sides=12, tilt=None):
     bpy.ops.mesh.primitive_cylinder_add(vertices=sides, radius=radius, depth=deep, location=at)
     obj = bpy.context.object

@@ -27,9 +27,13 @@ Heights are real metres against a 1.8 m warden.
 
 import math
 import os
+import sys
 
 import bpy
 import mathutils
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import masonry  # noqa: E402  (the shared primitives - see `masonry.lump`)
 
 # Each species: how tall it stands, in metres, against a 1.8 m person.
 # These are terrain-core's own species names: a file is matched to the tree pool
@@ -137,31 +141,17 @@ LEAVES_WANDER = 0.34
 LEAVES_FACETS = 2
 
 
-def wobble(seed, salt):
-    """A repeatable number in 0..1, so a tree built twice is the same tree."""
-    value = math.sin(seed * 12.9898 + salt * 78.233) * 43758.5453
-    return value - math.floor(value)
-
-
 def clump(radius, at, squash=0.82, seed=0, rough=LEAVES_WANDER):
-    """One mass of foliage: a lump, flattened a little, out of round on purpose.
+    """One mass of foliage. See `masonry.lump`, which is the shape itself.
 
-    See `LEAVES_WANDER`. `seed` makes each mass its own shape while keeping the
-    whole tree repeatable - two builds of the same species are the same file.
+    Kept as a name here because a tree's foliage has its own defaults - see
+    `LEAVES_WANDER` and `LEAVES_FACETS` - and because every species reads better
+    for saying `clump`. The geometry is masonry's, so a garden's fruit tree and a
+    tree in the wood behind it are made of the same thing.
     """
-    bpy.ops.mesh.primitive_ico_sphere_add(
-        subdivisions=LEAVES_FACETS, radius=radius, location=at
-    )
-    ball = bpy.context.object
-    # Pushed along its own direction from the middle, so the mass keeps its centre
-    # and only its OUTLINE changes. Scaling would move the whole thing.
-    for at_vertex, vertex in enumerate(ball.data.vertices):
-        out = vertex.co.normalized()
-        much = 1.0 - rough * 0.5 + rough * wobble(seed + 1, at_vertex + 1)
-        vertex.co = out * (radius * much)
-    ball.scale = (1.0, 1.0, squash)
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    return ball
+    return masonry.lump(
+        radius, at, None, squash=squash, seed=seed, rough=rough, facets=LEAVES_FACETS
+    )[0]
 
 
 def oak():

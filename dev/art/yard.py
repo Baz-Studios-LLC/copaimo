@@ -98,25 +98,63 @@ def _path(parts, wide, deep, opening=3.0):
 
 
 def garden():
-    """A kitchen garden: beds in rows, a fruit tree, a water butt."""
+    """A kitchen garden: beds, a fruit tree, a water butt.
+
+    # Nobody plants two identical halves
+
+    This laid four beds as `for side in (-1.0, 1.0)` by `for row in range(2)`,
+    which is a perfect mirror about the path: four identical rectangles, each with
+    three identical drills, reflected. Photographed from the gate it is the most
+    mechanical thing in the yard, and symmetry like that is the strongest tell
+    there is that nothing here was placed by hand.
+
+    The beds are still beds in rows - this is a kitchen garden and rows are the
+    point - but each one now has its own size, its own offset and its own number
+    of drills, drawn from `masonry.wobble` so the garden is the same garden every
+    build. The mirror is broken by the beds differing, not by scattering them.
+    """
     parts = []
     _rail_fence(parts, WIDE, DEEP, "timber", rails=1, tall=0.72)
     _path(parts, WIDE, DEEP)
 
-    # Four beds, two either side of the path, each with its rows showing.
-    for side in (-1.0, 1.0):
-        for row in range(2):
-            at = (side * WIDE * 0.27, (row - 0.5) * DEEP * 0.42)
-            parts.append(box((WIDE * 0.34, DEEP * 0.3, 0.26), (at[0], at[1], 0.13), "infloor"))
-            for drill in range(3):
-                along = (drill / 2.0 - 0.5) * DEEP * 0.22
-                parts.append(
-                    box((WIDE * 0.3, 0.22, 0.3), (at[0], at[1] + along, 0.34), "leafy")
-                )
+    for bed, (side, row) in enumerate([(-1.0, 0), (-1.0, 1), (1.0, 0), (1.0, 1)]):
+        # Its own dimensions, within a hand's breadth of its neighbours' - a bed
+        # somebody dug rather than a bed somebody stamped out.
+        wide = WIDE * (0.30 + 0.07 * masonry.wobble(bed, 11))
+        deep = DEEP * (0.26 + 0.07 * masonry.wobble(bed, 12))
+        at = (
+            side * WIDE * (0.25 + 0.04 * masonry.wobble(bed, 13)),
+            (row - 0.5) * DEEP * 0.42 + (masonry.wobble(bed, 14) - 0.5) * DEEP * 0.05,
+        )
+        parts.append(box((wide, deep, 0.26), (at[0], at[1], 0.13), "infloor"))
+        # And its own number of drills, which is what a bed's crop decides.
+        drills = 2 + int(masonry.wobble(bed, 15) * 2.99)
+        for drill in range(drills):
+            along = (drill / max(drills - 1, 1) - 0.5) * deep * 0.62
+            parts.append(
+                box((wide * 0.88, 0.22, 0.3), (at[0], at[1] + along, 0.34), "leafy")
+            )
 
-    # A fruit tree in the back corner, and a butt to water from.
-    parts.append(tube(0.13, 1.5, (WIDE * 0.32, DEEP * 0.3, 0.75), "timber", sides=7))
-    parts.append(box((1.7, 1.7, 1.1), (WIDE * 0.32, DEEP * 0.3, 2.05), "leafy"))
+    # A FRUIT TREE, made of the same thing the wood behind it is made of.
+    #
+    # This was a 1.7 m cube of "leafy" on a thin trunk, and it photographs as a
+    # green crate hovering over the beds - `qc_bench.png`. Every tree in the game
+    # is built from faceted masses; see `masonry.lump`, which the species files
+    # now share, so a garden tree and a field tree belong to one world.
+    trunk = (WIDE * 0.32, DEEP * 0.3)
+    parts.append(tube(0.13, 1.6, (trunk[0], trunk[1], 0.8), "timber", sides=7))
+    for mass, (dx, dy, dz, radius) in enumerate(
+        [(0.0, 0.0, 1.85, 0.82), (-0.34, 0.22, 1.62, 0.52), (0.31, -0.18, 1.66, 0.46)]
+    ):
+        parts.append(
+            masonry.lump(
+                radius,
+                (trunk[0] + dx, trunk[1] + dy, dz),
+                "leafy",
+                squash=0.86,
+                seed=40 + mass,
+            )
+        )
     parts.append(tube(0.42, 0.9, (-WIDE * 0.36, DEEP * 0.32, 0.45), "timber", sides=10))
     return parts, 2.6
 
@@ -192,8 +230,22 @@ def store():
             parts.append(
                 box((s * 0.8, s * 0.8, h * 0.7), (x * WIDE * 0.34, y * DEEP * 0.5, h + h * 0.35), "board")
             )
-    for side in (-1.0, 1.0):
-        parts.append(tube(0.38, 0.9, (side * WIDE * 0.34, -DEEP * 0.3, 0.45), "timber", sides=10))
+    # Two barrels, and NOT a mirrored pair - they stood at exactly opposite
+    # offsets, which is the same fault the garden beds had. Somebody put these
+    # down while carrying something else.
+    for barrel, (across, along, radius) in enumerate(
+        [(-0.36, -0.28, 0.38), (0.29, -0.34, 0.34)]
+    ):
+        parts.append(
+            tube(
+                radius,
+                0.9,
+                (across * WIDE, along * DEEP, 0.45),
+                "timber",
+                sides=10,
+                tilt=(0.0, 0.0, masonry.wobble(barrel, 21) * 0.6),
+            )
+        )
     # Planks under a sheet, leaning on the back fence.
     parts.append(
         box((WIDE * 0.5, 0.6, 1.5), (WIDE * 0.16, DEEP * 0.36, 0.75), "timber",
