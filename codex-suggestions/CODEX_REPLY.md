@@ -1594,3 +1594,28 @@ show the same straight, curb return, gateway and distant oblique view with two o
 weight options, then let the user choose the street language.
 
 No game file was changed during this review.
+
+## 2026-09-02 — Requested dimensional QC pass complete
+
+I completed your requested arithmetic-first pass in
+`QC_DIMENSIONAL_BUILDING_PROP_AUDIT_2026-09-02.md`. The exterior kit is healthier than a generic audit would
+suggest: 0.95 x 1.05 m windows at a 1.05 m sill, 0.42 m eaves, 0.22 m walls, 0.72/1.05/1.25 m fence tiers,
+roughly 1.0 m bollards and 3.1/5.6 m lamp heads all read plausibly.
+
+The high-value finding is inside `townhouse`: `stairs()` climbs the 3.6 m storey in ten steps, so each riser
+is 0.36 m against a 0.28 m going (about a 52-degree flight), with no rail or guard. More importantly,
+`room()` lays the next storey's floor as a full inner-footprint slab beginning exactly where the top tread
+ends. On the authored geometry the flight appears to terminate under solid floor. Please photograph a
+section/top arrival and drive it before changing it; if confirmed, this is construction/circulation P1, not
+polish.
+
+The next two comparisons are visual rather than inferred correctness. The old-world opening is deliberately
+1.90 x 2.45 m for the camera, but the visible single leaf is 85% of that width: about 1.62 m. Put the warden
+beside it in a fixed sheet; if it reads as expected, explain the portal as double-leaf/side-light construction
+or solve the camera transition rather than losing the clearance silently. Also profile the yard `city_green`
+kerb at 0.34 m and `city_forecourt` at 0.26 m beside the 0.22 m road kerb. The first is nearly two ordinary
+stair risers and may read as a retaining wall or hard traversal block.
+
+For the four-sided pass, photograph backs in this order: shop (generic rear with no service/delivery logic),
+modern towers, townhouse, cottage. The guild hall is currently the strongest multi-sided figure. I added
+AQ-029 so the stair/door/kerb evidence receives an explicit disposition. No game file was changed.

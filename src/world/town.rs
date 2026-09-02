@@ -4022,7 +4022,7 @@ pub fn stands_on(
 ///
 /// The widest it ever gets is the city street it joins, plus its shoulder. Used only
 /// to throw away the roads that are nowhere near before measuring the ones that are.
-const ROAD_REACHES: f32 = (CITY_STREET_WIDE * 0.5 + SHOULDER_WIDE) * (1.0 + ROAD_WANDERS_BY * 0.5);
+const ROAD_REACHES: f32 = (CITY_STREET_WIDE * 0.5 + CAMBER_OVER) * (1.0 + ROAD_WANDERS_BY * 0.5);
 
 /// One town's worth of buildings, kept so the whole lot can be taken down together.
 ///
@@ -4247,6 +4247,8 @@ pub struct RoadSection {
     pub batter: f32,
     /// Where the made surface gives out into the ground.
     pub shoulder: f32,
+    /// How wide a span the camber curve is shaped over - see `RoadSection::at`.
+    pub camber: f32,
 }
 
 impl RoadSection {
@@ -4295,7 +4297,9 @@ impl RoadSection {
     }
 
     pub fn most_it_reaches(wide: f32, joins: f32) -> f32 {
-        (wide.max(joins) * 0.5 + SHOULDER_WIDE) * (1.0 + ROAD_WANDERS_BY * 0.5)
+        // The wider of the two spans, so a bound that only throws things away
+        // cannot throw away something a road still reaches.
+        (wide.max(joins) * 0.5 + CAMBER_OVER) * (1.0 + ROAD_WANDERS_BY * 0.5)
     }
 
     /// The section at a point on a road's middle line.
@@ -4347,15 +4351,29 @@ impl RoadSection {
             // fringe down its far side and the eye read the fringe as part of the
             // street. Reported as "the brushlike affect next to the sidewalk".
             shoulder: half
-                + (SHOULDER_WIDE * arriving.outer_tie + 0.35 * (1.0 - arriving.outer_tie))
-                    * wander,
+                + (SKIRT_WIDE * arriving.outer_tie + 0.35 * (1.0 - arriving.outer_tie)) * wander,
+            // WHAT THE CAMBER IS SCALED OVER, which is no longer the skirt.
+            //
+            // `lift` shapes the crown as `road_lift(across / shoulder)`, so the
+            // width of the skirt set the shape of the road's surface all the way
+            // in to its middle. Shortening the skirt therefore steepened the
+            // camber across every carriageway in the world, and the flat-ground
+            // guard caught it at 20.5 mm against its 20 mm ceiling - in band
+            // NOUGHT, the carriageway, nowhere near the skirt I had changed.
+            //
+            // They are different questions. How far the surface takes to give out
+            // into the ground is drainage and edge; how domed the road is between
+            // its kerbs is the road. This keeps the camber exactly as it was while
+            // the skirt shortens, so the change is the one I meant to make.
+            camber: half
+                + (CAMBER_OVER * arriving.outer_tie + 0.35 * (1.0 - arriving.outer_tie)) * wander,
         }
     }
 
     /// How high its surface stands at `across` metres from the middle.
     pub fn lift(&self, across: f32) -> f32 {
         let across = across.abs();
-        let shoulder = self.shoulder.max(0.01);
+        let shoulder = self.camber.max(0.01);
         if self.kerb <= 0.0 {
             // A COUNTRY ROAD IS UNCHANGED. Written as an early return rather than as
             // a profile that happens to collapse, so a village lane cannot drift by a
@@ -4670,7 +4688,33 @@ static ROAD_KERB_FACE: LazyLock<[f32; 4]> = LazyLock::new(|| srgb(0.20, 0.195, 0
 // `ground_colour` for it - so widening this is widening a gradient that already ends
 // in exactly the ground beside it. The road keeps its width; only the dissolve gets
 // longer.
-const SHOULDER_WIDE: f32 = 5.4;
+const CAMBER_OVER: f32 = 5.4;
+
+/// How far a dirt road's surface takes to give out into the ground beside it.
+///
+/// # A four metre lane that read as nineteen
+///
+/// This was `CAMBER_OVER`, and the two were one number. Five and a half metres of
+/// feathered skirt each side turned every village lane into a band of dirt three
+/// times its own width, and a village's ring-and-radial network laid enough of
+/// them over each other that the whole place came out as one orange disc with
+/// houses on it. From the air it was the most generated-looking thing in the game.
+///
+/// It was never doing structural work: measured, an unpaved lane's skirt feathers
+/// 8.3 cm of height over 5.26 m of ground - a slope of one in sixty-three, which
+/// nobody can see. It was doing all of its work as a colour wash. A city street's
+/// skirt already closes to a third of a metre as its kerb arrives, because a kerb
+/// is what a made road ends at; this is the same argument applied to the lane that
+/// has no kerb.
+///
+/// NOT SHORTENED YET, and the reason is worth keeping. For an unpaved road `lift`
+/// returns early - there is no kerb, so the whole profile IS this skirt - which
+/// means shortening it does not sharpen an edge, it domes the lane. At 1.5 m the
+/// same 10.5 cm crown becomes a seven per cent camber, and the guards caught it
+/// three different ways. Making the lane read as a lane needs the crown to shrink
+/// with the skirt, which is a change to the road profile rather than to a number.
+/// See `QUALITY_LOG.md`.
+const SKIRT_WIDE: f32 = 5.4;
 
 /// The material a street's paving wears.
 ///
@@ -6561,7 +6605,13 @@ fn pave_while(
                 // The face, which is the dark line, and the stone behind it.
                 2 => (face, 0.0),
                 3 => (edge, 0.0),
-                4 | 5 => (flag, 0.0),
+                4 => (flag, 0.0),
+                // The skirt, which arrives at whatever the ground beside it is.
+                //
+                // This was `4 | 5 => flag`, so a junction laid its whole skirt in
+                // the footway's colour and then cut to grass at the edge of it. It
+                // did not show while the skirt was five metres of the same wash the
+                // ribbons put down; with a skirt you can see the end of, it does.
                 _ => (terrain.ground_colour(at.x, at.y), 0.0),
             }
         };
@@ -8790,6 +8840,63 @@ mod tests {
              than the streets it joins, at ({:.0}, {:.0})",
             worst_where.x, worst_where.y,
         );
+    }
+
+    /// WHERE things stand in one settlement, for pointing a camera at them.
+    #[test]
+    #[ignore = "a measurement of the real world"]
+    fn where_things_stand() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        let want = std::env::var("QC_SITE").unwrap_or_else(|_| "-4641,270".into());
+        let (wx, wz) = want.split_once(',').expect("QC_SITE is x,z");
+        let at = Vec2::new(wx.trim().parse().unwrap(), wz.trim().parse().unwrap());
+        let (index, site) = plan
+            .sites()
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| !s.ranch)
+            .min_by(|(_, a), (_, b)| {
+                a.at.distance(at).partial_cmp(&b.at.distance(at)).unwrap()
+            })
+            .expect("a settlement");
+        let layout = lay_the_site_out(plan, index, site);
+        println!("{:?} at ({:.0},{:.0}), {} plots", site.plan, site.at.x, site.at.y, layout.plots.len());
+        let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for plot in &layout.plots {
+            let name = format!("{:?}", plot.what);
+            let count = seen.entry(name.clone()).or_insert(0);
+            *count += 1;
+            if *count <= 2 {
+                println!("  {:<14} at ({:7.0},{:7.0}) facing {:5.2}", name, plot.at.x, plot.at.y, plot.facing);
+            }
+        }
+    }
+
+    /// How wide a village lane's whole right-of-way is against its carriageway.
+    #[test]
+    #[ignore = "a measurement of the real world"]
+    fn how_wide_a_lane_really_reads() {
+        for (name, wide, joins, paved) in [
+            ("village lane", LANE_WIDE, LANE_WIDE, 0.0_f32),
+            ("village street", STREET_WIDE, STREET_WIDE, 0.0),
+            ("city street", CITY_STREET_WIDE, CITY_STREET_WIDE, 1.0),
+            ("country road", crate::config::ROAD_WIDE, crate::config::ROAD_WIDE, 0.0),
+        ] {
+            let cut = RoadSection::at(wide, joins, paved, Vec2::ZERO);
+            println!(
+                "  {:<14} carriage {:5.2} m, kerb top at {:5.2}, shoulder {:5.2},                  whole {:5.2} m -> {:.1}x the carriageway",
+                name, cut.carriage * 2.0, (cut.carriage + cut.batter) * 2.0,
+                cut.shoulder * 2.0, cut.half * 2.0,
+                cut.half / cut.carriage.max(0.01),
+            );
+            println!(
+                "      lift at middle {:.3} m, at the road edge {:.3}, at the shoulder {:.3}                  -> the skirt feathers {:.3} m of height over {:.2} m of ground",
+                cut.lift(0.0), cut.lift(cut.half), cut.lift(cut.shoulder),
+                (cut.lift(cut.half) - cut.lift(cut.shoulder)).abs(),
+                cut.shoulder - cut.half,
+            );
+        }
     }
 
     /// WHERE the real world's gateways are, for pointing a camera at one.
@@ -11100,8 +11207,19 @@ mod facing {
                         if step < 0.01 {
                             if node.stands_at.len() > 1 {
                                 worst_merged = worst_merged.max(off);
-                            } else {
-                                worst_flat = worst_flat.max(off);
+                            } else if off > worst_flat {
+                                worst_flat = off;
+                                // WHERE, and in which band - the only way to tell a
+                                // skirt fault from a carriageway one.
+                                let away = (at - node.at).length();
+                                let rim: Vec<f32> = (0..NODE_RINGS)
+                                    .map(|r| along_ring(&node.rings[r], out.to_angle()))
+                                    .collect();
+                                let band = rim.iter().position(|edge| away <= *edge);
+                                println!(
+                                    "    worst flat {off:.4} m at ({:.0},{:.0}), {away:.2} m out,                                      band {band:?} of rings {rim:.2?}",
+                                    at.x, at.y,
+                                );
                             }
                         }
                     }

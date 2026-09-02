@@ -10,6 +10,7 @@ This directory is the collaboration boundary between Codex and Claude.
 
 ## Documents
 
+- [QC_DIMENSIONAL_BUILDING_PROP_AUDIT_2026-09-02.md](QC_DIMENSIONAL_BUILDING_PROP_AUDIT_2026-09-02.md) — Claude-requested measured QC of the building and prop kit against human construction: a P1 sealed/over-steep townhouse staircase finding, oversized old-world door leaf, city-yard kerb hierarchy, furniture and street-prop scale, plus a weakest-first four-sided building review.
 - [AAA_VISUAL_QUALITY_AND_DETAIL_PLAYBOOK_2026-09-01.md](AAA_VISUAL_QUALITY_AND_DETAIL_PLAYBOOK_2026-09-01.md) — a repo-specific visual target for the semi-cel-shaded world: five distance bands, hybrid materials, lighting/contact, lived-in settlement detail, road/ground influence, ecological vegetation, weather state, shore contact, selective ink, ambient VFX, a golden-route production pass, and measurable visual acceptance.
 - [HOVERBOARD_BLENDER_AND_GAMEPLAY_IMPLEMENTATION_SPEC_2026-09-01.md](HOVERBOARD_BLENDER_AND_GAMEPLAY_IMPLEMENTATION_SPEC_2026-09-01.md) — a Copaimo-specific production handoff for the user-requested pre-mount hoverboard: foldable Blender asset, Warden deploy/ride/stow animation, Bevy events, kinematic terrain/collision integration, deck foot planting, camera/audio/VFX, failure handling and proof criteria.
 - [HOVERBOARD_CONCEPT_SHEET_2026-09-01.png](HOVERBOARD_CONCEPT_SHEET_2026-09-01.png) — character-matched orthographic, folding, stowed and riding design reference for the board.
