@@ -620,19 +620,107 @@ def _bays(length, windows, door, most=7):
 # ------------------------------------------------------------------ interiors
 
 
-def room(parts, wide, deep, storeys):
-    """A floor under every storey and a ceiling over the top one."""
+# A FLIGHT'S GEOMETRY, described once.
+#
+# The rise was `STOREY / 10` - 36 cm a step against a comfortable 15 to 22 - which
+# with a 28 cm going is a pitch of fifty-two degrees. That is a ladder with treads,
+# and it is the kind of fault arithmetic finds and photographs do not: nothing in
+# the room disagrees with it until somebody tries to climb it. Codex measured it.
+#
+# Eighteen steps at 20 cm and 28 cm going is thirty-six degrees, which is an
+# ordinary domestic staircase, and its 5.04 m run fits a cottage's 7.06 m of inner
+# depth with room to spare.
+STAIR_STEPS = 18
+STAIR_RISE = STOREY / STAIR_STEPS
+STAIR_RUN = 0.28
+STAIR_WIDE = 1.0
+
+# How much room a head needs above a tread.
+STAIR_HEADROOM = 2.0
+
+
+def stair_well(wide, deep, side=1.0):
+    """Where a flight sits, and the hole the floor above has to leave for it.
+
+    Returned as one rectangle so `stairs` and `room` cannot disagree about it. They
+    did: `room` laid a full-extent slab at every storey and the flight ran up into
+    the underside of it, so the stairs went nowhere at all. One fact, one place.
+    """
+    across = side * (wide * 0.5 - WALL - 0.55)
+    top = deep * 0.5 - WALL - 0.4
+    # THE FIRST STEP WHOSE HEAD WOULD HIT THE SLAB. Above this the floor has to be
+    # open, which is what makes a stairwell a stairwell rather than a cupboard.
+    clears = max(
+        1,
+        min(STAIR_STEPS, int((STOREY - STAIR_HEADROOM) / STAIR_RISE)),
+    )
+    well_from = top - (STAIR_STEPS - 1) * STAIR_RUN - STAIR_RUN * 0.5
+    well_to = top - (clears - 1) * STAIR_RUN + STAIR_RUN * 0.5
+    return {
+        "across": across,
+        "top": top,
+        "wide": STAIR_WIDE + 0.1,
+        "from": min(well_from, well_to),
+        "to": max(well_from, well_to),
+    }
+
+
+def room(parts, wide, deep, storeys, stair_side=None):
+    """A floor under every storey and a ceiling over the top one.
+
+    `stair_side` says which back corner a flight climbs in, if any: the floors
+    above the ground one are then laid AROUND its stairwell instead of straight
+    across it. See `stair_well`.
+    """
     inner = (wide - WALL * 2.0, deep - WALL * 2.0)
+    well = stair_well(wide, deep, stair_side) if stair_side is not None else None
     for storey in range(storeys):
         floor = storey * STOREY
-        parts.append(box((inner[0], inner[1], 0.10), (0.0, 0.0, floor + 0.05), "infloor"))
+        if well is None or storey == 0:
+            parts.append(
+                box((inner[0], inner[1], 0.10), (0.0, 0.0, floor + 0.05), "infloor")
+            )
+        else:
+            _floor_around(parts, inner, well, floor)
         # A beam across the room, which is most of what makes a ceiling read as one.
         parts.append(
             box((inner[0], 0.18, 0.22), (0.0, 0.0, floor + STOREY - 0.2), "inbeam")
         )
-    parts.append(
-        box((inner[0], inner[1], 0.10), (0.0, 0.0, storeys * STOREY - 0.05), "inwall")
+    if well is None:
+        parts.append(
+            box((inner[0], inner[1], 0.10), (0.0, 0.0, storeys * STOREY - 0.05), "inwall")
+        )
+    else:
+        _floor_around(parts, inner, well, storeys * STOREY - 0.10, colour="inwall")
+
+
+def _floor_around(parts, inner, well, floor, colour="infloor"):
+    """One floor, laid in strips that leave a rectangular void for a stairwell."""
+    hole = (
+        max(well["across"] - well["wide"] * 0.5, -inner[0] * 0.5),
+        min(well["across"] + well["wide"] * 0.5, inner[0] * 0.5),
+        max(well["from"], -inner[1] * 0.5),
+        min(well["to"], inner[1] * 0.5),
     )
+    # Four strips: in front of the void, behind it, and one either side of it.
+    strips = [
+        # across the full width, on the far side of the void
+        (-inner[0] * 0.5, inner[0] * 0.5, hole[3], inner[1] * 0.5),
+        (-inner[0] * 0.5, inner[0] * 0.5, -inner[1] * 0.5, hole[2]),
+        # and beside it, only as deep as the void is
+        (-inner[0] * 0.5, hole[0], hole[2], hole[3]),
+        (hole[1], inner[0] * 0.5, hole[2], hole[3]),
+    ]
+    for x0, x1, y0, y1 in strips:
+        if x1 - x0 <= 0.01 or y1 - y0 <= 0.01:
+            continue
+        parts.append(
+            box(
+                (x1 - x0, y1 - y0, 0.10),
+                ((x0 + x1) * 0.5, (y0 + y1) * 0.5, floor + 0.05),
+                colour,
+            )
+        )
 
 
 def stairs(parts, wide, deep, storeys, side=1.0):
@@ -645,18 +733,49 @@ def stairs(parts, wide, deep, storeys, side=1.0):
     """
     if storeys < 2:
         return
-    steps = 10
-    rise = STOREY / steps
-    run = 0.28
-    x = side * (wide * 0.5 - WALL - 0.55)
-    for step in range(steps):
+    well = stair_well(wide, deep, side)
+    for step in range(STAIR_STEPS):
         parts.append(
             box(
-                (1.0, run, rise),
-                (x, deep * 0.5 - WALL - 0.4 - step * run, rise * (step + 0.5)),
+                (STAIR_WIDE, STAIR_RUN, STAIR_RISE),
+                (
+                    well["across"],
+                    well["top"] - step * STAIR_RUN,
+                    STAIR_RISE * (step + 0.5),
+                ),
                 "inbeam",
             )
         )
+    # A HANDRAIL, because an open 3.6 m rise without one is the first thing anybody
+    # would notice about a room and the second thing they would fall down.
+    rail_tall = 0.95
+    for step in (0, STAIR_STEPS - 1):
+        parts.append(
+            box(
+                (0.07, 0.07, rail_tall),
+                (
+                    well["across"] - STAIR_WIDE * 0.5 + 0.05,
+                    well["top"] - step * STAIR_RUN,
+                    STAIR_RISE * (step + 1) + rail_tall * 0.5,
+                ),
+                "inbeam",
+            )
+        )
+    # The rail itself, following the flight's own pitch.
+    run = (STAIR_STEPS - 1) * STAIR_RUN
+    climb = (STAIR_STEPS - 1) * STAIR_RISE
+    parts.append(
+        box(
+            (0.07, math.hypot(run, climb), 0.07),
+            (
+                well["across"] - STAIR_WIDE * 0.5 + 0.05,
+                well["top"] - run * 0.5,
+                STAIR_RISE + climb * 0.5 + rail_tall,
+            ),
+            "inbeam",
+            tilt=(math.atan2(climb, run), 0.0, 0.0),
+        )
+    )
 
 
 # How wide and deep a fireplace is. The chimney is sized off the same numbers, so
@@ -1263,7 +1382,7 @@ def townhouse(open_door=True):
     shell(parts, wide, deep, 2, "plaster", doors=True, windows=True, openings=holes,
           back=blind_behind(wide, _bays(wide, True, door=False), fire[0]))
     if open_door:
-        room(parts, wide, deep, 2)
+        room(parts, wide, deep, 2, stair_side=1.0)
         stairs(parts, wide, deep, 2)
         hearth(parts, fire)
         table(parts, (-0.3, -0.9), 1.4, 1.0)
