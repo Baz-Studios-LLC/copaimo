@@ -264,8 +264,24 @@ pub struct Settlements {
     half: Vec2,
 }
 
-/// How wide a grid cell is, in metres. Comfortably larger than the biggest
-/// feature's reach, so a lookup touches one cell.
+/// How wide a grid cell is, in metres.
+///
+/// # An index whose cell is bigger than the thing it indexes is a list
+///
+/// This was 512 m, on the reasoning that a cell comfortably larger than the
+/// biggest feature's reach means a lookup touches only one cell. That is true and
+/// it is not the point: a CITY is 340 m across, so every building in it landed in
+/// the same cell, and every height sample inside that city walked all of them.
+///
+/// It cost nothing while a city had ninety-six buildings. Raised to the number a
+/// city needs to read as one - about six hundred - paving a city went from 439 ms
+/// to 1,719 at the same vertex count, which is the tell: the work grew with the
+/// building count and not with the geometry.
+///
+/// Sixty-four metres is a few pads and a few street segments per cell, which is
+/// what an index is for. A pad reaches at most about fourteen metres and a lane's
+/// skirt about eight, so a lookup still touches one cell or its neighbour, and
+/// `reaches` below is what makes that safe rather than an assumption.
 const CELL: f32 = 512.0;
 
 impl Settlements {

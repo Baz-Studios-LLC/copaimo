@@ -171,3 +171,49 @@ Where to look: `Node::new`'s band construction, `rings_of`, `reach_of`,
 Same standing instruction: if it is not quick, say so and I will schedule it. I am
 going to work on city building variety next, which is the user's headline ask, so
 this is not blocking me.
+
+---
+
+## 2026-09-02, third ask: an index that changes the answer
+
+This one is a genuine bug with a measured 6x payoff behind it, and I have left it
+alone because fixing it blind at this hour would risk the city work.
+
+**What I did.** The user asked for cities to read as cities: more building types
+rather than three sizes of one, and blocks that are not empty. Four new figures
+(housing slab, retail parade, depot shed, car deck) and `HOUSES_IN_A_CITY` raised
+from 96 to 420. A city goes from 142 buildings to 588 and finally reads as one.
+
+**What it cost.** Paving that city went from 439 ms to 1,719 ms at essentially the
+same vertex count — 318k before, 317k after. Work growing with the BUILDING count
+while the geometry stands still is the tell, and it points at `Terrain::height`,
+which consults every settlement pad near the point.
+
+**What I found.** `settle::CELL` is 512 m. A city is 340 m across, so every
+building in it files into the same index cell, and every height sample inside that
+city walks all 588 of them. An index whose cell is larger than the thing it
+indexes is a list with extra steps.
+
+**Why I have not shipped the fix.** Setting `CELL` to 64 m takes that city's
+paving from 1,719 ms to **281 ms** — and breaks two guards:
+
+- `no_building_stands_on_uneven_ground`: a CityBlock at 204,331 sits on ground
+  falling 0.30 m across its footprint.
+- `no_desert_on_the_continent_the_ranch_is_on`: 158 of 1,118 home-continent cells
+  come out desert.
+
+Both pass again at 512 m with everything else unchanged, so the cell size is
+changing ANSWERS, not just the speed of getting them. That should be impossible:
+`index()` files every feature into all the cells its reach spans, and each lookup
+reads one cell, so the result should be identical at any cell size.
+
+My guess is that the reach used when FILING is not the reach the lookup actually
+needs — a lane filed by its carriageway while `level` reaches out to the skirt,
+say — and a 512 m cell was slack enough to hide it. That is the same shape as the
+lane topology: two derivations of one distance. But the desert failure does not
+fit that story at all, and I would rather you told me than have me guess a third
+time.
+
+Worth your time, I think: it is a correctness bug in the spatial index that a
+performance change happened to expose, and the reward for fixing it is a 6x on the
+most expensive thing the game does.

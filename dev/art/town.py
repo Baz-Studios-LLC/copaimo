@@ -2118,6 +2118,202 @@ def tower(floors, wide=9.0, deep=9.0, crown="flat", lobby_open=True):
     return parts, top + 1.0
 
 
+def _street_storey(parts, wide, deep, tall, walls, hole=None):
+    """A ground storey with a real doorway in its street face.
+
+    # A doorway is a gap, not a picture of one
+
+    `doorways_in` finds the front wall by grouping the pieces that stand on the
+    ground and reach above head height, and then looks for a run of it that is open
+    from the floor upward. A figure whose body is one box has no gap in it and no
+    doorway, and the export gate says so - which is the gate doing its job: a
+    building nobody can walk into is scenery.
+
+    So the street face is built as two piers with a lintel over them, and the other
+    three sides as walls. Shared by every figure that wants an ordinary way in,
+    because four copies of this is four chances for one of them to be subtly
+    different.
+    """
+    hole = hole or DOOR_WIDE
+    pier = (wide - hole) * 0.5
+    for side in (-1.0, 1.0):
+        parts.append(box((pier, WALL, tall), (side * (wide - pier) * 0.5, -deep * 0.5, tall * 0.5),
+                         walls))
+    # Over the opening, so the wall is continuous above head height.
+    parts.append(box((hole, WALL, tall - DOOR_TALL),
+                     (0.0, -deep * 0.5, DOOR_TALL + (tall - DOOR_TALL) * 0.5), walls))
+    # And the three sides that are not the street.
+    parts.append(box((wide, WALL, tall), (0.0, deep * 0.5, tall * 0.5), walls))
+    for side in (-1.0, 1.0):
+        parts.append(box((WALL, deep, tall), (side * wide * 0.5, 0.0, tall * 0.5), walls))
+    # A floor inside it, so the way in leads somewhere rather than into the ground.
+    parts.append(box((wide - WALL * 2.0, deep - WALL * 2.0, 0.12), (0.0, 0.0, 0.06), "infloor"))
+
+
+def city_slab():
+    """A housing slab: a long low bar with a balcony on every floor.
+
+    # A city of towers is not a city
+
+    Every building a city had was `tower()` at a different height - block, tower
+    and spire are one function with five, nine and fourteen floors. So a city read
+    as one idea repeated at three sizes, which the user put plainly: different
+    sized ones that are all the same. What separates a city from a business park is
+    that its buildings do DIFFERENT JOBS and have different shapes because of it.
+
+    This is the one that houses people. Horizontal where a tower is vertical, so
+    the skyline gets a bar across it rather than another post: from a hilltop the
+    difference between a row of towers and towers standing among slabs is most of
+    what says city.
+    """
+    parts = []
+    floors, wide, deep = 4, 26.0, 11.0
+    tall = FLOOR_TALL * floors
+    parts.append(box((wide + 0.6, deep + 0.6, 0.16), (0.0, 0.0, 0.08), "concrete2"))
+    # A way in at the street, and the mass above it - see `_street_storey`.
+    _street_storey(parts, wide, deep, FLOOR_TALL, "concrete")
+    parts.append(box((wide, deep, tall - FLOOR_TALL),
+                     (0.0, 0.0, FLOOR_TALL + (tall - FLOOR_TALL) * 0.5), "concrete"))
+
+    # THE BALCONY RHYTHM, which is what makes a long wall read as dwellings.
+    #
+    # A slab with a flat face is a retaining wall. What says "people live here" is
+    # the repeat: one bay per home, the same bay all the way along, with the deck
+    # and the rail casting their own shadow line under each floor.
+    bays = 7
+    for floor in range(1, floors):
+        z = FLOOR_TALL * (floor + 0.5)
+        for bay in range(bays):
+            across = (bay / (bays - 1.0) - 0.5) * wide * 0.86
+            for side in (-1.0, 1.0):
+                at = (across, side * deep * 0.5, z)
+                parts.append(box((wide / bays * 0.62, 0.1, FLOOR_TALL * 0.52),
+                                 (at[0], at[1] + side * 0.06, z + FLOOR_TALL * 0.05), "curtain"))
+                # The deck, and a rail standing on it.
+                parts.append(box((wide / bays * 0.86, 1.5, 0.12),
+                                 (at[0], at[1] + side * 0.75, z - FLOOR_TALL * 0.32), "concrete2"))
+                parts.append(box((wide / bays * 0.86, 0.08, 0.5),
+                                 (at[0], at[1] + side * 1.45, z - FLOOR_TALL * 0.05), "steel"))
+    # A stair core at each end, standing a storey above the roof.
+    for side in (-1.0, 1.0):
+        parts.append(box((3.4, deep * 0.7, tall + FLOOR_TALL * 0.8),
+                         (side * (wide * 0.5 - 1.7), 0.0, (tall + FLOOR_TALL * 0.8) * 0.5),
+                         "concrete2"))
+    parts.append(box((wide + 0.5, deep + 0.5, 0.4), (0.0, 0.0, tall + 0.2), "parapet"))
+    return parts, tall + FLOOR_TALL * 0.8 + 0.4
+
+
+def city_shops():
+    """A retail parade: glass at the street, a solid floor over it, one long canopy.
+
+    Two storeys, which is the scale a shopping street actually is - and the canopy
+    is the whole point. A continuous horizontal line at three metres, with shadow
+    under it, is what a street of shops looks like from anywhere; without it the
+    ground floor is just a bigger window.
+    """
+    parts = []
+    wide, deep = 22.0, 10.0
+    ground, upper = FLOOR_TALL * 1.35, FLOOR_TALL * 1.1
+    tall = ground + upper
+    parts.append(box((wide + 0.5, deep + 0.5, 0.16), (0.0, 0.0, 0.08), "concrete2"))
+    # DOOR_WIDE, not wider. A 2.6 m opening looks like a way in and the collision
+    # gap is 1.9 m, so half of what the player could see through was solid to them -
+    # which `the_doorway_you_can_see_is_the_one_you_can_walk_through` said outright.
+    _street_storey(parts, wide, deep, ground, "concrete")
+    parts.append(box((wide, deep, upper), (0.0, 0.0, ground + upper * 0.5), "concrete"))
+
+    # THE SHOPFRONTS, one per unit, with a pier between each.
+    units = 4
+    span = wide / units
+    for unit in range(units):
+        across = (unit + 0.5 - units * 0.5) * span
+        # NOT ACROSS THE WAY IN. Glazing hung over the doorway would seal it, and
+        # `doorways_in` would be right to report the parade as having none.
+        if abs(across) > 2.0:
+            parts.append(box((span * 0.82, 0.14, ground - 0.5),
+                             (across, -deep * 0.5 - 0.03, (ground - 0.5) * 0.5 + 0.2), "curtain"))
+        # A sign board over each, which is where a street gets its clutter.
+        parts.append(box((span * 0.6, 0.16, 0.5),
+                         (across, -deep * 0.5 - 0.12, ground - 0.2), "sign"))
+    # THE CANOPY: one piece, the length of the parade, on slim posts.
+    parts.append(box((wide + 0.8, 2.4, 0.16), (0.0, -deep * 0.5 - 1.1, ground - 0.05), "canopy"))
+    for post in range(units + 1):
+        across = (post / float(units) - 0.5) * wide
+        parts.append(box((0.12, 0.12, ground - 0.1),
+                         (across, -deep * 0.5 - 2.1, (ground - 0.1) * 0.5), "steel"))
+    # Windows upstairs, punched rather than glazed, because it is offices or flats.
+    for unit in range(units * 2):
+        across = (unit + 0.5 - units) * (wide / (units * 2.0))
+        parts.append(box((1.3, 0.12, 1.4), (across, -deep * 0.5 - 0.02, ground + upper * 0.5),
+                         "curtain2"))
+    parts.append(box((wide + 0.6, deep + 0.6, 0.45), (0.0, 0.0, tall + 0.22), "parapet"))
+    return parts, tall + 0.45
+
+
+def city_works():
+    """A depot: one long shed with a shallow roof, roller doors and roof vents.
+
+    The job no other figure in the kit does. A city that is all offices and homes
+    has nowhere its goods come from, and a shed is a completely different
+    silhouette - low, wide, and topped by plant rather than by a parapet.
+    """
+    parts = []
+    wide, deep, eaves = 24.0, 14.0, 6.4
+    parts.append(box((wide + 0.6, deep + 0.6, 0.18), (0.0, 0.0, 0.09), "concrete2"))
+    _street_storey(parts, wide, deep, eaves, "brick2")
+    # A SHALLOW ROOF, which is what says shed rather than house.
+    parts.append(wedge(wide + 1.0, deep + 1.0, 2.2, (0.0, 0.0, eaves), "steel", ridge="x"))
+    # Roller doors, tall enough for a cart, with a concrete apron in front.
+    for door in (-1.0, 1.0):
+        parts.append(box((5.2, 0.16, 4.6), (door * wide * 0.28, -deep * 0.5 - 0.04, 2.3), "trim"))
+        parts.append(box((5.6, 0.2, 0.3), (door * wide * 0.28, -deep * 0.5 - 0.2, 0.16), "concrete2"))
+    # A strip of clerestory glazing under the eaves, which is how a shed is lit.
+    for side in (-1.0, 1.0):
+        parts.append(box((wide * 0.9, 0.12, 0.9), (0.0, side * (deep * 0.5 + 0.02), eaves - 0.8),
+                         "curtain2"))
+    # Plant on the roof, and a flue.
+    parts.append(box((3.0, 2.4, 1.1), (-wide * 0.2, 0.0, eaves + 1.6), "steel"))
+    parts.append(tube(0.5, 3.0, (wide * 0.28, deep * 0.16, eaves + 2.4), "steel", sides=10))
+    return parts, eaves + 4.0
+
+
+def city_deck():
+    """A car deck: open floors with nothing but a rail between them.
+
+    The most distinctive silhouette a modern city has, and the cheapest to read:
+    every other building is a solid mass with holes in it, and this is holes with a
+    little mass between them. Stripes, from any distance.
+    """
+    parts = []
+    floors, wide, deep = 5, 20.0, 16.0
+    tall = FLOOR_TALL * floors
+    parts.append(box((wide + 0.5, deep + 0.5, 0.18), (0.0, 0.0, 0.09), "concrete2"))
+    # A way in on foot, which even a car deck has - see `_street_storey`.
+    _street_storey(parts, wide, deep, FLOOR_TALL, "concrete2")
+    # The decks themselves, and the spandrel band at the edge of each.
+    for floor in range(1, floors + 1):
+        z = FLOOR_TALL * floor
+        parts.append(box((wide, deep, 0.34), (0.0, 0.0, z + 0.17), "concrete"))
+        if floor < floors:
+            for face, span, off in (("x", wide, deep), ("y", deep, wide)):
+                for side in (-1.0, 1.0):
+                    at = ((0.0, side * off * 0.5) if face == "x" else (side * off * 0.5, 0.0))
+                    size = ((span, 0.18, 0.8) if face == "x" else (0.18, span, 0.8))
+                    parts.append(box(size, (at[0], at[1], z + 1.0), "parapet"))
+    # Corner columns and a stair tower, so it is held up by something.
+    for sx in (-1.0, 1.0):
+        for sy in (-1.0, 1.0):
+            parts.append(box((0.6, 0.6, tall), (sx * (wide * 0.5 - 0.4), sy * (deep * 0.5 - 0.4),
+                                                tall * 0.5), "concrete2"))
+    parts.append(box((4.0, 4.0, tall + FLOOR_TALL * 0.7),
+                     (-wide * 0.5 + 2.0, deep * 0.5 - 2.0, (tall + FLOOR_TALL * 0.7) * 0.5),
+                     "concrete2"))
+    # The ramp, which is the thing that tells you what it is for.
+    parts.append(box((wide * 0.42, 3.6, 0.3), (wide * 0.2, 0.0, FLOOR_TALL * 0.6),
+                     "concrete", tilt=(0.0, math.radians(-13.0), 0.0)))
+    return parts, tall + FLOOR_TALL * 0.7
+
+
 def city_block():
     """A mid-rise: the ordinary building of a city street."""
     return tower(5, wide=10.5, deep=9.0, crown="flat")
@@ -2204,6 +2400,10 @@ FIGURES = {
     "well": well,
     # The new: cities.
     "city_block": city_block,
+    "city_deck": city_deck,
+    "city_shops": city_shops,
+    "city_slab": city_slab,
+    "city_works": city_works,
     # The shut variants are NOT built. Every figure with a door has a closed form -
     # `open_door=False`, and `shut_the_door` below - and the game has never loaded
     # one: `Building::model` names the open model for every kind. So three models
@@ -2455,7 +2655,8 @@ def every_doorway():
     """
     found = []
     for name in ("cottage", "townhouse", "shop", "guild_hall",
-                 "city_block", "city_tower", "city_spire"):
+                 "city_block", "city_tower", "city_spire",
+                 "city_slab", "city_shops", "city_works", "city_deck"):
         masonry.fresh()
         parts, _ = FIGURES[name]()
         solids = []

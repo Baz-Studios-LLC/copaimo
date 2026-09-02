@@ -145,7 +145,15 @@ const HOUSES_IN_A_VILLAGE: usize = 16;
 //
 // The villages are untouched. They are the thing the genre argument is about, and
 // the contrast between the two is most of what makes a city feel like one.
-const HOUSES_IN_A_CITY: usize = 96;
+// Raised again, and the reason is the same one twice over. Ninety-six buildings
+// on thirty-six hectares is one building per block with the rest of the block
+// left as grass - photographed from above, a city read as a road network with
+// objects on it. The user: "Each city should read as a city."
+//
+// What fills a block is FRONTAGE, and the candidate lots are already laid along
+// every street the grid draws; this only says how many of them get built. The
+// cap is what was starving them, not the layout.
+const HOUSES_IN_A_CITY: usize = 420;
 
 const A_FRONTAGE_IS_AT_LEAST: f32 = 13.0;
 
@@ -600,10 +608,52 @@ impl District {
             //
             // AND THE FALL-OFF BELONGS TO THE CITY. It was one curve for all of
             // them, so seven cities had one skyline between them - see `Character`.
-            return if roll < character.towers(self) {
-                Building::CityTower
-            } else {
-                Building::CityBlock
+            // WHAT THIS PART OF THE CITY IS FOR, which is what the old world has
+            // always done and the city never did.
+            //
+            // This returned CityTower or CityBlock and nothing else - two heights
+            // of the same figure - so a city was one idea repeated and its
+            // districts were a name on a dice roll. A city reads as a city when
+            // its middle, its working quarter and its edge are visibly different
+            // PLACES, which means different buildings and not different sizes.
+            //
+            // The height fall-off is kept, because that is what a skyline is: the
+            // towers stay in the middle where `character.towers` puts them. What
+            // changes is what stands beside and beyond them.
+            let towers = character.towers(self);
+            return match self {
+                // Downtown: towers, and shopfronts filling the gaps between them.
+                District::Market => {
+                    if roll < towers {
+                        Building::CityTower
+                    } else if roll < towers + (1.0 - towers) * 0.62 {
+                        Building::CityShops
+                    } else {
+                        Building::CityBlock
+                    }
+                }
+                // The working quarter: offices, a depot, somewhere to park.
+                District::Crafts => {
+                    if roll < towers * 0.5 {
+                        Building::CityTower
+                    } else if roll < 0.45 {
+                        Building::CityBlock
+                    } else if roll < 0.72 {
+                        Building::CityWorks
+                    } else {
+                        Building::CityDeck
+                    }
+                }
+                // The edge, where people live: slabs, and the odd block.
+                District::Outskirts => {
+                    if roll < 0.58 {
+                        Building::CitySlab
+                    } else if roll < 0.82 {
+                        Building::CityBlock
+                    } else {
+                        Building::CityWorks
+                    }
+                }
             };
         }
         match self {
@@ -658,6 +708,23 @@ pub enum Building {
     /// Fifteen floors and a mast. THE tall thing, and the reason a city has a
     /// middle you can see from outside it. See `Building::is_landmark`.
     CitySpire,
+    /// A housing slab: a long low bar with a balcony on every floor.
+    ///
+    /// # A city of towers is not a city
+    ///
+    /// Every building a city had was `tower()` at a different height - block,
+    /// tower and spire are one function with five, nine and fourteen floors. So a
+    /// city read as one idea repeated at three sizes, which the user put plainly:
+    /// different sized ones that are all the same. What tells a city from a
+    /// business park is that its buildings do different JOBS and are shaped by
+    /// them. These four are those jobs.
+    CitySlab,
+    /// A retail parade: glass at the street under one long canopy.
+    CityShops,
+    /// A depot: a long shed with a shallow roof and roller doors.
+    CityWorks,
+    /// A car deck: open floors with a rail between them. Stripes, at any distance.
+    CityDeck,
 
     // ---------------------------------------------------------------- the yards
     //
@@ -697,6 +764,10 @@ impl Building {
             Building::Cottage => "models/town_cottage.glb",
             Building::Townhouse => "models/town_townhouse.glb",
             Building::CityBlock => "models/town_city_block.glb",
+            Building::CitySlab => "models/town_city_slab.glb",
+            Building::CityShops => "models/town_city_shops.glb",
+            Building::CityWorks => "models/town_city_works.glb",
+            Building::CityDeck => "models/town_city_deck.glb",
             Building::CityTower => "models/town_city_tower.glb",
             Building::CitySpire => "models/town_city_spire.glb",
             Building::Garden => "models/yard_garden.glb",
@@ -742,6 +813,13 @@ impl Building {
             Building::GuildHall => Vec2::new(26.0, 18.0),
             // Measured off the exported models, same as the rest.
             Building::CityBlock => Vec2::new(11.3, 10.8),
+            // Measured off the exports - 26.6 x 14.0, 22.8 x 12.6, 25.0 x 15.0 and
+            // 20.5 x 16.5 - with the margin `CityBlock` takes, so frontage and
+            // collision agree with what Blender actually built.
+            Building::CitySlab => Vec2::new(27.4, 14.8),
+            Building::CityShops => Vec2::new(23.6, 13.4),
+            Building::CityWorks => Vec2::new(25.8, 15.8),
+            Building::CityDeck => Vec2::new(21.3, 17.3),
             Building::CityTower => Vec2::new(10.8, 11.3),
             Building::CitySpire => Vec2::new(11.8, 12.8),
             // A lot's worth of ground, which is a cottage's - a yard stands on
@@ -778,7 +856,7 @@ impl Building {
     /// people gather, which is what makes a node a node.
     /// How many kinds there are.
     #[cfg(test)]
-    const KINDS: usize = 19;
+    const KINDS: usize = 23;
 
     /// Where each kind sits in `ALL`.
     ///
@@ -815,6 +893,10 @@ impl Building {
             Building::CityService => 16,
             Building::CityKiosk => 17,
             Building::CityForecourt => 18,
+            Building::CitySlab => 19,
+            Building::CityShops => 20,
+            Building::CityWorks => 21,
+            Building::CityDeck => 22,
         }
     }
 
@@ -846,6 +928,10 @@ impl Building {
         Building::CityService,
         Building::CityKiosk,
         Building::CityForecourt,
+        Building::CitySlab,
+        Building::CityShops,
+        Building::CityWorks,
+        Building::CityDeck,
     ];
 
     /// Whether a yard is enclosed, and how wide the way in is.
@@ -8728,6 +8814,12 @@ mod tests {
                     }
                     Building::Stall | Building::CityKiosk => [190, 168, 112],
                     Building::CityForecourt => [176, 178, 180],
+                    // The new city roster, each with its own value so a district
+                    // reads as a district on the map as well as on the ground.
+                    Building::CitySlab => [158, 152, 146],
+                    Building::CityShops => [186, 172, 140],
+                    Building::CityWorks => [140, 118, 104],
+                    Building::CityDeck => [166, 168, 170],
                 };
                 let half = plot.what.footprint() * 0.5;
                 let (sin, cos) = plot.facing.sin_cos();
@@ -9980,6 +10072,10 @@ mod doorstep {
                 "shop" => Building::Shop,
                 "guild_hall" => Building::GuildHall,
                 "city_block" => Building::CityBlock,
+                "city_slab" => Building::CitySlab,
+                "city_shops" => Building::CityShops,
+                "city_works" => Building::CityWorks,
+                "city_deck" => Building::CityDeck,
                 "city_tower" => Building::CityTower,
                 "city_spire" => Building::CitySpire,
                 other => panic!("town.txt names a figure the game has no kind for: {other}"),

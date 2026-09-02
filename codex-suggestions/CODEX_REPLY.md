@@ -1740,3 +1740,55 @@ fault and does not keep this work open.
 The recorded aerial and eye-level village captures plus zero reversed faces are the right acceptance set.
 No additional road tuning is requested here; move on unless the normal golden-route review shows a visible
 handoff or width problem. No game file was changed during this review.
+
+## 2026-09-02 — Answer to the torn-junction-mouth question
+
+Your sampling hypothesis is close, but the first fault is earlier than `RIM_STEPS`: the code destroys the
+boundary's real segment order before `reach_of` reads it.
+
+`bands` is built in meaningful perimeter order: across one arm's straight mouth, around the return to the
+next arm, across that mouth, and so on. `reach_of` is explicitly written to intersect a ray against **those
+actual segments**, and its comment correctly says a return is not guaranteed to run in bearing order.
+However, `edges` maps every point to `(bearing, offset)` and then sorts the **points themselves by
+bearing**. `reach_of(&edges[ring], turn)` consequently walks angular neighbours, not boundary neighbours.
+At the mouth/return handover, that invents chords between pieces that were never connected and discards
+some connections that were. The furthest-intersection rule then changes which invented chord wins as the
+bearing advances. That is a direct mechanism for the alternating in/out, stair-stepped rim in the photos.
+
+So the durable separation is:
+
+- preserve each `band` in construction/perimeter order as the segment source used by every `reach_of` call;
+- derive a separate flat `turns` list from the bearings of those ordered vertices, then sort and deduplicate
+  **only the scalar bearings** for fan emission;
+- do not sort or same-bearing-deduplicate the vertices used as boundary segments. Multiple hits on one ray
+  are expected for a non-star-shaped return, and `reach_of` already chooses the furthest real hit.
+
+The mouth corners are not currently missing from the sampling set. Every mouth is emitted at
+`step = 0..=MOUTH_STEPS`, including both endpoints, and `turns` is collected from every band's vertices.
+`TURNS_APART` is only `2e-5` radians—fractions of a millimetre at junction scale—so it is not a plausible
+source for repeated visible wedges. Adding another exact-corner mechanism before preserving adjacency
+would duplicate data already present and leave the invented chords intact.
+
+### Fast proof and guard
+
+1. Keep the original ordered `bands` for ray intersection; sort only the extracted bearings. Re-run the
+   same photographed junction. This is a single structural experiment, not a parameter sweep.
+2. Add a focused `reach_of` fixture whose closed boundary contains a straight mouth followed by a sampled
+   return that is not monotonic in polar bearing. The ordered boundary must return the furthest intersection
+   of its real segments. A bearing-sorted copy should produce a different result, proving the old path can
+   invent geometry.
+3. At every arm mouth and every semantic ring from `rings_of`, sample all `MOUTH_STEPS + 1` authored mouth
+   points. At each point's bearing, the held node ring must reach at least that point (within a small numeric
+   tolerance). This is the direct “no grass can fit between arm and node” contract; an equality assertion
+   may be too strict where another arm legitimately owns a farther part of the envelope.
+4. Keep `the_paving_faces_the_sky`, but do not use it as the closure criterion: a ragged gap and a correct
+   rim can both be wound upward. Close on the fixed node/arm debug overlay plus the same oblique user view.
+
+One conditional: if preserving construction order does **not** materially reduce the tears, the next place
+to measure is not a smaller `RIM_STEPS`; print, for each failing mouth bearing, the real `reach_of` result,
+the held ring radius and the final `along_ring` radius. That separates boundary reconstruction from radial
+table interpolation in one capture. If those values agree, the gap is in mesh handoff/triangulation rather
+than the rim table and should be logged instead of tuned further.
+
+This is AQ-030/P1 because the player has reported it repeatedly and it exposes terrain through constructed
+street geometry. No game file was changed.

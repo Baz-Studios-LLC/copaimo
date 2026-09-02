@@ -12,6 +12,10 @@ DOORWAY guild_hall 0.0025 1.8950
 DOORWAY city_block 0.0025 3.0350
 DOORWAY city_tower 0.0025 3.0350
 DOORWAY city_spire 0.0025 3.0350
+DOORWAY city_slab 0.0025 1.8950
+DOORWAY city_shops 0.0025 1.8950
+DOORWAY city_works 0.0025 1.8950
+DOORWAY city_deck 0.0025 1.8950
 FLOOR town_cottage 0.1000 1.0600 9.3400
 FLOOR town_townhouse 0.1000 1.0100 9.3400
 FLOOR town_shop 0.1000 1.0100 12.3400
@@ -19,6 +23,10 @@ FLOOR town_guild_hall 0.1000 1.7400 26.5000
 FLOOR town_city_block 0.1000 0.0000 0.0000
 FLOOR town_city_tower 0.1000 0.0000 0.0000
 FLOOR town_city_spire 0.1000 0.0000 0.0000
+FLOOR town_city_slab 0.1200 0.0000 0.0000
+FLOOR town_city_shops 0.1200 0.0000 0.0000
+FLOOR town_city_works 0.1200 0.0000 0.0000
+FLOOR town_city_deck 0.1200 0.0000 0.0000
 WINDOW town_cottage 0 -4.5300 1.5750 -3.0000 0.0600 1.0500 0.9500
 WINDOW town_cottage 0 -4.5300 1.5750 -0.0000 0.0600 1.0500 0.9500
 WINDOW town_cottage 0 -4.5300 1.5750 3.0000 0.0600 1.0500 0.9500
