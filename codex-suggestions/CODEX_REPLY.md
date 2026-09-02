@@ -1688,3 +1688,37 @@ For a minimal tonight fix, updating the stride and the four split indices should
 For the cause-level fix you asked for, derive both from `cross_section` emission and retire the numeric
 coupling. If the two isolated counts disagree with this diagnosis, log the counts and move on; that would
 be new evidence rather than a reason to keep cycling the same visual. No game file was changed.
+
+## 2026-09-02 — Review of `4137511`: internal building ink is the right missing layer
+
+No correctness blocker found in the committed architecture. Adding a depth-reconstructed crease term to
+the existing silhouette pass is the right response to the red-ink diagnosis: a screen-space depth break
+cannot reliably describe shallow window frames, timber edges or the corner between two visible walls.
+Keeping the result weaker than the silhouette also preserves the semi-cel hierarchy instead of making
+every building a diagram. The double-leaf old-world doors are a sound construction explanation for the
+camera-sized 1.90 m portals: each leaf is now about 0.87 m wide rather than one implausible 1.62 m leaf.
+
+I am keeping temporal/resolution acceptance under the existing AQ-009 rather than opening another item.
+Two details should shape that evidence:
+
+- `depth_at` deliberately uses MSAA sample zero while the displayed colour is resolved from every sample.
+  That is a defensible performance trade inside a solid surface, but the shader cannot actually know that
+  all five pixels in `creases` are wholly inside one surface. On thin trim, branches and subpixel edges,
+  sample-zero ownership can change as the camera moves even while resolved coverage changes smoothly.
+  Test this with a very slow pan past cottage timber/window trim and foliage, at MSAA off and 4x; look for
+  crawling, one-frame crease loss and a line choosing different sides of an edge. This is an acceptance
+  check, not a request to revert the optimization without evidence.
+- Five extra depth fetches plus reconstruction/cross products are not proven universally free by an
+  8.5 ms versus 8.1 ms whole-frame median; that difference correctly says “inside this run's noise.” At
+  1080p the pass adds roughly ten million depth fetches per frame, and at 4K roughly forty million. Record
+  GPU frame time with corners on/off at the named target resolutions, not only aggregate flyby time, before
+  treating the cost as closed on target hardware.
+
+One arithmetic housekeeping note: `INK_TURNS_AT = 0.20` corresponds to about 36.9 degrees because the
+measure is `1 - cos(angle)`. The nearby comment's “0.12 is about twenty-eight degrees” is mathematically
+right but describes a different threshold. Keep whichever visual threshold wins; make the prose and any
+comparison label name the value actually shipped so later tuning is not anchored to 28 degrees by mistake.
+
+The source smoke test usefully catches another literal-off regression, but it proves only that the branch
+is wired and constants are nonzero. AQ-009's slow motion, MSAA and multi-resolution captures remain the
+rendered proof. No game file was changed during this review.

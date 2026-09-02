@@ -4852,18 +4852,35 @@ const FACE_TAKES_LIGHT: f32 = 0.55;
 /// slope, short enough that a road over a crest is not read as level.
 const ALONG_STEP: f32 = 0.5;
 
-/// How many vertices one cross-section of a street emits.
+/// One lane of a cross-section: where it sits, what it looks like, which way it
+/// faces, and whether the band that follows it is a split rather than a surface.
 ///
-/// Fifteen stations, and the four extra are the two ends of each kerb face carrying
-/// two normals apiece. See `cross_section`.
-const SECTION_LANES: usize = 19;
-
-/// Whether the band between two neighbouring lanes is a split rather than a surface.
+/// # Two descriptions of one emitted shape
 ///
-/// The pairs are the duplicated stations at the foot and the top of each kerb face,
-/// in the order `cross_section` emits them.
-fn splits_at(lane: usize) -> bool {
-    matches!(lane, 4 | 6 | 11 | 13)
+/// The mesher used to read the row stride from a constant - nineteen - and ask a
+/// separate `splits_at(lane)` whether a band was degenerate, which answered from
+/// four hand-written integers: `4 | 6 | 11 | 13`. Both described what
+/// `cross_section` emits, and neither was derived from it.
+///
+/// So adding one station to the section - a colour-only station, moving nothing -
+/// put 711 of a village's 27,033 paving triangles face down. The stride was still
+/// nineteen while the row was twenty-one, so `base` spliced lanes from one
+/// cross-section onto lanes of the next; and the four split indices had all moved
+/// by one, so the mesher skipped four real bands and emitted four degenerate ones
+/// in their place. Diagnosed by Codex reading the emission against the constants,
+/// which is the only way it could have been: the photograph just showed dark
+/// wedges.
+///
+/// The lane says it now. There is one description of the shape and it is the one
+/// that built it.
+#[derive(Clone, Copy)]
+struct Lane {
+    across: f32,
+    colour: [f32; 4],
+    grain: f32,
+    facing: [f32; 3],
+    /// The next lane sits on this one's own line, so the band between has no width.
+    splits_after: bool,
 }
 
 /// A street's cross-section, as vertices that know which way they face.
@@ -4985,29 +5002,43 @@ fn cross_section(
     side: Vec2,
     along: Vec2,
     grade: f32,
-) -> Vec<(f32, [f32; 4], f32, [f32; 3])> {
+) -> Vec<Lane> {
     let facing = |from: f32, to: f32| {
         band_normal(side, to - from, cut.lift(to) - cut.lift(from), along, grade)
     };
 
-    let mut lanes = Vec::with_capacity(SECTION_LANES);
+    let lane = |across: f32, colour: [f32; 4], grain: f32, facing: [f32; 3]| Lane {
+        across,
+        colour,
+        grain,
+        facing,
+        splits_after: false,
+    };
+
+    let mut lanes: Vec<Lane> = Vec::with_capacity(section.len() + 4);
     for (at, &(across, colour, grain, hard)) in section.iter().enumerate() {
         let before = (at > 0).then(|| facing(section[at - 1].0, across));
         let after = (at + 1 < section.len()).then(|| facing(across, section[at + 1].0));
         match (before, after) {
             (Some(before), Some(after)) if hard => {
-                lanes.push((across, colour, grain, before));
-                lanes.push((across, colour, grain, after));
+                // TWO LANES ON ONE LINE, so the face either side of a kerb keeps its
+                // own normal. The band between them is the split, and it is marked
+                // HERE, where it is made - see `Lane`.
+                let mut foot = lane(across, colour, grain, before);
+                foot.splits_after = true;
+                lanes.push(foot);
+                lanes.push(lane(across, colour, grain, after));
             }
             (Some(before), Some(after)) => {
                 let smooth = (Vec3::from(before) + Vec3::from(after)).normalize_or_zero();
-                lanes.push((across, colour, grain, smooth.to_array()));
+                lanes.push(lane(across, colour, grain, smooth.to_array()));
             }
-            (Some(only), None) | (None, Some(only)) => lanes.push((across, colour, grain, only)),
-            (None, None) => lanes.push((across, colour, grain, [0.0, 1.0, 0.0])),
+            (Some(only), None) | (None, Some(only)) => {
+                lanes.push(lane(across, colour, grain, only))
+            }
+            (None, None) => lanes.push(lane(across, colour, grain, [0.0, 1.0, 0.0])),
         }
     }
-    debug_assert_eq!(lanes.len(), SECTION_LANES);
     lanes
 }
 
@@ -6218,6 +6249,10 @@ fn pave_while(
         // How far along this road each piece begins, so the courses run on across a
         // bend instead of restarting at every joint.
         let mut laid_so_far = 0.0_f32;
+        // The shape of the row this arm emits, read off the row rather than held as
+        // a constant beside it - see `Lane`.
+        let mut laid_lanes = 0_usize;
+        let mut laid_splits: Vec<bool> = Vec::new();
         let across = way.across();
         for (piece, pair) in way.points.windows(2).enumerate() {
             let (from, to) = (pair[0], pair[1]);
@@ -6380,8 +6415,19 @@ fn pave_while(
             // draws down it. That is where the dark is meant to come from. Painting
             // more of it onto the road was covering for a face that was not being
             // lit properly, back when every road normal pointed at the sky.
+            // THE GROUND'S OWN COLOUR ARRIVES PARTWAY DOWN THE SKIRT.
+            //
+            // The skirt is where the surface gives out into whatever is beside it,
+            // and with one station at each end the road's colour was stretched the
+            // whole way - five and a half metres of it, which is what turned every
+            // 4 m village lane into a 15 m band of dirt and a whole village into
+            // one orange disc with houses on it. The geometry is untouched: the
+            // skirt still eases over its full width, so nothing about the height or
+            // the guards changes. Only the colour arrives sooner.
+            let mid = (half + shoulder) * 0.5;
             let section = [
                 (-shoulder, hem(-shoulder), 0.0, false),
+                (-mid, hem(-mid), 0.0, false),
                 (-half, flag, 0.0, false),
                 (-(top + SEAM), flag, 0.0, false),
                 (-top, edge, 0.0, false),
@@ -6407,6 +6453,7 @@ fn pave_while(
                 (top, edge, 0.0, false),
                 (top + SEAM, flag, 0.0, false),
                 (half, flag, 0.0, false),
+                (mid, hem(mid), 0.0, false),
                 (shoulder, hem(shoulder), 0.0, false),
             ];
             // HOW FAST THE ROAD IS CLIMBING HERE.
@@ -6424,9 +6471,13 @@ fn pave_while(
                 on.y - ahead.y * ALONG_STEP,
             )) / (2.0 * ALONG_STEP);
 
-            for (across, colour, grain, normal) in
-                cross_section(&section, &cut, side, ahead, grade)
-            {
+            let row = cross_section(&section, &cut, side, ahead, grade);
+            // What this row emitted, which is what the mesher will stride by. Every
+            // row of one arm has the same section, so recording it each time and
+            // using the last is the same number - but it is READ rather than known.
+            laid_lanes = row.len();
+            laid_splits = row.iter().map(|lane| lane.splits_after).collect();
+            for Lane { across, colour, grain, facing: normal, .. } in row {
                 let at = on + side * across;
 
                 // CROWNED, and tucked in at the edges.
@@ -6529,20 +6580,23 @@ fn pave_while(
         }
         laid_so_far += length;
 
-        const LANES: usize = SECTION_LANES;
-        let base = (places.len() - (steps + 1) * LANES) as u32;
+        // THE STRIDE IS WHAT WAS EMITTED, and the splits are what emitted them -
+        // both asked of the row itself rather than of constants that have to be
+        // kept in step with it by hand. See `Lane`.
+        let lanes = laid_lanes;
+        let base = (places.len() - (steps + 1) * lanes) as u32;
         for step in 0..steps as u32 {
-            for lane in 0..(LANES as u32 - 1) {
+            for lane in 0..(lanes as u32 - 1) {
                 // NOT ACROSS A SPLIT. The two vertices at a hard edge sit on the same
                 // line, so the band between them has no width - triangles with no
                 // area, which `the_paving_faces_the_sky` counts as facing down
                 // because a degenerate cross product has no direction at all.
-                if splits_at(lane as usize) {
+                if laid_splits[lane as usize] {
                     continue;
                 }
-                let a = base + step * LANES as u32 + lane;
+                let a = base + step * lanes as u32 + lane;
                 let b = a + 1;
-                let c = a + LANES as u32;
+                let c = a + lanes as u32;
                 let d = c + 1;
                 // WOUND FACE UP.
                 //

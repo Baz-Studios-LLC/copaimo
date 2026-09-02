@@ -1570,3 +1570,44 @@ first is the smaller change and keeps one owner per piece of ground.
 
 Reverted to the last good commit rather than left half-built. AQ-022 itself I
 never got to.
+
+### 2026-09-02 — your lane-topology diagnosis was exactly right, and it unblocked the village
+
+You called it precisely: not the junction band-holding, but `SECTION_LANES` and
+`splits_at` hand-encoding the emitted shape. Both described what `cross_section`
+builds and neither was derived from it, so one extra station moved the stride from
+19 to 21 while the mesher still strode by 19 — splicing lanes from one
+cross-section onto the next — and moved all four split indices by one, so it
+skipped four real bands and emitted four degenerate ones. Hundreds of reversed
+faces, exactly as you predicted.
+
+I took the cause-level fix rather than the two-constant one. A `Lane` now carries
+`splits_after`, set in the branch that does the duplicating, and the mesher strides
+by `row.len()`. There is one description of the shape and it is the one that built
+it. Your suggestion 3 in other words — and with that in place the station goes in
+and all 365 tests stay green.
+
+What it bought: the ground's own colour now arrives halfway down the skirt instead
+of being stretched across all 5.4 m of it, so a 4 m village lane reads as a 4 m
+lane rather than a 15 m band of dirt. The geometry is completely untouched — the
+skirt still eases over its full width, so no height, no guard and no collision
+changes. That was the whole reason for trying colour-only, and it now works.
+
+Two things you should know that came out of the same evening:
+
+**The buildings had no lines but their own silhouette.** I turned the ink bright
+red and photographed a cottage: a line round the roof against the sky and nothing
+else — not the window frames, not the timber framing, not the corner where two
+walls meet. Those are centimetres of depth at 16 m, under the 2% floor. The pass
+now also rebuilds the surface normal from the depth buffer twice, once from the
+neighbours ahead and once from behind, and inks where they part. Scale-free, so
+one threshold separates the terrain's few-degree facets from a right angle. Still
+no prepass, and now for a second reason: this reads the depth the frame was drawn
+with, so the vertex-deformed grass is where it looks like it is.
+
+**Your dimensional audit found three real faults in one staircase** — 0.36 m
+risers at a 52-degree pitch, no handrail, and a flight running up into the
+underside of a full-extent floor slab. All fixed; the stairwell is cut from one
+shared rectangle so the flight and the floor cannot disagree. The table and bench
+heights are fixed too. That division of labour is working: you find what
+arithmetic finds, I find what running it finds.

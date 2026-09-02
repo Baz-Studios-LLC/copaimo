@@ -121,6 +121,11 @@ fn depth_at(at: vec2<i32>) -> f32 {
     return textureLoad(depth, at, 0);
 }
 
+// How square-on a surface has to be before its corners are believed.
+//
+// A view-space normal's z: one is facing the camera, nought is edge on.
+const GRAZING: f32 = 0.22;
+
 fn place(at: vec2<i32>, size: vec2<f32>) -> vec3<f32> {
     let raw = depth_at(at);
     if raw <= 0.0 {
@@ -149,7 +154,23 @@ fn creases(at: vec2<i32>, size: vec2<f32>, step: i32) -> f32 {
     }
     let ahead = normalize(cross(right - here, below - here));
     let behind = normalize(cross(here - left, here - above));
-    return 1.0 - clamp(dot(ahead, behind), -1.0, 1.0);
+    let turned = 1.0 - clamp(dot(ahead, behind), -1.0, 1.0);
+
+    // NOT WHERE THE SURFACE IS NEARLY EDGE ON.
+    //
+    // A normal rebuilt from depth is only as good as the depth is smooth across a
+    // pixel, and on ground seen at a glancing angle one pixel spans a lot of it -
+    // so the two normals disagree on a perfectly flat field and the ground comes
+    // out covered in faint scratches. Photographed on a village green: thin dark
+    // lines wandering over the grass, each one a terrain triangle edge caught at
+    // a shallow angle.
+    //
+    // The z of a view-space normal says exactly this: one is facing the camera,
+    // nought is edge on. Fading the corner term out as it approaches edge-on
+    // costs the corners nothing, because a corner worth drawing is a corner you
+    // are looking AT.
+    let facing = abs(ahead.z + behind.z) * 0.5;
+    return turned * smoothstep(GRAZING, GRAZING * 2.5, facing);
 }
 
 // The strongest break at this radius, over the two axes and the two diagonals.
