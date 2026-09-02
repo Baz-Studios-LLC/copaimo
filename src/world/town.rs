@@ -2315,7 +2315,7 @@ pub fn outside_the_towns(
         }
         let mut left: Vec<(Vec2, Vec2)> = Vec::with_capacity(pieces.len() + 1);
         for (start, end) in pieces {
-            for piece in outside_the_shape(&|at| off_the_town(plan, site, at), start, end) {
+            for piece in outside_the_shape(&|at| off_the_town(site, at), start, end) {
                 left.push(piece);
             }
         }
@@ -2342,26 +2342,13 @@ pub fn outside_the_towns(
 /// perimeter road is built from. One boundary, one derivation. The comment on
 /// `town_reaches` has demanded exactly that since the day it was written, and a
 /// circle was used anyway.
-pub fn off_the_town(
-    plan: &crate::world::settle::Settlements,
-    site: &crate::world::settle::Site,
-    at: Vec2,
-) -> f32 {
-    let approach = plan.approach(site.at);
-    off_the_town_facing(site, approach.y.atan2(approach.x), at)
-}
-
-/// The same, for callers that already hold the bearing the town faces.
-///
-/// `lay_out` is one: it has been handed the approach and computed `through` from it
-/// before anything else happens. It must ask the SAME question as the country roads
-/// or the two disagree about where the town ends, which is this file's oldest bug.
-pub fn off_the_town_facing(
-    site: &crate::world::settle::Site,
-    through: f32,
-    at: Vec2,
-) -> f32 {
-    site.plan.off(at - site.at, through, town_reaches(site))
+/// Asked per VERTEX while paving, so it reads the bearing the settlement already
+/// stores rather than working it out: `Settlements::approach` walks every road in
+/// the world, and `Site::bearing` exists precisely so nobody does that twice. The
+/// levelling asks the same question the same way - see `settle`, where `Plan::off`
+/// is called "the one definition of a settlement's footprint".
+pub fn off_the_town(site: &crate::world::settle::Site, at: Vec2) -> f32 {
+    site.plan.off(at - site.at, site.bearing, town_reaches(site))
 }
 
 /// The parts of a segment outside one settlement's shape.
@@ -2729,7 +2716,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     let kept_clear: Vec<Street> = crossing
         .iter()
         .flat_map(|road| {
-            outside_the_shape(&|at| off_the_town_facing(site, through, at), road.from, road.to)
+            outside_the_shape(&|at| off_the_town(site, at), road.from, road.to)
                 .into_iter()
                 .map(|(from, to)| Street { from, to, wide: road.wide })
         })
@@ -4753,17 +4740,24 @@ pub(crate) fn paved_here(plan: &crate::world::settle::Settlements, at: Vec2) -> 
         .filter(|site| site.city && !site.ranch)
         .map(|site| {
             // Measured from the SAME edge the road hands over at - see
-            // `town_reaches`. This was `site.radius`, which is twenty metres
-            // further out, so every city wore a ring of fully kerbed street
-            // BEYOND the point where the town's ground ends: the approach
-            // finished dressing itself and then stood outside the gate. One
-            // edge, one derivation; the fade now completes exactly where the
-            // road ends and the town begins.
-            crate::util::smoothstep(
-                town_reaches(site) + PAVING_ARRIVES,
-                town_reaches(site),
-                site.at.distance(at),
-            )
+            // `off_the_town` - and that edge is the town's SHAPE, not a circle
+            // around it.
+            //
+            // # A dirt track meeting a kerbed street with nothing in between
+            //
+            // This faded on the radial distance to the middle, which is the right
+            // answer only for a rings town. A grid is a rectangle whose corners
+            // reach about 1.22 of its radius, so a road leaving through one
+            // handed over ninety metres outside the point where the paving had
+            // finished arriving: measured at two cities, one at `paved` 0.37 and
+            // one at 0.00 - raw dirt, no kerb, no footway - joining streets that
+            // are fully made. The gateway the whole `Arriving` sequence exists to
+            // stage simply did not happen there.
+            //
+            // `Plan::off` is a distance in metres from the shape's edge, so the
+            // fade is the same one it always was, measured from the edge the town
+            // actually has.
+            crate::util::smoothstep(PAVING_ARRIVES, 0.0, off_the_town(site, at))
         })
         .fold(0.0_f32, f32::max)
 }
@@ -7826,7 +7820,14 @@ mod tests {
                 continue;
             }
             let at = from + Vec2::new(place[0], place[2]);
-            if Arriving::at(paved_here(plan, at)).kerb_stands > 1.0e-4 {
+            // ASKED ON THE CENTRELINE, which is where `pave` asks it: one
+            // `Arriving` is worked out per cross-section and given to every vertex
+            // in it. Asking at the vertex's own place instead disagrees by the
+            // width of the road wherever the paving changes quickly across it -
+            // near a town's corner, where its shape turns - and reports a fault
+            // in the mesh that is really a fault in the question.
+            let street = Street { from, to, wide: crate::config::ROAD_WIDE };
+            if Arriving::at(paved_here(plan, street.nearest_point(at))).kerb_stands > 1.0e-4 {
                 inked_with_one += 1;
             } else {
                 inked_without_a_kerb += 1;
@@ -8665,7 +8666,7 @@ mod tests {
                     for end in [from, to] {
                         // An end ON this town's edge, rather than one of the
                         // road's own two ends out in the country.
-                        if off_the_town(plan, site, end).abs() > 1.0
+                        if off_the_town(site, end).abs() > 1.0
                             || end.distance(road.from) < 1.0
                             || end.distance(road.to) < 1.0
                         {
@@ -8699,6 +8700,67 @@ mod tests {
             worst_where.x, worst_where.y,
         );
         println!("{arrivals} arrivals, worst {worst:.1} m from the network");
+    }
+
+    /// A road is as made as the town it joins, at the point it joins it.
+    ///
+    /// # A dirt track meeting a kerbed street
+    ///
+    /// `Arriving` stages a whole gateway - the surface hardens, the carriageway
+    /// gathers, the footway arrives, the kerb comes up - over the last thirty-odd
+    /// metres of a road's approach. That staging is worth nothing if it finishes
+    /// in the wrong place, and it did: the fade was measured on the radial
+    /// distance to the town's middle, which is right only for a rings town. A
+    /// grid is a rectangle whose corners reach about 1.22 of its radius, so a
+    /// road leaving through one handed over ninety metres beyond where the paving
+    /// had finished arriving. Two cities in the world joined fully kerbed streets
+    /// with raw dirt - no kerb, no footway, no stones - and the gateway simply
+    /// did not happen.
+    ///
+    /// The bound is tight on purpose. This is not a tolerance on a measurement;
+    /// it is the same edge asked of two functions, so they either agree or one of
+    /// them is using a different boundary again.
+    #[test]
+    fn a_road_is_as_made_as_the_town_it_joins() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        let mut worst = 0.0_f32;
+        let mut worst_where = Vec2::ZERO;
+        let mut handovers = 0;
+
+        for site in plan.sites().iter().filter(|s| !s.ranch) {
+            for road in plan.ways() {
+                for (from, to) in outside_the_towns(plan, road.from, road.to) {
+                    for end in [from, to] {
+                        // An end ON this town's edge, not one of the road's own
+                        // two ends out in the country.
+                        if off_the_town(site, end).abs() > 1.0
+                            || end.distance(road.from) < 1.0
+                            || end.distance(road.to) < 1.0
+                        {
+                            continue;
+                        }
+                        handovers += 1;
+                        // What the town's own streets are made of - see `lay_out`,
+                        // which paves a city and leaves a village its dirt lanes.
+                        let wants = f32::from(u8::from(site.city));
+                        let jump = (paved_here(plan, end) - wants).abs();
+                        if jump > worst {
+                            worst = jump;
+                            worst_where = end;
+                        }
+                    }
+                }
+            }
+        }
+
+        assert!(handovers > 0, "no road hands over anywhere, so this proves nothing");
+        assert!(
+            worst < 0.05,
+            "{handovers} roads hand over; the worst meets its town {worst:.2} less made \
+             than the streets it joins, at ({:.0}, {:.0})",
+            worst_where.x, worst_where.y,
+        );
     }
 
     /// WHERE the real world's gateways are, for pointing a camera at one.
