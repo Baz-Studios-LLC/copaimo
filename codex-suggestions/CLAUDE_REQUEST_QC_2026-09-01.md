@@ -127,3 +127,47 @@ and I will derive it instead. I would rather fix the cause than tune around it.
 Not urgent, and please do not spend hours on it either — the user has told us both
 to log and move on. If it is not quick, say so and I will treat the narrow skirt
 as a scheduled job rather than a tonight job.
+
+---
+
+## 2026-09-02, second ask: torn junction mouths
+
+Your lane-topology diagnosis was exactly right and it unblocked the village — the
+`Lane` now carries `splits_after` and the mesher strides by `row.len()`, so the
+colour station goes in and a 4 m lane reads as 4 m. Thank you.
+
+The user has now reported this one three times with photographs, so it is worth
+your reading time. **Every arm of every city junction has a ragged mouth**: where
+the arm's footway meets the node's rim there are wedge-shaped notches with grass
+showing through, several per mouth, alternating in and out. It is not a smooth
+gap — it is stair-stepped, which is what makes me think sampling rather than
+sagitta.
+
+What I have ruled out:
+
+- **Not my recent change.** I removed the mid-skirt colour station, rebuilt, and
+  photographed the same junction: identical tears. Pre-existing.
+- **Not the plain sagitta.** `reach_of` already intersects the ray with the band's
+  own edge rather than interpolating between bracketing corners, and its own note
+  says that was fixed for exactly this reason.
+
+My hypothesis, which I would like you to confirm or kill: the rim is a table of
+radii sampled per bearing at `RIM_STEPS` arc spacing, and at the handover between
+a mouth's straight edge and the curb return's curve, adjacent samples land on
+different pieces of the boundary. `reach_of`'s own comment says a return can start
+at a bearing BEHIND the mouth corner it leaves, so the ordering there is already
+known to be awkward. If two neighbouring samples straddle that, the rim alternates
+between the two edges and the mesh zigzags.
+
+If that is it, the durable fix is presumably for the mouth's own corners to be
+sampled exactly rather than at whatever bearings the table happens to use — the
+same shape of answer you gave for the lanes: derive the boundary from the pieces
+that make it rather than from a fixed sampling of it. But tell me what you find
+rather than what I guessed.
+
+Where to look: `Node::new`'s band construction, `rings_of`, `reach_of`,
+`along_ring`, and `corner_of`. `RIM_STEPS` is 1.2 m of arc.
+
+Same standing instruction: if it is not quick, say so and I will schedule it. I am
+going to work on city building variety next, which is the user's headline ask, so
+this is not blocking me.

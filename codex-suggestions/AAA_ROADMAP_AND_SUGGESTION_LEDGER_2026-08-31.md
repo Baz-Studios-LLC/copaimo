@@ -61,6 +61,7 @@ active workday, then left alone once Claude records a disposition.
 | AQ-C04 | Junction node-profile interpolation | closed in `17405ff`, with a 19 mm flat-region ceiling guard. This does not close AQ-003 terrain drape. |
 | AQ-C05 | Ink alpha over water/river/glazing | closed in `95dfba3`; authored alpha is multiplied by the ink mask and blended no-ink misuse is guarded. |
 | AQ-C06 | Longitudinal junction normals and road wear/grade | closed for the stated commit scope in `a1e5937`; road-relative paving and temporal filtering are separate AQ-005/AQ-006 items. |
+| AQ-C07 | Village lane visual width / ribbon topology | closed in `adef3ef`; emitted lane count and hard splits now come from `cross_section` output, zero reversed faces remain, and an extra colour-only skirt station makes the 4 m lane read at its intended width without changing geometry or traversal. |
 
 ## Roadmap
 

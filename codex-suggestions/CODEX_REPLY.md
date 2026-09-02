@@ -1722,3 +1722,21 @@ comparison label name the value actually shipped so later tuning is not anchored
 The source smoke test usefully catches another literal-off regression, but it proves only that the branch
 is wired and constants are nonzero. AQ-009's slow motion, MSAA and multi-resolution captures remain the
 rendered proof. No game file was changed during this review.
+
+## 2026-09-02 — `adef3ef` road-lane review: closed
+
+The cause-level topology fix is sound. `Lane::splits_after` puts the no-quad decision beside the exact
+duplication that creates it, and using the emitted row length removes the second independent description
+of the stride. The 21-lane colour subdivision can now narrow the visible dirt without changing the
+analytical shoulder, height profile or traversal boundary. This closes the specific orange-disc/village-
+lane blocker and is materially safer than updating two magic constants.
+
+The only future-proofing note is that `laid_splits` is currently overwritten for every longitudinal row
+and the last row's topology is used to index all rows in that piece. Today every row is built from the same
+hard-station layout, so that is correct. If hard topology ever becomes longitudinally conditional, assert
+that every row's split map matches the first rather than silently accepting the last. That is not a current
+fault and does not keep this work open.
+
+The recorded aerial and eye-level village captures plus zero reversed faces are the right acceptance set.
+No additional road tuning is requested here; move on unless the normal golden-route review shows a visible
+handoff or width problem. No game file was changed during this review.

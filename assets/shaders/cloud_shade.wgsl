@@ -492,7 +492,20 @@ const KERB_LINE_PIXELS: f32 = 1.6;
 /// The charcoal it is drawn in, and the most of a surface it may leave - the same
 /// bargain `ink` strikes, so the two kinds of line match where both appear.
 const KERB_LINE: vec3<f32> = vec3<f32>(0.05, 0.055, 0.07);
-const KERB_LINE_DEEPENS: f32 = 0.25;
+// LIGHTER, now that the outline pass draws corners too.
+//
+// This was 0.25 - a darkening to a quarter - chosen when `ink` could not see a
+// kerb at all and this was the only line a kerb got. The outline pass now finds
+// corners by the angle they turn through, and a kerb face is a right angle, so
+// both were drawing the same edge and adding: photographed from above, every
+// kerb in every city was a thick black band rather than a line. Reported with
+// four pictures of it.
+//
+// Kept rather than removed, because the two are good at different things: the
+// pass wants the face to be a few pixels of depth, which it is not at a hundred
+// metres, while this holds a constant width at any range. Lightened so the near
+// case is a line and the far case still has one.
+const KERB_LINE_DEEPENS: f32 = 0.62;
 
 /// One number from a cell, so every stone gets its own tone.
 fn one_of(cell: vec2<f32>) -> f32 {
