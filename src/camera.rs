@@ -331,9 +331,12 @@ fn drive_camera(
     terrain: Res<TerrainSource>,
     players: Query<&Transform, (With<Player>, Without<MainCamera>)>,
     striding: Query<&crate::player::Striding, With<Player>>,
-    mut cameras: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
+    mut cameras: Query<
+        (&mut Transform, &mut Projection, Option<&mut crate::ink::Ink>),
+        With<MainCamera>,
+    >,
 ) {
-    let Some((mut camera, mut lens)) = cameras.iter_mut().next() else {
+    let Some((mut camera, mut lens, mut ink)) = cameras.iter_mut().next() else {
         return;
     };
 
@@ -349,6 +352,13 @@ fn drive_camera(
         let wanted = SEES + SPEED_WIDENS * going;
         let t = 1.0 - (-WIDENS_AT * time.delta_secs()).exp();
         perspective.fov += (wanted - perspective.fov) * t;
+        // AND THE INK IS TOLD, because it rebuilds surface normals out of the
+        // depth buffer to find corners - see `ink::Ink::sees`. The field is
+        // lerped here every frame, so a value copied once at spawn would be
+        // wrong for the whole of every sprint.
+        if let Some(ref mut ink) = ink {
+            ink.sees(perspective.fov);
+        }
     }
 
     let rotation = Quat::from_euler(EulerRot::YXZ, orbit.yaw, orbit.pitch, 0.0);

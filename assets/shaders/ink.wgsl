@@ -78,6 +78,80 @@ fn breaks(near: f32, middle: f32, far: f32) -> f32 {
     return abs((near + far) * 0.5 - middle) / max(middle, 1.0e-6);
 }
 
+// WHERE THE SURFACE TURNS A CORNER, which a depth break cannot see.
+//
+// # Why silhouettes alone read as flat
+//
+// `breaks` finds where one surface ENDS and another begins, which is a silhouette.
+// Photographed with the ink turned bright red, a cottage sixteen metres away had a
+// line round its roof against the sky and NOTHING anywhere else: not round its
+// window frames, not down its timber framing, not at the corner where two walls
+// meet. Those are centimetres of depth at that range - two per cent is the floor of
+// what a depth test can tell from noise - so the building came out as a flat shape
+// with a coloured pattern on it, which is a large part of why it reads as generated
+// rather than drawn.
+//
+// A corner is not a depth difference, it is an ANGLE difference, and that is what
+// this asks. The normal is rebuilt from the depth buffer twice over - once from the
+// two neighbours ahead, once from the two behind - and on any smooth surface those
+// two agree exactly, because they are built from the same pair of vectors. Where the
+// surface turns, they do not.
+//
+// # And why this is scale-free, which is the whole point
+//
+// A depth threshold has to be a share of the distance, so it grows with range and a
+// near-flat kerb and a far-off cliff cannot both be judged by it. An angle does not
+// care how far away it is: two walls meeting at a right angle read as a right angle
+// at any distance. The terrain's own facets differ by a few degrees, which is a
+// thousandth of this measure, while a building's corner is the whole of it - so one
+// threshold separates architecture from ground without either being tuned.
+//
+// No prepass, for the reason in the module header: this reads the depth the frame
+// was actually drawn with, deformation and all.
+// ONE SAMPLE, not the reduced four.
+//
+// `reading` takes the nearest of a pixel's MSAA samples, which is what a silhouette
+// wants: it decides which side of an edge the pixel belongs to. A corner is not
+// asking that question - it is measuring the slope of a surface the pixel is
+// wholly inside - so the extra three loads buy nothing and cost everything. With
+// the crease term on the reduced read, `--flyby` put the median frame at 8.7 ms
+// against 6.1 without it; this is the difference between twenty depth loads a
+// pixel and five.
+fn depth_at(at: vec2<i32>) -> f32 {
+    return textureLoad(depth, at, 0);
+}
+
+fn place(at: vec2<i32>, size: vec2<f32>) -> vec3<f32> {
+    let raw = depth_at(at);
+    if raw <= 0.0 {
+        // Nothing drawn. Marked with a zero Z, which a real point never has.
+        return vec3<f32>(0.0, 0.0, 0.0);
+    }
+    let away = ink.drawn.w / raw;
+    let uv = (vec2<f32>(at) + vec2<f32>(0.5, 0.5)) / size;
+    let ndc = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+    // `deepens.y` is tan of half the camera's vertical field - see `Ink::sees`,
+    // which keeps it in step with the zoom. The aspect comes from the buffer.
+    let high = ink.deepens.y * away;
+    return vec3<f32>(ndc.x * high * size.x / size.y, ndc.y * high, -away);
+}
+
+fn creases(at: vec2<i32>, size: vec2<f32>, step: i32) -> f32 {
+    let here = place(at, size);
+    let right = place(at + vec2<i32>(step, 0), size);
+    let below = place(at + vec2<i32>(0, step), size);
+    let left = place(at - vec2<i32>(step, 0), size);
+    let above = place(at - vec2<i32>(0, step), size);
+    if here.z == 0.0 || right.z == 0.0 || below.z == 0.0 || left.z == 0.0 || above.z == 0.0 {
+        // A silhouette, which `breaks` is already drawing. Saying nothing here
+        // keeps the two answers from doubling up into a fat dark band.
+        return 0.0;
+    }
+    let ahead = normalize(cross(right - here, below - here));
+    let behind = normalize(cross(here - left, here - above));
+    return 1.0 - clamp(dot(ahead, behind), -1.0, 1.0);
+}
+
 // The strongest break at this radius, over the two axes and the two diagonals.
 //
 // The diagonals are here so a roofline running at 45 degrees is as strong a line as
@@ -143,7 +217,17 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         found = max(found, around(at, middle, spread) * 0.85);
     }
 
-    let laid = smoothstep(ink.drawn.y, ink.drawn.y * 2.5, found);
+    var laid = smoothstep(ink.drawn.y, ink.drawn.y * 2.5, found);
+
+    // AND THE CORNERS, which is everything a silhouette leaves out - see `creases`.
+    // `deepens.z` is the angle it takes to count and `deepens.w` how much of the
+    // line a corner earns, which is a little less than a silhouette's: an edge you
+    // can see past is a stronger statement than an edge you cannot.
+    if ink.deepens.w > 0.0 {
+        let turned = creases(at, size, 1);
+        let sharp = smoothstep(ink.deepens.z, ink.deepens.z * 2.2, turned) * ink.deepens.w;
+        laid = max(laid, sharp);
+    }
 
     // FADED OUT AT THE FAR END rather than stopping at a line. A hill four kilometres
     // off has a break at every fold, and inking all of them turns the horizon into a

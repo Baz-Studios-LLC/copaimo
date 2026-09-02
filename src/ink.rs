@@ -157,6 +157,31 @@ const INK_REACHES: f32 = 900.0;
 /// that is itself a darkening rather than a paint - see `Ink::deepens`.
 const INK_STRENGTH: f32 = 0.7;
 
+/// How far a surface has to turn before the corner earns a line, as one minus the
+/// cosine of the angle.
+///
+/// 0.12 is about twenty-eight degrees, and it sits in a wide gap between the two
+/// things this has to tell apart: the terrain's own triangles meet at a few degrees,
+/// which is a thousandth of this, and a building's corner meets at a right angle,
+/// which is eight times it. Anything in between is a fold in the ground steep
+/// enough that a line belongs on it anyway.
+const INK_TURNS_AT: f32 = 0.20;
+
+/// How much of a line a corner earns, against a silhouette's whole one.
+///
+/// Less, deliberately. An edge you can see past is a stronger statement about a
+/// shape than an edge you cannot, and drawing both at full strength flattens that
+/// difference - which is part of what separates a drawing from a diagram.
+const INK_CORNERS: f32 = 0.72;
+
+/// Tan of half the camera's vertical field of view.
+///
+/// Carried because the ink pass has no view to ask, and rebuilding a normal from
+/// the depth buffer needs to know how much world one pixel covers. Kept in step
+/// with the zoom by `Ink::sees`: the camera lerps its field when it pulls back, and
+/// a stale value here would tilt every normal it reconstructs.
+const SEES_HALF: f32 = 0.5;
+
 /// The near plane the ink assumes if the camera does not say.
 const NEAR_ENOUGH: f32 = 0.1;
 
@@ -172,12 +197,17 @@ impl Default for Ink {
         Ink {
             colour: Vec4::new(0.05, 0.055, 0.07, INK_STRENGTH),
             drawn: Vec4::new(INK_WIDE, INK_BREAKS_AT, INK_REACHES, NEAR_ENOUGH),
-            deepens: Vec4::new(INK_DEEPENS, 0.0, 0.0, 0.0),
+            deepens: Vec4::new(INK_DEEPENS, SEES_HALF, INK_TURNS_AT, INK_CORNERS),
         }
     }
 }
 
 impl Ink {
+    /// Told what the camera can see, so a normal can be rebuilt from depth.
+    pub fn sees(&mut self, fov: f32) {
+        self.deepens.y = (fov * 0.5).tan();
+    }
+
     /// The same settings, told what the camera's near plane is.
     ///
     /// A depth buffer holds nothing anybody can measure with until it is divided by
@@ -359,6 +389,32 @@ impl FromWorld for InkPipeline {
 /// caught the real mistake is worth more than an expensive one that was not written.
 #[cfg(test)]
 mod ink_is_on {
+    /// The corner term is live, and cannot be quietly turned off.
+    ///
+    /// The same smoke alarm as below, for the same reason: a literal nought left in
+    /// this file once disabled every outline in the game for five commits while I
+    /// presented photographs as evidence that they worked. A corner line is harder
+    /// to miss than that - but it is also subtler than a silhouette, which is
+    /// exactly the kind of thing that can go out without anybody noticing.
+    #[test]
+    fn corners_are_still_inked() {
+        assert!(
+            super::INK_CORNERS > 0.0,
+            "INK_CORNERS is {}, so no corner earns a line and every building is a              flat shape again",
+            super::INK_CORNERS,
+        );
+        assert!(
+            super::INK_TURNS_AT > 0.01 && super::INK_TURNS_AT < 0.7,
+            "INK_TURNS_AT is {}, which is outside the gap between the terrain's own              facets and a building's corner - it will ink all of the ground or none              of the architecture",
+            super::INK_TURNS_AT,
+        );
+        let shader = include_str!("../assets/shaders/ink.wgsl");
+        assert!(
+            shader.contains("ink.deepens.w > 0.0") && shader.contains("fn creases("),
+            "the shader no longer asks for corners at all"
+        );
+    }
+
     #[test]
     fn the_outline_pass_is_not_multiplied_by_nought() {
         let shader = include_str!("../assets/shaders/ink.wgsl");

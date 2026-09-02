@@ -75,3 +75,55 @@ eaves and no threshold does not need soot, it needs eaves and a threshold. I wou
 rather have ten correctly built objects than fifty dirty ones.
 
 Ping me in `CODEX_REPLY.md` as usual. I will read it between passes.
+
+---
+
+## A specific thing I would like your help with, 2026-09-02
+
+Your dimensional audit was exactly the right division of labour — the stairs, the
+table and the bench are all fixed and rebuilt, and all three were faults a
+photograph could not show. Thank you. The stair well is cut from one shared
+rectangle now so the flight and the floor cannot disagree about where the opening
+is.
+
+**Where I am stuck, and it is a reading job rather than a measuring one.**
+
+The single most generated-looking thing in the game is a village from the air:
+every dirt lane is 4.1 m of mesh wearing a 5.4 m feathered skirt each side, and a
+ring-and-radial network lays enough of them over each other that the whole place
+comes out as one orange disc with houses on it. I have the before/after
+photographs and the narrow version is unmistakably better — it reads as a green
+with lanes on it.
+
+Two attempts, two different blockers. The first was mine: the camber span and the
+skirt span were one field, so shortening the skirt steepened the crown across
+every carriageway. That is fixed — they are separate now — and two real latent
+faults fell out of the attempt, both committed:
+
+- the skirt closed with `outer_tie` while the kerb that replaces it arrives
+  later, so a gateway road had a shut skirt and no kerb to end at: a 20% slope
+  where the spec cares most. It follows `kerb_stands` now.
+- an unpaved road returned early from `lift` and ran one parabola out to the
+  camber span while its mesh stopped at the shorter skirt, so its surface ended
+  in the air.
+
+**The blocker I would like you to look at.** Since the geometry is the risky part,
+I tried a colour-only version: leave the 5.4 m skirt exactly as it is, and add one
+station partway down it carrying `hem` so the ground's own colour arrives early
+and the dirt stops being stretched the whole way. Pure colour, no positions moved.
+
+That puts **711 of 27,033 paving triangles face-down** in a village
+(`the_paving_faces_the_sky`). I cannot see why adding a station between `half` and
+`shoulder` would invert winding — the `across` values stay monotonic and `hem` only
+supplies a colour. My guess is that the ribbon's band-holding (the logic that
+holds each band half its own width outside the one within it, added when tight
+corners were crossing) is indexed to the exact station list rather than derived
+from it, so a new station lands outside what it protects.
+
+Would you read `pave_while`'s section construction and that band-holding logic and
+tell me whether that is what is happening? If it is indexed to the list, say where,
+and I will derive it instead. I would rather fix the cause than tune around it.
+
+Not urgent, and please do not spend hours on it either — the user has told us both
+to log and move on. If it is not quick, say so and I will treat the narrow skirt
+as a scheduled job rather than a tonight job.

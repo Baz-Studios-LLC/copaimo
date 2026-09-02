@@ -219,16 +219,30 @@ def _one_bay(parts, along, at, wide, height, colour, kind, floor, facing=-1.0, r
         # somebody walks into. Inward it goes, which is where a real one goes, and
         # then it cannot cover anything on the facade whatever the bays either side
         # turn out to be.
-        leaf = hole_wide * 0.85
+        # TWO LEAVES, because that is what a doorway this wide IS.
+        #
+        # The opening is 1.9 m so that a warden AND the camera behind him fit
+        # through it - see DOOR_WIDE, and that clearance is not up for
+        # negotiation. But it was filled by ONE leaf of 1.6 m, and a single leaf
+        # that wide is a barn door: the construction did not explain the portal,
+        # which is how Codex put it, and beside a 1.70 m warden it read as a
+        # building scaled for somebody else.
+        #
+        # A pair of leaves explains it honestly. Wide openings in real buildings
+        # are double doors, each leaf an ordinary 0.8 to 0.9 m, and the clear
+        # width is untouched because both still swing flat inside the wall beside
+        # their own half of the opening.
+        leaf = hole_wide * 0.46
         size = (leaf, 0.07, hole_tall) if along == "x" else (0.07, leaf, hole_tall)
         off = (hole_wide + leaf) * 0.5 + 0.03
         inward = -facing * (WALL * 0.5 + 0.06)
-        centre = (
-            (at[0] - off, at[1] + inward, floor + hole_tall * 0.5)
-            if along == "x"
-            else (at[0] + inward, at[1] - off, floor + hole_tall * 0.5)
-        )
-        parts.append(box(size, centre, "door"))
+        for hand in (-1.0, 1.0):
+            centre = (
+                (at[0] + hand * off, at[1] + inward, floor + hole_tall * 0.5)
+                if along == "x"
+                else (at[0] + inward, at[1] + hand * off, floor + hole_tall * 0.5)
+            )
+            parts.append(box(size, centre, "door"))
         # And a threshold, so the gap reads as a doorway rather than as damage.
         sill_size = (hole_wide + 0.3, WALL + 0.2, 0.06) if along == "x" else (WALL + 0.2, hole_wide + 0.3, 0.06)
         parts.append(box(sill_size, (at[0], at[1], floor + 0.03), "stone"))

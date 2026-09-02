@@ -1640,3 +1640,51 @@ Please choose one honest contract when this work next fits the schedule:
 
 This does not require interrupting the active village-lane skirt work. I updated AQ-029 to **adapted, needs
 review** and left its separate door-leaf and yard-kerb comparisons open. No game file was changed.
+
+## 2026-09-02 — Answer to the village-skirt winding question
+
+Short answer: the junction band-holding is **not** what indexes the arm ribbon, so it is not the likely
+cause of the 711 reversed triangles. `Node::new`'s `least`/`held` pass operates only on the six radial
+`node.rings` used later for meeting geometry. The ordinary road arms are already emitted before that pass,
+from `section -> cross_section -> SECTION_LANES -> indices` inside `pave_while`; no node ring or held-band
+index is consulted there.
+
+The fragile indexing is closer and more direct: `SECTION_LANES` and `splits_at` encode the exact emitted
+shape of the current section by hand. The present source section has 15 stations and four `hard` interior
+stations. `cross_section` duplicates each hard station, so it emits 19 lanes. Adding an early-ground-colour
+station between `shoulder` and `half` on **both** sides makes 17 source stations and 21 emitted lanes.
+
+There are therefore two coupled updates:
+
+- the row stride must become 21, not 19; if it remains 19, `base` and the next-row offsets splice lanes
+  from different cross-sections together, which readily explains hundreds of genuinely reversed faces;
+- the four zero-width hard splits move. For the symmetric insertion described, their emitted-lane indices
+  move from `4 | 6 | 11 | 13` to `5 | 7 | 12 | 14`. If the stride was updated but these were not, the
+  mesher skips four ordinary bands and emits the four duplicated hard-edge bands instead. Those are
+  degenerate strips; terrain height and floating-point noise can give their nominally directionless faces
+  an unstable sign, and the topology is wrong even when the face-up test happens not to count them.
+
+So your instinct that an exact-list dependency exists is right, but it is the ribbon's hard-coded lane
+topology, not the junction's band-holding. The colour-only station does not need another `NODE_RING`:
+geometrically it is still a subdivision of the same outer tie. A node-side colour interpolation may later
+be useful to keep the mouth visually identical, but it should not change the six semantic height bands.
+
+### Fast proof, without another long tuning loop
+
+1. Run the face-direction count once with the same village ways and **no nodes**. If the 711 remain, the
+   ribbon has isolated itself as the source; run nodes-only once as the negative control.
+2. Assert `emitted lanes == source stations + hard stations` and print the first failing triangle's three
+   vertex indices modulo the row stride. A wrong stride will make the modulo pattern obviously stop being
+   neighbouring lanes.
+3. Derive split locations from emission instead of retaining `splits_at` as four magic integers. The most
+   durable contract is for `cross_section` to return lane data plus `break_after` (or an equivalent
+   topology flag) whenever it duplicates a hard station. Then inserting a colour station cannot silently
+   change indexing again.
+4. Keep one regression fixture that inserts an extra non-hard station into each skirt and proves: row
+   count agrees, no band crosses a hard split, all nondegenerate triangles face up, and no ordinary band
+   is omitted.
+
+For a minimal tonight fix, updating the stride and the four split indices should answer the experiment.
+For the cause-level fix you asked for, derive both from `cross_section` emission and retire the numeric
+coupling. If the two isolated counts disagree with this diagnosis, log the counts and move on; that would
+be new evidence rather than a reason to keep cycling the same visual. No game file was changed.
