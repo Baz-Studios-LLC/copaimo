@@ -4470,6 +4470,12 @@ const ROAD_WEARS_OVER: f32 = 26.0;
 /// is left and floats at one end.
 const ROAD_STEPS_EVERY: f32 = 2.5;
 
+/// How far past its own line a road's paving can reach, in metres.
+///
+/// A carriageway, a kerb, a footway and the verge beyond it - see `RoadSection`.
+/// Used to size the ground cache a paving reads, so a kerb never falls outside it.
+const A_ROAD_REACHES: f32 = 24.0;
+
 /// The colour of packed earth, worn darker than the ground it is worn into.
 ///
 /// # Why the surface is drawn and not painted
@@ -6048,6 +6054,29 @@ fn pave_while(
     wanted: &(dyn Fn() -> bool + Sync),
 ) -> Option<Mesh> {
     let at_plan = terrain.plan();
+
+    // EVERY TERRAIN CORNER ASKED FOR ONCE - see `Draped`, which was nine tenths of
+    // what paving a city cost. The name shadows the parameter, so every question
+    // below is asked of the cache rather than of the ground directly; the answers
+    // are identical, because the interpolation is still the terrain's own and only
+    // the corners come from somewhere faster.
+    let places_of = || {
+        ways.iter()
+            .flat_map(|way| way.points.iter().copied())
+            .chain(nodes.iter().map(|node| node.at))
+    };
+    // Named apart from this function's own `low`, which is where the mesh is
+    // built about - shadowing that would have moved every road ever drawn.
+    let box_low = places_of().fold(Vec2::splat(f32::MAX), Vec2::min);
+    let box_high = places_of().fold(Vec2::splat(f32::MIN), Vec2::max);
+    // A node reaches further than its middle, and a kerb further than a way's line.
+    let reaches = nodes
+        .iter()
+        .map(|node| node.reach)
+        .fold(A_ROAD_REACHES, f32::max);
+    let cached = crate::world::terrain::Draped::over(terrain, box_low, box_high, reaches);
+    let terrain = &cached;
+
     let mut places: Vec<[f32; 3]> = Vec::new();
     let mut normals: Vec<[f32; 3]> = Vec::new();
     let mut colours: Vec<[f32; 4]> = Vec::new();

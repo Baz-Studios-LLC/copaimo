@@ -69,6 +69,10 @@ use crate::world::settle::{Settlements, Site};
 #[derive(Resource, Clone, Deref)]
 pub struct TerrainSource(pub Arc<Terrain>);
 
+/// How far apart the terrain mesh's vertices are, in metres.
+pub const GRID_STEP: f32 = CHUNK_SIZE / CHUNK_QUADS as f32;
+
+
 pub struct Terrain {
     /// Source map. `None` means we're running on procedural fallback.
     map: Option<HeightMap>,
@@ -115,6 +119,149 @@ pub struct Terrain {
     /// bargain again: chunks read it on background threads while the brush writes
     /// on the main one.
     country: RwLock<crate::world::country::Painted>,
+}
+
+/// The ground under a paving, with each terrain corner asked for once.
+///
+/// # Nine tenths of paving a city was one function
+///
+/// `pave` drapes every vertex it lays on `drawn_height`, which interpolates the
+/// four terrain corners around the point - so it costs four `Terrain::height`
+/// calls, and each of those is noise, the sculpted layer, every settlement that
+/// levels ground nearby and every road that cuts it. Profiled over the real
+/// world, that came to 87-88% of the whole paving cost: 5.55 seconds of the 6.30
+/// one city took, across 160,173 calls.
+///
+/// The corners are shared. A road is a ribbon a few metres wide crossing a two
+/// metre grid, so neighbouring stations and neighbouring bands land in the same
+/// cells over and over: measured across six settlements, every corner is asked
+/// for between 7.0 and 9.0 times. Asking once and keeping the answer is the whole
+/// idea, and it is the ordinary way to drape geometry on a heightfield.
+///
+/// Lazily filled, because a road covers a thin part of the box around it and
+/// sampling the rest would cost more than it saves. `f32::NAN` marks a corner
+/// nobody has asked for yet - no `Option`, no second array, and a comparison
+/// that is false for NaN is exactly the test needed.
+///
+/// The interpolation itself is NOT repeated here: it is `drawn_height_from`, so
+/// the cached ground and the direct one cannot come to different answers.
+pub struct Draped<'a> {
+    ground: &'a Terrain,
+    /// Grid coordinates of the corner this cache starts at.
+    from: (i32, i32),
+    wide: i32,
+    tall: i32,
+    corners: Vec<std::cell::Cell<f32>>,
+}
+
+impl<'a> Draped<'a> {
+    /// A cache covering everything between two corners of the world, and a
+    /// little beyond, since a road's kerb reaches past the line it was laid on.
+    pub fn over(ground: &'a Terrain, low: Vec2, high: Vec2, margin: f32) -> Self {
+        let low = low - Vec2::splat(margin);
+        let high = high + Vec2::splat(margin);
+        let from = (
+            (low.x / GRID_STEP).floor() as i32 - 1,
+            (low.y / GRID_STEP).floor() as i32 - 1,
+        );
+        let to = (
+            (high.x / GRID_STEP).ceil() as i32 + 1,
+            (high.y / GRID_STEP).ceil() as i32 + 1,
+        );
+        let (wide, tall) = ((to.0 - from.0 + 1).max(1), (to.1 - from.1 + 1).max(1));
+        Self {
+            ground,
+            from,
+            wide,
+            tall,
+            corners: vec![std::cell::Cell::new(f32::NAN); (wide * tall) as usize],
+        }
+    }
+
+    /// The height of one terrain corner, sampled at most once.
+    fn corner(&self, cx: i32, cz: i32) -> f32 {
+        let (ox, oz) = (cx - self.from.0, cz - self.from.1);
+        if ox < 0 || oz < 0 || ox >= self.wide || oz >= self.tall {
+            // Outside the box this was built for. Still correct, just not cached.
+            return self.ground.height(cx as f32 * GRID_STEP, cz as f32 * GRID_STEP);
+        }
+        let cell = &self.corners[(oz * self.wide + ox) as usize];
+        let had = cell.get();
+        if !had.is_nan() {
+            return had;
+        }
+        let now = self.ground.height(cx as f32 * GRID_STEP, cz as f32 * GRID_STEP);
+        cell.set(now);
+        now
+    }
+
+    /// The ground as the mesh draws it. Same answer as `Terrain::drawn_height`.
+    pub fn drawn_height(&self, x: f32, z: f32) -> f32 {
+        self.ground
+            .drawn_height_from(x, z, &mut |cx, cz| self.corner(cx, cz))
+    }
+
+    /// Everything else a paving asks of the ground, passed straight through.
+    pub fn ground_colour(&self, x: f32, z: f32) -> [f32; 4] {
+        self.ground.ground_colour(x, z)
+    }
+}
+
+#[cfg(test)]
+mod draped {
+    use super::*;
+
+    /// The cache answers exactly what the ground does.
+    ///
+    /// Not "close to": the same. `Draped` exists only to avoid asking the same
+    /// corner twice, so any difference at all means it is interpolating something
+    /// of its own - and a road drawn on one height while feet are put down on
+    /// another is the fault this file has paid for more than any other.
+    #[test]
+    fn the_cache_and_the_ground_agree_exactly() {
+        let ground = Terrain::new();
+        // A city, so the ground has settlements and roads cut into it rather than
+        // being open noise everybody agrees about.
+        let middle = Vec2::new(223.0, 385.0);
+        let cached =
+            Draped::over(&ground, middle - Vec2::splat(120.0), middle + Vec2::splat(120.0), 24.0);
+
+        let mut worst = 0.0_f32;
+        let mut looked = 0;
+        // Deliberately off the grid, so points land inside quads rather than on
+        // the corners where any interpolation agrees by construction.
+        let step = GRID_STEP * 0.37;
+        let mut z = -140.0;
+        while z < 140.0 {
+            let mut x = -140.0;
+            while x < 140.0 {
+                let at = middle + Vec2::new(x, z);
+                let (one, two) = (ground.drawn_height(at.x, at.y), cached.drawn_height(at.x, at.y));
+                worst = worst.max((one - two).abs());
+                looked += 1;
+                x += step;
+            }
+            z += step;
+        }
+        assert!(looked > 10_000, "only {looked} points looked at");
+        assert_eq!(worst, 0.0, "the cache and the ground differ by {worst} m");
+    }
+
+    /// And outside the box it was built for, where it cannot cache.
+    #[test]
+    fn the_cache_is_right_beyond_its_own_edge() {
+        let ground = Terrain::new();
+        let middle = Vec2::new(223.0, 385.0);
+        let cached = Draped::over(&ground, middle, middle + Vec2::splat(10.0), 4.0);
+        for away in [40.0_f32, 400.0, -400.0, 4000.0] {
+            let at = middle + Vec2::splat(away);
+            assert_eq!(
+                ground.drawn_height(at.x, at.y),
+                cached.drawn_height(at.x, at.y),
+                "{away} m outside the cached box"
+            );
+        }
+    }
 }
 
 /// What a road pays per metre for crossing sand or snow, as a multiplier on the
@@ -1042,12 +1189,31 @@ impl Terrain {
     /// So anything that sits on the surface asks for the surface, and gets the
     /// same bilinear answer the renderer draws.
     pub fn drawn_height(&self, x: f32, z: f32) -> f32 {
-        let step = CHUNK_SIZE / CHUNK_QUADS as f32;
+        self.drawn_height_from(x, z, &mut |cx, cz| {
+            self.height(cx as f32 * GRID_STEP, cz as f32 * GRID_STEP)
+        })
+    }
+
+    /// The same, from whatever supplies the corner heights.
+    ///
+    /// Split out so a cache can answer with corners it has already sampled while
+    /// the INTERPOLATION stays in one place - see `Draped`. Two copies of a
+    /// triangle rule is exactly the shape of fault this file keeps paying for.
+    pub fn drawn_height_from(
+        &self,
+        x: f32,
+        z: f32,
+        corner: &mut dyn FnMut(i32, i32) -> f32,
+    ) -> f32 {
+        let step = GRID_STEP;
         let (gx, gz) = (x / step, z / step);
         let (x0, z0) = (gx.floor(), gz.floor());
         let (tx, tz) = (gx - x0, gz - z0);
+        let (ix, iz) = (x0 as i32, z0 as i32);
 
-        let corner = |cx: f32, cz: f32| self.height(cx * step, cz * step);
+        let mut corner = |cx: f32, cz: f32| {
+            corner(ix + (cx - x0) as i32, iz + (cz - z0) as i32)
+        };
         let (near_left, near_right) = (corner(x0, z0), corner(x0 + 1.0, z0));
         let (far_left, far_right) = (corner(x0, z0 + 1.0), corner(x0 + 1.0, z0 + 1.0));
 

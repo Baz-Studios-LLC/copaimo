@@ -1164,6 +1164,53 @@ matter and unlit cloud pixels.
 
 No game file was changed during this review.
 
+## 2026-09-01 — Standing overnight visual-quality collaboration brief
+
+The user wants an overnight micro-quality pass while you continue implementation. I will review meaningful
+changes read-only and support you with focused research, reference images/briefs, checklists and acceptance
+criteria. Please treat ordinary real-world construction and spatial logic as the visual baseline even in the
+fantasy setting, unless a deliberate fantasy rule explains the exception.
+
+The review order will be: visible clipping/collision or traversal disagreement; incorrect construction and
+scale; grounding/contact/lighting; material and outline coherence; then optional storytelling polish. This
+includes prop placement and repetition, terrain/foliage intersections, doors/windows/wall thickness, stairs,
+roofs/foundations/gutters/drainage, thresholds and interiors, roads/kerbs/footways, weather response, VFX and
+camera presentation. I will group related micro-findings instead of creating a queue of cosmetic trivia.
+
+If one problem consumes roughly two hours or several related attempts without new evidence or measurable
+progress, I will recommend recording the current diagnosis, deferring it with a concrete reopening gate, and
+moving to the next independent high-value task. This is not a time limit on difficult work that is still
+producing evidence; it is only an anti-loop safeguard.
+
+No game file was changed for this brief.
+
+## 2026-09-01 — AAA visual quality and detail research handoff
+
+The user has explicitly narrowed the next research priority to **visuals and environmental detail**. I added
+`AAA_VISUAL_QUALITY_AND_DETAIL_PLAYBOOK_2026-09-01.md`, based on a read-only review of the current asset,
+shader, lighting, water, weather, settlement, road and vegetation approach plus primary industry research.
+
+The central recommendation is not a photoreal texture rebuild. Copaimo currently gets most of its world
+appearance from generated geometry, vertex colour and shared shaders, so the most compatible path is a
+hybrid: keep those systems for silhouette and broad graphic colour, then add a compact medium-frequency
+layer through reusable trims, mesh decals/procedural masks, material-family parameters and causal weather/
+wear response. The playbook also defines five viewing-distance bands, settlement occupation states, road
+influence zones, ecological vegetation, local shoreline contact, selective ink hierarchy, ambient VFX and a
+fixed-view acceptance matrix.
+
+My recommended production method is one **golden route** taken to target quality before any world-wide
+detail expansion: ranch → country road → settlement gateway → main street → landmark/interior. Lock six
+repeatable camera/weather views, fix macro composition and contact first, then add context, material/weather,
+vegetation/shore and motion polish in that order. This creates an honest AAA target against which later
+procedural output can be measured.
+
+I added **AQ-028** as `needs review`. Please disposition it accepted/adapted/deferred/rejected, name the
+candidate route and views, state the intended material boundary, and identify the smallest representative
+facade/frontage A/B that can prove the choice. It can reasonably wait behind AQ-003 and AQ-009; the request
+is for an explicit design decision, not an interruption of the current road work.
+
+No game file was changed for this research or handoff.
+
 ## 2026-09-01 — AQ-027 active handoff review
 
 The newly filed regression is real and higher priority than AQ-022: a 126.2 m missing road is ownership,
@@ -1203,6 +1250,54 @@ Recommended closure matrix:
 - after ownership closes, AQ-022's longitudinal phase continuity at the same seam.
 
 I updated AQ-027 to **open, in progress**. No game file was changed.
+
+## 2026-09-01 — Review of `0108853` + `ddb3658`: AQ-027 not closed yet
+
+The two committed corrections are strong. The real-plan clip reduces the worst per-arrival network gap from
+129.4 m to 0.9 m without introducing another road owner, and the same signed boundary brings the gateway
+material jump from 1.00 to 0.00. The per-road and anti-vacuity guards are the right proof; the 40-sided
+perimeter's sub-street-width sagitta is a reasoned tolerance rather than a hand-wave.
+
+The ledger's own reopening condition has already occurred, however: a fifth boundary caller still carries
+the old circle.
+
+### P1 — `stands_on` still denies the newly drawn approach its road surface
+
+In the country-road portion of `stands_on`, the early return still reads, in substance:
+
+```text
+any non-ranch site where distance(point, centre) < town_reaches(site) => return terrain/town result
+```
+
+For the measured narrow side of a Spine, the actual `Plan::off` edge can be about 148 m while that circle is
+about 320 m. `outside_the_towns` now correctly draws the country road through that annulus until the real
+edge, and `paved_here` correctly stages its paving there, but traversal refuses to consider the country-road
+nodes/ribbon anywhere in the same annulus. The visible road and the walked surface therefore have different
+owners over as much as roughly 172 m—the exact class AQ-003 and the hoverboard gate require us to eliminate.
+
+Change this ownership predicate to the same `off_the_town(site, at) <= 0` question used by clip and fade.
+Then add a secondary-axis Grid/Spine handoff test sampling just outside, exactly at and just inside the edge:
+
+- visible country mesh exists only outside;
+- analytical country lift exists at the same outside samples;
+- town/perimeter ownership takes over inside;
+- rendered and walked heights agree to the existing surface tolerance with no missing band.
+
+### P1 robustness — a 4 m sign walk can skip a complete short crossing
+
+`outside_the_shape` only reacts when consecutive sample signs differ. If a grazing segment enters and leaves
+a convex boundary within one 4 m interval, both endpoints are outside and both crossings disappear. Main
+centre-to-centre approaches are safe, but every road is clipped against every settlement, so an unrelated
+road can graze a Grid corner or Spine cap.
+
+Add a fixture with an inside chord shorter than 4 m and sampled endpoints outside. Either adaptively refine
+an interval whose signed-distance minimum can reach zero, reduce/derive the step from road width plus SDF
+margin, or use the known convex plan shape to locate the minimum before deciding no crossing exists. A test
+is necessary whichever implementation is chosen; simply reducing 4 m makes the miss smaller, not impossible.
+
+I changed AQ-027 from `closed pending review` to **needs review (closure withheld)**. This is not a request
+to undo the two committed fixes; it is the remaining traversal and clipping proof required to make their
+one-boundary claim true. No game file was changed.
 
 ## 2026-08-31 — Read-only review of `faa26a9`
 
