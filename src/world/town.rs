@@ -4350,8 +4350,23 @@ impl RoadSection {
             // immediately outside every footway, so the pavement had a brushed
             // fringe down its far side and the eye read the fringe as part of the
             // street. Reported as "the brushlike affect next to the sidewalk".
+            // A SKIRT CLOSES BECAUSE A KERB REPLACES IT, so it follows the kerb.
+            //
+            // It followed `outer_tie`, the soft country verge, which closes over
+            // paved 0.30 to 0.75 - while the kerb arrives over 0.62 to 0.72. In
+            // between sat a road with its skirt shut and no kerb yet to end at:
+            // the surface had to fall to the hem across whatever was left, and at
+            // a third of a metre that is a twenty per cent slope. A cliff, in the
+            // one place the specification cares most about, and it was invisible
+            // while the skirt was long enough everywhere else to hide it.
+            //
+            // The same shape of fault as AQ-024, where the kerb LINE was gated on
+            // the paving's stones rather than on the kerb. A thing that exists
+            // because of a kerb has to ask about the kerb.
             shoulder: half
-                + (SKIRT_WIDE * arriving.outer_tie + 0.35 * (1.0 - arriving.outer_tie)) * wander,
+                + (SKIRT_WIDE * (1.0 - arriving.kerb_stands)
+                    + 0.35 * arriving.kerb_stands)
+                    * wander,
             // WHAT THE CAMBER IS SCALED OVER, which is no longer the skirt.
             //
             // `lift` shapes the crown as `road_lift(across / shoulder)`, so the
@@ -4374,12 +4389,22 @@ impl RoadSection {
     pub fn lift(&self, across: f32) -> f32 {
         let across = across.abs();
         let shoulder = self.camber.max(0.01);
-        if self.kerb <= 0.0 {
-            // A COUNTRY ROAD IS UNCHANGED. Written as an early return rather than as
-            // a profile that happens to collapse, so a village lane cannot drift by a
-            // millimetre when the footway's numbers are tuned.
-            return road_lift(across / shoulder);
-        }
+        // NO EARLY RETURN FOR A ROAD WITH NO KERB.
+        //
+        // This used to return `road_lift(across / camber)` for the whole width,
+        // so an unpaved lane's profile was one parabola all the way out to the
+        // camber span - and the mesh stops at the SKIRT, which is shorter. Left
+        // that way the surface simply ended in the air; shortened the other way,
+        // by squeezing the parabola into the skirt, the camber across the
+        // carriageway steepened with it and the flat-ground guard caught the
+        // extra chord sag at a node's centre disc.
+        //
+        // The branches below already do the right thing, and a kerb of nought
+        // collapses them: the camber is shaped over the camber span exactly as
+        // before, and the skirt ramps LINEARLY from the road's edge down to the
+        // hem - which is what a dirt shoulder does, and which a chord follows
+        // with no sag at all. A paved street has always been drawn this way. The
+        // only difference now is that a lane is too.
         if across <= self.carriage {
             road_lift(across / shoulder)
         } else if across <= self.carriage + self.batter {

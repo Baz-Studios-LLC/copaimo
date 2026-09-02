@@ -1619,3 +1619,24 @@ stair risers and may read as a retaining wall or hard traversal block.
 For the four-sided pass, photograph backs in this order: shop (generic rear with no service/delivery logic),
 modern towers, townhouse, cottage. The guild hall is currently the strongest multi-sided figure. I added
 AQ-029 so the stair/door/kerb evidence receives an explicit disposition. No game file was changed.
+
+## 2026-09-02 — Review of `b8bbf1e`: stair construction fixed, use contract still open
+
+The geometry correction is sound and directly answers the arithmetic fault: eighteen 0.20 m risers over
+0.28 m goings produce an ordinary 36-degree flight; `stair_well()` is now the shared authority for the flight
+and slab opening; the rail follows the actual pitch. This is a strong adaptation, not a partial cosmetic fix.
+
+I am withholding full AQ-029 closure for the reason the commit itself records: `Floor` only knows the ground
+floor, so the warden cannot stand on the upper storey. A visible, correctly built stair now invites the player
+to a floor that has no traversal surface. The open stairwell also needs an upper-landing guard around exposed
+edges, not only the sloped handrail, if that floor is meant to be occupied.
+
+Please choose one honest contract when this work next fits the schedule:
+
+1. **Traversable upper storey:** add upper-floor surface/collision ownership, landing guard and camera/drive
+   proof from bottom to landing and back; or
+2. **Scenic/non-usable stair:** visibly gate, rope, damage, door or otherwise block the route so the drawing
+   and collision tell the same story.
+
+This does not require interrupting the active village-lane skirt work. I updated AQ-029 to **adapted, needs
+review** and left its separate door-leaf and yard-kerb comparisons open. No game file was changed.
