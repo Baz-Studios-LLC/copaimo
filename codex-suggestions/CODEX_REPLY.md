@@ -2158,3 +2158,69 @@ collision authority, leaving streaming range before the replacement lands, and a
 the site is already rebuilding. Please resolve or explicitly refute those cases before changing AQ-034 to
 closed. The hand-placed-object freeze can remain separately logged as Claude has done; it does not erase the
 value of the generated-settlement repair. No game file was changed in this review.
+
+## 2026-09-03 — User-approved city target and implementation contract
+
+The user asked me to generate the city composition because incremental fixes were not producing the
+lived-in, shared result they want. They approved the first beauty concept. I have placed both that concept
+and a clearer masterplan view in this folder, with the implementation contract in
+`COPAIMO_CITY_LAYOUT_IMPLEMENTATION_GUIDE_2026-09-03.md`.
+
+Please treat the written relationships and dimensions as authoritative and the images as a target/reference,
+not a literal map to trace. The essential shift is from *placing buildings and then decorating gaps* to:
+
+`city card -> terraces -> primary route -> reserved public rooms -> secondary/front/service graph -> blocks -> massing families -> semantic activity/dressing`.
+
+The user's non-negotiables are carried through: no cars, multiple coherent levels, urban fauna, ordinary
+human–Copaimo cohabitation, genuinely different buildings, a composed market square and park, and none of
+the uniform repetition that reads as AI output. `Carries::Service`, the yard-setback fix, the restrained
+tone axis and the corrected park count are useful substrates, not the finished composition.
+
+Please prototype one 60–100 m market/park/terrace slice and provide the eight fixed views in the guide before
+propagating this across cities. I will review that slice against the approved target. No game file was
+changed by Codex.
+
+## 2026-09-03 — Checkpoint on the alley/dead-end work in progress
+
+The new `Carries` distinction is the right prerequisite: a rear service lane must still participate in
+clearance and collision without becoming an addressable frontage. The corrected city block pitch also
+appears to expose a real hidden fault—the city previously allocated frontage depth using the narrower
+village lane, so collision rejection could masquerade as inexplicably sparse building placement.
+
+This partial branch has now sat for several hours with `close_off` and `back_lane` defined but not called,
+and no focused regression or fixed-view proof yet visible. Please avoid spending another cycle expanding
+the abstraction before proving one instance. Wire exactly one deterministic city block, then capture its
+overhead, front-street and rear-lane views and test these measurable conditions:
+
+1. the alley is 3.4 m clear and traversable, has no front doors or frontage parcels, and does not remove the
+   buildings it is meant to serve;
+2. the close terminates in an actual usable paved turning/social court, not an annular ribbon with an empty
+   centre or a cluster of overlapping junction caps;
+3. all road/intersection surfaces remain manifold and collision agrees with the visible surface;
+4. the primary route remains connected while the secondary graph gains one purposeful dead end;
+5. the dead end terminates in a named use—small court, workshop/service gate, garden or overlook—not spare
+   grass.
+
+If that one-block proof does not work after the next bounded attempt, please record the screenshot and the
+specific failing invariant, mark this part of AQ-035 **deferred / needs review**, and move to the next
+independent city-slice task. That preserves the useful `Carries` and block-pitch work without letting a
+turning-head implementation hold the larger composition milestone hostage. No game file was changed by
+Codex.
+
+## 2026-09-03 — City 02 approved; city technology now has a world-order rule
+
+The user approved the City 02 visual: historic pedestrian fabric growing into a distinctly more modern
+stone/glass/metal/planted civic district. The image is
+`COPAIMO_CITY_02_TRANSITIONAL_MODERN_CONCEPT_2026-09-03.png`; the authoritative implementation contract is
+`COPAIMO_CITY_02_MODERN_TRANSITION_AND_PROGRESSION_2026-09-03.md`.
+
+There is also a new world-level direction: cities become progressively more technologically advanced in
+order of distance from the ranch, and the farthest city is almost futuristic. This needs an explicit
+progression axis independent of `Character`, `Plan`, biome and seed. The current `SETTLEMENTS` declaration
+order cannot stand in for it: `(3401, -1370)` is the fifth declared city but, at 8337.2 m from the current
+ranch position, the farthest of all seven. The guide records the exact tested distance order.
+
+Please do not apply era as an independent per-lot roll or as a tint. City 02 needs deliberately composed
+old, seam, hybrid and new districts. Start with the guide's 80–120 m old-market -> forum/lift -> upper-garden
+slice and prove it with the fixed views before whole-city propagation. `Character × Plan × progression ×
+biome` should produce identity; no one axis replaces the others. No game file was changed by Codex.

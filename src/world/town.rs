@@ -1264,6 +1264,8 @@ pub struct Street {
     pub from: Vec2,
     pub to: Vec2,
     pub wide: f32,
+    /// Inherited from the `Way` this was derived from - never recomputed here.
+    pub carries: Carries,
 }
 
 impl Street {
@@ -1472,13 +1474,21 @@ fn clear_of_buildings_by(
 /// walks up. Asked directly rather than assumed: step out of the door, step out of
 /// the back wall, and the door had better be the end that finds a street first.
 fn door_faces_a_street(streets: &[Street], at: Vec2, facing: f32, what: Building) -> bool {
-    if streets.is_empty() {
+    // ONLY THE STREETS A DOOR MAY ADDRESS - see `Carries`. A service alley
+    // running behind a block is nearer a house's back than its street is nearer
+    // its front, so counting alleys here refuses every building that backs onto
+    // one. Clearance and the audit still see them; only the door rule does not.
+    let addressed: Vec<&Street> = streets
+        .iter()
+        .filter(|street| street.carries == Carries::Doors)
+        .collect();
+    if addressed.is_empty() {
         return true;
     }
     let door = Vec2::new(facing.sin(), -facing.cos());
     let out = what.footprint().y * 0.5 + DOOR_LOOKS;
     let nearest =
-        |p: Vec2| streets.iter().map(|s| s.nearest(p).0).fold(f32::MAX, f32::min);
+        |p: Vec2| addressed.iter().map(|s| s.nearest(p).0).fold(f32::MAX, f32::min);
     nearest(at + door * out) < nearest(at - door * out)
 }
 
@@ -1500,10 +1510,37 @@ fn door_faces_a_street(streets: &[Street], at: Vec2, facing: f32, what: Building
 /// So the chain is what the layout holds and the segments are DERIVED from it.
 /// Everything that wants segments - frontage, clearance, junctions, lamps - still
 /// gets them, and the one thing that needs to know where a road bends now does.
+/// What a road is FOR, which decides whether a front door may address it.
+///
+/// # A rule that could not tell a street from a service lane
+///
+/// `door_faces_a_street` asks whether a building's door is nearer a street than
+/// its back is, over every street in the town. That is the right question while
+/// every road is a road somebody's front door faces - and it silently becomes
+/// the wrong one the moment a service alley runs behind a block, because a house
+/// whose back is a metre from the alley and whose front is eight metres from the
+/// street reports its door on the wrong side and is refused outright.
+///
+/// So a way says what it is, once, where it is built. The rule that places doors
+/// ignores service ways; every clearance rule and the audit keep considering all
+/// of them, because nothing may be built in an alley either.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Carries {
+    /// A street a front door may address. Nearly everything.
+    #[default]
+    Doors,
+    /// Access behind a block: deliveries, bins, a way through on foot. No
+    /// frontage is cut against it and no door is placed to face it.
+    Service,
+}
+
 #[derive(Clone, Debug)]
 pub struct Way {
     pub points: Vec<Vec2>,
     pub wide: f32,
+    /// What this road is for - see `Carries`. Owned by the way and inherited by
+    /// every segment derived from it, the same way `wide` is.
+    pub carries: Carries,
     /// The width this road converges to where it becomes a city street.
     ///
     /// A city's own ways join themselves and never change. A country road joins the
@@ -1519,6 +1556,7 @@ impl Way {
             from: pair[0],
             to: pair[1],
             wide: self.wide,
+            carries: self.carries,
         })
     }
 
@@ -2013,6 +2051,127 @@ fn inside(on: &Ground, plan: Plan, from: Vec2, to: Vec2) -> Option<(Vec2, Vec2)>
     Some((from + run * head, from + run * tail))
 }
 
+/// How wide a service lane behind a block is, in metres.
+///
+/// Narrow enough to read as the back of things - a cart and a person passing, no
+/// footway, no frontage - and wide enough that the warden fits through with room
+/// to turn. `door_faces_a_street` ignores it entirely; see `Carries`.
+const ALLEY_WIDE: f32 = 3.4;
+
+/// How much of a block's depth a close reaches into.
+const CLOSE_REACHES: f32 = 0.62;
+
+/// How many of a grid's blocks get a lane behind them, and how many get a close.
+///
+/// Not all of them. A back lane behind every block is as much a lattice as no
+/// back lane at all - what breaks the read is that some blocks have one and the
+/// player cannot tell which from the street. Dealt by a hash of the town's own
+/// seed and the band, so it is a property of the place rather than a pattern.
+const ALLEYS_BEHIND: f32 = 0.45;
+const CLOSES_OFF: f32 = 0.34;
+
+/// A street that goes in and does not come out, ending in a turning head.
+///
+/// # Everything joining up is what reads as a diagram
+///
+/// Nothing in this file enforces connectivity - there is no graph pass, no
+/// reachability check, nothing that asks. It is a by-product of three habits:
+/// every plan draws a perimeter, every free-running street is clipped to the
+/// same shape that perimeter follows, and the ends that are never clipped are
+/// placed on another street's line by construction. So every road joins, every
+/// junction is a crossing, and the plan reads as a lattice somebody solved. The
+/// user, looking at a city from the air: "Roads arent perfectly connected, some
+/// lead to dead ends."
+///
+/// # Two ways, and no new machinery at all
+///
+/// A stub from the street into the block, and a CLOSED way - its first point the
+/// same as its last - whose ring begins exactly where the stub ends. `nodes_in`
+/// groups every way-end within `NODE_TOUCHES` into one meeting, so the stub's
+/// end and the ring's two ends become a single three-arm junction, and the
+/// turning head is drawn by the junction builder that already draws every other
+/// meeting. Nothing here knows what a cul-de-sac is.
+///
+/// It also reaches into the one part of a block nothing else uses. Frontage is
+/// cut along streets and the middles are left as grass, which is half of why a
+/// city block reads as empty; a close puts that ground to work.
+fn close_off(
+    on: &Ground,
+    ways: &mut Vec<Way>,
+    parcels: &mut Vec<Parcel>,
+    mouth: Vec2,
+    into: Vec2,
+    deep: f32,
+    wide: f32,
+) {
+    let head = mouth + into * deep;
+    ways.push(Way {
+        points: vec![mouth, head],
+        wide,
+        joins: wide,
+        carries: Carries::Doors,
+    });
+    // Frontage down the sides of the close, which is what a close is for: the
+    // houses on it face each other across a road nobody drives through.
+    frontage_parcels(parcels, on.middle, mouth, head, wide, on.depth, false);
+
+    // THE TURNING HEAD, as a closed ring that begins where the stub ends.
+    //
+    // Started at the bearing back towards the mouth, so `ring[0]` IS `head` to
+    // within floating point - that coincidence is the whole mechanism, and
+    // choosing any other start angle would leave the stub aimed at a ring it
+    // does not touch.
+    let across = wide * 1.45;
+    let middle = head + into * across;
+    let start = (-into).to_angle();
+    const SIDES: usize = 9;
+    let ring: Vec<Vec2> = (0..=SIDES)
+        .map(|i| {
+            let turn = start + std::f32::consts::TAU * i as f32 / SIDES as f32;
+            middle + Vec2::from_angle(turn) * across
+        })
+        .collect();
+    ways.push(Way {
+        points: ring,
+        wide,
+        joins: wide,
+        carries: Carries::Doors,
+    });
+}
+
+/// The lane behind a block: bins, deliveries, a way through on foot.
+///
+/// Laid down the middle of the pitch between two streets, which is where the two
+/// rows of frontage put their backs. It carries no frontage and no door faces it
+/// - see `Carries` - and it exists because a city whose every road is a street
+/// with houses looking at it has no back to anything.
+///
+/// Cities only. On unpaved ground a road wears a 5.4 m skirt each side, so a
+/// 3.4 m alley would lay an eleven-metre band of dirt through a village's
+/// gardens; and a village has no service traffic to justify one.
+fn back_lane(on: &Ground, ways: &mut Vec<Way>, along: Vec2, across: Vec2, mid: f32) {
+    let middle = on.middle + across * mid;
+    let Some((from, to)) = inside(
+        on,
+        Plan::Grid,
+        middle - along * on.reach * 2.0,
+        middle + along * on.reach * 2.0,
+    ) else {
+        return;
+    };
+    // A stub of alley is a dead end nobody asked for. One that does not cross a
+    // whole block is not a back lane.
+    if from.distance(to) < on.band * 1.2 {
+        return;
+    }
+    ways.push(Way {
+        points: vec![from, to],
+        wide: ALLEY_WIDE,
+        joins: ALLEY_WIDE,
+        carries: Carries::Service,
+    });
+}
+
 /// The road round the edge of a settlement.
 ///
 /// # Streets that stopped in a field
@@ -2037,6 +2196,7 @@ fn perimeter_streets(on: &Ground, plan: Plan, ways: &mut Vec<Way>, parcels: &mut
         points,
         wide: on.lane,
         joins: on.lane,
+        carries: Carries::Doors,
     });
 }
 
@@ -2077,6 +2237,7 @@ fn grid_streets(on: &Ground, ways: &mut Vec<Way>, parcels: &mut Vec<Parcel>) {
             points: vec![from, to],
             wide,
             joins: wide,
+            carries: Carries::Doors,
         });
     }
 
@@ -2106,9 +2267,49 @@ fn grid_streets(on: &Ground, ways: &mut Vec<Way>, parcels: &mut Vec<Parcel>) {
                 points: vec![from, to],
                 wide: on.lane,
                 joins: on.lane,
+                carries: Carries::Doors,
             });
             // Frontage down both sides of it.
             frontage_parcels(parcels, on.middle, from, to, on.lane, on.depth, false);
+        }
+    }
+
+    // AND THE THINGS THAT DO NOT JOIN UP.
+    //
+    // A grid whose every street runs from one side to the other is a lattice
+    // somebody solved, and it reads that way from the air. What a city has as
+    // well is service behind the blocks and roads that go in without coming out
+    // - see `back_lane` and `close_off`. Both go where the plan leaves ground
+    // nothing else uses: the middle of a block.
+    for (axis, (way, other)) in [(0_u32, (along, across)), (1, (across, along))] {
+        for band in -bands..bands {
+            let seed = on
+                .seed
+                .wrapping_add(axis.wrapping_mul(977))
+                .wrapping_add((band + 32) as u32);
+            let mid = (band as f32 + 0.5) * on.band;
+            if unit(seed, 71) < ALLEYS_BEHIND {
+                back_lane(on, ways, way, other, mid);
+            }
+            // A close off the street on the near side of this block, reaching
+            // into it. Offset along the street by its own roll so two closes on
+            // neighbouring bands do not line up into a road.
+            if unit(seed, 73) < CLOSES_OFF {
+                let street = band as f32 * on.band;
+                let along_by = (unit(seed, 79) - 0.5) * on.reach * 0.9;
+                let mouth = on.middle + other * street + way * along_by;
+                let deep = (on.band * CLOSE_REACHES * 0.5).min(on.depth * 1.1);
+                // Both the mouth and the head have to be town, or the close
+                // hangs off the edge into a field - which is the one thing the
+                // perimeter exists to stop.
+                let head = mouth + other * deep;
+                let within = |at: Vec2| {
+                    Plan::Grid.off(at - on.middle, on.through, on.reach) < -ALLEY_WIDE
+                };
+                if within(mouth) && within(head) {
+                    close_off(on, ways, parcels, mouth, other, deep, on.lane);
+                }
+            }
         }
     }
 
@@ -2163,6 +2364,7 @@ fn spine_streets(on: &Ground, ways: &mut Vec<Way>, parcels: &mut Vec<Parcel>) {
             points: vec![from, to],
             wide: on.high_street,
             joins: on.high_street,
+            carries: Carries::Doors,
         });
     }
 
@@ -2184,6 +2386,7 @@ fn spine_streets(on: &Ground, ways: &mut Vec<Way>, parcels: &mut Vec<Parcel>) {
             points: vec![from, to],
             wide: on.lane,
             joins: on.lane,
+            carries: Carries::Doors,
         });
         frontage_parcels(parcels, on.middle, from, to, on.lane, on.depth, false);
     }
@@ -2220,6 +2423,7 @@ fn spine_streets(on: &Ground, ways: &mut Vec<Way>, parcels: &mut Vec<Parcel>) {
                 points: vec![foot, head],
                 wide: on.lane,
                 joins: on.lane,
+                carries: Carries::Doors,
             });
             frontage_parcels(parcels, on.middle, foot, head, on.lane, on.depth, false);
         }
@@ -2313,7 +2517,7 @@ fn arc_streets(
             parcel_from = next;
         }
     }
-    ways.push(Way { points: line, wide, joins: wide });
+    ways.push(Way { points: line, wide, joins: wide, carries: Carries::Doors });
 }
 
 /// Where a town's streets actually MEET, whatever plan drew them.
@@ -2607,6 +2811,7 @@ pub fn roads_through(
             from: way.from,
             to: way.to,
             wide: crate::config::ROAD_WIDE,
+            carries: Carries::Doors,
         })
         .collect()
 }
@@ -2645,8 +2850,38 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // world came out with zero buildings in it while the frontage rule took the
     // blame. The floor is the requirement, not a round number.
     let depth = (reach * 0.16).clamp(14.0, 22.0);
+    // HOW WIDE THIS PLACE'S STREETS ARE.
+    //
+    // A city's are wider than a village's by exactly the two footways they carry -
+    // see `CITY_STREET_WIDE`. Decided once, here, and handed to everything that
+    // lays a road, so the width a street is drawn at, the width the warden walks,
+    // and the width the buildings are set back from are one number.
+    //
+    // Bound HERE, above `band`, because `band` depends on it. It used to sit two
+    // hundred lines below and `band` used the constant `LANE_WIDE` instead - see
+    // the note on `band`.
+    let (high_street, lane) = if site.city {
+        (CITY_STREET_WIDE, CITY_LANE_WIDE)
+    } else {
+        (STREET_WIDE, LANE_WIDE)
+    };
+
     // One ring per band of blocks, out as far as the town reaches.
-    let band = depth * 2.0 + LANE_WIDE + SETBACK * 2.0;
+    //
+    // # A block that was three metres eight too small for what stood in it
+    //
+    // The pitch from one street to the next has to hold a lane and two rows of
+    // frontage with their setbacks, and this said `LANE_WIDE` - the VILLAGE lane,
+    // 4.2 m - while a city's lanes are `CITY_LANE_WIDE`, 8.0. So in every city
+    // the two rows of buildings were dealt 3.8 m more depth than the block
+    // actually had, and their backs interpenetrated by that much; along a high
+    // street, 5.8. It never showed as a fault because `clear_of_buildings` simply
+    // refused the ones that collided, so it read as a city that had fewer
+    // buildings than it asked for rather than as a block that was too small.
+    //
+    // It also left nowhere to put a back lane, which is what turned this up:
+    // measured, the gap between the two rows' backs was NEGATIVE 3.8 m.
+    let band = depth * 2.0 + lane + SETBACK * 2.0;
     // A city may have three bands of blocks; a village has one or two. A place with
     // forty houses does not need three ring roads, and giving it them is what turned
     // the ranch's town into a small city.
@@ -2692,11 +2927,6 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // see `CITY_STREET_WIDE`. Decided once, here, and handed to everything that lays
     // a road, so the width a street is drawn at, the width the warden walks, and the
     // width the buildings are set back from are one number.
-    let (high_street, lane) = if site.city {
-        (CITY_STREET_WIDE, CITY_LANE_WIDE)
-    } else {
-        (STREET_WIDE, LANE_WIDE)
-    };
 
     // The roads as CHAINS. `streets` is derived from these once they are all laid.
     let mut ways: Vec<Way> = Vec::new();
@@ -2780,6 +3010,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
             ],
             wide,
             joins: wide,
+            carries: Carries::Doors,
         });
         // Cut at each ring it crosses, so a radial's frontage is a block's worth at
         // a time rather than one strip running the whole way out.
@@ -2888,7 +3119,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         .flat_map(|road| {
             outside_the_shape(&|at| off_the_town(site, at), road.from, road.to)
                 .into_iter()
-                .map(|(from, to)| Street { from, to, wide: road.wide })
+                .map(|(from, to)| Street { from, to, wide: road.wide, carries: Carries::Doors })
         })
         .collect();
     let streets: Vec<Street> = laid.iter().chain(kept_clear.iter()).cloned().collect();
@@ -6097,6 +6328,7 @@ fn planarise(ways: Vec<Way>) -> Vec<Way> {
                     points: std::mem::replace(&mut chain, vec![at]),
                     wide: way.wide,
                     joins: way.joins,
+                    carries: Carries::Doors,
                 });
                 next += 1;
             }
@@ -6104,7 +6336,7 @@ fn planarise(ways: Vec<Way>) -> Vec<Way> {
                 chain.push(pair[1]);
             }
         }
-        out.push(Way { points: chain, wide: way.wide, joins: way.joins });
+        out.push(Way { points: chain, wide: way.wide, joins: way.joins, carries: way.carries });
     }
     out.retain(|way| {
         way.points.len() >= 2
@@ -6389,7 +6621,7 @@ fn clipped(way: &Way, from: f32, to: f32) -> Option<Way> {
         }
     }
     points.push(along(end));
-    Some(Way { points, wide: way.wide, joins: way.joins })
+    Some(Way { points, wide: way.wide, joins: way.joins, carries: way.carries })
 }
 
 fn pave(
@@ -7287,6 +7519,7 @@ fn country_roads_near(
             // over `PAVING_ARRIVES` so the section it hands over is the section it
             // hands over to - see `RoadSection`.
             joins: CITY_STREET_WIDE,
+            carries: Carries::Doors,
         })
         .collect()
 }
@@ -8233,6 +8466,7 @@ mod tests {
             ],
             wide: CITY_STREET_WIDE,
             joins: CITY_STREET_WIDE,
+            carries: Carries::Doors,
         };
         let (kept, capped) = network(vec![bent.clone()], &|_| 1.0);
         assert!(
@@ -8255,6 +8489,7 @@ mod tests {
             points: vec![Vec2::new(29.0, 10.0), Vec2::new(29.0, -20.0)],
             wide: CITY_LANE_WIDE,
             joins: CITY_LANE_WIDE,
+            carries: Carries::Doors,
         };
         let (split, met) = network(vec![bent, joining], &|_| 1.0);
         assert_eq!(met.len(), 1, "a crossroads got {} meetings", met.len());
@@ -8415,6 +8650,7 @@ mod tests {
             points: vec![from, to],
             wide: crate::config::ROAD_WIDE,
             joins: CITY_STREET_WIDE,
+            carries: Carries::Doors,
         };
         let mesh = pave(&[way], &[], &[], &terrain, from, 0.0);
         let Some(VertexAttributeValues::Float32x3(places)) =
@@ -8446,7 +8682,8 @@ mod tests {
             // width of the road wherever the paving changes quickly across it -
             // near a town's corner, where its shape turns - and reports a fault
             // in the mesh that is really a fault in the question.
-            let street = Street { from, to, wide: crate::config::ROAD_WIDE };
+            let street =
+                Street { from, to, wide: crate::config::ROAD_WIDE, carries: Carries::Doors };
             if Arriving::at(paved_here(plan, street.nearest_point(at))).kerb_stands > 1.0e-4 {
                 inked_with_one += 1;
             } else {
@@ -11187,13 +11424,23 @@ mod facing {
         let layout = lay_out(&site, Vec2::X, &[], 3);
         for paved in [0.3_f32, 0.5, 0.85] {
             let mesh = pave(&layout.ways, &layout.nodes, &layout.opens, &terrain, site.at, paved);
-            let Some(VertexAttributeValues::Float32x2(uvs)) = mesh.attribute(Mesh::ATTRIBUTE_UV_0)
+            // UV_1, WHICH IS WHERE THE PAVING AMOUNT LIVES.
+            //
+            // This read `ATTRIBUTE_UV_0` and its `y`, and UV_0 is the road's own
+            // frame - across and ALONG, in metres. So for its whole life this
+            // asserted that no vertex sits exactly 0.5 m along a road, which is
+            // true by luck and says nothing about the channel it means to check.
+            // Correcting the block pitch moved one vertex to 0.500 m and the
+            // guard fired: a false positive that turned out to be the guard
+            // reporting its own fault. See `pave`, which writes
+            // `[stone_contrast, along_a_kerb]` into UV_1.
+            let Some(VertexAttributeValues::Float32x2(made)) = mesh.attribute(Mesh::ATTRIBUTE_UV_1)
             else {
-                panic!("the paving has no uvs");
+                panic!("the paving carries no arrival channel");
             };
             let raw = paved;
             let channel = Arriving::at(paved).stone_contrast;
-            let on_raw = uvs.iter().filter(|uv| (uv[1] - raw).abs() < 1.0e-4).count();
+            let on_raw = made.iter().filter(|uv| (uv[0] - raw).abs() < 1.0e-4).count();
             assert!(
                 (raw - channel).abs() > 0.05,
                 "paved {paved} is too close to its own channel to tell them apart"
@@ -11575,6 +11822,7 @@ mod facing {
             points: vec![Vec2::new(-40.0, 0.0), Vec2::new(40.0, 0.0)],
             wide: CITY_STREET_WIDE,
             joins: CITY_STREET_WIDE,
+            carries: Carries::Doors,
         }];
         let mesh = pave(&ways, &[], &[], &terrain, Vec2::ZERO, 1.0);
         let Some(VertexAttributeValues::Float32x3(facing)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
@@ -11650,6 +11898,7 @@ mod facing {
                 points: vec![Vec2::new(-60.0, 0.0), Vec2::new(60.0, 0.0)],
                 wide: CITY_STREET_WIDE,
                 joins: CITY_STREET_WIDE,
+                carries: Carries::Doors,
             }];
             let mesh = pave(&ways, &[], &[], &terrain, Vec2::ZERO, paved);
             let Some(VertexAttributeValues::Float32x3(places)) =
@@ -12016,6 +12265,7 @@ mod facing {
             points: vec![where_at - Vec2::X * 30.0, where_at + Vec2::X * 30.0],
             wide: CITY_STREET_WIDE,
             joins: CITY_STREET_WIDE,
+            carries: Carries::Doors,
         }];
         let mesh = pave(&ways, &[], &[], &terrain, where_at, 1.0);
         let Some(VertexAttributeValues::Float32x3(places)) =

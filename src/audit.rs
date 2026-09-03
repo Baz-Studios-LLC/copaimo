@@ -220,6 +220,7 @@ pub fn audit_the_streets(
                         from,
                         to,
                         wide: crate::config::ROAD_WIDE,
+                        carries: crate::world::town::Carries::Doors,
                     });
                 }
             }
