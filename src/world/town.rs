@@ -1824,7 +1824,16 @@ impl Open {
     fn fills(self) -> (Building, Building) {
         match self {
             Open::Square => (Building::CityForecourt, Building::CityKiosk),
-            Open::Park => (Building::CityGreen, Building::CityGreen),
+            // A PARK IS PLANTING AND SOMEWHERE TO STAND ON.
+            //
+            // Both of these were `CityGreen`, which makes the alternation at the
+            // call site a no-op and rings every park in the world with twelve
+            // copies of one figure - against this function's own promise, two
+            // lines above, that there are two of them so the programme has some
+            // variety in it. A paved rest area among the planting is what the
+            // second one is for, and it is the thing the user asked for by name:
+            // parks and open areas people and their companions stand around in.
+            Open::Park => (Building::CityGreen, Building::CityForecourt),
             Open::Market => (Building::CityKiosk, Building::CityForecourt),
             // NEITHER of them the service bay the depot's own focus is, or a yard
             // can come out as three of one model and read as a row.
@@ -3584,7 +3593,15 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
             .collect();
         // Which lots a building took, so the rest can be given a use below.
         let mut taken: Vec<usize> = Vec::new();
-        let room = wanted.saturating_sub(kept.len()).max(1);
+        // WHAT IS LEFT TO BUILD, counting only the BUILDINGS already kept.
+        //
+        // `kept` at this point holds everything that survives regardless - the
+        // hall, the landmarks, and every piece of a public place's furniture. It
+        // charged all of them against the house count, so a park's dozen benches
+        // and planters each cost the city a building and `HOUSES_IN_A_CITY` did
+        // not mean what its own doc says it means.
+        let already = kept.iter().filter(|plot| !plot.what.is_yard()).count();
+        let room = wanted.saturating_sub(already).max(1);
         for district in [District::Market, District::Crafts, District::Outskirts] {
             let here: Vec<usize> = others
                 .iter()
