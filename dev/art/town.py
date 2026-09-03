@@ -2278,19 +2278,30 @@ def city_works():
 
 
 def city_deck():
-    """A car deck: open floors with nothing but a rail between them.
+    """A pedestrian exchange: open trading floors stacked over a covered market.
 
-    The most distinctive silhouette a modern city has, and the cheapest to read:
-    every other building is a solid mass with holes in it, and this is holes with a
-    little mass between them. Stripes, from any distance.
+    # There are no cars in this world
+
+    This was authored as a car deck - open parking floors and a thirteen-degree
+    vehicle ramp - in a city whose traffic is entirely on foot, with hoverboards
+    and mounts to come. Codex read it against the fiction and called it what it
+    was: a P1 coherence fault, not prop polish. A building that stores cars in a
+    world with none is a hole in the setting you can walk into.
+
+    What was worth keeping is the SILHOUETTE. Every other building is a mass with
+    holes in it; this is holes with a little mass between them, and from any
+    distance it reads as stripes. So the programme changes and the shape does not:
+    open floors are terraces and galleries for people, the ramp is a broad public
+    stair, and the ground floor is an arcade of stalls under the first deck. A
+    covered bazaar with the guild's business above it.
     """
     parts = []
     floors, wide, deep = 5, 20.0, 16.0
     tall = FLOOR_TALL * floors
     parts.append(box((wide + 0.5, deep + 0.5, 0.18), (0.0, 0.0, 0.09), "concrete2"))
-    # A way in on foot, which even a car deck has - see `_street_storey`.
+    # A way in on foot - see `_street_storey`.
     _street_storey(parts, wide, deep, FLOOR_TALL, "concrete2")
-    # The decks themselves, and the spandrel band at the edge of each.
+    # The decks themselves, and the rail along the edge of each.
     for floor in range(1, floors + 1):
         z = FLOOR_TALL * floor
         parts.append(box((wide, deep, 0.34), (0.0, 0.0, z + 0.17), "concrete"))
@@ -2300,7 +2311,17 @@ def city_deck():
                     at = ((0.0, side * off * 0.5) if face == "x" else (side * off * 0.5, 0.0))
                     size = ((span, 0.18, 0.8) if face == "x" else (0.18, span, 0.8))
                     parts.append(box(size, (at[0], at[1], z + 1.0), "parapet"))
-    # Corner columns and a stair tower, so it is held up by something.
+                    # A banner hung from every other bay, which is what says
+                    # market rather than office: cloth in a district's colour.
+                    if face == "x":
+                        for bay in range(-2, 3):
+                            if (bay + floor) % 2 == 0:
+                                x = bay * span * 0.18
+                                parts.append(box((1.6, 0.05, 0.05), (x, at[1] + side * 0.12, z + 1.35),
+                                                 "steel"))
+                                parts.append(box((1.4, 0.06, 1.6), (x, at[1] + side * 0.12, z + 0.5),
+                                                 "cloth"))
+    # Corner columns and the stair tower.
     for sx in (-1.0, 1.0):
         for sy in (-1.0, 1.0):
             parts.append(box((0.6, 0.6, tall), (sx * (wide * 0.5 - 0.4), sy * (deep * 0.5 - 0.4),
@@ -2308,15 +2329,70 @@ def city_deck():
     parts.append(box((4.0, 4.0, tall + FLOOR_TALL * 0.7),
                      (-wide * 0.5 + 2.0, deep * 0.5 - 2.0, (tall + FLOOR_TALL * 0.7) * 0.5),
                      "concrete2"))
-    # The ramp, which is the thing that tells you what it is for.
-    parts.append(box((wide * 0.42, 3.6, 0.3), (wide * 0.2, 0.0, FLOOR_TALL * 0.6),
-                     "concrete", tilt=(0.0, math.radians(-13.0), 0.0)))
+    # THE STAIR, which is what tells you what it is for.
+    #
+    # Codex measured the first cut: fourteen treads for a 3.4 m storey is a 243 mm
+    # rise on a 300 mm going - a thirty-nine degree flight, which is a ladder with
+    # pretensions. Public stairs are about 170 mm of rise; twenty of them make the
+    # storey, with a landing halfway so it reads as somewhere people actually go
+    # up. Two rails, because one rail on a 3.2 m flight is a rail for half the
+    # people on it.
+    treads, rise, going = 20, FLOOR_TALL / 20.0, 0.30
+    flight_x = wide * 0.5 - 1.2
+    for tread in range(treads):
+        # A landing after the tenth: one tread's worth of extra going, flat.
+        back = tread * going + (1.2 if tread >= 10 else 0.0)
+        parts.append(box((going, 3.2, rise * (tread + 1)),
+                         (flight_x - back, -deep * 0.1, rise * (tread + 1) * 0.5), "concrete"))
+    landing_x = flight_x - 10 * going - 0.6
+    parts.append(box((1.2, 3.2, rise * 10), (landing_x, -deep * 0.1, rise * 5.0), "concrete"))
+    run = treads * going + 1.2
+    pitch = math.atan2(FLOOR_TALL, run)
+    for side in (-1.0, 1.0):
+        parts.append(box((run, 0.08, 1.0),
+                         (flight_x - run * 0.5, -deep * 0.1 + side * 1.6, FLOOR_TALL * 0.5 + 0.5),
+                         "steel", tilt=(0.0, pitch, 0.0)))
+    # CONTINUOUS GUARDS on the terrace people stand on, not a knee-high rail.
+    for face, span, off in (("x", wide, deep), ("y", deep, wide)):
+        for side in (-1.0, 1.0):
+            at = ((0.0, side * off * 0.5) if face == "x" else (side * off * 0.5, 0.0))
+            size = ((span, 0.06, 1.1) if face == "x" else (0.06, span, 1.1))
+            parts.append(box(size, (at[0], at[1], FLOOR_TALL + 0.34 + 0.55), "steel"))
+    # THE ARCADE at ground: stalls between the columns under the first deck, one
+    # per bay along both long sides, each a counter with an awning over it.
+    for side in (-1.0, 1.0):
+        for bay in range(-2, 3):
+            x = bay * wide * 0.17
+            y = side * (deep * 0.5 - 1.6)
+            parts.append(box((2.4, 0.9, 1.0), (x, y, 0.5), "counter"))
+            parts.append(box((2.8, 1.6, 0.08), (x, y + side * 0.2, 2.35), "cloth"))
+            parts.append(box((0.9, 0.5, 0.35), (x - 0.5, y, 1.18), "shelf"))
     return parts, tall + FLOOR_TALL * 0.7
 
 
 def city_block():
     """A mid-rise: the ordinary building of a city street."""
     return tower(5, wide=10.5, deep=9.0, crown="flat")
+
+
+def city_block_low():
+    """The same building three floors tall, and a little wider.
+
+    # A neighbourhood of identical buildings is one building
+
+    A street of apartments came out as the same figure repeated down both sides at
+    the same height, which reads as a copy rather than as a neighbourhood. The kit
+    stays a kit - this is the same `tower` with the same parts - but a row of them
+    now has a skyline rather than a ruled line. What varies is the thing the eye
+    actually measures a building by from the street: how tall it is against the
+    one beside it.
+    """
+    return tower(3, wide=11.5, deep=9.5, crown="flat")
+
+
+def city_block_tall():
+    """And seven floors, narrower. The other end of the same family."""
+    return tower(7, wide=9.5, deep=8.5, crown="flat")
 
 
 def city_tower():
@@ -2400,6 +2476,8 @@ FIGURES = {
     "well": well,
     # The new: cities.
     "city_block": city_block,
+    "city_block_low": city_block_low,
+    "city_block_tall": city_block_tall,
     "city_deck": city_deck,
     "city_shops": city_shops,
     "city_slab": city_slab,
@@ -2655,7 +2733,8 @@ def every_doorway():
     """
     found = []
     for name in ("cottage", "townhouse", "shop", "guild_hall",
-                 "city_block", "city_tower", "city_spire",
+                 "city_block", "city_block_low", "city_block_tall",
+                 "city_tower", "city_spire",
                  "city_slab", "city_shops", "city_works", "city_deck"):
         masonry.fresh()
         parts, _ = FIGURES[name]()
@@ -2821,6 +2900,8 @@ with open(NOTE, "w", encoding="utf-8") as note:
     note.write(f"FLOOR_TALL {FLOOR_TALL}\n")
     note.write(f"LOBBY {FLOOR_TALL * 1.5}\n")
     note.write("FACADE city_block 10.5 9.0 4\n")
+    note.write("FACADE city_block_low 11.5 9.5 2\n")
+    note.write("FACADE city_block_tall 9.5 8.5 6\n")
     note.write("FACADE city_tower 10.0 9.5 8\n")
     note.write("FACADE city_spire 11.0 11.0 13\n")
     write_the_plan(note, COTTAGE_PLAN, COTTAGE_DOOR, COTTAGE_CLEAR)

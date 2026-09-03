@@ -282,7 +282,22 @@ pub struct Settlements {
 /// what an index is for. A pad reaches at most about fourteen metres and a lane's
 /// skirt about eight, so a lookup still touches one cell or its neighbour, and
 /// `reaches` below is what makes that safe rather than an assumption.
-const CELL: f32 = 512.0;
+const CELL: f32 = 64.0;
+
+/// How far from a site a road end counts toward the bearing the town faces.
+///
+/// # One constant, two meanings
+///
+/// `approach` used `CELL` as this radius - the spatial index's cell size doing a
+/// second job as a semantic search distance. So when the index cell was shrunk to
+/// what an index needs, every town's bearing changed with it: roads 100 m off no
+/// longer counted, the town turned, and everything laid against that bearing
+/// moved - which is why a performance change put a CityBlock on a slope and 158
+/// cells of desert on the home continent. Codex found it at the one line that
+/// read `CELL` for a distance rather than a bucket.
+///
+/// The old value, so the generated world is exactly what it was.
+const APPROACH_WITHIN: f32 = 512.0;
 
 impl Settlements {
     /// An empty plan, for a world that has not worked out its towns yet.
@@ -390,7 +405,7 @@ impl Settlements {
         let mut axis = Vec2::ZERO;
         for road in &self.roads {
             for (end, other) in [(road.from, road.to), (road.to, road.from)] {
-                if end.distance(at) > CELL {
+                if end.distance(at) > APPROACH_WITHIN {
                     continue;
                 }
                 let run = other - end;

@@ -1792,3 +1792,201 @@ than the rim table and should be logged instead of tuned further.
 
 This is AQ-030/P1 because the player has reported it repeatedly and it exposes terrain through constructed
 street geometry. No game file was changed.
+
+## 2026-09-02 — Answer to “an index that changes the answer”
+
+The failing guards do **not yet implicate the filing reaches**. `CELL` is not only an index-resolution
+constant. `Settlements::approach` also uses it as a semantic road-neighbourhood radius:
+
+```rust
+if end.distance(at) > CELL {
+    continue;
+}
+```
+
+That method runs during `plan()` to choose each site's `bearing`, before streets and pads are laid out.
+Changing `CELL` from 512 m to 64 m therefore changes which road segments contribute to the bearing. The
+index experiment is building a different settlement plan, not merely indexing the same plan more finely.
+That directly explains the CityBlock guard: changed bearings rotate/rearrange `Plan::off`, streets and
+pads, so `(204, 331)` is no longer asking about the same authored footprint.
+
+The desert failure fits the same chain. `Terrain::ground_at` obtains `height` from the fully levelled
+terrain, derives `water_above` against that height, and only then chooses the biome. The 120×60 test defines
+a continent as non-water cells reachable from the ranch. A changed site bearing changes the levelled town
+shape and road/pad locations; at that coarse sampling resolution, changing one coastal water/land cell can
+open a bridge to the desert landmass. Once the fill crosses it, 158 desert cells is the expected large
+symptom of one small connectivity change. This is a reason to compare the water mask, not to move any
+continent or biome constants.
+
+### Minimal, low-risk performance fix
+
+1. Split the two meanings explicitly: use an index-only cell size (64 m) for `index`/`cell_of`, and preserve
+   the existing 512 m value as an `APPROACH_WITHIN`/semantic constant in `approach`.
+2. Re-run the two guards and the paving measurement. This should retain the roughly 6× win while restoring
+   the old generated world. Do not change reach formulas in the same experiment.
+3. Add a regression that constructs identical semantic inputs with two index resolutions and compares the
+   observable answers. At minimum compare every site's bearing, lanes/pads, and `level`/`pad_under` across
+   a fixed grid plus feature-edge samples. If index size is test-parameterized, 64 versus 512 should be
+   exactly equal (or within the existing documented floating tolerance where ordering can affect sums).
+4. For a sharper diagnostic, record the site bearings and the 120×60 water mask under the current one-
+   constant experiment. The first changed bearing and first changed land/water cell will demonstrate the
+   causal chain without another tuning loop.
+
+Only after semantic decoupling should a remaining mismatch be treated as a reach bug. If one remains,
+evaluate the failing point twice: once through the cell candidates and once by brute-forcing every site,
+lane and pad. Report the first feature present only in the brute-force result; its type and distance reveal
+the incorrect filing bound immediately. The current bounds appear conservative: lanes include their skirt,
+pads include spread/hold/skirt, and sites use `Plan::reaches(radius)` plus skirt.
+
+There is a longer-term design improvement available, but it should be a separate world-changing commit:
+derive `approach` from road segments actually incident to the site's endpoint rather than all endpoints
+within an arbitrary 512 m disc. The routed chains begin/end at the sites, so topology can express the intent
+without proximity accidentally including a neighbouring street. Preserve 512 m now to isolate and ship the
+performance fix; revisit approach semantics later with before/after world captures.
+
+This is AQ-031/P1. The root cause is high confidence from the direct `CELL` use at `settle.rs:393` and the
+planning order. No game file was changed during this diagnosis.
+
+## 2026-09-02 — Pedestrian-city direction after the 420-building pass
+
+I reviewed the current dense-city, eye-level, building-type, yard and plan captures together with the new
+building generator. The added forms and density are real progress, but the next quality ceiling is urban
+relationships rather than another count increase. The city still reads as a road network across green
+fields with objects placed inside it; at eye level, the corridors are wide and the active frontage is
+intermittent.
+
+The user's no-car rule exposes one direct contradiction: `CityDeck` is explicitly authored as a car park,
+complete with vehicle ramp, while `CITY_STREET_WIDE` is explicitly a 6 m carriageway plus pavements. Please
+treat that as a fiction/coherence fault, not optional prop polish. Preserve the deck's useful open,
+horizontal silhouette by rebuilding its programme as a multi-level pedestrian exchange, covered bazaar or
+porter depot—with stairs/terraces, occupied edges and perhaps future hoverboard/mount facilities—rather
+than simply renaming the car deck.
+
+The highest-return vertical slice is one 60–100 m Trade-city street, not the entire city:
+
+- continuous pedestrian surface with a clear movement band and edge activity zones;
+- 70%+ active frontage measured in metres;
+- one honest four-unit shop parade with multiple real entrances (the current four signs/windows share one
+  central doorway);
+- one long housing front with multiple address moments;
+- a service passage/rear court that explains how goods and waste move without cars;
+- anchored activity clusters and coherent occupation states;
+- a warmer district-controlled human layer over the current concrete/blue-glass palette;
+- identical day/dusk/night and human-height/overhead proof.
+
+The full implementation/design brief is in
+`PEDESTRIAN_CITY_BUILDINGS_PROPS_COLOR_SPEC_2026-09-02.md`. It includes street widths, block/frontage
+targets, a no-car building audit, activity-cluster tables, district palettes, proposed procedural
+dependencies and acceptance checks. The central rule is: a prop is evidence of an action, and a building
+is part of a street wall and block—not an isolated object with decoration around it.
+
+This is AQ-032/P1 and may be scheduled after the current AQ-031 performance fix. No game file was changed.
+
+## 2026-09-02 — Pokémon-city research translated without copying
+
+I reviewed city design across several generations as a complement to your own research. The useful lesson
+is not a specific Pokémon building or plan; it is how a settlement commits to one civic idea and repeats
+that idea through geography, movement, landmark, economy, public uses, color and small stories. I also
+captured the failure mode: immediate visual identity can still become a hollow stage set when streets and
+roofs repeat, doors are false, and residents do not appear to live routines.
+
+For Copaimo, keep the existing orthogonal `Plan` × `Character` foundation and add a causal city-identity
+layer: one-sentence promise, founding cause, terrain contract, visible input→transformation→output economy,
+one city beacon, two district beacons, route signature, historic mark and day/night rhythm. Derive building,
+yard, prop, light and later NPC anchors from that record rather than adding theme scatter.
+
+The immediate recommendation stays deliberately small: enrich the AQ-032 Trade-city 60–100 m slice with
+one visible economic chain, one historic layer, one district beacon, multiple occupation states and one
+HUD-free route decision. Review seven generated **city cards as text** before adding geometry; if two cards
+describe the same experience with different nouns, their cities will still feel duplicated.
+
+The full comparison, originality firewall, plan×character directions, pedestrian movement hierarchy,
+building/prop/color guidance, staged implementation and AAA acceptance checks are in
+`POKEMON_CITY_DESIGN_INSPIRATION_FOR_COPAIMO_2026-09-02.md`. Please use it as abstract inspiration only:
+do not reproduce a Pokémon map, landmark, façade, palette bundle, prop, shop, or signature composition.
+
+This is AQ-033/P1 and supports rather than supersedes AQ-032. No game file was changed.
+
+### 2026-09-02 — Addendum answering the shared human–Copaimo city request
+
+I saw your fourth ask after the first research pass and extended the same document with the missing
+programme-level answer.
+
+The brief now includes:
+
+- a size/behavior envelope so public design follows actual Copaimo bodies rather than one oversized door;
+- an original shared-city roster with jobs, approximate planning footprints, street reads and how a
+  companion physically uses each place: the existing Guild campus, Bondhouse/clinic, washhouse/groomer,
+  companion outfitter, provisions, wayfarers' lodging, sanctuary, board-and-mount exchange and companion
+  commons;
+- adjacency rules separating care, noise, food, service and arrival flows;
+- starting programmed-open-space targets by character: Capital 12–18%, Works 10–15%, Green 22–30%, Trade
+  15–22% of gross city area, explicitly excluding leftover lawn/private service yards;
+- a multi-species public-space kit and a direct keep/adapt/drop table for every current city building/yard;
+- the recommendation to reserve named open-space parcels **before** building placement instead of only
+  reducing `HOUSES_IN_A_CITY`.
+
+The direct roster decision: keep Towers/Blocks/Slabs/Shops/Works with programme/frontage repairs; convert
+`CityGreen` to named commons/care/garden uses; keep Kiosk/Forecourt/Service only with semantic anchors; drop
+the `CityDeck` car-park identity completely and use its open frame selectively as a board/mount/porter
+exchange, covered bazaar, dispatch store or companion-care terrace. Large care/commons parcels can replace
+several lots, reducing the user's crowding concern while keeping active frontage around real urban rooms;
+Guild training/breeding/registry remain together at the Guild campus.
+
+Sources added include the recurring Pokémon care-center programme, day care/nursery, grooming and the
+official Galar brochure. All names and spatial proposals are original working terms pending Copaimo lore.
+No game file was changed.
+
+## 2026-09-02 — Check of the 300-building city, exchange, and Guild clarification
+
+I saw the user's clarification you recorded: the Warden Guild already handles training, breeding and
+registry, and regular citizens also live with Copaimo. I corrected the research brief accordingly. The
+Guild remains one specialist campus; the wider city roster now emphasizes everyday companion clinic,
+grooming, provisions, outfitting, boarding, public water/rest, housing thresholds and commons for ordinary
+residents. I removed the implication that training or registry should become independent city shops.
+
+### `qc_city_300.png`
+
+Reducing the cap from 420 to 300 helps the skyline breathe and is a reasonable response to the user's eye.
+It does not yet solve the spatial problem: the aerial still contains large, uniformly green residual
+parcels with isolated buildings. Please do not tune the population cap back and forth to create parks.
+Reserve named commons, companion grounds, water/shade rooms and rear courts as parcels before lot filling;
+keep the remaining frontage coherent around them. Deliberate open space should replace accidental lawn.
+
+### `qc_deck.png` / current `city_deck()`
+
+Removing the vehicle ramp is an accepted direction, but the current capture does not yet read as a
+pedestrian exchange or covered bazaar. It reads as the shell of a parking structure with red squares:
+
+- upper decks are empty and have no visible destination, stalls, shade, water, seating, companion use or
+  service reason;
+- the broad stair reaches only the first deck; the solid “stair tower” exposes no visible access to decks
+  two through five;
+- `FLOOR_TALL / 14` makes each rise about **243 mm** with a 300 mm going—roughly a 39-degree public stair.
+  Prefer about 20 rises at 170 mm for 3.4 m, with a landing strategy, and verify the actual generated
+  profile rather than taking these numbers as a new magic constant;
+- one side rail is not enough for a 3.2 m-wide public flight, and every occupied open deck needs continuous
+  guards plus a safe vertical circulation route;
+- banner panels appear as unattached red rectangles. Give them visible rods/ties, cloth proportion and a
+  district-derived role; the market still needs active fronts more than more banners;
+- “guild business above it” now conflicts with the clarified programme. Make it an ordinary public
+  companion/porter/market exchange, or place it deliberately at the Guild campus and show the exact Guild
+  use. Do not distribute Guild functions as generic Crafts-district filler.
+
+Recommended scope: prove **ground + first occupied terrace only** before five levels. Give it an honest
+two-sided arcade, public and companion thresholds, one accessible stair with landing/rails/guards, water and
+rest, porter/service route, shade/drainage and a visible reason to go upstairs. If that small version reads
+as a place, extend vertically with explicit circulation. If it does not, additional empty decks will only
+magnify the old car-park silhouette.
+
+Internal name cleanup from `CityDeck` to `CityExchange` can wait until the programme is proven; the visual
+and access truth matters first.
+
+### Other active work
+
+The 64 m index cell plus preserved 512 m `APPROACH_WITHIN` split matches AQ-031's cause-level fix at code
+review. Keep it open until the two failed guards, semantic-equivalence check and paving timing pass on the
+same commit. Holding `CityBlockLow`/`CityBlockTall` variants out of distribution after exposing the pad seam
+is preferable to forcing them in; the seam is the separate correctness fault.
+
+AQ-032/AQ-033 remain **adapted, needs review**. No game file was changed during this review.

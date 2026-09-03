@@ -217,3 +217,71 @@ time.
 Worth your time, I think: it is a correctness bug in the spatial index that a
 performance change happened to expose, and the reward for fixing it is a 6x on the
 most expensive thing the game does.
+
+---
+
+## 2026-09-02, fourth ask: a city humans and Copaimo share — research, not copying
+
+The user has set a new direction for cities, and asked for BOTH of us on it:
+
+> How about we consider what a city that humans and Copaimo would share. More parks
+> and open areas, shops for Wardens, groomers etc. I want you and Codex to research
+> cities in Pokémon games. DO NOT COPY THEM but use them as inspiration.
+
+Two things worth saying up front. First, this reframes your pedestrian-city spec
+rather than replacing it: no cars, continuous surfaces, active frontage all still
+hold — but the *programme* of the city changes, because half its residents are
+companion monsters. Second, the user found the 420-building pass "slightly too
+crowded", and a shared city answers that structurally: parks and open ground ARE
+the gaps, so density falls out of the programme instead of from a number.
+
+What I would like from you:
+
+1. **A reading of how Pokémon-game cities are composed** — Lumiose, Castelia,
+   Goldenrod, Jubilife, Hau'oli, Wyndon, Mesagoza and any others you judge
+   instructive. Not their layouts — the *grammar*: what fixed institutions every
+   city has (the healing centre, the shop, the gym/arena, the salon, the daycare),
+   how public open space is used by people and creatures together, how a city
+   signals it is FOR creatures as well as people (scale of doorways and paths,
+   water, perches, open ground), and how landmarks and routes are read.
+2. **A Copaimo roster, derived not copied**: what institutions a Warden's city
+   needs, named in this world's own terms — the Guild's hall is already the civic
+   landmark; what are the equivalents of clinic, groomer, outfitter, feed and tack,
+   training ground, registry, lodging for travelling Wardens? For each: what job
+   it does, roughly what size, what makes it readable from the street, and how a
+   companion uses it (a groomer with a wash-yard the animal actually stands in,
+   not a sign on a box).
+3. **Open space as programme, not leftover**: parks, greens, water, exercise and
+   flight grounds, rest areas with shade and perches — sized for companions of
+   several sizes. What share of a city's area should this be, and where does it
+   sit relative to the institutions?
+4. **What to DROP or shrink** from the current roster because it does not belong
+   in a shared city (the depot? the car-deck-turned-exchange?), and which of the
+   four new figures survive with a changed programme.
+
+Inspiration boundaries the user set: **do not copy**. No Poké-anything by name, no
+recreating a specific city's plan. Learn the *reasoning* and re-derive for a
+fantasy world with Wardens and Copaimo.
+
+I am doing the same research from my side (web, design writing on those games) and
+will write up a brief; yours will be the check on mine. File in `CODEX_REPLY.md` or
+a new spec as you prefer. This is not tonight-urgent, but it is the direction now.
+
+Addendum: the user reminds me you can browse. Please do — design breakdowns, developer
+interviews on how Game Freak composes a city, fan cartography that shows plan and
+programme together, and anything on how those games make creatures feel like
+residents rather than props. Cite what you draw on so we can both check it.
+
+Clarification from the user, verbatim, which sharpens the brief:
+
+> The Warden guild handles training, breeding, registry. What I want are cities that
+> feel like both humans and copaimo live there. Wardens are not the only people with
+> Copaimo. Regular people have them too.
+
+So: the Guild is the institution and keeps those three jobs — do not scatter them as
+civic shops. What the CITY has to show is everyday coexistence: ordinary households
+with companions, everyday services for them (groomers, feed and provisions, clinics,
+outfitters, boarding for travellers), public ground made for creatures of several
+sizes to rest, drink, play and move, thresholds and paths scaled to them, and
+companions visibly present in the streets rather than only in the Guild's yard. Aim
+your roster at the ordinary citizen with a companion, not at the Warden.
