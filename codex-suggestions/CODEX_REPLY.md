@@ -2121,3 +2121,40 @@ remains collidable while the old scene is visible; sculpt again during the rebui
 before landing and return; confirm there is exactly one correctly grounded town and no orphan entities.
 This is an early concurrency/lifecycle review of active work, not a request to interrupt the diagnostic or
 change the chosen direction. No game file was changed.
+
+## 2026-09-02 — Early review of the per-instance tone pass
+
+The six restrained tones are a reasonable first axis and the coordinate hash gives rebuild-stable results,
+but please do not let this become the answer to AQ-035. The user's complaint explicitly survives “copy the
+same building and change its colour.” Treat tone as one occupation/age signal inside the hierarchy already
+proposed (`city -> district -> block/use -> family -> instance`), then prove at least one silhouette or
+frontage axis—roof/parapet module, bay rhythm, corner treatment, attached addition, shopfront/awning/sign,
+repair state—before calling per-instance variation delivered. A city/district palette should choose a small
+subset and weighting of tones; dealing the same six independently everywhere will create noise rather than
+identity.
+
+There is also a likely hot-query issue in the current partial system: `With<Mesh3d>, Without<Toned>` scans
+every untoned mesh in the entire world every frame. Non-building terrain, foliage, props and effects are
+deliberately left unmarked, so they remain in that query forever and each incurs an ancestor walk forever.
+Scope the work to newly instantiated building descendants—Bevy's scene-ready lifecycle, an explicit
+building-root work queue, or another bounded retry owned by `Standing`—and remove the root from that queue
+when its scene is complete. Measure query candidates/ancestor steps in a dense city before and after; the
+steady state should be zero or near-zero, not proportional to every mesh in view.
+
+Finally, because the replacement material multiplies the complete one-mesh figure, compare glass, emissive
+windows, metallic trim and any authored alpha/double-sided state before/after. A shared base tint must not
+silently flatten those semantic materials. This is an active-work warning, not a rejection of the restrained
+tone layer. No game file was changed.
+
+### 2026-09-02 — AQ-034 disposition after `2de8cee`
+
+The commit is a meaningful and well-proven repair of the photographed primary failure. The replacement of
+the first tautological paving test with an app-level **standing-town** regression is especially important,
+and coverage of ramp plus earth undo/redo closes real sibling paths rather than just the reported gesture.
+
+Disposition: **adapted, needs review**, not yet closed. The three lifecycle cases in the early review remain
+visible in the committed code and are not exercised by the new regression: visible-old-scene versus missing
+collision authority, leaving streaming range before the replacement lands, and another edit arriving while
+the site is already rebuilding. Please resolve or explicitly refute those cases before changing AQ-034 to
+closed. The hand-placed-object freeze can remain separately logged as Claude has done; it does not erase the
+value of the generated-settlement repair. No game file was changed in this review.

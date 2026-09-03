@@ -7894,6 +7894,132 @@ fn lay_the_country_roads(
     }));
 }
 
+/// Marks a mesh that has already been given its building's own tone.
+#[derive(Component)]
+struct Toned;
+
+/// The tones a street's buildings are dealt from, as multipliers.
+///
+/// # Every building of a kind was the same building
+///
+/// Two instances of one kind differed in exactly three things: where they stood,
+/// how high the ground was under them, and whether a footing appeared beneath
+/// them on a slope. No colour, no scale, no material, no facade, no roof - and
+/// not even yaw, because a lot's facing is the street normal and every lot cut
+/// from one side of one street piece carries it unchanged. The only per-instance
+/// variation in the whole settlement was which storeys light up at night.
+///
+/// So the user, twice: "buildings are still generally the same just different
+/// sizes ... not just copy paste building and change the size". Adding four
+/// KINDS did nothing for that, because the complaint is about instances.
+///
+/// # Why this is a multiplier and not a colour
+///
+/// A figure exports as one mesh carrying all of its colour in COLOR_0 - walls,
+/// glass, roof and trim on one primitive - and `base_color` multiplies that.
+/// The same trick makes one wig every hair colour in `look::paint_the_warden`.
+/// So a tone shifts a whole building rather than painting its walls, and one
+/// material serves every KIND: a street of blocks, slabs and shops deals from
+/// the same six and still batches.
+///
+/// Tones, not colours. A street reads as many buildings because they are
+/// different ages and different renders, not because somebody painted them -
+/// and anything stronger takes the glass with it.
+const TONES: [[f32; 3]; 6] = [
+    [1.00, 1.00, 1.00],
+    [1.09, 1.06, 0.99],
+    [0.90, 0.91, 0.94],
+    [1.05, 1.00, 0.95],
+    [0.95, 0.98, 1.05],
+    [0.84, 0.86, 0.87],
+];
+
+/// One toned copy per (material, tone), so a city adds a handful of materials
+/// rather than one per building.
+#[derive(Resource, Default)]
+struct Tones(std::collections::HashMap<(AssetId<StandardMaterial>, usize), Handle<StandardMaterial>>);
+
+/// Gives every building its own tone, so a street is not one building repeated.
+///
+/// # The material is CLONED, not replaced
+///
+/// The first cut built a fresh `Shaded` and put the buildings on it, which
+/// changed their whole shading model to get at one number: photographed, a
+/// cottage came out near-black under a cloud shadow it had never received
+/// before. What is wanted is the material the glTF already made, with its base
+/// colour multiplied - so everything else about how a building is lit stays
+/// exactly as it was, and this can only ever change tone.
+///
+/// Modelled on `look::paint_the_warden` for the walk, and for the same reason: a
+/// glTF scene's meshes arrive over several frames, so this cannot key on `Added`.
+/// It asks, and asks again, and marks what it has done.
+fn tone_the_buildings(
+    mut commands: Commands,
+    mut tones: ResMut<Tones>,
+    mut paints: ResMut<Assets<StandardMaterial>>,
+    fresh: Query<(Entity, &MeshMaterial3d<StandardMaterial>), (With<Mesh3d>, Without<Toned>)>,
+    ancestors: Query<&ChildOf>,
+    roots: Query<(&Standing, &Transform)>,
+) {
+    for (entity, worn) in &fresh {
+        // Whose building is this mesh part of? Walk up to a `Standing` root.
+        let mut at = entity;
+        let mut mine = roots.get(at).ok();
+        while mine.is_none() {
+            match ancestors.get(at) {
+                Ok(parent) => {
+                    at = parent.parent();
+                    mine = roots.get(at).ok();
+                }
+                Err(_) => break,
+            }
+        }
+        let Some((standing, place)) = mine else {
+            // Not part of a building, and NOT marked: the scene it belongs to
+            // may not have finished arriving.
+            continue;
+        };
+        // A yard is ground with things standing on it, and a landmark is meant
+        // to be the one building that looks like itself. Neither takes a tone.
+        if standing.what.is_yard() || standing.what.is_landmark() {
+            commands.entity(entity).insert(Toned);
+            continue;
+        }
+
+        // HASHED FROM WHERE IT STANDS, so every mesh of one building draws the
+        // same tone, and the same building draws it again after a rebuild.
+        let (x, z) = (place.translation.x, place.translation.z);
+        let roll = unit(x.to_bits() ^ z.to_bits().rotate_left(16), 41);
+        let which = ((roll * TONES.len() as f32) as usize).min(TONES.len() - 1);
+
+        let toned = match tones.0.get(&(worn.0.id(), which)) {
+            Some(had) => had.clone(),
+            None => {
+                let Some(base) = paints.get(&worn.0) else {
+                    // The material has not loaded yet. Left unmarked so this
+                    // asks again next frame.
+                    continue;
+                };
+                let tone = TONES[which];
+                let was = base.base_color.to_linear();
+                let mut copy = base.clone();
+                copy.base_color = Color::linear_rgba(
+                    was.red * tone[0],
+                    was.green * tone[1],
+                    was.blue * tone[2],
+                    was.alpha,
+                );
+                let made = paints.add(copy);
+                tones.0.insert((worn.0.id(), which), made.clone());
+                made
+            }
+        };
+        commands
+            .entity(entity)
+            .insert((MeshMaterial3d(toned), Toned));
+    }
+}
+
 pub struct TownPlugin;
 
 impl Plugin for TownPlugin {
@@ -7902,11 +8028,23 @@ impl Plugin for TownPlugin {
             .init_resource::<Raising>()
             .init_resource::<DirtLaid>()
             .init_resource::<GroundMoved>()
+            .init_resource::<Tones>()
             .add_systems(
                 Update,
                 lay_the_country_roads.run_if(crate::build::a_world_is_up),
             )
-            .add_systems(Update, raise_the_towns.run_if(crate::build::a_world_is_up));
+            .add_systems(Update, raise_the_towns.run_if(crate::build::a_world_is_up))
+            .add_systems(
+                Update,
+                // AND ONLY WHERE THERE ARE MATERIALS TO TONE. The app the town
+                // tests build has no renderer in it, so asking for
+                // `Assets<StandardMaterial>` there is asking for a resource
+                // nobody registered - which Bevy reports as a system failure
+                // rather than a skip.
+                tone_the_buildings
+                    .run_if(crate::build::a_world_is_up)
+                    .run_if(resource_exists::<Assets<StandardMaterial>>),
+            );
     }
 }
 
