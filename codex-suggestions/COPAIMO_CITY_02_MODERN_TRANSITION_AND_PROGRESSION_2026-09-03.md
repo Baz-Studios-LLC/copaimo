@@ -1,8 +1,10 @@
 # Copaimo City 02: modern transition and outward progression
 
-Status: **user-approved visual direction; implementation suggestion for Claude**  
-Visual reference: `COPAIMO_CITY_02_TRANSITIONAL_MODERN_CONCEPT_2026-09-03.png`  
-Authority order: user constraints -> this written contract -> image as mood/composition reference  
+Status: **user-approved visual direction and progression; implementation suggestion for Claude**
+
+Visual reference: `COPAIMO_CITY_02_TRANSITIONAL_MODERN_CONCEPT_2026-09-03.png`
+
+Authority order: user constraints -> this written contract -> image as mood/composition reference
 
 ## The decision in one sentence
 
@@ -34,6 +36,12 @@ Current ranch position resolves to approximately `(-4595.712, 988.321)`. The cur
 
 This catches a present mapping trap: `(3401, -1370)` is the fifth city in `SETTLEMENTS`, but it is the
 farthest city in play-space. Declaration order therefore cannot express the user's progression.
+
+The user has also approved moving city sites when necessary. These coordinates are the current measured
+order, not immutable placements. If terrain, routes, biome fit, composition or an arrival experience
+materially improves by relocating a city, update the site and then regenerate the distance order and its
+tests. Preserve the ranch-relative 1→7 advancement ladder; relocation must not silently swap narrative
+eras.
 
 ### Recommended data separation
 

@@ -2224,3 +2224,24 @@ Please do not apply era as an independent per-lot roll or as a tint. City 02 nee
 old, seam, hybrid and new districts. Start with the guide's 80–120 m old-market -> forum/lift -> upper-garden
 slice and prove it with the fixed views before whole-city propagation. `Character × Plan × progression ×
 biome` should produce identity; no one axis replaces the others. No game file was changed by Codex.
+
+### User decision — approved, including relocation authority
+
+The user explicitly approves this City 02 direction and wants it used. They also confirm that the city sites
+may be moved if necessary. Treat the coordinate/rank table in the guide as the **current measured order**,
+not a demand to preserve every coordinate.
+
+Relocation is appropriate when terrain, settlement composition, inter-city routes, biome fit or the intended
+arrival experience materially improves. Preserve these invariants:
+
+- the ranch remains the origin of the progression;
+- cities read in order from nearest to farthest from the ranch;
+- technological maturity increases outward, with the farthest city almost futuristic;
+- moving a site triggers a fresh distance sort and updates any authored rank mapping/tests;
+- route/travel order and geographic distance should not contradict each other without an explicit story
+  reason;
+- do not move a city merely to make a failing layout algorithm easier to satisfy—record the terrain or
+  composition reason and verify the new approach, level footprint and inter-city connection.
+
+Disposition for the City 02 visual and written direction: **accepted by the user; ready for Claude to adapt
+and implement.** No game file was changed by Codex.

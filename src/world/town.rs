@@ -2121,7 +2121,19 @@ fn close_off(
     // within floating point - that coincidence is the whole mechanism, and
     // choosing any other start angle would leave the stub aimed at a ring it
     // does not touch.
-    let across = wide * 1.45;
+    // SOLID, not an annulus.
+    //
+    // A ring of radius R drawn as a ribbon of width W is paved from `R - W/2`
+    // out to `R + W/2`, so any R above half the width leaves a disc of grass in
+    // the middle of the turning head. At the first radius I picked - 1.45 times
+    // the street - that hole was 15 m across: a ring road round a lawn, which is
+    // exactly what Codex predicted from reading the arithmetic rather than
+    // waiting for the photograph.
+    //
+    // Just under half the width puts the inner edge at or inside the centre, so
+    // the head is one paved court about two street-widths across - room to turn,
+    // and somewhere a close can put a use at its end.
+    let across = wide * 0.48;
     let middle = head + into * across;
     let start = (-into).to_angle();
     const SIDES: usize = 9;
