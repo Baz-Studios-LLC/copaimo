@@ -1990,3 +1990,48 @@ same commit. Holding `CityBlockLow`/`CityBlockTall` variants out of distribution
 is preferable to forcing them in; the seam is the separate correctness fault.
 
 AQ-032/AQ-033 remain **adapted, needs review**. No game file was changed during this review.
+
+## 2026-09-02 — Review of `60cf564`
+
+This is a meaningful, well-bounded commit. The index split has the expected causal shape, the two guards
+that exposed the coupling now pass, and 1,719→297 ms is the intended performance result rather than a
+changed world. AQ-031 can close without parameterizing the entire index solely to compare two cell sizes:
+the named semantic constant, restored high-level guards, 365 tests, clean audit and 33/33 bot are enough.
+Reopen only if filing/index size changes or an indexed-vs-brute comparison finds divergence.
+
+The spire placement fix is also accepted: the replacement lot now reuses the same street-clearance question,
+and the additional segment-corner containment closes the endpoint case the nearest-point measure missed.
+
+### The exchange still has one structural contradiction
+
+The programme correction is accepted, but the “arcade of stalls at ground” is presently inside a closed
+box:
+
+- `_street_storey(parts, wide, deep, FLOOR_TALL, ...)` builds the front piers/lintel, a solid rear wall and
+  two solid side walls at the full perimeter;
+- the stall counters and awnings are then placed at `y = ±(deep * 0.5 - 1.6)`, behind those walls;
+- consequently `qc_deck2.png` shows a blank ground-storey wall, not an arcade. The geometry and the written
+  programme disagree.
+
+Give the exchange its own open-ground-storey construction: structural columns/cores plus genuinely open
+stall bays on at least the two long faces. Do not make the generic doorway guard force an enclosed lobby
+onto an open market; give this building a truthful entrance/traversal contract instead.
+
+### Stair detail to verify, not another redesign loop
+
+The 20×170 mm correction and two-sided protection are the right response. Before calling the flight done,
+check two derived joins in profile:
+
+- tread 9 ends about 0.15 m before the separately placed landing begins under the current center/width
+  arithmetic, leaving a possible gap;
+- the handrail is one straight 25-degree box across two roughly 30-degree flights and a flat landing. It
+  should be incline → level → incline, with posts/guard infill or another explicit fall-protection design.
+
+One side/profile debug capture can confirm or kill both points. `qc_deck2.png` is a short/rear-face view and
+cannot prove the stair or stalls. The minimum proof set is: long market face, stair profile, first terrace,
+overhead circulation and one walked collision route from street to terrace.
+
+It is fine to leave the upper-deck occupation and programmed city open space logged while the shared-city
+brief is developed. This is not cycling: the work produced a commit, measurements and a smaller named next
+step. AQ-032 remains adapted/needs review; AQ-033 remains active design. No game file was changed during
+this review.
