@@ -79,6 +79,12 @@ appear once each. Codex, push back on this if you think I have it wrong.
 
 ## What I propose to build, in order
 
+> **Correction, 2026-09-02, from the user:** *"Copaimo can just use regular doors lol
+> they dont need a companion door."* The companion-door row is struck from this table
+> and the whole size-envelope-drives-doorways line of thinking is downgraded: a
+> doorway is a doorway. What makes a street read as shared is what happens ON it, not
+> a second hole in the wall. The rest of the household layer stands.
+
 ### Tier 1 — the household layer (every residential street)
 
 These are small, repeated, and they are what actually says *people live here with
@@ -86,7 +92,6 @@ companions*. None is a new building type; they are thresholds and yard furniture
 
 | Thing | What it is | Why it reads |
 |---|---|---|
-| Companion door | A second, lower opening beside a house's own door — a flap, a low arch, a gate in the threshold | One silhouette on a doorstep and the street is shared. Cheapest possible signal |
 | Stoop water | A basin at the kerb outside a home, refilled from the house | A creature that drinks in the street lives in the street |
 | Tether ring & rub post | A ring by a door, a worn post at a corner with the rub polished into it | Wear is evidence. A post nobody touches is decoration |
 | Yard shelter | A lean-to in a back court, bedding, a screen for shade | Where a household's companion sleeps |
@@ -164,3 +169,64 @@ this week.
   — a dense metropolis composed of a business core, named streets and back alleys.
 - [The Gamer, best Pokémon cities ranked](https://www.thegamer.com/best-cities-towns-pokemon-ranked/)
   — what players actually remember about these places, which is rarely the geometry.
+
+---
+
+## Second correction, and it is the bigger one
+
+The user, after reading the first draft:
+
+> cities still feel wrong, buildings are still generally the same just different
+> sizes, there are so many lots that seem to just fill empty space. These cities do
+> not feel lived in especially by humans AND copaimo. Thats why I wanted to get some
+> Pokemon research because their cities have that cohesive feel. They're unique and
+> vibrant, there are large squares with shops and decor, balloons, flowers, stalls.
+> Roads arent perfectly connected, some lead to dead ends. Alleyways behind
+> buildings. Cities are not perfectly flat, there are hills, stairs, plateaus. While
+> the size of the cities are decent I think they need more personality, not just copy
+> paste building and change the size
+
+This is a sharper brief than either of our documents, and it rebalances them. Six
+demands, in the user's own order of emphasis:
+
+1. **Buildings must differ from each other, not just in size.** Adding four figures
+   did not fix this because two instances of one figure are still identical: same
+   colour, same roof, same everything. Per-INSTANCE variation is the missing axis,
+   and it is a different axis from per-KIND variation, which is all I have added.
+2. **Lots that fill empty space must go.** The yard system currently produces more
+   yards than buildings; from the air they read as pale rectangles doing nothing.
+   Either they become real places or they stop being placed.
+3. **Vibrancy: squares with shops and decor, balloons, flowers, stalls.** Not props
+   scattered on grass — a square that is *composed*.
+4. **Imperfect road networks: dead ends, alleyways behind buildings.** Our generators
+   guarantee connectivity, which is exactly why they read as generated.
+5. **Cities are not flat: hills, stairs, plateaus.** Ours are levelled to one plane
+   by construction.
+6. **Personality per city, not per building count.** Which is Codex's city-card idea
+   and I now think it is the right frame.
+
+And a bug, reported with a photograph: **lowering the ground under a city does not
+lower anything standing on it.** The street and its buildings hang in the air over a
+sculpted hollow.
+
+### What this does to the plan
+
+Tier 1's household layer survives but drops to *third* priority. The user's list is
+mostly about **the city as a composition** — its ground, its streets, its blocks and
+its squares — not about companion furniture. I had the emphasis wrong: I was
+answering "shared" and the user is asking for "alive", of which shared is one part.
+
+Revised order:
+
+| # | Work | Why first |
+|---|---|---|
+| 0 | The sculpt bug | It is a bug, it is visible in one screenshot, and it makes the editor useless over a city |
+| 1 | Per-instance building variation | Named by the user twice. The cheapest big win: same models, different instances |
+| 2 | Terraced ground — hills, stairs, plateaus | Changes the silhouette of every city at once, and it is the thing no amount of props can fake |
+| 3 | Irregular networks — dead ends, alleys, back lanes | Kills the generated read at the plan level |
+| 4 | Composed squares — stalls, flowers, banners, decor | The vibrancy the user names, in the one place it pays most |
+| 5 | Fewer, better lots | Delete the filler; let squares and alleys take that ground |
+| 6 | Household layer | Still right, still wanted, but it is detail on a body that must first stand up |
+
+A diagnostic pass over the real code is running now against all six plus the bug, so
+the next revision of this document will carry file:line causes rather than intent.

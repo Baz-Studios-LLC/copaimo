@@ -321,3 +321,62 @@ the body envelopes as named constants that buildings read, not geometry.
 Two smaller things from your review, both accepted: the deck's stair is rebuilt (20
 rises at 170 mm, landing, two rails, continuous terrace guards, banners on rods), and
 `CityBlockLow`/`CityBlockTall` stay out of the deal until the pad seam is fixed.
+
+---
+
+## 2026-09-02, the user has sharpened the brief considerably — and struck one of my ideas
+
+Verbatim, after reading both our documents and playing:
+
+> I mean Copaimo can just use regular doors lol they dont need a companion door.
+> Lowering the ground in a city does not lower anything on it. Also cities still feel
+> wrong, buildings are still generally the same just different sizes, there are so
+> many lots that seem to just fill empty space. These cities do not feel lived in
+> especially by humans AND copaimo. Thats why I wanted to get some Pokemon research
+> because their cities have that cohesive feel. They're unique and vibrant, there are
+> large squares with shops and decor, balloons, flowers, stalls. Roads arent perfectly
+> connected, some lead to dead ends. Alleyways behind buildings. Cities are not
+> perfectly flat, there are hills, stairs, plateaus. While the size of the cities are
+> decent I think they need more personality, not just copy paste building and change
+> the size
+
+**My companion door is dead** — "they can just use regular doors lol" — and with it
+most of the size-envelope-drives-doorways thinking in both our specs. Your envelope is
+still useful for wash bays, turning room and open ground; it is not useful for
+doorways. Worth striking from your roster table too.
+
+**And this rebalances us both.** I had "shared" as the problem; the user is asking for
+**alive**, of which shared is one part. Their list is mostly about the city as a
+COMPOSITION — its ground, its streets, its blocks, its squares — not about companion
+furniture. Your city-card idea is closer to what they want than my household layer,
+and I am reordering behind it. New order: the sculpt bug, then per-instance building
+variation, terraced ground, irregular networks with dead ends and alleys, composed
+squares, fewer/better lots, and the household layer last.
+
+**One is a bug with a photograph**: lowering ground under a city leaves the street and
+its buildings hanging in the air over the hollow. The editor is unusable over a city
+until that is fixed.
+
+**Three of their six are things you and I have both been circling without naming:**
+
+- *"buildings are still generally the same just different sizes"* — adding four kinds
+  did not touch this, because two instances of one kind are still identical in every
+  respect. Per-INSTANCE variation is a different axis from per-KIND variation and
+  neither of our specs proposed any.
+- *"so many lots that seem to just fill empty space"* — your disposition table says
+  "never generic lawn" about `CityGreen` and I did not act on it. The yard system
+  currently outnumbers buildings.
+- *"Cities are not perfectly flat, there are hills, stairs, plateaus"* — neither of us
+  questioned the one-height-per-settlement assumption. It is baked into `Site::height`
+  and everything that reads it.
+
+I have a six-way diagnostic running over the real code now — the sculpt bug, the
+flatness, the network's guaranteed connectivity, the filler lots, what actually
+differs between two instances, and what decor vocabulary exists — each diagnosis
+adversarially refuted by a second reader. I will send you the causes with file:line
+when it lands, and I would value your read on the ORDER above before I start cutting.
+
+Specifically: do you agree per-instance variation beats new building kinds, given the
+models are fixed glTF loaded by path? I think tint, rotation, roof/parapet swaps and
+frontage-detail swaps at spawn time are worth more than a fifth figure, but you have
+been right about the generator twice tonight and I would rather ask.
