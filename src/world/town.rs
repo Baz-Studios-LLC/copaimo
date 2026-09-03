@@ -3662,6 +3662,26 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
                 let at = (step as f32 * stride).round() as usize;
                 let Some(index) = free.get(at) else { continue };
                 let mut yard = plots[*index];
+                // WHERE THE STREET EDGE OF THIS LOT IS.
+                //
+                // # A yard standing at somebody else's setback
+                //
+                // This swapped the lot's `what` for a yard model and left `at`
+                // exactly where it was - so a 7.5 m yard kept the setback of the
+                // 15.8 m depot it replaced and stood four and a half metres back
+                // from the kerb, alone on frontage cut for a building three times
+                // its size. Across a city that is what "lots that seem to just
+                // fill empty space" looks like from the air, which is how the
+                // user put it: a pale rectangle adrift on a plot.
+                //
+                // The frontage line is RECOVERED rather than stored. A lot places
+                // its building at `front - door * (footprint.y / 2 + 0.35)`, so
+                // `front` follows from the plot's own `at` and the kind still on
+                // it - the same arithmetic read backwards. Carrying a `front`
+                // field instead would be a second statement of where the street
+                // is, and this file's whole history is one fact derived twice.
+                let door = Vec2::new(yard.facing.sin(), -yard.facing.cos());
+                let front = yard.at + door * (yard.what.footprint().y * 0.5 + 0.35);
                 // Hashed from where the lot IS, so a change to one lot cannot move
                 // the programme of any other.
                 let roll = (unit(
@@ -3680,6 +3700,9 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
                     .min_by(|a, b| a.0.total_cmp(&b.0))
                     .map(|(_, what)| what);
                 yard.what = Building::yard_for(yard.district, site.city, beside, roll, site.character);
+                // AND STOOD AGAINST THE STREET, at its own depth rather than at
+                // the depth of whatever used to be here.
+                yard.at = front - door * (yard.what.footprint().y * 0.5 + 0.35);
                 kept.push(yard);
             }
         }
