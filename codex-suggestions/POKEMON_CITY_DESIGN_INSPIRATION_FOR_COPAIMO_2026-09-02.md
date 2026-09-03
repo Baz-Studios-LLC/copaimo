@@ -342,21 +342,22 @@ boarding, water, rest and social space are everyday urban services, not a Warden
 a resident and agent, not a horse-shaped prop: it needs routes, thresholds, surfaces, water, shade, privacy,
 stimulation, recovery and social space that visibly fit its body and behavior.
 
-### Establish a size-and-behavior envelope before making buildings
+### Establish a size-and-behavior envelope for spaces, not special doors
 
 Claude should extract the actual companion roster/collision dimensions when available and define:
 
 - `small`: can use household-scale openings and furniture edges;
-- `partner`: the common accompanied-Copaimo envelope that all public Warden facilities support;
+- `partner`: the common accompanied-Copaimo envelope that ordinary shared public spaces support;
 - `large`: needs double-leaf/service openings, broad turns, outdoor treatment and edge-of-core routes;
 - `exceptional`: too large, dangerous, aquatic or flight-dependent for ordinary streets; served at a city-
   edge sanctuary, water gate, roof/perch network or specialist ground.
 
-Do not invent one giant doorway for every creature. Give public facilities a human door, a partner opening
-and, where programme requires it, a separate large court entrance. Separate frightened/injured arrivals
-from noisy exercise and food queues. Use the real controller/collision envelopes plus comfortable turning
-and handler clearance to set dimensions; the illustrative sizes below are block-planning ranges, not
-standards.
+Per the user's correction, **Copaimo use regular doors**. Do not add companion doors or make paired openings
+a city-wide visual motif. Body envelopes still matter for wash bays, waiting/rest positions, exercise,
+turning, crowded routes, water/perches and specialist large-animal courts. Add a larger service/court gate
+only where an actual roster body or programme proves it necessary. Separate frightened/injured arrivals
+from noisy activity and food queues. Use the real controller/collision envelopes plus comfortable movement
+clearance to set those spaces; the illustrative sizes below are block-planning ranges, not standards.
 
 ### Original Warden-city institution roster
 

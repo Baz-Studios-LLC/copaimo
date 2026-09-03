@@ -3868,6 +3868,65 @@ pub struct Standing {
 /// in front of me".
 ///
 /// It is planned when the town is built and kept until the town comes down.
+/// Ground the brush has moved that a settlement may be standing on.
+///
+/// # A city does not follow the ground it was built on
+///
+/// Everything in the height chain reads the sculpted layer - the terrain mesh,
+/// the warden's feet, the pads, all of it live. Two things read it ONCE: the
+/// paving mesh writes absolute world Y into its vertices at the moment `pave`
+/// runs, and a building's Y is frozen into its `Transform` when it is raised.
+/// Both are then held in `Built::standing` until the anchor gets `RAISES_WITHIN`
+/// away.
+///
+/// So the brush lowered the ground and the street stayed in the air over it,
+/// with its buildings on it. Reported with a photograph of exactly that. The
+/// fault is not a missing input - no height function needs changing - it is a
+/// missing INVALIDATION: `invalidate_area` rebuilds chunk meshes and woods and
+/// tells nothing else that the world moved.
+///
+/// It was self-healing, which is presumably how it survived: fly nine hundred
+/// metres away and back and the town re-paves against the new ground.
+///
+/// # Why a rectangle and a wait rather than a rebuild per stroke
+///
+/// A stroke is continuous - the brush paints every frame it is held - and a city
+/// is a third of a second of pool time. Taking it down on each of those is a city
+/// that never finishes coming back. So the ground the brush moved is collected
+/// here and acted on once the brush has been still for `SETTLES_AFTER` frames,
+/// which is one rebuild per stroke however long the stroke is.
+#[derive(Resource, Default)]
+pub struct GroundMoved {
+    /// Every rectangle earth has moved in since the last rebuild.
+    patches: Vec<(Vec2, Vec2)>,
+    /// Frames since the last one arrived.
+    still: u32,
+}
+
+/// How still the brush has to be before the towns it disturbed are rebuilt.
+const SETTLES_AFTER: u32 = 12;
+
+impl GroundMoved {
+    /// Says that earth moved between these two corners.
+    pub fn over(&mut self, low: Vec2, high: Vec2) {
+        self.patches.push((low, high));
+        self.still = 0;
+    }
+
+    /// The rectangles, once the brush has stopped. `None` while it is still moving.
+    fn settled(&mut self) -> Option<Vec<(Vec2, Vec2)>> {
+        if self.patches.is_empty() {
+            return None;
+        }
+        self.still += 1;
+        if self.still < SETTLES_AFTER {
+            return None;
+        }
+        self.still = 0;
+        Some(std::mem::take(&mut self.patches))
+    }
+}
+
 #[derive(Resource, Default)]
 pub struct Built {
     pub standing: std::collections::HashMap<u32, Layout>,
@@ -7285,6 +7344,8 @@ pub fn raise_the_towns(
     terrain: Res<TerrainSource>,
     mut built: ResMut<Built>,
     mut raising: ResMut<Raising>,
+    mut moved: ResMut<GroundMoved>,
+    mut laid: ResMut<DirtLaid>,
     anchors: Query<&GlobalTransform, With<StreamAnchor>>,
     standing: Query<(Entity, &FromSite)>,
 ) {
@@ -7294,6 +7355,41 @@ pub fn raise_the_towns(
     let here = Vec2::new(anchor.translation().x, anchor.translation().z);
 
     let plan = terrain.plan();
+
+    // GROUND THE BRUSH MOVED, once it has stopped moving it - see `GroundMoved`.
+    //
+    // A settlement whose ground was sculpted is dropped from `standing`, which is
+    // all it takes: the loop below finds it in range with nothing built and raises
+    // it again, against the ground as it now is. Its OLD scenes are left standing
+    // until the new paving lands, so the city does not blink out for the third of
+    // a second the rebuild takes - see the landing, which clears them.
+    if let Some(patches) = moved.settled() {
+        for (index, site) in plan.sites().iter().enumerate() {
+            let key = index as u32;
+            if !built.standing.contains_key(&key) {
+                continue;
+            }
+            let reach = town_reaches(site) + A_ROAD_REACHES;
+            let touched = patches.iter().any(|(low, high)| {
+                low.x - reach <= site.at.x
+                    && site.at.x <= high.x + reach
+                    && low.y - reach <= site.at.y
+                    && site.at.y <= high.y + reach
+            });
+            if touched {
+                info!(
+                    "the ground under {:?} moved: raising it again",
+                    site.at.to_array()
+                );
+                built.standing.remove(&key);
+            }
+        }
+        // AND THE COUNTRY ROADS, which freeze their vertices the same way. Their
+        // cache is a cell rather than a set of towns, so forgetting the cell is
+        // the whole of it.
+        laid.cell = None;
+    }
+
     // Every settlement wanting one, so the nearest can be chosen - see the cap.
     let mut wants_raising: Vec<(f32, usize)> = Vec::new();
     for (index, site) in plan.sites().iter().enumerate() {
@@ -7385,6 +7481,17 @@ pub fn raise_the_towns(
             continue;
         };
         raising.landed += 1;
+        // WHATEVER WAS STANDING HERE GOES NOW, as the new arrives rather than when
+        // it was asked for. Normally there is nothing: a town is taken down when
+        // the anchor leaves and raised when it returns, so the two never overlap.
+        // A town rebuilt because its ground was sculpted DOES overlap, and this is
+        // what keeps the city visible across the rebuild - the same bargain the
+        // country roads make in `lay_the_country_roads`.
+        for (entity, from) in &standing {
+            if from.0 == key {
+                commands.entity(entity).despawn();
+            }
+        }
         let site = &plan.sites()[key as usize];
         // What this settlement actually cost, per settlement.
         //
@@ -7794,6 +7901,7 @@ impl Plugin for TownPlugin {
         app.init_resource::<Built>()
             .init_resource::<Raising>()
             .init_resource::<DirtLaid>()
+            .init_resource::<GroundMoved>()
             .add_systems(
                 Update,
                 lay_the_country_roads.run_if(crate::build::a_world_is_up),
@@ -9181,6 +9289,99 @@ mod tests {
             println!("  {name:<22} corners {corners:.3?} -> falls {:.3} m", hi - lo);
         }
         println!("  pad_under at middle: {:?}", terrain.plan().pad_under(at, |m| terrain.dry_height(m.x, m.y)));
+    }
+
+    /// A town that is STANDING follows ground that moves under it.
+    ///
+    /// # Why this has to be an app test, and why the first version was worthless
+    ///
+    /// My first attempt paved a town, sculpted, and paved again - and passed
+    /// before the fix existed, because it was only ever asking whether `pave`
+    /// reads the ground live. It does, and that was never in doubt. Every height
+    /// function in the chain reads the sculpt; the fault is that a town, once
+    /// raised, is a mesh full of absolute world Y that nothing ever rebuilds.
+    ///
+    /// So the thing under test is the INVALIDATION, and the only way to exercise
+    /// it is to raise a town in a real app, move earth under it, and look at what
+    /// is standing afterwards. See `GroundMoved`.
+    #[test]
+    fn a_standing_town_follows_ground_that_moves_under_it() {
+        use bevy::render::mesh::VertexAttributeValues;
+
+        let (mut app, site) = a_world_with_a_town();
+        until_it_is_raised(&mut app);
+
+        // The lowest point of everything the town has standing, which is the
+        // paving: the roads sit under the buildings by construction.
+        let floor_of = |app: &mut App| -> f32 {
+            let mut meshes = app.world_mut().query::<(&Mesh3d, &FromSite)>();
+            let found: Vec<Handle<Mesh>> = meshes
+                .iter(app.world())
+                .map(|(mesh, _)| mesh.0.clone())
+                .collect();
+            let store = app.world().resource::<Assets<Mesh>>();
+            found
+                .iter()
+                .filter_map(|handle| store.get(handle))
+                .filter_map(|mesh| match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+                    Some(VertexAttributeValues::Float32x3(places)) => {
+                        places.iter().map(|p| p[1]).reduce(f32::min)
+                    }
+                    _ => None,
+                })
+                .fold(f32::MAX, f32::min)
+        };
+
+        let before = floor_of(&mut app);
+        assert!(before < f32::MAX, "the town has no paving standing");
+
+        // A HOLLOW UNDER IT, dug the way the brush digs one.
+        const DEEP: f32 = 6.0;
+        let terrain = app.world().resource::<TerrainSource>().0.clone();
+        {
+            let mut edits = terrain.edits().write().expect("the sculpt layer");
+            edits.begin_stroke();
+            let under = |at: Vec2| terrain.dry_height(at.x, at.y);
+            for _ in 0..40 {
+                edits.apply(&crate::world::edit::Stamp {
+                    centre: site.at,
+                    radius: 70.0,
+                    how: crate::world::edit::Brushing::Lower,
+                    amount: 1.0,
+                    target: 0.0,
+                    under: &under,
+                });
+            }
+            edits.end_stroke();
+        }
+        let dug = terrain.height(site.at.x, site.at.y) - terrain.dry_height(site.at.x, site.at.y);
+        assert!(
+            dug < -DEEP,
+            "the stamp only moved the ground {dug:.2} m, so this proves nothing"
+        );
+
+        // WHAT THE BRUSH WOULD HAVE SAID. The editor is a `tools` feature and
+        // this test is not, so the one line it contributes is written out here -
+        // see the call in `editor::paint`.
+        app.world_mut()
+            .resource_mut::<GroundMoved>()
+            .over(site.at - Vec2::splat(70.0), site.at + Vec2::splat(70.0));
+
+        // The brush is given time to stop moving - see `SETTLES_AFTER`, which is
+        // what keeps a held stroke from taking the town down on every frame of it.
+        for _ in 0..SETTLES_AFTER * 2 {
+            app.update();
+        }
+        until_it_is_raised(&mut app);
+        let after = floor_of(&mut app);
+        let followed = before - after;
+        assert!(
+            followed > DEEP * 0.5,
+            "the ground under the town dropped {:.2} m and the paving that is \
+             STANDING followed it by {followed:.2} m - a street left in the air \
+             over its own hollow, which is what the user photographed",
+            -dug,
+        );
     }
 
     /// WHERE the real world's gateways are, for pointing a camera at one.

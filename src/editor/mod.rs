@@ -507,6 +507,7 @@ fn paint(
     standing: Query<Option<&Children>, With<Chunk>>,
     free: Res<CursorFree>,
     mut brush: ResMut<Brush>,
+    mut moved: ResMut<crate::world::town::GroundMoved>,
 ) {
     // The pointer is out reaching for a panel, not aimed at the ground.
     if !aiming_at_the_world(&free) {
@@ -688,6 +689,23 @@ fn paint(
     } else {
         invalidate_area(&mut commands, &terrain, &chunks, &busy, patch);
     }
+
+    // AND WHOEVER IS STANDING ON IT IS TOLD.
+    //
+    // `invalidate_area` rebuilds chunk meshes, which is the ground itself and
+    // nothing on it. A settlement's paving writes absolute world Y into its
+    // vertices when it is paved, and a building's Y is frozen into its transform
+    // when it is raised - so moving earth under a town left the street and its
+    // houses in the air over the hollow. Reported with a photograph of exactly
+    // that. See `world::town::GroundMoved`, which collects this and rebuilds the
+    // towns once the brush stops.
+    //
+    // Only the tools that MOVE EARTH. Planting grows wood and countrying paints
+    // colour; neither changes a height, so neither can strand a building.
+    if !how.is_planting() && !how.is_countrying() {
+        let (low, high) = patch;
+        moved.over(low, high);
+    }
 }
 
 /// Closes an undo group on whichever layer it was opened on.
@@ -735,6 +753,7 @@ fn lay_ramp(
     free: Res<CursorFree>,
     mut brush: ResMut<Brush>,
     mut toast: ResMut<ui::Toast>,
+    mut moved: ResMut<crate::world::town::GroundMoved>,
 ) {
     if !aiming_at_the_world(&free) || !brush.how.is_two_point() {
         return;
@@ -773,6 +792,10 @@ fn lay_ramp(
     brush.stroked(Layer::Ground);
     toast.show(format!("Ramp laid, {:.0} m", from.distance(hit)));
     invalidate_area(&mut commands, &terrain, &chunks, &busy, patch);
+    // A ramp moves earth too, and it opens and closes its own stroke inline
+    // rather than going through `close_stroke` - so anything hung off the stroke
+    // would miss it. See `world::town::GroundMoved`.
+    moved.over(patch.0, patch.1);
 }
 
 fn history(
@@ -783,6 +806,7 @@ fn history(
     busy: Query<(), With<PendingChunk>>,
     mut brush: ResMut<Brush>,
     mut toast: ResMut<ui::Toast>,
+    mut moved: ResMut<crate::world::town::GroundMoved>,
 ) {
     let control = keys.any_pressed([KeyCode::ControlLeft, KeyCode::ControlRight]);
     if !control {
@@ -901,6 +925,19 @@ fn history(
                 (false, _) => "Redone",
             });
             invalidate_area(&mut commands, &terrain, &chunks, &busy, patch);
+            // TAKING EARTH BACK MOVES IT AS MUCH AS PUTTING IT THERE.
+            //
+            // Without this, sculpt-then-undo leaves a town buried: the stroke
+            // rebuilds it at the lowered ground and the undo raises the ground
+            // back underneath it. Today that pair happens to be a no-op because
+            // neither half rebuilds anything; the moment one does, both must.
+            // Codex caught this reviewing the fix rather than the fault.
+            //
+            // Only the layers that are earth. Woods and Country do not move a
+            // height, so a town standing on them cannot be stranded.
+            if !matches!(layer, Some(Layer::Woods) | Some(Layer::Country)) {
+                moved.over(patch.0, patch.1);
+            }
         }
         // Say so rather than doing nothing — a dead shortcut and an empty
         // history look identical otherwise.

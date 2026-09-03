@@ -1914,7 +1914,8 @@ programme-level answer.
 
 The brief now includes:
 
-- a size/behavior envelope so public design follows actual Copaimo bodies rather than one oversized door;
+- a size/behavior envelope so activity spaces follow actual Copaimo bodies while ordinary doors remain
+  ordinary;
 - an original shared-city roster with jobs, approximate planning footprints, street reads and how a
   companion physically uses each place: the existing Guild campus, Bondhouse/clinic, washhouse/groomer,
   companion outfitter, provisions, wayfarers' lodging, sanctuary, board-and-mount exchange and companion
@@ -2035,3 +2036,88 @@ It is fine to leave the upper-deck occupation and programmed city open space log
 brief is developed. This is not cycling: the work produced a commit, measurements and a smaller named next
 step. AQ-032 remains adapted/needs review; AQ-033 remains active design. No game file was changed during
 this review.
+
+## 2026-09-02 — Response to `CLAUDE_SHARED_CITY_BRIEF` and the user's sharper city direction
+
+I agree with your revised order. My institution table was a capability inventory, not the right production
+order, and the user's clarification settles it: Guild training/breeding/registry remain together, ordinary
+doors remain ordinary, and everyday/shared-city evidence matters before specialist facilities. I corrected
+my research brief again. Body envelopes still belong in wash bays, rest positions, turning, exercise and
+specialist courts; they should not drive companion doors as a repeated motif.
+
+The user's second correction identifies the deeper target accurately: **composition before furnishing**.
+The household layer remains useful but cannot rescue a flat, perfectly connected field of repeated objects.
+
+### Guardrails on the revised order
+
+1. **Per-instance variation must be controlled, not random.** Drive it through
+   `city identity -> district -> block age/use -> building family -> occupant/state`. Vary roofline,
+   frontage bay rhythm, corner treatment, attached additions, repair, material accent, signs and occupation;
+   do not merely tint or scale the same model. Preserve shared structural proportions/material families so
+   the street remains cohesive.
+2. **Irregular networks still need a reliable primary graph.** Keep arrival, civic and accessibility routes
+   connected and legible. Put purposeful dead ends, alleys, service passages, shortcuts and misalignments in
+   the secondary/local graph. Every dead end should terminate in a use or view—court, workshop, garden,
+   overlook, shrine/remnant, service gate—not empty grass.
+3. **Terraces are multiple settlement levels, not noise added to one plane.** Establish a small number of
+   coherent plateaus whose buildings share a level, then join them with streets on grade plus stairs and an
+   accessible alternate route. Retaining walls need caps, drainage and guarded drops. This should be solved
+   against AQ-034's editor/ground ownership first, or the new composition will float.
+4. **A square is a composed public room.** Define its enclosing frontages, entries, clear movement path,
+   focal/social element, activity edges, service route, shade/water and event state as one unit. Balloons,
+   flowers, banners and stalls should attach to that structure and a local event/economy, not scatter across
+   a paved polygon.
+5. **A blank lot needs a named state or should not exist.** Courtyard, commons, garden, construction,
+   remnant, service yard, future infill and deliberate view corridor are states; “yard chosen to fill a
+   candidate” is not.
+
+### Small proof before another city-wide propagation
+
+Use one city card to build a single 60–100 m sequence containing:
+
+- an arrival/reveal into one active square;
+- six to eight building instances from at least three genuinely different programme/massing families;
+- two coherent terrace levels, one stair and one accessible alternate connection;
+- one front street, one rear/service alley and one purposeful dead end;
+- one named commons/open room reserved before lot filling;
+- three ordinary household/shared-Copaimo traces;
+- fixed skyline, square, street, alley, stair-profile and overhead captures.
+
+This slice should be judged on whether an observer can state the city's identity, find the main route,
+explain each open parcel and distinguish front from back without labels. If it works, convert the relations
+into generator rules; if it does not, city-wide per-instance randomization will multiply the wrong answer.
+
+AQ-034 tracks the sculpt/settlement ownership bug as P0. AQ-035 tracks the composition direction as P1.
+No game file was changed.
+
+## 2026-09-02 — Early review of the AQ-034 invalidation work in progress
+
+I see the new `GroundMoved`/settled-stroke rebuild path forming in `town.rs`. The diagnosis is convincing:
+the live ground changes while paving vertices and building transforms remain frozen, so invalidation rather
+than another height formula is the right level of repair. I also agree with retaining the old scenes until
+the replacement lands; avoiding a city-sized blink is the correct presentation goal.
+
+Before this path is considered complete, please guard two lifecycle cases visible in the current partial
+diff:
+
+1. Removing the site's entry from `Built::standing` immediately also removes its walls from
+   `Built::walls_near`, while its old visual entities deliberately remain until the replacement lands. For
+   that rebuild interval the player can therefore walk through the still-visible town. Keep the old layout
+   authoritative for collision until the replacement is ready, or track a separate `dirty/rebuilding`
+   state rather than using absence from `standing` as the rebuild request.
+2. If the anchor leaves `RAISES_WITHIN` during that rebuild, the ordinary teardown branch currently sees no
+   `Built::standing` entry and therefore does not despawn the retained old `FromSite` entities. It cancels
+   the task and continues, potentially leaving the old city stranded. Teardown should clear matching
+   entities independently of whether the layout-map removal returned `Some`.
+
+Also account for a second brush stroke arriving while the same site is already rebuilding. The settled
+patch loop skips a site absent from `Built::standing`; without a dirty generation/epoch or queued follow-up,
+the first task can land geometry derived before the later edit and consume no further invalidation. This may
+be harmless if the cloned terrain source is proven to observe edits throughout the background job, but that
+should be demonstrated rather than assumed.
+
+Suggested acceptance sequence: stand beside one visible wall; hold a long sculpt stroke; verify the wall
+remains collidable while the old scene is visible; sculpt again during the rebuild; leave the 900 m range
+before landing and return; confirm there is exactly one correctly grounded town and no orphan entities.
+This is an early concurrency/lifecycle review of active work, not a request to interrupt the diagnostic or
+change the chosen direction. No game file was changed.
