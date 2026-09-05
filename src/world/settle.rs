@@ -105,8 +105,20 @@ pub struct Site {
 pub struct Lane {
     pub from: Vec2,
     pub to: Vec2,
-    /// The height it holds, which is its town's.
-    pub height: f32,
+    /// Which settlement laid it, so it can ask that town where its ground is.
+    ///
+    /// # It used to STORE a height, and that was the seam
+    ///
+    /// A lane carried `site.height` and flattened its strip to it, which is
+    /// correct while a town is one plane and wrong the moment it is not: the
+    /// ground around the lane follows the terrace and the lane holds one value,
+    /// so where a street crosses a riser its flattened strip stands as a cliff
+    /// against the ground either side of it. Two statements of where the ground
+    /// is, and the street's copy won over three metres of it.
+    ///
+    /// It asks now, at the point being asked about, so a street climbs with the
+    /// ground it is laid on and there is no seam to have.
+    pub site: u16,
     /// Kerb to kerb.
     pub wide: f32,
 }
@@ -121,80 +133,77 @@ impl Lane {
     }
 }
 
-/// How far apart a settlement's terraces are, measured inward from its edge.
-const TERRACE_EVERY: f32 = 88.0;
+/// How far apart a settlement's terraces are, along the slope, in metres.
+const TERRACE_EVERY: f32 = 118.0;
 
-/// How much each terrace stands above the one outside it, in metres.
+/// How much each terrace stands above the one below it, in metres.
 const TERRACE_RISE: f32 = 3.6;
 
-/// How many terraces a settlement may have above its lowest.
+/// How many steps a settlement's slope is allowed to climb.
 const TERRACES_MOST: f32 = 3.0;
 
-/// What share of a terrace's width the riser between it and the next occupies.
+/// How long the riser between two terraces is, in metres.
 ///
-/// The riser is a RAMP, not a cliff, and this is what makes it walkable: at
-/// 0.14 of an 88 m band a 3.6 m rise resolves over about twelve metres, a slope
-/// of 0.29 against `player::CLIMB_LIMIT` of 1.4. Steps come later as geometry;
-/// nothing here needs them to be climbable.
-///
-/// It also has to be wide enough for the 2 m terrain grid to draw: a riser
-/// shorter than a couple of grid steps is two triangles pretending to be a wall.
-const RISER_SHARE: f32 = 0.14;
+/// Short, because a terrace is a PLATFORM and the thing between two of them is
+/// meant to read as an edge - later a retaining wall with steps in it. Long
+/// enough that a warden walks up rather than being stopped: 3.6 m over 9 is a
+/// slope of 0.4 against `player::CLIMB_LIMIT` of 1.4, and wide enough that the
+/// 2 m terrain grid has vertices to draw it with.
+const RISER_RUNS: f32 = 14.0;
 
 /// How high a settlement's ground stands at a point, above its own base.
 ///
-/// # A city was one plane, to the float
+/// # A city was one plane, and then it was a hill
 ///
-/// `Site::height` is a single sample of `dry_height` at the middle, and the site
+/// `Site::height` is one sample of `dry_height` at the middle, and the site
 /// branch of `level` returned it with a pull that `smoothstep` clamps to exactly
-/// 1.0 everywhere inside the shape - so the ground was not "mostly flat", it was
-/// one plane across the whole footprint, and every street re-asserted it by
-/// stamping the same number into its own strip. The skirt only ever eased the
-/// OUTSIDE.
+/// 1.0 everywhere inside the shape - so a town was not "mostly flat", it was one
+/// plane across its whole footprint, and every street re-asserted it.
 ///
-/// The user, looking at the concept art: "Cities are not perfectly flat, there
-/// are hills, stairs, plateaus."
+/// The first fix asked how far INSIDE its own edge a point was, and that is a
+/// dome: the ground rose steadily toward the middle, and on a spine plan it made
+/// a long narrow hill with houses on it. The user, looking at it: "The whole city
+/// just has a hill in the middle."
 ///
-/// # Terraces from the shape the town already has
+/// # A terrace is a band, not a radius
 ///
-/// Asked of `Plan::off`, which is how far inside its own edge a point is - so a
-/// rings town terraces in rings, a grid in rectangles and a spine in a capsule,
-/// each following the plan it was laid out on rather than a second shape
-/// invented here. Height rises INWARD, which is what puts the civic ground
-/// highest and the arrival lowest, as the concept has it.
+/// A hill town steps DOWN A SLOPE. The steps are straight lines across the town,
+/// each one a level platform, and the fall runs one way - so a point's terrace is
+/// how far it lies along that slope and nothing to do with how central it is.
+/// That is what makes an edge you can put a wall on, and what makes the ground
+/// between two edges flat rather than curved.
 ///
-/// One function, and it is the only statement of where the ground is: `level`
-/// asks it, and a `Lane` asks it instead of storing a copy.
-/// # NOT APPLIED YET, and the three guards that say why
-///
-/// Wired into `level` and into `Lane`, this terraces every settlement - and
-/// fails exactly the three contracts the diagnosis warned assume one height per
-/// town, none of them falsely:
-///
-///   `a_road_arriving_at_a_town_takes_the_towns_level` - a country road arrives
-///   at a terraced edge and there is no single level to take.
-///   `no_building_stands_on_uneven_ground` - lots straddle risers.
-///   `the_ground_between_two_buildings_has_no_step_in_it` - the riser IS a step.
-///
-/// So a terrace cannot fall wherever the shape says. The risers have to run
-/// ALONG the ring streets, with the radials climbing between them, so the change
-/// in level lands behind a kerb and inside a block rather than across a lot -
-/// and the arriving road has to be told which terrace it is arriving at. That is
-/// the work; this function is the part of it that is settled.
-#[allow(dead_code)]
+/// The slope runs along the bearing the town faces, so the lowest terrace is the
+/// one a road arrives at and the highest is at the far side - arrival low, civic
+/// high, which is the order the concept has and the order a hill town has for the
+/// reason that you build the important thing where it is seen.
 pub fn terrace_at(site: &Site, at: Vec2) -> f32 {
-    if site.ranch {
-        // The ranch is one yard and the player's own ground. It stays flat.
+    // CITIES ONLY.
+    //
+    // A village is a hamlet round a green - one level is what it is, and it has
+    // neither the size to need terracing nor the room for it: its buildings sit
+    // a metre apart where a city's sit two and a half, so a riser through one
+    // put a pad edge against sloping ground and the step guard caught it at
+    // 1.2 to 1 in the settlement at (-4641, 270). The ranch is the player's own
+    // yard and stays flat for the same reason.
+    if site.ranch || !site.city {
         return 0.0;
     }
-    let off = site.plan.off(at - site.at, site.bearing, site.radius);
-    // How far inside the edge, in metres. Outside is the skirt's business.
-    let into = (-off).max(0.0);
-    let bands = (into / TERRACE_EVERY).min(TERRACES_MOST);
-    let whole = bands.floor();
-    let across = bands - whole;
-    // Flat for most of a band, then ramping up over the last of it.
-    let climb = crate::util::smoothstep(1.0 - RISER_SHARE, 1.0, across);
+    // ALONG THE SLOPE, measured from the low side.
+    let up = Vec2::from_angle(site.bearing);
+    let along = (at - site.at).dot(up) + site.plan.reaches(site.radius);
+    // AND NO MORE THAN A FEW OF THEM.
+    //
+    // The fall runs the width of the town, so without a cap a city climbs its
+    // own length: 640 m of slope at one step per 118 m is nineteen metres of
+    // rise, which lifts the ground far enough that the BIOME changes under it -
+    // 158 cells of the home continent came out desert. A hill town is three or
+    // four steps, not a mountainside.
+    let step = (along / TERRACE_EVERY).min(TERRACES_MOST);
+    let whole = step.floor().max(0.0);
+    // The riser sits at the start of each terrace and the rest of it is flat.
+    let into = (step - whole) * TERRACE_EVERY;
+    let climb = crate::util::smoothstep(0.0, RISER_RUNS, into);
     (whole + climb) * TERRACE_RISE
 }
 
@@ -575,11 +584,9 @@ impl Settlements {
                 // the spine it had been dealt. The two shapes disagree fastest at
                 // the capsule's flank, which is where the ground stepped 0.88 m over
                 // a quarter of a metre.
-                plan: if city {
-                    crate::world::town::Plan::of(which)
-                } else {
-                    crate::world::town::Plan::Rings
-                },
+                // A village is always rings; a city's plan depends on its era,
+                // which is not known until every site is placed - see below.
+                plan: crate::world::town::Plan::Rings,
                 // Filled in below, once there are roads to read it from.
                 bearing: 0.0,
                 ranch: false,
@@ -635,7 +642,14 @@ impl Settlements {
         });
         let many = order.len();
         for (rank, which) in order.into_iter().enumerate() {
-            settlements.sites[which].era = crate::world::town::Era::at_rank(rank, many);
+            let era = crate::world::town::Era::at_rank(rank, many);
+            settlements.sites[which].era = era;
+            // AND ITS PLAN, which depends on that era: the narrow spine belongs
+            // to the cities further out. Chosen here rather than at creation
+            // because a rank is a property of the whole world - see `Era`.
+            if settlements.sites[which].city {
+                settlements.sites[which].plan = crate::world::town::Plan::of(which, era);
+            }
         }
         // The streets inside each town, once there are sites and roads for the
         // layout to be built from. Filed as claims like everything else, so from
@@ -662,7 +676,7 @@ impl Settlements {
                 lanes.push(Lane {
                     from: street.from,
                     to: street.to,
-                    height: site.height,
+                    site: index as u16,
                     wide: street.wide,
                 });
             }
@@ -880,8 +894,9 @@ impl Settlements {
                 // rather than as one more patch of levelled ground.
                 let lane = &self.lanes[(what - roads) as usize];
                 let away = lane.off(at);
+                let town = &self.sites[lane.site as usize];
                 (
-                    lane.height,
+                    town.height + terrace_at(town, at),
                     smoothstep(lane.wide * 0.5 + LANE_SKIRT, lane.wide * 0.5, away),
                 )
             } else if what < sites {
@@ -901,7 +916,7 @@ impl Settlements {
                 // Flat out to the edge, then easing back to the land over the
                 // skirt, so a town sits in the ground rather than on a plinth.
                 (
-                    site.height,
+                    site.height + terrace_at(site, at),
                     smoothstep(skirt_of(site.radius), 0.0, away),
                 )
             } else {
@@ -1386,13 +1401,50 @@ mod levelling {
         let terrain = crate::world::terrain::Terrain::new();
         let mut checked = 0;
         for site in terrain.sites() {
-            // Well inside the town, where nothing else has any real claim.
-            let inside = terrain.base_height(site.at.x, site.at.y);
-            assert!(
-                (inside - site.height).abs() < 1.0,
-                "the middle of a town sits at {inside:.1} m and it was graded to {:.1}",
-                site.height
-            );
+            // NO CLIFF WHERE THE ROAD MEETS THE TOWN.
+            //
+            // This asserted the ground at the town equals `site.height`, which
+            // was the same thing while a town was one plane and is not once it
+            // is a hillside: the low edge sits at the graded height and the high
+            // edge stands three terraces above it, by construction. A road
+            // arriving at the top of a hill town SHOULD meet high ground.
+            //
+            // What must not happen is a step. So this walks the last of the
+            // approach, from open country to well inside, and asks that the
+            // ground never jumps - which is the contract the name states and the
+            // one a cart cares about.
+            let approach = Vec2::from_angle(site.bearing);
+            for out in [approach, -approach] {
+                let (mut near, mut far) = (0.0_f32, site.plan.reaches(site.radius) * 1.2);
+                for _ in 0..24 {
+                    let mid = (near + far) * 0.5;
+                    if site.plan.off(out * mid, site.bearing, site.radius) < 0.0 {
+                        near = mid;
+                    } else {
+                        far = mid;
+                    }
+                }
+                // From a skirt outside the boundary to a good way inside it.
+                let (from, to) = (near + skirt_of(site.radius), near - 40.0);
+                let steps = 400;
+                let mut last = f32::NAN;
+                for step in 0..=steps {
+                    let along = from + (to - from) * step as f32 / steps as f32;
+                    let at = site.at + out * along;
+                    let now = terrain.base_height(at.x, at.y);
+                    if last.is_finite() {
+                        let run = (from - to).abs() / steps as f32;
+                        let jump = (now - last).abs();
+                        assert!(
+                            jump < run * 1.2,
+                            "the ground jumps {jump:.2} m in {run:.2} m where a road reaches                              the town at ({:.0}, {:.0})",
+                            at.x,
+                            at.y,
+                        );
+                    }
+                    last = now;
+                }
+            }
             checked += 1;
         }
         assert!(checked > 0, "the world has no towns to check");

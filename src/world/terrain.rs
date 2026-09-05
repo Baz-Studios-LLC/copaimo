@@ -1128,7 +1128,22 @@ impl Terrain {
     /// three different callers want the answer to all of them — the biome, the
     /// species of tree, and later what lives here.
     pub fn ground_at(&self, x: f32, z: f32) -> BiomeGround {
-        let height = self.height(x, z);
+        // THE LAND'S OWN HEIGHT, not what people did to it.
+        //
+        // This read the levelled ground, so a settlement's earthworks decided
+        // the CLIMATE under it: terracing the first city three steps up its own
+        // slope turned 158 cells of the home continent to desert, and this
+        // guard's note says exactly why that matters - monsters are placed by
+        // biome, so it is the wrong creature in the starting area rather than a
+        // colour being slightly off.
+        //
+        // A town cuts and fills its ground; it does not move it to a drier
+        // latitude. `dry_height` is the generated land with the rivers in it and
+        // no settlement at all, which is the same thing the site planner asks
+        // when it chooses where towns go - so the climate a town stands in is
+        // the one it was built in. `levelled` below still says a settlement is
+        // here, for anything that wants to know.
+        let height = self.dry_height(x, z);
         // The same depth the surface is drawn from, not a second opinion.
         //
         // This used to read the river's old held water level against the ground —

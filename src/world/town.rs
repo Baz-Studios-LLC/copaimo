@@ -238,9 +238,27 @@ impl Plan {
     ///
     /// Dealt round like `Character` and offset from it, so the two do not move in
     /// lockstep and the world gets combinations rather than four fixed cities.
-    pub fn of(key: usize) -> Self {
+    pub fn of(key: usize, era: Era) -> Self {
+        // AN OLD CITY IS NOT A NARROW ONE.
+        //
+        // A spine is a long thin capsule - a town that grew along one road - and
+        // it is a fine plan for a place that did. It is the wrong plan for the
+        // first city a player walks into, which is meant to read as a whole town
+        // spread over a hillside: with the terraces stepping across it, a spine
+        // came out as a strip of houses on a ridge. The user, twice: the narrow
+        // shape is unnecessary.
+        //
+        // So the old world takes the two broad plans and the spine belongs to
+        // the cities further out, where a place strung along a road is a
+        // different kind of place rather than the only kind.
+        const BROAD: [Plan; 2] = [Plan::Rings, Plan::Grid];
         const ALL: [Plan; 3] = [Plan::Rings, Plan::Grid, Plan::Spine];
-        ALL[(key * 2 + 1 + crate::config::WORLD_SEED as usize) % ALL.len()]
+        let roll = key * 2 + 1 + crate::config::WORLD_SEED as usize;
+        if era.is_modern() {
+            ALL[roll % ALL.len()]
+        } else {
+            BROAD[roll % BROAD.len()]
+        }
     }
 
     /// How far outside a settlement's built shape a point lies, nought on it.
@@ -1572,6 +1590,36 @@ pub(crate) fn off_this_street(
 /// four-value sweep apiece before anybody measured the ground instead.
 const ELBOW: f32 = 1.0;
 
+/// How much the terrace may step across a building's own footprint.
+///
+/// A pad levels the ground under a building, and it can absorb the ordinary
+/// unevenness of a hillside; it cannot absorb a terrace riser without cutting a
+/// shelf. Under a quarter of a metre is what the uneven-ground guard already
+/// allows for everything else, so a lot that spans more than that is not a lot.
+const STANDS_LEVEL: f32 = 0.22;
+
+/// Whether this footprint sits wholly on one terrace.
+///
+/// Asked by every placement path there is - the lot loop, the landmark search
+/// and `lot_that_fits` - because a riser does not care which of them put the
+/// building there. The lot loop had it alone at first and a WELL came through
+/// the landmark search onto the same slope.
+fn stands_level(site: &crate::world::settle::Site, at: Vec2, what: Building) -> bool {
+    let half = what.footprint() * 0.5;
+    let (low, high) = [
+        Vec2::new(half.x, half.y),
+        Vec2::new(-half.x, half.y),
+        Vec2::new(half.x, -half.y),
+        Vec2::new(-half.x, -half.y),
+    ]
+    .iter()
+    .fold((f32::MAX, f32::MIN), |(low, high), corner| {
+        let step = crate::world::settle::terrace_at(site, at + *corner);
+        (low.min(step), high.max(step))
+    });
+    high - low <= STANDS_LEVEL
+}
+
 /// The same, where the ground has to draw a step between two buildings.
 ///
 /// # The village argument does not hold for a city any more
@@ -2838,6 +2886,7 @@ fn open_ground(
     search: f32,
     made: f32,
     city: bool,
+    site: Option<&crate::world::settle::Site>,
 ) -> Option<Vec2> {
     let clear = |at: Vec2| {
         // THE ROADS, MEASURED THE SAME WAY AS THE BUILDINGS.
@@ -2860,6 +2909,7 @@ fn open_ground(
             // A landmark is near enough square that which way it faces does not
             // change what it takes up, so it is asked about at nought.
             && clear_of_buildings(plots, at, 0.0, what, city)
+            && site.is_none_or(|site| stands_level(site, at, what))
     };
     if clear(about) {
         return Some(about);
@@ -2884,12 +2934,23 @@ fn open_ground(
 /// Returns the INDEX, so the caller can take the lot's own facing with it - which is
 /// the whole point: a building put on a lot inherits the frontage that lot was cut
 /// against, and therefore faces the street it was cut from.
-fn lot_that_fits(plots: &[Plot], about: Vec2, what: Building) -> Option<usize> {
+fn lot_that_fits(
+    plots: &[Plot],
+    about: Vec2,
+    what: Building,
+    site: Option<&crate::world::settle::Site>,
+) -> Option<usize> {
     let wants = what.wants();
     let mut best: Option<(usize, f32)> = None;
     for (index, plot) in plots.iter().enumerate() {
         // NOT ON TOP OF SOMETHING THE TOWN KEEPS - see `stands_regardless`.
         if plot.what.stands_regardless() {
+            continue;
+        }
+        // AND NOT ASTRIDE A RISER - see `stands_level`. A landmark seated here
+        // is bigger than the building it replaces, so a lot that was level for a
+        // townhouse may not be level for a hall.
+        if site.is_some_and(|site| !stands_level(site, plot.at, what)) {
             continue;
         }
         // The lot it stands on has to be big enough, or the new building overhangs
@@ -3568,6 +3629,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
             let facing = door.x.atan2(-door.y);
             if !clear_of_streets(&streets, at, facing, hall, made)
                 || !door_faces_a_street(&streets, at, facing, hall)
+                || !stands_level(site, at, hall)
             {
                 continue;
             }
@@ -3712,6 +3774,26 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
                 if !cleared {
                     continue;
                 }
+                // AND ON ONE TERRACE. A public place is a floor - people gather
+                // and trade on it - so it wants level ground, and a park laid
+                // across a riser had its own well refused for standing on a
+                // slope. Asked of the corners, like a building's footprint.
+                {
+                    let (low, high) = [
+                        Vec2::new(place.half.x, place.half.y),
+                        Vec2::new(-place.half.x, place.half.y),
+                        Vec2::new(place.half.x, -place.half.y),
+                        Vec2::new(-place.half.x, -place.half.y),
+                    ]
+                    .iter()
+                    .fold((f32::MAX, f32::MIN), |(low, high), corner| {
+                        let step = crate::world::settle::terrace_at(site, place.at + *corner);
+                        (low.min(step), high.max(step))
+                    });
+                    if high - low > STANDS_LEVEL {
+                        continue;
+                    }
+                }
                 // Too small to be a place at all is worse than not having one.
                 // THE BIGGEST ONE ANY CANDIDATE YIELDS, not the first that clears a
                 // bar. A place is shrunk to the block it lands in, so taking the
@@ -3821,6 +3903,21 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         // A circle round a rectangle is wrong in both directions at once: too big
         // along the axes, so it thins a street that would have fit, and too small at
         // the corners even before a 0.62 is applied to it.
+        // NOT ASTRIDE A RISER.
+        //
+        // The ground steps between terraces over about a dozen metres, and a
+        // building whose footprint spans that step stands on ground falling a
+        // metre across itself - which is what `no_building_stands_on_uneven_ground`
+        // reported, and its pad cannot flatten a slope that large without
+        // cutting a shelf out of the hillside. A retaining line has no houses
+        // sitting on it; it has houses above it and below it.
+        //
+        // Asked of the same `terrace_at` the ground is built from, at the two
+        // ends of the footprint's own diagonal, so this cannot disagree with what
+        // the ground actually does there.
+        if !stands_level(site, at, what) {
+            continue;
+        }
         if !clear_of_buildings(&plots, at, lot.facing, what, site.city) {
             continue;
         }
@@ -3906,6 +4003,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
             let stood = place.at + Vec2::from_angle(place.facing) * (place.half.y * 0.42);
             if clear_of_streets(&streets, stood, place.facing, focus, made)
                 && clear_of_buildings(&plots, stood, place.facing, focus, site.city)
+                && stands_level(site, stood, focus)
             {
                 plots.push(Plot {
                     at: stood,
@@ -4024,6 +4122,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
             let air = ELBOW * 0.3;
             if clear_of_streets(&streets, at, facing, what, made)
                 && clear_of_buildings_by(&plots, at, facing, what, air)
+                && stands_level(site, at, what)
             {
                 plots.push(Plot {
                     at,
@@ -4040,6 +4139,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
             let other = if index % 2 == 0 { far } else { near };
             if clear_of_streets(&streets, at, facing, other, made)
                 && clear_of_buildings_by(&plots, at, facing, other, ELBOW * 0.3)
+                && stands_level(site, at, other)
             {
                 plots.push(Plot {
                     at,
@@ -4074,7 +4174,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // city's middle is now a carved market with a cross standing on it. Both
     // were placed, so the square had a cross and a monument three metres apart.
     let middle_seat = carved.is_none().then(|| {
-        open_ground(&streets, &plots, site.at, on_the_square, square * 1.2, made, site.city)
+        open_ground(&streets, &plots, site.at, on_the_square, square * 1.2, made, site.city, Some(site))
     });
     if let Some(Some(at)) = middle_seat {
         plots.push(Plot {
@@ -4128,6 +4228,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
             wide * 2.0 + 6.0,
             made,
             site.city,
+            Some(site),
         ) else {
             continue;
         };
@@ -4175,7 +4276,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // And the fallback, for a settlement whose square had nowhere the hall would
     // stand: it takes an ordinary lot instead of going without.
     if !site.ranch && !plots.iter().any(|p| p.what == Building::GuildHall) {
-        if let Some(index) = lot_that_fits(&plots, site.at, Building::GuildHall) {
+        if let Some(index) = lot_that_fits(&plots, site.at, Building::GuildHall, Some(site)) {
             plots[index].what = Building::GuildHall;
         }
     }
@@ -4186,7 +4287,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         // spire on the skyline are two separate sightings rather than one behind the
         // other from the entrance road.
         let aside = site.at + Vec2::new(-approach.y, approach.x) * reach * 0.72;
-        if let Some(index) = lot_that_fits(&plots, aside, Building::CitySpire) {
+        if let Some(index) = lot_that_fits(&plots, aside, Building::CitySpire, Some(site)) {
             // AND OFF THE STREET, asked the same way the other spire seat asks it.
             //
             // `lot_that_fits` allows five metres of slack between the lot's old
