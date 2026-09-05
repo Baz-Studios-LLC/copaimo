@@ -326,6 +326,8 @@ pub struct Ground {
     pub high_street: f32,
     pub lane: f32,
     pub city: bool,
+    /// How far along the settlement this ground belongs to is - see `Era`.
+    pub era: Era,
     pub seed: u32,
 }
 
@@ -554,6 +556,61 @@ fn model_turn(facing: f32) -> f32 {
     std::f32::consts::PI - facing
 }
 
+/// How far along a settlement is, which rises with distance from the ranch.
+///
+/// # A progression the world could not express
+///
+/// Every city in the world was built from one kit - `CityBlock`, `CityTower`,
+/// `CitySpire` and the four that joined them - because `District::builds` asked
+/// only whether a place was a city. So the settlement nearest the ranch, the
+/// first city a player ever walks into, came out as glass towers, and the
+/// concept art for it is a historic market town: timber, stone, tile, arcades,
+/// stalls. There was no axis to say otherwise.
+///
+/// The user's rule: cities become progressively more advanced in order of
+/// distance from the ranch, and the farthest is almost futuristic. So this is
+/// its own axis - NOT `Character`, which says what a city is FOR, and not
+/// `Plan`, which says how its streets run. A works city can be old and a trade
+/// city modern; identity comes from all of them together.
+///
+/// Ranked rather than measured, so moving a site re-sorts the world instead of
+/// leaving a city with a technology its neighbours have outgrown.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub enum Era {
+    /// Timber, stone and tile. What a player meets first.
+    #[default]
+    Old,
+    /// The old fabric with something newer grown into it.
+    Turning,
+    /// Concrete, glass and steel.
+    Modern,
+    /// Past modern, and the farthest thing from the ranch.
+    Ahead,
+}
+
+impl Era {
+    /// The era of the `rank`th settlement out from the ranch, of `many`.
+    ///
+    /// Split by share rather than by count, so the progression holds whether the
+    /// world has four cities or forty.
+    pub fn at_rank(rank: usize, many: usize) -> Era {
+        if many <= 1 {
+            return Era::Old;
+        }
+        match (rank as f32) / ((many - 1) as f32) {
+            share if share < 0.26 => Era::Old,
+            share if share < 0.55 => Era::Turning,
+            share if share < 0.85 => Era::Modern,
+            _ => Era::Ahead,
+        }
+    }
+
+    /// Whether this era builds in glass and steel at all.
+    pub fn is_modern(self) -> bool {
+        matches!(self, Era::Modern | Era::Ahead)
+    }
+}
+
 impl District {
     /// How much of its frontage this district occupies, as yards per building.
     ///
@@ -611,8 +668,8 @@ impl District {
     }
 
     /// What is built here, given a roll.
-    fn builds(self, roll: f32, city: bool, character: Character) -> Building {
-        if city {
+    fn builds(self, roll: f32, city: bool, character: Character, era: Era) -> Building {
+        if city && era.is_modern() {
             // The modern city. Height falls off from the middle, which is what a
             // skyline IS - a city whose every building is the same height reads as
             // a housing scheme however tall they all are.
@@ -675,6 +732,21 @@ impl District {
                 }
             };
         }
+        // AN OLD-WORLD CITY IS THE VILLAGE KIT AT A CITY'S DENSITY.
+        //
+        // Which is a combination this generator had never produced: a village got
+        // the old kit and a city got the modern one, and nothing got old at city
+        // scale - so the first city a player reaches could only ever be glass.
+        // Falling through to the district rules below is most of the answer,
+        // because those already deal shops on the market street, workshops
+        // behind it and homes at the edge; what makes it a CITY rather than a
+        // large village is the street plan, the density and the landmark, none
+        // of which live here.
+        //
+        // A turning city takes the old kit too, and earns its modern quarter by
+        // district rather than by lot - see `Era`. That is deliberately not a
+        // per-lot roll: an era dealt building by building is noise, and the user
+        // asked for districts that read as old, seam and new.
         match self {
             // Trade, and a few homes over the shops.
             District::Market => {
@@ -1087,6 +1159,26 @@ impl Building {
         )
     }
 
+    /// Whether a town keeps this whatever else it gives up.
+    ///
+    /// # Two questions about the same thing, disagreeing
+    ///
+    /// `keep_always` names `GuildHall` outright when the yards are thinned, so a
+    /// hall survives that. `lot_that_fits` - which is how a landmark finds
+    /// somewhere to stand - asked `is_landmark` instead, and a guild hall is not
+    /// a landmark by that definition: `MarketCross | Well | Monument`. So the
+    /// spire's search was free to take the hall's own lot and overwrite it, and
+    /// one city in the world had its hall placed, confirmed by the search, and
+    /// then replaced before anything was ever drawn.
+    ///
+    /// It cost four wrong guesses to find, every one of them about the placement
+    /// loop, which was reporting success the whole time. The note in
+    /// `keep_always` says it better than I can: a thing that is right where you
+    /// are looking is being undone somewhere else.
+    pub fn stands_regardless(self) -> bool {
+        self.is_landmark() || matches!(self, Building::GuildHall | Building::CitySpire)
+    }
+
     pub fn is_landmark(self) -> bool {
         matches!(
             self,
@@ -1409,6 +1501,35 @@ pub(crate) fn off_this_street(
 /// four-value sweep apiece before anybody measured the ground instead.
 const ELBOW: f32 = 1.0;
 
+/// The same, where the ground has to draw a step between two buildings.
+///
+/// # The village argument does not hold for a city any more
+///
+/// The note above settled on a metre because a grid cell and a quarter - which
+/// measurably takes the worst sag to nothing - cost a village its second
+/// landmark, and settlements were asked not to be sparse. That was the right
+/// call for four buildings in five hundred and fifty.
+///
+/// A city is a different place now. It carries several hundred buildings rather
+/// than ninety-six, its blocks are the size they claim to be, and its kit is the
+/// old world's - smaller footprints, sitting closer together, which is exactly
+/// the case the 2 m grid cannot draw a step across. So the sag that was 19 cm
+/// somewhere in the world is 40 cm in a city, past what
+/// `no_building_stands_on_uneven_ground` allows, and the buildings this costs
+/// are a handful out of hundreds rather than a village's only landmark.
+///
+/// Villages keep their metre. The two numbers are not two opinions about the
+/// same thing: this one is the terrain mesh's resolution and that one is a roof
+/// overhang, and where a settlement is dense enough for the first to bite it
+/// wins. The honest fix for both is a denser terrain mesh under settlements,
+/// which is a bigger change than tonight.
+const ELBOW_ON_THE_GRID: f32 = 2.5;
+
+/// How much air a building wants when it is choosing where to stand.
+fn elbow_in(city: bool) -> f32 {
+    if city { ELBOW_ON_THE_GRID } else { ELBOW }
+}
+
 /// Whether a building standing here would stand in one already standing.
 ///
 /// # Nothing checked this. At all.
@@ -1426,8 +1547,8 @@ const ELBOW: f32 = 1.0;
 /// This is the separating axis theorem on the only axes a pair of rectangles can be
 /// separated along - the four face normals - reusing `reach_toward` as the support
 /// function, which is the same one the road test measures with.
-fn clear_of_buildings(plots: &[Plot], at: Vec2, facing: f32, what: Building) -> bool {
-    clear_of_buildings_by(plots, at, facing, what, ELBOW)
+fn clear_of_buildings(plots: &[Plot], at: Vec2, facing: f32, what: Building, city: bool) -> bool {
+    clear_of_buildings_by(plots, at, facing, what, elbow_in(city))
 }
 
 /// The same question with the air between them named.
@@ -2153,6 +2274,17 @@ fn close_off(
 
 /// The lane behind a block: bins, deliveries, a way through on foot.
 ///
+/// # Not laid at present
+///
+/// A rank of parallel service lanes is the wrong fabric for the historic city
+/// the first settlements are, and they cost clearance the landmark needs: with
+/// them on, the densest city in the world reached 739 street segments and its
+/// eighteen-metre guild hall could not find ground anywhere. The honest fix is
+/// to place the landmark BEFORE the service ways rather than have it compete
+/// with them - a change to the order `lay_out` builds in - and until that is
+/// done this is kept, unused, with the reason attached rather than deleted and
+/// rediscovered.
+///
 /// Laid down the middle of the pitch between two streets, which is where the two
 /// rows of frontage put their backs. It carries no frontage and no door faces it
 /// - see `Carries` - and it exists because a city whose every road is a street
@@ -2161,6 +2293,7 @@ fn close_off(
 /// Cities only. On unpaved ground a road wears a 5.4 m skirt each side, so a
 /// 3.4 m alley would lay an eleven-metre band of dirt through a village's
 /// gardens; and a village has no service traffic to justify one.
+#[allow(dead_code)]
 fn back_lane(on: &Ground, ways: &mut Vec<Way>, along: Vec2, across: Vec2, mid: f32) {
     let middle = on.middle + across * mid;
     let Some((from, to)) = inside(
@@ -2300,9 +2433,8 @@ fn grid_streets(on: &Ground, ways: &mut Vec<Way>, parcels: &mut Vec<Parcel>) {
                 .wrapping_add(axis.wrapping_mul(977))
                 .wrapping_add((band + 32) as u32);
             let mid = (band as f32 + 0.5) * on.band;
-            if unit(seed, 71) < ALLEYS_BEHIND {
-                back_lane(on, ways, way, other, mid);
-            }
+            // NO BACK LANES FOR NOW - see `back_lane`.
+            let _ = (mid, ALLEYS_BEHIND);
             // A close off the street on the near side of this block, reaching
             // into it. Offset along the street by its own roll so two closes on
             // neighbouring bands do not line up into a road.
@@ -2578,6 +2710,7 @@ fn open_ground(
     what: Building,
     search: f32,
     made: f32,
+    city: bool,
 ) -> Option<Vec2> {
     let clear = |at: Vec2| {
         // THE ROADS, MEASURED THE SAME WAY AS THE BUILDINGS.
@@ -2599,7 +2732,7 @@ fn open_ground(
             //
             // A landmark is near enough square that which way it faces does not
             // change what it takes up, so it is asked about at nought.
-            && clear_of_buildings(plots, at, 0.0, what)
+            && clear_of_buildings(plots, at, 0.0, what, city)
     };
     if clear(about) {
         return Some(about);
@@ -2628,7 +2761,8 @@ fn lot_that_fits(plots: &[Plot], about: Vec2, what: Building) -> Option<usize> {
     let wants = what.wants();
     let mut best: Option<(usize, f32)> = None;
     for (index, plot) in plots.iter().enumerate() {
-        if plot.what.is_landmark() {
+        // NOT ON TOP OF SOMETHING THE TOWN KEEPS - see `stands_regardless`.
+        if plot.what.stands_regardless() {
             continue;
         }
         // The lot it stands on has to be big enough, or the new building overhangs
@@ -2956,6 +3090,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         high_street,
         lane,
         city: site.city,
+        era: site.era,
         seed,
     };
     // The site's own, which already knows a village is rings - see `Site::plan`.
@@ -3186,6 +3321,16 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
             // street - "entrances need to face a road". So the street it stands
             // nearest chooses which way it looks, and the square keeps it only when
             // the square is what it fronts.
+            // OF THE STREETS A DOOR MAY ADDRESS, which is the same set the rule
+            // below judges it against.
+            //
+            // This looked at every street, service lanes included, so a hall
+            // standing near a back lane turned to face the lane - and then
+            // `door_faces_a_street`, which ignores service ways, said its door
+            // was on the wrong side and refused the spot. Every candidate round
+            // the whole search failed that way and one city in the world got no
+            // guild hall. Two derivations of which street a building addresses,
+            // disagreeing the moment one of them learned about alleys.
             let Some(on) = streets
                 .iter()
                 .map(|street| street.nearest_point(at))
@@ -3385,7 +3530,17 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         if opens.iter().any(|place| place.off(lot.at) < takes + ELBOW) {
             continue;
         }
-        let what = what_stands_here(index, lot, site.at, inner, outer, site.city, site.character, seed);
+        let what = what_stands_here(
+            index,
+            lot,
+            site.at,
+            inner,
+            outer,
+            site.city,
+            site.character,
+            site.era,
+            seed,
+        );
         let Some(what) = what else { continue };
 
         // Placed against the street rather than in the middle of its lot.
@@ -3415,7 +3570,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
                 let try_at = at + across * shift;
                 if clear_of_streets(&streets, try_at, lot.facing, what, made)
                     && door_faces_a_street(&streets, try_at, lot.facing, what)
-                    && clear_of_buildings(&plots, try_at, lot.facing, what)
+                    && clear_of_buildings(&plots, try_at, lot.facing, what, site.city)
                 {
                     stood = Some(try_at);
                     break;
@@ -3440,7 +3595,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         // A circle round a rectangle is wrong in both directions at once: too big
         // along the axes, so it thins a street that would have fit, and too small at
         // the corners even before a 0.62 is applied to it.
-        if !clear_of_buildings(&plots, at, lot.facing, what) {
+        if !clear_of_buildings(&plots, at, lot.facing, what, site.city) {
             continue;
         }
         plots.push(Plot {
@@ -3521,7 +3676,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         let focus = place.what.focus();
         let stood = place.at + Vec2::from_angle(place.facing) * (place.half.y * 0.42);
         if clear_of_streets(&streets, stood, place.facing, focus, made)
-            && clear_of_buildings(&plots, stood, place.facing, focus)
+            && clear_of_buildings(&plots, stood, place.facing, focus, site.city)
         {
             plots.push(Plot {
                 at: stood,
@@ -3640,7 +3795,9 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // plan keeps its middle open - that is what a market square IS. Asked of the
     // network instead, so a plan that runs a street through its middle gets its
     // landmark beside that street rather than under it.
-    if let Some(at) = open_ground(&streets, &plots, site.at, on_the_square, square * 1.2, made) {
+    if let Some(at) =
+        open_ground(&streets, &plots, site.at, on_the_square, square * 1.2, made, site.city)
+    {
         plots.push(Plot {
             at,
             facing: approach.y.atan2(approach.x),
@@ -3691,6 +3848,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
             at_a_junction,
             wide * 2.0 + 6.0,
             made,
+            site.city,
         ) else {
             continue;
         };
@@ -3809,9 +3967,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         // guild hall is not a city, and a node without its landmark is a junction.
         let keep_always: Vec<usize> = (0..plots.len())
             .filter(|i| {
-                plots[*i].what == Building::GuildHall
-                    || plots[*i].what.is_landmark()
-                    || plots[*i].what == Building::CitySpire
+                plots[*i].what.stands_regardless()
                     // AND THE PROGRAMME OF EVERY PUBLIC PLACE.
                     //
                     // The thinning cuts the yards back to what a settlement of this
@@ -4039,6 +4195,20 @@ fn subdivide(parcel: Parcel, seed: u32, depth: u32, into: &mut Vec<Parcel>) {
 /// takes the best lot of all. Cottages go where the town thins out. Doing this by
 /// distance from the centre rather than by a dice roll is most of what makes a
 /// generated town read as a place rather than as a scatter.
+/// What stands on a lot too small for what its district wanted.
+///
+/// Smaller, and of the same world - see the note at the call site.
+fn era_fallback(city: bool, era: Era) -> Building {
+    match (city, era.is_modern()) {
+        (true, true) => Building::CityBlock,
+        // An old-world city falls back to its own smallest frontage, which is
+        // what a town actually does when a plot is tight: it builds a narrower
+        // house on it.
+        (true, false) => Building::Townhouse,
+        (false, _) => Building::Cottage,
+    }
+}
+
 fn what_stands_here(
     index: usize,
     lot: &Parcel,
@@ -4047,6 +4217,7 @@ fn what_stands_here(
     outer: f32,
     city: bool,
     character: Character,
+    era: Era,
     seed: u32,
 ) -> Option<Building> {
     let roll = unit(seed.wrapping_add(index as u32 * 131), 11);
@@ -4060,11 +4231,18 @@ fn what_stands_here(
     // most feet on it carries the trade, and what a place is FOR is what tells one
     // part of a town from another.
     let wanted =
-        District::of(lot.at.distance(middle), inner, outer).builds(roll, city, character);
+        District::of(lot.at.distance(middle), inner, outer).builds(roll, city, character, era);
     if fits(wanted) {
         Some(wanted)
-    } else if fits(if city { Building::CityBlock } else { Building::Cottage }) {
-        Some(if city { Building::CityBlock } else { Building::Cottage })
+    } else if fits(era_fallback(city, era)) {
+        // THE FALLBACK HAS AN ERA TOO.
+        //
+        // This was `CityBlock` for any city, so wherever a lot refused the
+        // building its district wanted, an old-world city got a glass mid-rise
+        // instead - and there are enough such lots that the first city a player
+        // reaches came out with towers scattered through a tile-roofed town.
+        // The fallback is a different SIZE of answer, not a different world.
+        Some(era_fallback(city, era))
     } else {
         None
     }
@@ -8362,7 +8540,20 @@ mod tests {
             plan,
             bearing: 0.0,
             ranch: false,
+            // MODERN, because that is what these fixtures have always built.
+            //
+            // Every guard written before `Era` existed measured a city of glass
+            // and steel, and most of them are about geometry rather than kit -
+            // but a fixture that silently changed era would quietly re-point
+            // them at different buildings with different footprints. The old
+            // world gets its own fixtures where it is the subject.
+            era: Era::Modern,
         }
+    }
+
+    /// The same, of a named era, for the tests that care which world it is.
+    pub(super) fn a_site_in(city: bool, radius: f32, era: Era) -> Site {
+        Site { era, ..a_site(city, radius) }
     }
 
     /// No building stands in another building.

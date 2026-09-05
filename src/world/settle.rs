@@ -55,6 +55,9 @@ pub struct Site {
     pub radius: f32,
     /// Whether this is one of the larger places.
     pub city: bool,
+    /// How far along this settlement is - see `world::town::Era`. Filled once
+    /// every site is placed, from its rank by distance out from the ranch.
+    pub era: crate::world::town::Era,
     /// What this city is FOR - see `world::town::Character`. Carried here rather
     /// than worked out at layout time because it is a property of the settlement,
     /// the way its radius is, and because two callers deriving it separately is the
@@ -116,6 +119,83 @@ impl Lane {
         let along = ((at - self.from).dot(run) / length2).clamp(0.0, 1.0);
         at.distance(self.from + run * along)
     }
+}
+
+/// How far apart a settlement's terraces are, measured inward from its edge.
+const TERRACE_EVERY: f32 = 88.0;
+
+/// How much each terrace stands above the one outside it, in metres.
+const TERRACE_RISE: f32 = 3.6;
+
+/// How many terraces a settlement may have above its lowest.
+const TERRACES_MOST: f32 = 3.0;
+
+/// What share of a terrace's width the riser between it and the next occupies.
+///
+/// The riser is a RAMP, not a cliff, and this is what makes it walkable: at
+/// 0.14 of an 88 m band a 3.6 m rise resolves over about twelve metres, a slope
+/// of 0.29 against `player::CLIMB_LIMIT` of 1.4. Steps come later as geometry;
+/// nothing here needs them to be climbable.
+///
+/// It also has to be wide enough for the 2 m terrain grid to draw: a riser
+/// shorter than a couple of grid steps is two triangles pretending to be a wall.
+const RISER_SHARE: f32 = 0.14;
+
+/// How high a settlement's ground stands at a point, above its own base.
+///
+/// # A city was one plane, to the float
+///
+/// `Site::height` is a single sample of `dry_height` at the middle, and the site
+/// branch of `level` returned it with a pull that `smoothstep` clamps to exactly
+/// 1.0 everywhere inside the shape - so the ground was not "mostly flat", it was
+/// one plane across the whole footprint, and every street re-asserted it by
+/// stamping the same number into its own strip. The skirt only ever eased the
+/// OUTSIDE.
+///
+/// The user, looking at the concept art: "Cities are not perfectly flat, there
+/// are hills, stairs, plateaus."
+///
+/// # Terraces from the shape the town already has
+///
+/// Asked of `Plan::off`, which is how far inside its own edge a point is - so a
+/// rings town terraces in rings, a grid in rectangles and a spine in a capsule,
+/// each following the plan it was laid out on rather than a second shape
+/// invented here. Height rises INWARD, which is what puts the civic ground
+/// highest and the arrival lowest, as the concept has it.
+///
+/// One function, and it is the only statement of where the ground is: `level`
+/// asks it, and a `Lane` asks it instead of storing a copy.
+/// # NOT APPLIED YET, and the three guards that say why
+///
+/// Wired into `level` and into `Lane`, this terraces every settlement - and
+/// fails exactly the three contracts the diagnosis warned assume one height per
+/// town, none of them falsely:
+///
+///   `a_road_arriving_at_a_town_takes_the_towns_level` - a country road arrives
+///   at a terraced edge and there is no single level to take.
+///   `no_building_stands_on_uneven_ground` - lots straddle risers.
+///   `the_ground_between_two_buildings_has_no_step_in_it` - the riser IS a step.
+///
+/// So a terrace cannot fall wherever the shape says. The risers have to run
+/// ALONG the ring streets, with the radials climbing between them, so the change
+/// in level lands behind a kerb and inside a block rather than across a lot -
+/// and the arriving road has to be told which terrace it is arriving at. That is
+/// the work; this function is the part of it that is settled.
+#[allow(dead_code)]
+pub fn terrace_at(site: &Site, at: Vec2) -> f32 {
+    if site.ranch {
+        // The ranch is one yard and the player's own ground. It stays flat.
+        return 0.0;
+    }
+    let off = site.plan.off(at - site.at, site.bearing, site.radius);
+    // How far inside the edge, in metres. Outside is the skirt's business.
+    let into = (-off).max(0.0);
+    let bands = (into / TERRACE_EVERY).min(TERRACES_MOST);
+    let whole = bands.floor();
+    let across = bands - whole;
+    // Flat for most of a band, then ramping up over the last of it.
+    let climb = crate::util::smoothstep(1.0 - RISER_SHARE, 1.0, across);
+    (whole + climb) * TERRACE_RISE
 }
 
 /// How far out a settlement's own ground reaches, as a share of its radius.
@@ -454,6 +534,8 @@ impl Settlements {
             height: ground(ranch),
             radius: RANCH_RADIUS,
             city: false,
+            // The ranch is the origin of the progression, not a step in it.
+            era: crate::world::town::Era::Old,
             // A ranch is not a settlement and `world::town` skips it; this is here
             // because the field exists, not because it means anything.
             character: crate::world::town::Character::of(0),
@@ -478,6 +560,8 @@ impl Settlements {
                 at,
                 height: ground(at),
                 radius: if city { CITY_RADIUS } else { TOWN_RADIUS },
+                // Ranked below, once every site is placed.
+                era: crate::world::town::Era::default(),
                 city,
                 // Dealt round the settlements in order, so a world cannot come out
                 // with seven capitals by luck. See `world::town::Character`.
@@ -528,6 +612,30 @@ impl Settlements {
         for which in 0..settlements.sites.len() {
             let out = settlements.approach(settlements.sites[which].at);
             settlements.sites[which].bearing = out.y.atan2(out.x);
+        }
+        // AND HOW FAR ALONG EACH ONE IS, by its rank out from the ranch.
+        //
+        // Ranked here rather than measured at layout time, because a rank is a
+        // property of the whole world: moving one site changes which era its
+        // neighbours are, and a city cannot be told its own era by looking only
+        // at itself. See `world::town::Era`.
+        let ranch_at = settlements
+            .sites
+            .iter()
+            .find(|site| site.ranch)
+            .map_or(Vec2::ZERO, |site| site.at);
+        let mut order: Vec<usize> = (0..settlements.sites.len())
+            .filter(|&which| !settlements.sites[which].ranch)
+            .collect();
+        order.sort_by(|&a, &b| {
+            settlements.sites[a]
+                .at
+                .distance(ranch_at)
+                .total_cmp(&settlements.sites[b].at.distance(ranch_at))
+        });
+        let many = order.len();
+        for (rank, which) in order.into_iter().enumerate() {
+            settlements.sites[which].era = crate::world::town::Era::at_rank(rank, many);
         }
         // The streets inside each town, once there are sites and roads for the
         // layout to be built from. Filed as claims like everything else, so from

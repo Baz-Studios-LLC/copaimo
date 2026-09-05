@@ -2245,3 +2245,115 @@ arrival experience materially improves. Preserve these invariants:
 
 Disposition for the City 02 visual and written direction: **accepted by the user; ready for Claude to adapt
 and implement.** No game file was changed by Codex.
+
+## 2026-09-03 — Early review of the terrace-ground work in progress
+
+The move away from one perfectly flat settlement plane is correct, and giving the ground one callable
+height rule is the right ownership direction. Before this radial-band version hardens, however, it conflicts
+with several parts of the approved city contract.
+
+### P1 — do not turn every settlement into the same stepped mound
+
+`terrace_at` currently runs for every non-ranch site, including villages, and derives every level solely
+from distance inward from `Plan::off`. That makes every Rings city a concentric stepped cake, every Grid city
+a nested rectangular mound and every Spine city a nested capsule; cities sharing a plan still share the
+strongest aerial form. It also gives villages a 3.6 m inner level even though the user authorized multi-level
+cities, not a universal terrace treatment.
+
+Please make terraces an authored city-card/composition input: zero for ordinary villages unless specifically
+called for, and a small set of level regions/terrace seams aligned with each city's terrain, public rooms and
+arrival sequence. `Plan::off` can remain a useful boundary coordinate, but should not be the only axis that
+decides every level. City 02 specifically needs old low arrival -> market seam -> forum/lift -> upper garden,
+not three complete defensive rings around its centre.
+
+### P1 — a player-climbable riser is not an accessible city route
+
+The present 3.6 m rise over roughly `88 × 0.14 = 12.32 m` is about a 29.2% grade (approximately 1:3.4).
+`CLIMB_LIMIT` only proves the controller can ascend it; it does not make it plausible civic access. Preserve
+the dramatic stair/retaining-wall shortcut, but prove at least one continuous principal alternate route at
+1:16 preferred and no steeper than 1:12 for the reference target. The route can switch back or traverse the
+terrace rather than consuming the full rise head-on.
+
+### P1 — lane midpoint height can erase or tear the terrace it crosses
+
+`lay_the_town_out` stores one height sampled at a street segment's midpoint on the entire `Lane`. `level`
+then gives that constant target every place along the segment. Any segment crossing a riser can therefore
+flatten its full length to whichever terrace owns its midpoint, producing a trench, embankment or abrupt
+join against cross streets and the rendered paving.
+
+Prefer either carrying enough site/terrace identity for the lane claim to evaluate the target at the nearest
+point along the lane, or splitting/grading a lane at authored terrace seams. Add a regression that samples
+the centreline and both kerbs through every level transition and bounds adjacent height/grade changes. The
+rendered road, traversal ground, intersection and collision must all read the same surface.
+
+Finally reserve a no-building transition band around every riser before parcel placement. A pad, door or
+service court must not straddle two levels merely because its centre sampled the upper one. The fixed proof
+should show one retaining-wall/stair/ramp section, one door beside it, and collision/terrain overlays.
+
+Disposition: terrace direction **adapted / needs review** under AQ-035. This is an early static review of
+active work, not a request to abandon the useful one-height-function refactor. No game file was changed by
+Codex.
+
+## 2026-09-03 — Preserve the approved city references
+
+The user explicitly wants the City 01 and City 02 images retained because Cities 03–07 will be generated
+after the first two are implemented. I verified that all three approved PNGs are present and Git-tracked in
+commit 5966788. CITY_VISUAL_REFERENCE_MANIFEST_2026-09-03.md now records their exact filenames, intended
+roles, byte sizes and SHA-256 checksums, plus the versioning/approval contract for later city concepts.
+
+Please do not overwrite, rename or repurpose these approved originals. If implementation reveals a needed
+revision, add a versioned sibling and retain the original as the decision record. No game file was changed by
+Codex.
+
+## 2026-09-03 — P1 correction to the active city-era ranking
+
+The new Era axis is the correct response to the approved progression, but the active sorter currently
+collects every non-ranch settlement:
+
+    filter(|&which| !settlements.sites[which].ranch)
+
+That ranks seven cities together with six towns. It does not implement the user's rule, which is explicitly
+the order of the **cities** outward from the ranch. On the current map the two nearby towns take ranks 0 and
+1, City 01 becomes global rank 2 and City 02 global rank 3; with many = 13, both resolve to Era::Old.
+That directly contradicts the approved City 02 old-to-modern transition. The farthest non-ranch settlement
+is also the town at (5340, -310), not the farthest city.
+
+Please rank only site.city entries for the city ladder, leaving villages/towns on a separately authored
+default unless the user later gives them their own progression. Add a stable original-index tie-break after
+distance so equal/near-equal moves cannot reshuffle nondeterministically.
+
+There is a second boundary issue even after filtering: with seven cities, Era::at_rank(1, 7) is still Old
+because 1/6 < 0.26. City 02 must be Turning and visibly contain a newer district. Either map the seven
+authored ranks explicitly, retain a continuous progression value plus coarse rendering buckets, or change
+the buckets so the exact acceptance mapping begins:
+
+- City 01: Old
+- City 02: Turning
+- City 07: Ahead
+
+Do not discard the exact city rank if later cities must each advance beyond the previous one; four buckets
+alone cannot express seven distinct steps without another continuous or authored axis.
+
+Required regressions: assert the seven current coordinate-to-city-rank mappings in the approved guide;
+assert City 02 is Turning; assert the farthest CITY is Ahead even when a farther town exists; move two test
+cities across one another and prove their progression re-sorts with a stable tie-break.
+
+Disposition: city progression architecture **adapted / needs correction before commit** under AQ-035. This
+is a focused mapping correction, not a rejection of the new Era separation. No game file was changed by
+Codex.
+
+### 2026-09-04 — P1 resurfaced after one workday
+
+The active Era/terrace branch and the two mapping faults above remain unchanged and unacknowledged after one
+workday. Please give them an explicit disposition before resuming or committing this branch:
+
+- **accept/adapt:** rank cities only, retain exact rank or continuous progress, make City 02 transitional,
+  and add the four stated regressions;
+- **defer:** preserve the diagnosis and reopening gate, remove or shelve the incomplete progression/terrace
+  wiring, and move to the next independent City 01/02 composition task;
+- **reject:** record the evidence that the user's city-only outward progression is satisfied by the present
+  all-settlement ranking.
+
+This is the one scheduled resurface required by the collaboration rule, not a demand to implement it now.
+Do not let an inactive partial branch prevent work on the approved gray-box city slice. No game file was
+changed by Codex.

@@ -10,6 +10,7 @@ This directory is the collaboration boundary between Codex and Claude.
 
 ## Documents
 
+- [CITY_VISUAL_REFERENCE_MANIFEST_2026-09-03.md](CITY_VISUAL_REFERENCE_MANIFEST_2026-09-03.md) — preservation inventory for every approved City 01/02 image, including Git status, byte sizes, SHA-256 checksums, authoritative companion documents, versioning rules and the City 03–07 continuation contract.
 - [COPAIMO_CITY_02_MODERN_TRANSITION_AND_PROGRESSION_2026-09-03.md](COPAIMO_CITY_02_MODERN_TRANSITION_AND_PROGRESSION_2026-09-03.md) — the user-approved City 02 build contract and seven-city distance-from-ranch progression: exact current rank mapping, old/new district composition, public-room sequence, eight building families, material/construction rules, shared-life placement, implementation order and fixed proof set.
 - [COPAIMO_CITY_02_TRANSITIONAL_MODERN_CONCEPT_2026-09-03.png](COPAIMO_CITY_02_TRANSITIONAL_MODERN_CONCEPT_2026-09-03.png) — approved City 02 concept: historic pedestrian fabric growing into a contemporary terraced civic and garden district, without cars or generic science-fiction styling.
 - [COPAIMO_CITY_02_IMAGEGEN_PROMPT_2026-09-03.md](COPAIMO_CITY_02_IMAGEGEN_PROMPT_2026-09-03.md) — the exact built-in ImageGen prompt and City 01 reference role used for the approved City 02 image, plus the controlled-variation rule for later cities.
