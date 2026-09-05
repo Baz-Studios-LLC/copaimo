@@ -1116,6 +1116,9 @@ def shingles(parts, wide, deep, base, rise, ridge="y", colour="shingle", over=OV
 TILES = {
     "slate": "shingle",
     "roof": "shingle",
+    "roofslate": "roofslate",
+    "roofmoss": "roofmoss",
+    "roofochre": "roofochre",
     "roof2": "shingle",
     "thatch": "straw",
     "guildroof": "guildroof",
@@ -1379,8 +1382,17 @@ def cottage(open_door=True, hearth_left=True):
     return parts, top + 0.8
 
 
-def townhouse(open_door=True):
-    """Two storeys, the upper one jettied out over the lower. What a town is made of."""
+def townhouse(open_door=True, roof="roof"):
+    """Two storeys, the upper one jettied out over the lower. What a town is made of.
+
+    `roof` is what its tiles are fired or weathered to. A city is mostly this
+    figure and the shop, and both roofed in the same red, so a street came out
+    one colour - see the note on `roofslate` in the palette. The variants are
+    registered as their own figures because a building exports as one mesh with
+    its colour in the vertices, so a roof cannot be recoloured per instance
+    without splitting the mesh, and splitting it would reach the export gate,
+    the doorway measurement and the footprint contract all at once.
+    """
     wide, deep = MODULE * 6, MODULE * 6
     jetty = 0.28
     parts = []
@@ -1413,13 +1425,13 @@ def townhouse(open_door=True):
             parts.append(
                 box((0.16, 0.5, 0.4), (over * wide * 0.33, side * (deep * 0.5 + 0.1), STOREY - 0.42), "timber")
             )
-    top = roofed(parts, wide + jetty, deep + jetty, STOREY * 2, "roof", ridge="x")
+    top = roofed(parts, wide + jetty, deep + jetty, STOREY * 2, roof, ridge="x")
     chimney(parts, fire, STOREY * 2 - 0.4, top + 0.6)
 
     # A dormer: a small gable poking out of the roof slope. Breaks the ridge line,
     # which is the other half of what a jetty does for the wall line.
     parts.append(box((1.3, 1.0, 1.0), (-wide * 0.18, -deep * 0.5 - jetty * 0.5 + 0.5, STOREY * 2 + 0.5), "plaster2"))
-    parts.append(wedge(1.6, 1.3, 0.6, (-wide * 0.18, -deep * 0.5 - jetty * 0.5 + 0.5, STOREY * 2 + 1.0), "roof", ridge="x"))
+    parts.append(wedge(1.6, 1.3, 0.6, (-wide * 0.18, -deep * 0.5 - jetty * 0.5 + 0.5, STOREY * 2 + 1.0), roof, ridge="x"))
     parts.append(box((0.75, 0.06, 0.6), (-wide * 0.18, -deep * 0.5 - jetty * 0.5 - 0.02, STOREY * 2 + 0.55), "glass"))
     return parts, top + 0.9
 
@@ -2476,6 +2488,9 @@ FIGURES = {
     "well": well,
     # The new: cities.
     "city_block": city_block,
+    "townhouse_slate": lambda: townhouse(roof="roofslate"),
+    "townhouse_moss": lambda: townhouse(roof="roofmoss"),
+    "townhouse_ochre": lambda: townhouse(roof="roofochre"),
     "city_block_low": city_block_low,
     "city_block_tall": city_block_tall,
     "city_deck": city_deck,

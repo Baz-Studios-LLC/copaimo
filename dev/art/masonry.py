@@ -48,6 +48,21 @@ PALETTE = {
     "roof": (0.56, 0.26, 0.19),
     "roof2": (0.46, 0.30, 0.22),
     "slate": (0.32, 0.33, 0.37),
+    # ROOFS A TOWN IS MIXED FROM.
+    #
+    # A street was almost entirely one red because the two commonest figures -
+    # the townhouse and the shop - both roofed in `roof`, and a city is mostly
+    # those two. The concept the user is working from gets a great deal of its
+    # life from roofs in several hues over walls that stay quiet, so these are
+    # tile colours that a real roof is fired or weathered into rather than
+    # arbitrary hues: a blue-grey slate, a mossed green, and a pale ochre.
+    "roofslate": (0.29, 0.34, 0.42),
+    "roofmoss": (0.30, 0.38, 0.28),
+    "roofochre": (0.62, 0.47, 0.26),
+    # every roof course alternates with a darker companion - see `shingles`.
+    "roofslate2": (0.24, 0.29, 0.36),
+    "roofmoss2": (0.25, 0.32, 0.23),
+    "roofochre2": (0.54, 0.40, 0.22),
     "thatch": (0.66, 0.55, 0.33),
     "shutter": (0.30, 0.44, 0.42),
     "trim": (0.94, 0.92, 0.86),

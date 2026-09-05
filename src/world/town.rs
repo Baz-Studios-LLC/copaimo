@@ -810,6 +810,30 @@ pub enum Building {
     CityBlockLow,
     /// And seven floors, narrower.
     CityBlockTall,
+    /// The same townhouse, roofed in weathered slate.
+    ///
+    /// # Three figures that differ only in their tiles
+    ///
+    /// A city is mostly townhouses and shops, and both roofed in the same red,
+    /// so a street came out one colour where the concept the user is working
+    /// from gets much of its life from mixed roofs over quiet walls.
+    ///
+    /// They are separate FIGURES rather than a tint because a building exports
+    /// as one mesh carrying all its colour in the vertices - walls, glass, roof
+    /// and trim on one primitive - so a material multiplies the whole building
+    /// at once. Reds can be shifted that way; a blue slate or a mossed green
+    /// cannot, and the same multiplier that made a roof blue would take a
+    /// plaster wall with it. Splitting the roof into its own material would
+    /// reach the export gate, the doorway measurement and the footprint
+    /// contract in one go, and the user has asked twice tonight not to fix one
+    /// thing by breaking another.
+    ///
+    /// Identical footprints, so nothing downstream can tell them apart.
+    TownhouseSlate,
+    /// The same townhouse, roofed in mossed green tile.
+    TownhouseMoss,
+    /// The same townhouse, roofed in pale ochre tile.
+    TownhouseOchre,
     /// A housing slab: a long low bar with a balcony on every floor.
     ///
     /// # A city of towers is not a city
@@ -870,6 +894,9 @@ impl Building {
         match self {
             Building::Cottage => "models/town_cottage.glb",
             Building::Townhouse => "models/town_townhouse.glb",
+            Building::TownhouseSlate => "models/town_townhouse_slate.glb",
+            Building::TownhouseMoss => "models/town_townhouse_moss.glb",
+            Building::TownhouseOchre => "models/town_townhouse_ochre.glb",
             Building::CityBlock => "models/town_city_block.glb",
             Building::CityBlockLow => "models/town_city_block_low.glb",
             Building::CityBlockTall => "models/town_city_block_tall.glb",
@@ -921,6 +948,12 @@ impl Building {
             // again in each direction is nearly twice the floor.
             Building::GuildHall => Vec2::new(26.0, 18.0),
             // Measured off the exported models, same as the rest.
+            // THE TOWNHOUSE'S OWN, asked of it. They are the same figure with
+            // different tiles and Blender exports all four at 10.22 x 10.66, so
+            // stating the number again here is a second place for it to drift.
+            Building::TownhouseSlate | Building::TownhouseMoss | Building::TownhouseOchre => {
+                Building::Townhouse.footprint()
+            }
             Building::CityBlock => Vec2::new(11.3, 10.8),
             Building::CityBlockLow => Vec2::new(12.3, 11.3),
             Building::CityBlockTall => Vec2::new(10.3, 10.3),
@@ -1008,6 +1041,9 @@ impl Building {
             Building::CityShops => 20,
             Building::CityWorks => 21,
             Building::CityDeck => 22,
+            Building::TownhouseSlate => 23,
+            Building::TownhouseMoss => 24,
+            Building::TownhouseOchre => 25,
             Building::CityBlockLow => 23,
             Building::CityBlockTall => 24,
         }
@@ -4195,6 +4231,22 @@ fn subdivide(parcel: Parcel, seed: u32, depth: u32, into: &mut Vec<Parcel>) {
 /// takes the best lot of all. Cottages go where the town thins out. Doing this by
 /// distance from the centre rather than by a dice roll is most of what makes a
 /// generated town read as a place rather than as a scatter.
+/// The same townhouse with the tiles this one happens to have.
+///
+/// Hashed from where the lot IS, so which roof a house has is a fact about that
+/// house rather than about the order the town was built in - the same rule the
+/// yards' programme follows. A quarter each, and the plain red is one of the
+/// four rather than a default the others decorate.
+fn roofed_townhouse(at: Vec2, seed: u32) -> Building {
+    let roll = unit(seed.wrapping_add(at.x.to_bits() ^ at.y.to_bits().rotate_left(11)), 29);
+    match (roll * 4.0) as u32 {
+        0 => Building::TownhouseSlate,
+        1 => Building::TownhouseMoss,
+        2 => Building::TownhouseOchre,
+        _ => Building::Townhouse,
+    }
+}
+
 /// What stands on a lot too small for what its district wanted.
 ///
 /// Smaller, and of the same world - see the note at the call site.
@@ -4232,8 +4284,20 @@ fn what_stands_here(
     // part of a town from another.
     let wanted =
         District::of(lot.at.distance(middle), inner, outer).builds(roll, city, character, era);
+    // A TOWNHOUSE'S TILES, wherever the townhouse came from - the district's own
+    // rule or the fallback below. Done here rather than in `builds` because a
+    // roof is a fact about this house and `builds` is handed a roll, not a lot.
+    // The variants share the townhouse's footprint exactly, so `fits` cannot
+    // tell them apart and nothing downstream needs to.
+    let dressed = |what: Building| {
+        if what == Building::Townhouse {
+            roofed_townhouse(lot.at, seed)
+        } else {
+            what
+        }
+    };
     if fits(wanted) {
-        Some(wanted)
+        Some(dressed(wanted))
     } else if fits(era_fallback(city, era)) {
         // THE FALLBACK HAS AN ERA TOO.
         //
@@ -4242,7 +4306,7 @@ fn what_stands_here(
         // instead - and there are enough such lots that the first city a player
         // reaches came out with towers scattered through a tile-roofed town.
         // The fallback is a different SIZE of answer, not a different world.
-        Some(era_fallback(city, era))
+        Some(dressed(era_fallback(city, era)))
     } else {
         None
     }
@@ -9636,6 +9700,9 @@ mod tests {
                     Building::CityShops => [186, 172, 140],
                     Building::CityWorks => [140, 118, 104],
                     Building::CityDeck => [166, 168, 170],
+                    Building::TownhouseSlate => [150, 156, 168],
+                    Building::TownhouseMoss => [148, 162, 140],
+                    Building::TownhouseOchre => [188, 168, 128],
                     Building::CityBlockLow => [150, 164, 180],
                     Building::CityBlockTall => [150, 164, 180],
                 };
@@ -11012,6 +11079,9 @@ mod doorstep {
                 "city_shops" => Building::CityShops,
                 "city_works" => Building::CityWorks,
                 "city_deck" => Building::CityDeck,
+                "townhouse_slate" => Building::TownhouseSlate,
+                "townhouse_moss" => Building::TownhouseMoss,
+                "townhouse_ochre" => Building::TownhouseOchre,
                 "city_tower" => Building::CityTower,
                 "city_spire" => Building::CitySpire,
                 other => panic!("town.txt names a figure the game has no kind for: {other}"),

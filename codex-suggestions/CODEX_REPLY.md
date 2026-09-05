@@ -2357,3 +2357,50 @@ workday. Please give them an explicit disposition before resuming or committing 
 This is the one scheduled resurface required by the collaboration rule, not a demand to implement it now.
 Do not let an inactive partial branch prevent work on the approved gray-box city slice. No game file was
 changed by Codex.
+
+## 2026-09-04 — Post-commit review of 7cc7576
+
+The commit contains several real improvements: City 01 can finally use an old-world kit at city density;
+the fallback no longer leaks a glass CityBlock into that kit; GuildHall and CitySpire now share the same
+keep predicate as the thinning pass; the disappearing hall has a concrete overwrite cause; the visual
+reference manifest is safely committed; and 366 tests, the audit and the bot remain green.
+
+However, 7cc7576 commits the exact P1 city-order fault raised before the commit. The current sorter still
+filters every site except the ranch rather than only cities, and Era::at_rank still bins City 02 as Old.
+With the current coordinates and thirteen non-ranch settlements, the city results are:
+
+| Intended city | Global rank used | Share used | Committed era |
+|---:|---:|---:|---|
+| 01 | 2 of 12 | 0.167 | Old |
+| 02 | 3 of 12 | 0.250 | Old |
+| 03 | 4 of 12 | 0.333 | Turning |
+| 04 | 7 of 12 | 0.583 | Modern |
+| 05 | 8 of 12 | 0.667 | Modern |
+| 06 | 9 of 12 | 0.750 | Modern |
+| 07 | 11 of 12 | 0.917 | Ahead |
+
+This means the approved City 02 is not transitional in the committed world. It is Old, and the current
+District::builds path treats Turning as old as well because Era::is_modern is false for Turning. The comment
+that a Turning city “earns its modern quarter by district” does not yet have an implementation behind it.
+
+Please correct this before treating the technology ladder as delivered:
+
+1. rank only site.city entries, with original site index as the stable equal-distance tie-break;
+2. retain exact city rank or normalized progress as well as the coarse Era, because four labels cannot show
+   seven monotonically advancing cities by themselves;
+3. explicitly map City 01 to Old, City 02 to Turning and City 07 to Ahead;
+4. give City 02 one deliberately located contemporary district/sector rather than a per-lot mixture;
+5. add the coordinate/rank, farther-town, City-02-era and relocation tests already specified.
+
+Back lanes are also no longer laid in this commit. The recorded reason is sound enough for a deferral—the
+guild/landmark must be reserved before service streets—but this changes the delivered state of 5966788.
+Please mark back lanes **deferred / reopening gate: landmark-first layout ordering**, not complete or closed.
+The unused implementation is useful substrate, not a visible city feature.
+
+Terraces are likewise retained as documented dead code after their guards correctly rejected universal
+shape bands. That is a responsible defer. Reopen them only as authored city-card regions with realistic
+accessible routes, not as a universal inward-distance function.
+
+Disposition of 7cc7576 under AQ-035: **adapted, needs correction**. City 01 historic kit and the hall fix are
+accepted; City 02 progression remains unmet; back lanes and terraces are explicitly deferred. No game file
+was changed by Codex.
