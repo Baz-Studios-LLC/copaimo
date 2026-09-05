@@ -1349,8 +1349,12 @@ impl Building {
         }
     }
 
-    pub fn landmarks(city: bool) -> (Building, Building) {
-        if city {
+    pub fn landmarks(city: bool, era: Era) -> (Building, Building) {
+        // A MONUMENT IS A MODERN CITY'S LANDMARK. An old one gathers round a
+        // market cross and draws its water from a well at the junctions, which
+        // is what a village already does - the difference between the two is
+        // the age of the place, not its size.
+        if city && era.is_modern() {
             (Building::Monument, Building::Monument)
         } else {
             (Building::MarketCross, Building::Well)
@@ -2045,14 +2049,37 @@ impl Open {
     }
 
     /// The thing at the middle of it, which is what you walk toward.
-    fn focus(self) -> Building {
-        match self {
+    fn focus(self, era: Era) -> Option<Building> {
+        // A MARKET'S MIDDLE IS EMPTY, and that is the whole of it.
+        //
+        // It carried a market cross, which is borrowed history - the thing marked
+        // a town's right to hold a market, and this world has no such right to
+        // mark. Water was the next guess and the user turned that down too: no
+        // wells. Both were answers to a question nobody asked, which was "what
+        // goes in the middle".
+        //
+        // Nothing does. The note on the ring below already says it - a square
+        // with its furniture in the centre is a roundabout - and the room to walk
+        // through, gather in and fight in IS the square. The stalls round the
+        // edge are what say market.
+        if self == Open::Market && !era.is_modern() {
+            return None;
+        }
+        Some(match self {
             Open::Square => Building::Monument,
             Open::Park => Building::Well,
-            Open::Market => Building::MarketCross,
+            // WATER, not a cross.
+            //
+            // A market cross is a real thing - it marked a town's right to hold
+            // a market - and it is borrowed history with no meaning in this
+            // world, which is the user's question when they asked what the
+            // market needs one for. The concept has water at the centre, and
+            // water is the one piece of civic furniture a town shared with
+            // Copaimo has an obvious use for: they drink from it.
+            Open::Market => Building::Well,
             // A yard has no monument in it. The bays are the whole of it.
             Open::Depot => Building::CityService,
-        }
+        })
     }
 
     /// What fills the ground around that.
@@ -3872,18 +3899,22 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         // The focus, a third of the way out along the place's own axis, on the side
         // the town arrives from - so it is seen against the open ground rather than
         // against the buildings behind it.
-        let focus = place.what.focus();
-        let stood = place.at + Vec2::from_angle(place.facing) * (place.half.y * 0.42);
-        if clear_of_streets(&streets, stood, place.facing, focus, made)
-            && clear_of_buildings(&plots, stood, place.facing, focus, site.city)
-        {
-            plots.push(Plot {
-                at: stood,
-                facing: place.facing,
-                what: focus,
-                district: District::of(stood.distance(site.at), inner, outer),
-                serves: Some(place.id),
-            });
+        // A place may have no middle - see `focus`. Only the FOCUS is skipped
+        // then, never the furniture: `continue` here emptied the market
+        // completely, stalls and all, which is the whole of what makes it one.
+        if let Some(focus) = place.what.focus(site.era) {
+            let stood = place.at + Vec2::from_angle(place.facing) * (place.half.y * 0.42);
+            if clear_of_streets(&streets, stood, place.facing, focus, made)
+                && clear_of_buildings(&plots, stood, place.facing, focus, site.city)
+            {
+                plots.push(Plot {
+                    at: stood,
+                    facing: place.facing,
+                    what: focus,
+                    district: District::of(stood.distance(site.at), inner, outer),
+                    serves: Some(place.id),
+                });
+            }
         }
 
         // The edges. Along the four sides, facing in, with the middle left alone -
@@ -3912,12 +3943,54 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         // Positions first, kinds assigned across whatever was found: two kinds
         // appear wherever there is room for two pieces at all.
         let mut spots: Vec<(Vec2, f32)> = Vec::new();
+
+        // A MARKET IS ROWS, NOT A RIM.
+        //
+        // The rule below is a civic square's and it is right for one: furniture
+        // round the edge, middle left clear, because a square with its furniture
+        // in the centre is a roundabout. A market is the exception - its stalls
+        // stand in rows across it with aisles to walk between, which is what
+        // makes it a market rather than a plaza with tents at the edges. Ringed
+        // instead, a sixty-metre square came out looking abandoned from the
+        // middle of it, which is where the player stands.
+        //
+        // Rows across the short axis, aisles along the long one, and the stalls
+        // face the aisle they serve. The outer margin keeps them off the mouths
+        // where the streets arrive.
+        if place.what == Open::Market && !site.era.is_modern() {
+            let piece = near.footprint();
+            let aisle = piece.y + 5.5;
+            let step = piece.x + 2.2;
+            let inner = (place.half - Vec2::splat(piece.max_element() * 0.5 + 3.0))
+                .max(Vec2::splat(1.0));
+            let rows = ((inner.y * 2.0 / aisle).floor() as i32).clamp(1, 6);
+            let along = ((inner.x * 2.0 / step).floor() as i32).clamp(1, 9);
+            for row in 0..rows {
+                // Rows either side of the middle, so the square reads as worked
+                // through rather than filled from one edge.
+                let down = (row as f32 + 0.5) / rows as f32 - 0.5;
+                for piece_at in 0..along {
+                    let across = (piece_at as f32 + 0.5) / along as f32 - 0.5;
+                    let local = Vec2::new(across * inner.x * 2.0, down * inner.y * 2.0);
+                    let at = place.at
+                        + Vec2::new(local.x * cos - local.y * sin, local.x * sin + local.y * cos);
+                    // Facing the aisle: alternate rows look at each other.
+                    let turn = place.facing + if row % 2 == 0 { 0.0 } else { std::f32::consts::PI };
+                    spots.push((at, turn));
+                }
+            }
+        }
+
         for (side, run) in [
             (Vec2::new(0.0, -1.0), Vec2::X),
             (Vec2::new(1.0, 0.0), Vec2::Y),
             (Vec2::new(0.0, 1.0), -Vec2::X),
             (Vec2::new(-1.0, 0.0), -Vec2::Y),
         ] {
+            // Rows already laid - see above.
+            if !spots.is_empty() && place.what == Open::Market && !site.era.is_modern() {
+                break;
+            }
             // Half a piece, so a corner is not occupied twice. This took the INSET
             // as well, which is the distance in from the edge and has nothing to do
             // with how much of a side is usable - on a thirty-metre square it ate
@@ -3986,7 +4059,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // the junctions where the ring roads meet the radials - and it is a different
     // KIND of thing from the buildings around it, so it reads as somewhere to gather
     // rather than as a bigger house. They take no lot and keep no frontage.
-    let (on_the_square, at_a_junction) = Building::landmarks(site.city);
+    let (on_the_square, at_a_junction) = Building::landmarks(site.city, site.era);
 
     // ON the middle, but never in the ROAD.
     //
@@ -3994,9 +4067,16 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // plan keeps its middle open - that is what a market square IS. Asked of the
     // network instead, so a plan that runs a street through its middle gets its
     // landmark beside that street rather than under it.
-    if let Some(at) =
+    // UNLESS THE MIDDLE IS ALREADY A MARKET, whose own focus is that landmark.
+    //
+    // The note above is exactly right and it stopped being true: placing this at
+    // the middle was safe because the plan kept its middle open, and an old
+    // city's middle is now a carved market with a cross standing on it. Both
+    // were placed, so the square had a cross and a monument three metres apart.
+    let middle_seat = carved.is_none().then(|| {
         open_ground(&streets, &plots, site.at, on_the_square, square * 1.2, made, site.city)
-    {
+    });
+    if let Some(Some(at)) = middle_seat {
         plots.push(Plot {
             at,
             facing: approach.y.atan2(approach.x),
@@ -11994,11 +12074,18 @@ mod facing {
                 // ITS FOCUS, off the middle THE LAYOUT RECORDED rather than off the
                 // average of its own furniture, which is a number that moves when
                 // the furniture does.
+                // A PLACE MAY DELIBERATELY HAVE NO MIDDLE - see `Open::focus`.
+                // An old-world market's centre is the room to walk through it,
+                // and the check below is about where a focus stands, not about
+                // whether every place must have one.
+                let Some(wanted) = place.what.focus(Era::Modern) else {
+                    continue;
+                };
                 let focus = mine
                     .iter()
-                    .find(|p| p.what == place.what.focus())
+                    .find(|p| p.what == wanted)
                     .unwrap_or_else(|| {
-                        panic!("{character:?}'s {:?} has no {:?} in it", place.what, place.what.focus())
+                        panic!("{character:?}'s {:?} has no {wanted:?} in it", place.what)
                     });
                 let off = focus.at.distance(place.at);
                 assert!(
