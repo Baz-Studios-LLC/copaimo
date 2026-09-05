@@ -810,6 +810,18 @@ pub enum Building {
     CityBlockLow,
     /// And seven floors, narrower.
     CityBlockTall,
+    /// A market stall under a woad-blue awning.
+    ///
+    /// Three cloths for one stall, for the reason three roofs serve one townhouse:
+    /// a figure is one mesh with its colour in the vertices, so a tent cannot be
+    /// recoloured per instance without splitting it. A market seen from anywhere
+    /// is mostly awnings, and one red over every stall made a square a row of the
+    /// same tent.
+    StallBlue,
+    /// The same, bottle green.
+    StallGreen,
+    /// The same, mustard gold.
+    StallGold,
     /// The same townhouse, roofed in weathered slate.
     ///
     /// # Three figures that differ only in their tiles
@@ -911,6 +923,9 @@ impl Building {
             Building::Pen => "models/yard_pen.glb",
             Building::StoreYard => "models/yard_store.glb",
             Building::Stall => "models/yard_stall.glb",
+            Building::StallBlue => "models/yard_stall_blue.glb",
+            Building::StallGreen => "models/yard_stall_green.glb",
+            Building::StallGold => "models/yard_stall_gold.glb",
             Building::CityGreen => "models/yard_city_green.glb",
             Building::CityService => "models/yard_city_service.glb",
             Building::CityKiosk => "models/yard_city_kiosk.glb",
@@ -980,6 +995,10 @@ impl Building {
             // A stall belongs to the street rather than to a plot, so it is smaller
             // and has no fence to put a wall across a square.
             Building::Stall => Vec2::new(7.2, 4.2),
+            // The stall's own - one figure, three cloths, exported at 7.18 x 4.15.
+            Building::StallBlue | Building::StallGreen | Building::StallGold => {
+                Building::Stall.footprint()
+            }
             // A landmark stands in the open, so its footprint is what it occupies
             // rather than what it needs around it.
             Building::MarketCross => Vec2::new(3.4, 3.4),
@@ -1000,7 +1019,7 @@ impl Building {
     /// people gather, which is what makes a node a node.
     /// How many kinds there are.
     #[cfg(test)]
-    const KINDS: usize = 25;
+    const KINDS: usize = 31;
 
     /// Where each kind sits in `ALL`.
     ///
@@ -1041,9 +1060,12 @@ impl Building {
             Building::CityShops => 20,
             Building::CityWorks => 21,
             Building::CityDeck => 22,
-            Building::TownhouseSlate => 23,
-            Building::TownhouseMoss => 24,
-            Building::TownhouseOchre => 25,
+            Building::TownhouseSlate => 25,
+            Building::TownhouseMoss => 26,
+            Building::TownhouseOchre => 27,
+            Building::StallBlue => 28,
+            Building::StallGreen => 29,
+            Building::StallGold => 30,
             Building::CityBlockLow => 23,
             Building::CityBlockTall => 24,
         }
@@ -1083,6 +1105,12 @@ impl Building {
         Building::CityDeck,
         Building::CityBlockLow,
         Building::CityBlockTall,
+        Building::TownhouseSlate,
+        Building::TownhouseMoss,
+        Building::TownhouseOchre,
+        Building::StallBlue,
+        Building::StallGreen,
+        Building::StallGold,
     ];
 
     /// Whether a yard is enclosed, and how wide the way in is.
@@ -1188,6 +1216,9 @@ impl Building {
                 | Building::Pen
                 | Building::StoreYard
                 | Building::Stall
+                | Building::StallBlue
+                | Building::StallGreen
+                | Building::StallGold
                 | Building::CityGreen
                 | Building::CityService
                 | Building::CityKiosk
@@ -1992,7 +2023,19 @@ impl Open {
     /// Ordered, and the first is always the one at the middle: every settlement has
     /// a civic square, and what it has BESIDE that is what tells you what kind of
     /// place you are in.
-    fn wanted(character: Character) -> &'static [Open] {
+    fn wanted(character: Character, era: Era) -> &'static [Open] {
+        // AN OLD-WORLD CITY HAS A MARKET, whatever it is for.
+        //
+        // The programme below is a MODERN city's: a works city gets a square and
+        // two depots, and a depot is a service yard with pallets in it. Every
+        // medieval town had a market - it is what made a town a town - and the
+        // concept the user is building toward is a market square first and
+        // everything else around it. So an old city takes a market, a civic
+        // square and a park regardless of `Character`, and its character shows
+        // in what stands around them rather than in whether it has one.
+        if !era.is_modern() {
+            return &[Open::Market, Open::Square, Open::Park];
+        }
         match character {
             Character::Capital => &[Open::Square, Open::Park, Open::Square],
             Character::Works => &[Open::Square, Open::Depot, Open::Depot],
@@ -2016,7 +2059,14 @@ impl Open {
     ///
     /// Two, so the programme has some variety in it without becoming a scatter -
     /// the research is clear that a square wants zones rather than noise.
-    fn fills(self) -> (Building, Building) {
+    fn fills(self, era: Era) -> (Building, Building) {
+        // AN OLD MARKET IS STALLS. The kiosk is a modern figure - a steel-and-glass
+        // box - and a forecourt is a paved yard; both were dealt onto an old-world
+        // market square, which is how a tile-roofed town got a row of vending
+        // kiosks. Stalls both, and `awninged_stall` deals the cloths.
+        if self == Open::Market && !era.is_modern() {
+            return (Building::Stall, Building::Stall);
+        }
         match self {
             Open::Square => (Building::CityForecourt, Building::CityKiosk),
             // A PARK IS PLANTING AND SOMEWHERE TO STAND ON.
@@ -2054,7 +2104,21 @@ impl Open {
     ///
     /// Big enough to be a place and small enough not to be vacant, which is the
     /// warning the research gives about squares in particular.
-    fn spans(self) -> Vec2 {
+    fn spans(self, era: Era) -> Vec2 {
+        // THE OLD MARKET IS THE CENTRE OF GRAVITY, and it is sized like one.
+        //
+        // A market at 0.68 x 0.44 of the block pitch is thirty-seven metres by
+        // twenty-four in a city - a paved patch with three stalls on it, which is
+        // what the first render showed. The concept the user is building toward
+        // is a square of sixty-five to seventy-five metres with the whole town
+        // composed around it, and Codex's plan puts the same numbers on it. So an
+        // old-world market is a band and a quarter across, which is bigger than a
+        // block: the streets that reach it become its entrances rather than its
+        // edges, and the lots inside it give way to it, which is what a square
+        // carved out of a town IS.
+        if self == Open::Market && !era.is_modern() {
+            return Vec2::new(1.25, 1.05);
+        }
         match self {
             Open::Square => Vec2::new(0.80, 0.68),
             Open::Park => Vec2::new(0.86, 0.80),
@@ -3271,6 +3335,88 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // A village is unpaved and a city is not, which is what decides how wide a
     // meeting's carriageway is against its footway. `paved_here` would say the same
     // thing at these distances and would need a plan this does not have.
+    // THE MARKET IS CARVED OUT OF THE MIDDLE, before there is a network to fit
+    // it into.
+    //
+    // # A square that had to find a block, and found a field
+    //
+    // Every public place is seated by search: the lots nearest where it is wanted,
+    // in order, and the first block that holds it with no street through it wins,
+    // shrinking up to eight times to fit. That is right for a civic square that
+    // takes a block. An old-world MARKET is bigger than a block - sixty-odd metres,
+    // the size the concept and Codex's plan both put on it - so nothing in the
+    // middle could hold it, the search walked outward until it found open ground,
+    // and the town's centre of gravity came out on the grass beyond the last
+    // street with one road touching it.
+    //
+    // A market is not fitted into a town; the town is built around it. So for an
+    // old-era city the market is decided first, centred on the middle, and every
+    // way is CLIPPED against it - the streets that reached the middle now arrive
+    // at its edge, and `network` turns each cut end into a mouth onto the square.
+    // The same clip a country road takes at a town's edge (`outside_the_shape`),
+    // asked of the place's own `off`.
+    let carved: Option<Place> = (site.city && !site.era.is_modern()).then(|| Place {
+        id: 0,
+        what: Open::Market,
+        at: site.at,
+        half: band * Open::Market.spans(site.era) * 0.5,
+        facing: through,
+    });
+    let ways: Vec<Way> = match &carved {
+        None => ways,
+        Some(market) => {
+            // A street stops a footway short of the paving, so the mouth reads
+            // as a mouth rather than the two surfaces fighting for one edge.
+            let off = |at: Vec2| market.off(at) - FOOTWAY_WIDE * 0.5;
+            let mut kept: Vec<Way> = Vec::new();
+            for way in ways {
+                // Each straight piece clipped on its own, then consecutive pieces
+                // that still touch stitched back into one chain, so a ring road
+                // cut by the square becomes two arcs rather than forty stubs.
+                let mut chain: Vec<Vec2> = Vec::new();
+                let mut flush = |chain: &mut Vec<Vec2>, kept: &mut Vec<Way>| {
+                    if chain.len() >= 2 {
+                        kept.push(Way {
+                            points: std::mem::take(chain),
+                            wide: way.wide,
+                            joins: way.joins,
+                            carries: way.carries,
+                        });
+                    } else {
+                        chain.clear();
+                    }
+                };
+                for pair in way.points.windows(2) {
+                    let pieces = outside_the_shape(&off, pair[0], pair[1]);
+                    match pieces.as_slice() {
+                        [] => flush(&mut chain, &mut kept),
+                        [(a, b)] => {
+                            if chain.last().is_none_or(|last| last.distance(*a) > 1.0e-3) {
+                                flush(&mut chain, &mut kept);
+                                chain.push(*a);
+                            }
+                            chain.push(*b);
+                            if b.distance(pair[1]) > 1.0e-3 {
+                                // Cut short by the square: the chain ends here.
+                                flush(&mut chain, &mut kept);
+                            }
+                        }
+                        many => {
+                            // Went in one side and out the other: two pieces.
+                            for (a, b) in many {
+                                flush(&mut chain, &mut kept);
+                                chain.push(*a);
+                                chain.push(*b);
+                                flush(&mut chain, &mut kept);
+                            }
+                        }
+                    }
+                }
+                flush(&mut chain, &mut kept);
+            }
+            kept
+        }
+    };
     let (ways, nodes) = network(ways, &|_| f32::from(u8::from(site.city)));
     let laid: Vec<Street> = ways.iter().flat_map(|way| way.segments()).collect();
 
@@ -3347,6 +3493,16 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
             let turn = through + std::f32::consts::TAU * step as f32 / 48.0;
             let at = site.at + Vec2::from_angle(turn) * stand;
             if at.distance(site.at) > reach {
+                continue;
+            }
+            // AND NOT ON THE MARKET. The search walks outward from the town's
+            // open middle, which for an old city IS the market now, and a hall
+            // standing on the paving among the stalls is a hall in the wrong
+            // place. It fronts the square from just outside it instead.
+            if carved
+                .as_ref()
+                .is_some_and(|market| market.off(at) < hall.footprint().max_element() * 0.5)
+            {
                 continue;
             }
             // FACING THE NEAREST STREET, not the square.
@@ -3429,11 +3585,18 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // before the lots are built on, because a square carved out of a finished town
     // is a demolition.
     let mut opens: Vec<Place> = Vec::new();
+    if let Some(market) = carved.clone() {
+        opens.push(market);
+    }
     if site.city && !site.ranch {
         let middle_of_town = plots.first().map(|hall| hall.at).unwrap_or(site.at);
-        let asked = Open::wanted(site.character);
+        let asked = Open::wanted(site.character, site.era);
         for (which, open) in asked.iter().enumerate() {
-            let half = band * open.spans() * 0.5;
+            // Already carved out of the middle - see above.
+            if which == 0 && carved.is_some() {
+                continue;
+            }
+            let half = band * open.spans(site.era) * 0.5;
             let want = if which == 0 {
                 middle_of_town
                     + Vec2::from_angle(through + std::f32::consts::PI)
@@ -3705,7 +3868,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // middle left clear to walk through and to fight in. The ring is what makes it
     // read as a room - a square with its furniture in the centre is a roundabout.
     for place in &opens {
-        let (near, far) = place.what.fills();
+        let (near, far) = place.what.fills(site.era);
         // The focus, a third of the way out along the place's own axis, on the side
         // the town arrives from - so it is seen against the open ground rather than
         // against the buildings behind it.
@@ -3792,7 +3955,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
                 plots.push(Plot {
                     at,
                     facing,
-                    what,
+                    what: if what == Building::Stall { awninged_stall(at, seed) } else { what },
                     district: District::of(at.distance(site.at), inner, outer),
                     serves: Some(place.id),
                 });
@@ -3808,7 +3971,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
                 plots.push(Plot {
                     at,
                     facing,
-                    what: other,
+                    what: if other == Building::Stall { awninged_stall(at, seed) } else { other },
                     district: District::of(at.distance(site.at), inner, outer),
                     serves: Some(place.id),
                 });
@@ -4231,6 +4394,17 @@ fn subdivide(parcel: Parcel, seed: u32, depth: u32, into: &mut Vec<Parcel>) {
 /// takes the best lot of all. Cottages go where the town thins out. Doing this by
 /// distance from the centre rather than by a dice roll is most of what makes a
 /// generated town read as a place rather than as a scatter.
+/// The same stall under the cloth this one happens to have - see `StallBlue`.
+fn awninged_stall(at: Vec2, seed: u32) -> Building {
+    let roll = unit(seed.wrapping_add(at.x.to_bits().rotate_left(7) ^ at.y.to_bits()), 31);
+    match (roll * 4.0) as u32 {
+        0 => Building::StallBlue,
+        1 => Building::StallGreen,
+        2 => Building::StallGold,
+        _ => Building::Stall,
+    }
+}
+
 /// The same townhouse with the tiles this one happens to have.
 ///
 /// Hashed from where the lot IS, so which roof a house has is a fact about that
@@ -9703,6 +9877,9 @@ mod tests {
                     Building::TownhouseSlate => [150, 156, 168],
                     Building::TownhouseMoss => [148, 162, 140],
                     Building::TownhouseOchre => [188, 168, 128],
+                    Building::StallBlue => [120, 140, 190],
+                    Building::StallGreen => [110, 160, 130],
+                    Building::StallGold => [210, 176, 90],
                     Building::CityBlockLow => [150, 164, 180],
                     Building::CityBlockTall => [150, 164, 180],
                 };
@@ -11082,6 +11259,9 @@ mod doorstep {
                 "townhouse_slate" => Building::TownhouseSlate,
                 "townhouse_moss" => Building::TownhouseMoss,
                 "townhouse_ochre" => Building::TownhouseOchre,
+                "stall_blue" => Building::StallBlue,
+                "stall_green" => Building::StallGreen,
+                "stall_gold" => Building::StallGold,
                 "city_tower" => Building::CityTower,
                 "city_spire" => Building::CitySpire,
                 other => panic!("town.txt names a figure the game has no kind for: {other}"),
@@ -11773,7 +11953,7 @@ mod facing {
         ] {
             let site = tests::a_site_of(true, crate::config::CITY_RADIUS, character);
             let laid = lay_out(&site, Vec2::new(0.6, -0.8).normalize(), &[], 5);
-            let asked = Open::wanted(character);
+            let asked = Open::wanted(character, Era::Modern);
 
             assert_eq!(
                 laid.opens.len(),

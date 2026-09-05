@@ -94,6 +94,12 @@ PALETTE = {
     "inbeam": (0.44, 0.32, 0.22),
     "hearth": (0.42, 0.41, 0.39),
     "cloth": (0.55, 0.30, 0.28),
+    # A MARKET IS MOSTLY AWNINGS, seen from anywhere. One red cloth over every
+    # stall made a square a row of the same tent; these are what stall cloth is
+    # actually dyed - a woad blue, a bottle green, a mustard gold.
+    "awningblue": (0.26, 0.36, 0.58),
+    "awninggreen": (0.24, 0.44, 0.34),
+    "awninggold": (0.72, 0.56, 0.22),
     "counter": (0.48, 0.35, 0.22),
     "shelf": (0.50, 0.38, 0.24),
     "board": (0.34, 0.26, 0.18),

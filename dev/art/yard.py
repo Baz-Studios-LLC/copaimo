@@ -258,11 +258,15 @@ def store():
     return parts, 2.4
 
 
-def stall():
+def stall(cloth="cloth"):
     """A market stall: an awning, a counter, and what is for sale under it.
 
     The market district's programme. It has no fence - a stall belongs to the street
     rather than to a plot, and fencing one would put a wall across the square.
+
+    `cloth` is what the awning is dyed. Registered as separate figures for the same
+    reason the townhouse roofs are: a figure exports as one mesh with its colour in
+    the vertices, so a tent cannot be recoloured per instance without splitting it.
     """
     parts = []
     span, deep = WIDE * 0.72, DEEP * 0.46
@@ -273,7 +277,7 @@ def stall():
                 box((0.13, 0.13, 2.3), (sx * span * 0.5, sy * deep * 0.5, 1.15), "timber")
             )
     # A pitched awning, which is the silhouette that says market from across a square.
-    parts.append(wedge(span + 0.7, deep + 0.7, 0.85, (0.0, 0.0, 2.3), "cloth", ridge="x"))
+    parts.append(wedge(span + 0.7, deep + 0.7, 0.85, (0.0, 0.0, 2.3), cloth, ridge="x"))
     parts.append(box((span, 0.6, 0.12), (0.0, -deep * 0.4, 1.0), "counter"))
     for side in (-1.0, 1.0):
         parts.append(box((0.12, 0.5, 1.0), (side * span * 0.42, -deep * 0.4, 0.5), "timber"))
@@ -463,6 +467,9 @@ FIGURES = {
     "pen": pen,
     "store": store,
     "stall": stall,
+    "stall_blue": lambda: stall(cloth="awningblue"),
+    "stall_green": lambda: stall(cloth="awninggreen"),
+    "stall_gold": lambda: stall(cloth="awninggold"),
     # The same purposes, in the city's own vocabulary.
     "city_green": city_green,
     "city_service": city_service,
