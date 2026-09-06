@@ -2196,9 +2196,23 @@ impl Stair {
             // The landing at the head, flush with the terrace above.
             return Some(foot + crate::world::settle::TERRACE_RISE);
         }
-        let step = (down / (STAIR_FLIGHT / STAIR_STEPS)).floor();
-        Some(foot + crate::world::settle::TERRACE_RISE
-            - step * crate::world::settle::TERRACE_RISE / STAIR_STEPS)
+        // A RAMP THROUGH THE TREADS, not the treads themselves.
+        //
+        // This was quantised, so a warden stood exactly ON each tread - which is
+        // truer to the geometry and makes the flight unwalkable. `player::may_climb`
+        // allows a STEP of up to `STEP_UP`, or a SLOPE within `CLIMB_LIMIT`, and a
+        // 0.18 m riser inside a 0.12 m stride is neither: too tall for the samples
+        // nearest the foot to read as a slope, and repeated often enough that the
+        // whole lookahead climbs past the step allowance.
+        // `walking_into_a_city_is_not_stopped_by_anything_invisible` found four of
+        // them on one approach, and `--drive` never did because a jog's stride is
+        // long enough to clear a nosing.
+        //
+        // A line through the nosings is what nearly every game uses for this, and
+        // the cost is that a foot sits up to half a riser - nine centimetres - into
+        // the tread behind it. Nine centimetres of shoe against a flight nobody can
+        // climb is not a close call.
+        Some(foot + crate::world::settle::TERRACE_RISE * (1.0 - down / STAIR_FLIGHT))
     }
 }
 
@@ -3090,6 +3104,12 @@ fn perimeter_streets(on: &Ground, plan: Plan, ways: &mut Vec<Way>, parcels: &mut
 /// Turned off the compass by the approach bearing, because a grid aligned to north
 /// reads as the world's axes rather than as a decision somebody made, and because
 /// the road into town should meet it at the angle it arrives at.
+/// How often a street running along the hill drops a rung across it.
+///
+/// High: the rungs are what close blocks, and a rail with no rungs off it is a line
+/// on a hillside rather than a side of anything. See `Role`.
+const RUNGS_EVERY: f32 = 0.70;
+
 /// The most streets a grown plan lays before it stops.
 const GROWN_MOST: usize = 300;
 
@@ -3112,8 +3132,35 @@ struct Sprout {
     dir: Vec2,
     wide: f32,
     hop: u32,
+    /// What kind of street this is meant to become.
+    role: Role,
     /// Its own number, so every roll it makes is repeatable.
     salt: u32,
+}
+
+/// What a street on a hillside is FOR.
+///
+/// # A hill town has two kinds of street and only one was being made
+///
+/// Pulling every street toward the contour was the first attempt, and it does bend
+/// them - but a town of nothing but contour streets is a set of curves that never
+/// meet, enclosing enormous blocks, and it cost the city a third of its buildings.
+///
+/// The sources describe two things, not one bent thing. Ways WIND ALONG the contour
+/// holding the grade near its lowest practical value; and the ways that take the
+/// fall are STEPPED, short, and exist to join one level to the next. That is a
+/// ladder - long rails along the hill, short rungs across it - and the blocks are
+/// the spaces in it, which is why they come out the size a block should be.
+///
+/// So the two are grown as two, each with its own goal, its own length and its own
+/// width. It is the same idea as Parish and Müller's global goals: what a street
+/// wants depends on what the street is.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Role {
+    /// Runs the level. Long, wide, and the thing a terrace edge follows.
+    Along,
+    /// Takes the fall between two levels. Short, narrow, and where the steps go.
+    Climbs,
 }
 
 /// Where two segments cross, if they do, as a fraction along each.
@@ -3171,6 +3218,7 @@ fn nearest_on(seg: (Vec2, Vec2), at: Vec2) -> (Vec2, f32) {
 /// arranged here.
 fn grown_streets(
     on: &Ground,
+    for_site: Option<&Site>,
     arriving: &[Street],
     ways: &mut Vec<Way>,
     parcels: &mut Vec<Parcel>,
@@ -3222,11 +3270,15 @@ fn grown_streets(
         let main = angle_between(out.y.atan2(out.x), on.through) < 0.7
             || angle_between(out.y.atan2(out.x), on.through + std::f32::consts::PI) < 0.7;
         salt += 1;
+        // Out of the square as a RUNG: it crosses the first block and becomes a
+        // pair of rails on the level beyond, which is how the first ring of streets
+        // round a market square comes to run round it.
         queue.push_back(Sprout {
             from: rim[corner],
             dir: out,
             wide: if main { on.high_street } else { on.lane },
             hop: 0,
+            role: Role::Climbs,
             salt,
         });
     }
@@ -3256,6 +3308,9 @@ fn grown_streets(
                 dir: inward,
                 wide: on.high_street,
                 hop: 0,
+                // A road that arrives comes IN, across the levels, and turns into
+                // the streets that run along them.
+                role: Role::Climbs,
                 salt,
             });
         }
@@ -3266,7 +3321,15 @@ fn grown_streets(
         if built.len() >= GROWN_MOST {
             break;
         }
-        let long = step * (0.72 + roll(sprout.salt, 21) * 0.62);
+        // A RAIL RUNS; A RUNG CROSSES ONE BLOCK.
+        //
+        // The rung's length is the block depth, because that is exactly what it has
+        // to cross to reach the next level - and a rung longer than that is a street
+        // running down the fall line.
+        let long = match sprout.role {
+            Role::Along => step * (0.72 + roll(sprout.salt, 21) * 0.62),
+            Role::Climbs => on.band * (0.78 + roll(sprout.salt, 23) * 0.30),
+        };
         let mut to = sprout.from + sprout.dir * long;
         let mut joined = false;
 
@@ -3405,38 +3468,84 @@ fn grown_streets(
 
         // ------------------------------------------------------ what happens next
         //
-        // Carry on, and sometimes turn off. Both are steered by how far out this is:
-        // a town branches hard near its middle and peters out at its edge, which is
-        // what makes the centre dense without any of it being placed.
+        // # The ladder: rails along the hill, rungs across it
+        //
+        // A street on a hillside does not go wherever it was pointed. Every account
+        // of how these towns are actually built says the same: a path holds the
+        // grade near its lowest practical value and winds ALONG the slope, and the
+        // ways that climb are stepped rather than driven. See `Role`, and
+        // `docs/multi-level-cities.md` for the sources.
+        //
+        // Growing without that was the fault under most of the rest of this. Streets
+        // ran in every direction, so terrace edges crossed them at every angle - a
+        // wall ended up in open ground as readily as along a street, roads were
+        // forever changing level and had to be ramped, and a flight of steps came
+        // down into a field because there was no street down there to come down to.
         let out = (to - on.middle).length() / on.reach.max(1.0);
-        let bends = 0.34 * (1.0 - out * 0.5);
+        let Some(site) = for_site else {
+            continue;
+        };
+        let level = crate::world::settle::contour_at(site, to);
         salt += 1;
-        let ahead = Vec2::from_angle(
-            along.y.atan2(along.x) + (roll(salt, 31) - 0.5) * 2.0 * bends,
-        );
-        queue.push_back(Sprout {
-            from: to,
-            dir: ahead,
-            wide: sprout.wide,
-            hop: sprout.hop + 1,
-            salt,
-        });
-        // A turning, on one side or both. Rarer further out.
-        for hand in [-1.0_f32, 1.0] {
-            salt += 1;
-            if roll(salt, 41) > 0.62 - out * 0.34 {
-                continue;
+
+        match sprout.role {
+            // A WAY CARRIES ON ALONG THE HILL, and drops a rung now and then.
+            Role::Along => {
+                let bends = 0.20 * (1.0 - out * 0.5);
+                let with = if level.dot(along) < 0.0 { -level } else { level };
+                let wander = Vec2::from_angle(
+                    with.y.atan2(with.x) + (roll(salt, 31) - 0.5) * 2.0 * bends,
+                );
+                queue.push_back(Sprout {
+                    from: to,
+                    dir: wander,
+                    wide: sprout.wide,
+                    hop: sprout.hop + 1,
+                    role: Role::Along,
+                    salt,
+                });
+                // A rung, up the hill or down it. These are what make blocks: a
+                // block is the space between two rails and two rungs.
+                for hand in [-1.0_f32, 1.0] {
+                    salt += 1;
+                    if roll(salt, 41) > RUNGS_EVERY - out * 0.2 {
+                        continue;
+                    }
+                    let fall = Vec2::new(-with.y, with.x) * hand;
+                    queue.push_back(Sprout {
+                        from: to,
+                        dir: fall,
+                        wide: on.lane,
+                        hop: sprout.hop + 1,
+                        role: Role::Climbs,
+                        salt,
+                    });
+                }
             }
-            let turn = along.y.atan2(along.x)
-                + hand * (std::f32::consts::FRAC_PI_2 + (roll(salt, 51) - 0.5) * 0.7);
-            queue.push_back(Sprout {
-                from: to,
-                dir: Vec2::from_angle(turn),
-                // A street off a street is the smaller of the two.
-                wide: on.lane,
-                hop: sprout.hop + 1,
-                salt,
-            });
+            // A RUNG CROSSES ONE BLOCK AND BECOMES A RAIL.
+            //
+            // Which is what a hill town looks like from above: a stepped way runs up
+            // between two buildings, reaches the next level, and the street there
+            // runs off along it both ways. A rung that carried on climbing would be
+            // a fall line with houses on it, which is the one thing these towns
+            // never have.
+            Role::Climbs => {
+                for hand in [-1.0_f32, 1.0] {
+                    salt += 1;
+                    let with = level * hand;
+                    let bends = 0.20 * (1.0 - out * 0.5);
+                    queue.push_back(Sprout {
+                        from: to,
+                        dir: Vec2::from_angle(
+                            with.y.atan2(with.x) + (roll(salt, 61) - 0.5) * 2.0 * bends,
+                        ),
+                        wide: on.lane,
+                        hop: sprout.hop + 1,
+                        role: Role::Along,
+                        salt,
+                    });
+                }
+            }
         }
     }
 
@@ -4151,7 +4260,7 @@ pub fn lay_out(site: &Site, crossing: &[Street], seed: u32) -> Layout {
     // twice already.
     let plan = site.plan;
     if site.first {
-        grown_streets(&on, crossing, &mut ways, &mut parcels);
+        grown_streets(&on, Some(site), crossing, &mut ways, &mut parcels);
     } else if plan != Plan::Rings {
         match plan {
             Plan::Grid => grid_streets(&on, &mut ways, &mut parcels),
@@ -10797,6 +10906,7 @@ mod tests {
             out - site.plan.reaches(site.radius)
         );
     }
+
 
 
 
