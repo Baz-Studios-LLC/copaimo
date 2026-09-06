@@ -3063,3 +3063,27 @@ step off the footway is wrong every time anybody uses it.
 Flights also moved out of the streets and into the walls. Putting them where a street
 changes terrace was right while a street changed terrace abruptly; once roads ramp,
 a flight standing on a ramp fights the ground under it.
+
+## One enormous terrace with a sliver at each end
+
+**Issue.** The terraces did not read. Measured: of the ground in the first city, the
+middle band held 78% and the two ends 12% and 10% between them - so there were only
+two edges in the whole town, and one platform that was almost all of it.
+
+**Solution.** The slope was being cut into bands of equal WIDTH and each block dealt
+the band its middle fell in. A town is round, and bands of equal width across a
+diameter hold wildly unequal amounts of it - the middle one covers the widest part
+by construction. Nothing was wrong with the blocks or the walls; the ruler was.
+
+Blocks are ranked by how far along the slope they lie and cut into bands of equal
+AREA. Every terrace is then a real share of the town with real edges round it, and
+the same rule holds for a long thin town as for a round one, which an equal-width
+band never could. 20 / 30 / 43 per cent, against 12 / 78 / 10, and 96 pieces of wall
+against 53.
+
+**Worth knowing.** Five bands is worse than three, not better: with this many blocks
+the equal-area split cannot make five even groups, so two of them came out at 162
+cells apiece - two risers almost on top of each other, which
+`levelling_never_puts_a_step_in_the_ground` and
+`walking_into_a_city_is_not_stopped_by_anything_invisible` both refused. How many
+terraces a town can carry is a fact about how many blocks it has.

@@ -634,12 +634,35 @@ pub fn terrace_the_town(
     }
 
     // ------------------------------------------------ 3. the terrace each block is on
-    let level_of = |middle: Vec2| {
-        (along_the_slope(site, middle) / every)
-            .floor()
-            .clamp(0.0, bands - 1.0)
-    };
-    let levels: Vec<f32> = middles.iter().map(|(middle, _)| level_of(*middle)).collect();
+    //
+    // # By SHARE OF THE TOWN, not by distance along the slope
+    //
+    // This cut the slope into bands of equal width and dealt each block the band its
+    // middle fell in. A town is round, so bands of equal width across a diameter
+    // hold wildly unequal amounts of it: measured, the middle band held 78% of the
+    // ground and the two ends 12% and 10% between them. One enormous platform with a
+    // sliver at each end is not a terraced town, and it is why the terraces did not
+    // read - there were only two edges in the whole city.
+    //
+    // So the blocks are ranked by how far along the slope they lie and cut into
+    // bands of equal AREA. Every terrace is then a real quarter of the town with
+    // real edges round it, however the town is shaped - and the same rule holds for
+    // a long thin one as for a round one, which an equal-width band never could.
+    let mut ranked: Vec<usize> = (0..middles.len()).collect();
+    ranked.sort_by(|&a, &b| {
+        along_the_slope(site, middles[a].0).total_cmp(&along_the_slope(site, middles[b].0))
+    });
+    let whole: f32 = middles.iter().map(|(_, area)| *area).sum();
+    let mut levels = vec![0.0_f32; middles.len()];
+    let mut so_far = 0.0_f32;
+    for which in ranked {
+        // The band this block's own share falls in, measured at its middle so a
+        // large block is not split between two terraces.
+        let share = (so_far + middles[which].1 * 0.5) / whole.max(1.0);
+        levels[which] = (share * bands).floor().clamp(0.0, bands - 1.0);
+        so_far += middles[which].1;
+    }
+    let _ = every;
 
     // ---------------------------- 4. and the streets take the higher of their sides
     let mut cells = vec![0.0_f32; across * across];
