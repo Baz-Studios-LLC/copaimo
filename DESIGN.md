@@ -1300,6 +1300,39 @@ So a landmark takes no lot, keeps no frontage, and stands in the open **on** a n
 — which is what makes a node a node. It is also solid: a monument you can walk into
 is a monument with a hole in it.
 
+### A city is cut into terraces, and the walls hold them up
+
+A city is not flat. It is cut into an **odd** number of level bands running across
+one slope — arrival low, civic high — with a stone retaining wall standing along
+every edge and the streets ramping through gaps in it.
+
+Odd, because the middle of a town is half its span, so an odd count always puts the
+centre in the MIDDLE of the middle band. The market gets a whole level to itself in
+every city at every size, by construction rather than by luck. The band count comes
+from the town's own span rather than a fixed width, and is capped by what a terrace
+has to be able to hold: a guild hall is 26 m across and stands clear of a riser by
+its pad's reach either side, so a band narrower than about 90 m is not worth having
+and a town too small for one is simply not terraced. Villages never are — a hamlet
+round a green is one level, and that is what it is.
+
+Three numbers, and only the first is free:
+
+* **the rise**, 3.6 m, which is the height of the wall figure in `dev/art/town.py`;
+* **the riser's width**, which is the wall's own thickness, because the ground rises
+  from that wall's face to its back and the two cannot disagree;
+* **the slope that makes**, 1.2, which must stay inside `player::CLIMB_LIMIT` so a
+  street climbs through a gap in the wall with nothing built to help it.
+
+That last one is the whole traversal design. There are no stairs and no lifts: the
+way up a terrace is the road, the same as in any hill town, and the wall is solid so
+there is no other way. The bands are **centred** on the town's own level, so a city
+is cut INTO its hillside with the cut at the top paying for the fill at the bottom,
+rather than piled on it as a mound the skirt then has to put back.
+
+Nothing may stand in a riser. A footprint is tested grown by its pad's reach, not
+raw — two buildings either side of an edge each stand level on their own terrace,
+and it is their PADS that meet in the middle and squeeze the rise flat.
+
 ### How many buildings a town HAS
 
 Not how many fit. Every attempt to thin these towns went at the geometry — wider

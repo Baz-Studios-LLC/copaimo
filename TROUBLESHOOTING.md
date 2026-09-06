@@ -2710,3 +2710,98 @@ by hand, ask what geometry ought to be doing it.
 The same change let the paving pattern's distance fade go back to its proper range:
 it had been wound down twentyfold while the streak (above) was still being blamed on
 it, which is why the setts read as a faint suggestion until both were fixed together.
+
+## A retaining wall buried to its own parapet
+
+**Issue.** Cities are cut into level terraces and a stone wall stands along each
+edge to hold the ground up. The wall arrived correctly sized and correctly placed —
+foot at 22.70, coping at 26.30, the upper terrace at 26.30 — and in the game only
+its parapet showed above the grass, a low kerb where a storey of masonry was meant
+to be.
+
+**Solution.** Two separate errors, both about where the riser is.
+
+The wall was standing at the TOP of the riser, where the ground has already
+finished rising. Measured in the city at (-2553, 1771): the wall's foot was
+correctly on the terrace below, and the ground where it actually stood was already
+at the level above it. It belongs IN the riser, not past it.
+
+The deeper one: the riser was 4.2 m long and the wall 1.5 m thick, and those cannot
+both be free. The ground rises from the wall's face to its back, so a 3.6 m wall
+only retains 3.6 m if the ground finishes rising across the wall's own thickness. A
+ramp wider than the wall leaves the fill behind it below its own coping. The two are
+now one fact — `settle::RISER_RUNS` is the riser's width AND the wall's thickness,
+and `town::WALL_THICK` reads it rather than restating it.
+
+Three metres is what settles the number, and not for looks: 3.6 m of rise over 3.0 m
+of run is a slope of 1.2, inside `player::CLIMB_LIMIT` of 1.4 — so where the wall
+breaks for a street, the street climbs through the gap on its own and no stairs,
+lifts or special cases are needed to let a player up.
+
+**Worth knowing.** The riser's length had been chosen twice before, both times
+against a guard's slope threshold rather than against anything in the world — once
+at 14 m and once at 4.2. A number picked to get a test to pass is a number nothing
+owns. This one is owned by the wall.
+
+## A riser on the town's own boundary
+
+**Issue.** Every road in the world arrived at a 3.6 m step. Caught by
+`a_road_arriving_at_a_town_takes_the_towns_level` at 1.35 m of ground in 1.13 m on
+the edge of the city at (-321, 1593).
+
+**Solution.** Off by one. The terrace height was `(band + climb) * RISE` with the
+climb ramping at the start of every band including the nought-th — so the first
+riser sat at the town's outer edge, which is exactly where the roads come in. A
+riser belongs BETWEEN two bands; the first band has none.
+
+**Worth knowing.** I blamed the skirt twice — first that the terraces had piled the
+town into a mound, then that the skirt was too short — and changed both before
+walking the approach and printing the numbers. The instrumentation took five
+minutes and named it immediately. The terraces WERE being piled on rather than cut
+in, and centring them was worth doing, but it was not this.
+
+## Guards that measured the wrong thing, three of them
+
+**Issue.** Adding terraces broke three tests that had nothing to do with terraces.
+
+**Solution.** Each was measuring something adjacent to its own claim.
+
+`the_ground_between_two_buildings_has_no_step_in_it` is for pad seams — two
+buildings whose levelled ground disagrees. It measured the raw jump, so a terrace
+edge, which is a deliberate 3.6 m step held up by a wall, read as the fault it
+exists to catch. It now takes off what the terraces intend and asserts on what is
+left: a seam is untouched, a terrace edge nets to nothing.
+
+`the_kerb_face_is_not_lit_as_flat_ground` paved a test street at the world origin,
+which is inside a city's skirt — so the section's normals carried that hillside's
+tilt as well as the kerb's own profile, and the guard failed the moment a city's
+edge moved. It now searches for the flattest ground in the world and says out loud
+that it found it.
+
+`a_capital_and_a_works_are_not_the_same_city` asserted a works has more plots than a
+capital. The lever that exists — `Character::fills` — scales the building-to-yard
+split, not the number of lots, which is set by block subdivision minus whatever the
+public places take out. The two came out 460 and 461: a 25% difference in programme
+decided on one lot in four hundred. It now measures the share of ground built on
+(0.73, 0.61, 0.46 for works, capital, green) with a real margin.
+
+**Worth knowing.** All three passed for years, and all three were one coincidence
+away from failing at any time. A guard that fails when an unrelated feature lands is
+usually not a guard that caught something — it is a guard that was reading the wrong
+instrument and got away with it.
+
+## Building pads squeezing a riser flat
+
+**Issue.** `the_ground_between_two_buildings_has_no_step_in_it` measured a slope of
+1.4 where the terrace was built at 0.86.
+
+**Solution.** A building levels a pad under itself and eases it into the ground for
+several metres past its own walls. Two buildings either side of a riser each stand
+wholly on their own terrace — so a footprint-only test passes both — and then their
+pads flatten the ground up to their skirts and squeeze the whole rise into whatever
+gap is left. Measured: pads holding 29.90 and 33.50 with six metres between them,
+and at any closer spacing, any slope you like.
+
+`stands_level` now grows the footprint by the pad's own reach, so a riser is a strip
+nothing may stand in. Which is also true of a real terrace: there is a wall there,
+and the buildings sit back from it. That cleared strip is where the wall goes.

@@ -2478,6 +2478,128 @@ def monument():
     return parts, 8.0
 
 
+
+# --------------------------------------------------------------- terrace walls
+
+# How much ground one course of this wall retains, in metres.
+#
+# The contract with `world::settle::TERRACE_RISE`, checked by
+# `the_terrace_wall_is_as_tall_as_the_step_it_retains`. A city is cut into level
+# bands and this is the wall that holds each one up; if the two numbers drift the
+# wall either floats above its own terrace or is buried in it.
+TERRACE_RISE = 3.6
+
+# How long one run of wall is. Tiled end to end along a terrace edge.
+TERRACE_RUN = 8.0
+
+# How thick the wall is, in metres.
+#
+# # The wall's thickness IS the width of the step it holds
+#
+# Not a styling choice. The ground rises from one terrace to the next ACROSS this
+# wall - low at its face, high at its back - so if the ground's ramp is wider than
+# the wall, the fill behind it sits below its own coping and leaves a trench; if it
+# is narrower, the wall stands proud of the ground it is supposed to be retaining.
+# The first attempt had a 1.5 m wall against a 4.2 m ramp and the wall was buried
+# to its parapet.
+#
+# Three metres, which is what settles it: 3.6 m of rise across 3.0 m of run is a
+# slope of 1.2, inside `player::CLIMB_LIMIT` of 1.4 - so where the wall breaks for
+# a street, the street climbs through the gap on its own and nothing has to be
+# invented to let a player up. A retaining wall this thick is also simply what one
+# holding back a storey of earth looks like.
+TERRACE_THICK = 3.0
+
+
+def terrace_wall():
+    """A run of battered retaining wall, tiled along the edge of a terrace.
+
+    # What makes a terrace read as a terrace
+
+    Cut ground alone does not. A 3.6 m step resolved over a walkable ramp is a
+    grassy bank, which is what the city had and what was reported as not looking
+    built. What says "somebody made this" is the WALL: coursed stone, leaning
+    back into the hill it holds, with a coping along the top and a parapet above
+    that so the edge reads from the terrace above as well as from the one below.
+
+    Built as one tileable run rather than as a whole edge, because an edge is as
+    long as the town is wide and its length is not known until the town is laid
+    out.
+    """
+    parts = []
+    long, thick = TERRACE_RUN, TERRACE_THICK
+
+    # The footing, wider than the wall, as a wall on soil has.
+    parts.append(box((long, thick + 0.2, 0.42), (0.0, 0.0, 0.21), "stone"))
+
+    # THE BATTER: each course sits a little further back than the one below, so
+    # the face leans into the hill. That lean is most of why a retaining wall
+    # reads as retaining rather than as a fence made of stone.
+    courses = 4
+    deep = (TERRACE_RISE - 0.42) / courses
+    for course in range(courses):
+        base = 0.42 + course * deep
+        parts.append(
+            box(
+                (long, thick, deep),
+                (0.0, course * 0.05, base + deep * 0.5),
+                "stone",
+            )
+        )
+        # STONES OF DIFFERENT SIZES, standing proud of the face.
+        #
+        # Three identical blocks per course read as a printed grid rather than as
+        # masonry - the same tiling that makes a generated wall look generated.
+        # A course is walked end to end instead, laying a stone of whatever width
+        # comes up next and leaving a gap where one does not, so no two courses
+        # break in the same place and the run has no repeat in it.
+        slide = -long * 0.5
+        stone = 0
+        while slide < long * 0.5 - 0.3:
+            wide = 0.5 + masonry.wobble(course * 5 + 1, stone) * 1.1
+            wide = min(wide, long * 0.5 - slide)
+            if masonry.wobble(course * 5 + 2, stone) > 0.24 and wide > 0.35:
+                parts.append(
+                    box(
+                        (wide - 0.09, 0.15, deep * (0.5 + masonry.wobble(course, stone) * 0.34)),
+                        (
+                            slide + wide * 0.5,
+                            course * 0.05 - thick * 0.5,
+                            base + deep * 0.5,
+                        ),
+                        "stone",
+                    )
+                )
+            slide += wide
+            stone += 1
+
+    # The coping, projecting on both faces to throw water clear.
+    parts.append(box((long, thick + 0.24, 0.22), (0.0, 0.06, TERRACE_RISE + 0.11), "slate"))
+
+    # And a low parapet on the outer edge, standing on the terrace above.
+    parts.append(
+        box(
+            (long, 0.46, 0.62),
+            (0.0, -thick * 0.5 + 0.1, TERRACE_RISE + 0.53),
+            "stone",
+        )
+    )
+
+    # Something growing out of it. A dry wall in an old town always has.
+    for clump in range(2):
+        slide = (clump * 2.0 - 1.0) * long * 0.27
+        parts.append(
+            masonry.lump(
+                0.42,
+                (slide, -thick * 0.5 + 0.05, TERRACE_RISE - 0.55),
+                "leafy",
+                squash=0.55,
+                seed=clump * 7 + 3,
+            )
+        )
+    return parts, TERRACE_RISE + 0.84
+
+
 FIGURES = {
     # The old world: villages and towns.
     "cottage": cottage,
@@ -2507,6 +2629,8 @@ FIGURES = {
     "city_tower": city_tower,
     "city_spire": city_spire,
     "monument": monument,
+    # The earthworks a hill city stands on.
+    "terrace_wall": terrace_wall,
 }
 
 
@@ -2919,5 +3043,22 @@ with open(NOTE, "w", encoding="utf-8") as note:
     note.write("FACADE city_block_tall 9.5 8.5 6\n")
     note.write("FACADE city_tower 10.0 9.5 8\n")
     note.write("FACADE city_spire 11.0 11.0 13\n")
+    # THE TERRACE WALL, with its built size measured off the mesh.
+    #
+    # `world::settle` cuts a city into bands a fixed height apart and stands one
+    # of these at every edge. Two numbers for one fact is the bug this project
+    # keeps meeting, so the game reads the run and the rise from here and
+    # `the_terrace_wall_is_as_tall_as_the_step_it_retains` refuses a mismatch. The
+    # standing height is MEASURED - if a course is ever added or the parapet
+    # changed, the number the game checks against moves with the mesh.
+    masonry.fresh()
+    _parts, _tall = terrace_wall()
+    _whole = masonry.weld(_parts, PAINT, _tall, name="prop")
+    _built = _whole.dimensions
+    print(
+        f"TERRACE_WALL {TERRACE_RUN} {TERRACE_RISE} {TERRACE_THICK} "
+        f"{_built.x:.3f} {_built.z:.3f}",
+        file=note,
+    )
     write_the_plan(note, COTTAGE_PLAN, COTTAGE_DOOR, COTTAGE_CLEAR)
 print(f"WROTE {NOTE}")

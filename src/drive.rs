@@ -263,7 +263,102 @@ fn plan_the_routes(terrain: &crate::world::terrain::Terrain) -> Vec<Route> {
         corridor: 8.0,
     });
 
+    // ------------------------------------------------------- 3. THE TERRACES
+    //
+    // A city is cut into level bands with a retaining wall along each edge, and
+    // that makes two claims a player will test within a minute of arriving: the
+    // wall stops you, and the street through the gap in it does not. Neither is
+    // provable by arithmetic - the wall's collision is a box in a list and the
+    // street's climb is a slope on a meshed heightfield, and both have been right
+    // on paper while being wrong underfoot.
+    if let Some((up_from, up_to, wall_from, wall_to)) = a_terrace(terrain) {
+        // UP THE STREET. If this fails the upper half of a city is unreachable.
+        routes.push(Route {
+            name: "terrace street".into(),
+            from: up_from,
+            to: up_to,
+            walking: false,
+            hertz: 60.0,
+            expect: Expect::Arrives,
+            within: 24.0,
+            corridor: 7.0,
+        });
+        // AND NOT THROUGH THE WALL. If this fails the terrace is scenery.
+        routes.push(Route {
+            name: "terrace wall".into(),
+            from: wall_from,
+            to: wall_to,
+            walking: false,
+            hertz: 60.0,
+            expect: Expect::Blocked,
+            within: 14.0,
+            corridor: 6.0,
+        });
+    }
+
     routes
+}
+
+/// A way up a terrace by its street, and a way at one of its walls head-on.
+///
+/// Returns `(street from, street to, wall from, wall to)`. The street pair spans a
+/// riser along a street that crosses it; the wall pair runs at the middle of a wall
+/// from the low side, square on, so being stopped means the wall stopped it.
+fn a_terrace(
+    terrain: &crate::world::terrain::Terrain,
+) -> Option<(Vec2, Vec2, Vec2, Vec2)> {
+    let plan = terrain.plan();
+    for (key, site) in plan.sites().iter().enumerate() {
+        let (bands, _) = crate::world::settle::terraces_of(site);
+        if bands < 2.0 {
+            continue;
+        }
+        let laid = crate::world::town::lay_the_site_out(plan, key, site);
+        // The longest wall, which is the one with most room to be square on to.
+        let wall = laid
+            .walls
+            .iter()
+            .max_by(|a, b| a.from.distance(a.to).total_cmp(&b.from.distance(b.to)))?;
+        let mid = (wall.from + wall.to) * 0.5;
+        let out = wall.faces;
+
+        // A STREET WHERE IT ACTUALLY CROSSES THE RISER.
+        //
+        // Not the street nearest the wall: the point on a street closest to the
+        // middle of a wall run is wherever that street happens to pass, which need
+        // not be where it climbs at all. Asked of the ground instead - a street
+        // whose two ends stand on different terraces crosses one, and the crossing
+        // is where the level changes along it.
+        let level = |at: Vec2| crate::world::settle::terrace_at(site, at);
+        for street in &laid.streets {
+            let (low, high) = (level(street.from), level(street.to));
+            if (high - low).abs() < 1.0 {
+                continue;
+            }
+            // Where along it the change happens, to a metre.
+            let (mut near, mut far) = (0.0_f32, 1.0_f32);
+            for _ in 0..20 {
+                let at = (near + far) * 0.5;
+                if (level(street.from.lerp(street.to, at)) - low).abs() < 0.05 {
+                    near = at;
+                } else {
+                    far = at;
+                }
+            }
+            let crossing = street.from.lerp(street.to, (near + far) * 0.5);
+            // ALONG THE STREET, because that is the way up - a street may cross a
+            // riser at any angle and walking square at the slope is walking off it.
+            let run = (street.to - street.from).normalize_or_zero();
+            let (before, after) = if low < high { (-run, run) } else { (run, -run) };
+            return Some((
+                crossing + before * 20.0,
+                crossing + after * 20.0,
+                mid + out * 16.0,
+                mid - out * 8.0,
+            ));
+        }
+    }
+    None
 }
 
 /// The crown of a real city street, and the way across it to the footway.

@@ -133,23 +133,96 @@ impl Lane {
     }
 }
 
-/// How far apart a settlement's terraces are, along the slope, in metres.
-const TERRACE_EVERY: f32 = 118.0;
+/// About how wide one terrace wants to be, in metres.
+///
+/// Wanted rather than used: the number actually used is this rounded to fit the
+/// town, for the reason in `terraces_of`.
+const TERRACE_WANTS: f32 = 170.0;
 
 /// How much each terrace stands above the one below it, in metres.
-const TERRACE_RISE: f32 = 3.6;
+pub const TERRACE_RISE: f32 = 3.6;
 
-/// How many steps a settlement's slope is allowed to climb.
-const TERRACES_MOST: f32 = 3.0;
+/// The most terraces a settlement may be cut into. Odd - see `terraces_of`.
+const TERRACES_MOST: f32 = 7.0;
+
+/// The narrowest a terrace may be and still be worth building on, in metres.
+///
+/// Set by the largest thing that stands on one: a guild hall is 26 m across and
+/// stands clear of a riser by its pad's reach either side, which is about 51 m of
+/// band before it has a lot on either hand.
+const TERRACE_LEAST: f32 = 90.0;
+
+/// How many terraces this settlement is cut into, and how wide each one is.
+///
+/// # A band that fits the town, not a fixed one it is measured against
+///
+/// This was a flat 118 m, and against a 190 m town that put risers 72 m before
+/// the middle and 46 m after - both straight through the market. Since nothing
+/// may stand in a riser (see `world::town::stands_level`) that cleared two strips
+/// out of the one district that most needs to be whole, and
+/// `a_town_has_districts_and_they_do_not_look_alike` caught the square thinning
+/// toward its neighbours: 56% shops against 29%, where it wants a clear third.
+///
+/// So the band is the town's own span divided into a whole number of terraces.
+/// ODD, and that is the whole trick: the middle of a town is half its span, so
+/// with an odd count the centre always falls in the MIDDLE of the middle band,
+/// as far from a riser as it can be. The civic ground gets a whole terrace to
+/// itself in every town, at every size, by construction rather than by luck.
+pub fn terraces_of(site: &Site) -> (f32, f32) {
+    let span = site.plan.reaches(site.radius) * 2.0;
+    // CITIES ONLY, and asked HERE so there is one answer to it.
+    //
+    // A village is a hamlet round a green - one level is what it is, and it has
+    // neither the size to need terracing nor the room for it: its buildings sit a
+    // metre apart where a city's sit two and a half, so a riser through one put a
+    // pad edge against sloping ground and the step guard caught it at 1.2 to 1 in
+    // the settlement at (-4641, 270). The ranch is the player's own yard and stays
+    // flat for the same reason.
+    //
+    // One band means no riser and no step, which is what `terrace_at` returns
+    // nought for - and it is also what stops `world::town::retain_the_terraces`
+    // standing retaining walls across a flat village green. The test used to live
+    // in `terrace_at` alone, where the wall builder could not see it.
+    if site.ranch || !site.city {
+        return (1.0, span.max(1.0));
+    }
+    // What the town would like, odd.
+    let wants = (span / TERRACE_WANTS * 0.5).round().max(0.0) * 2.0 + 1.0;
+    // AND WHAT IT HAS ROOM FOR.
+    //
+    // A terrace has to be wide enough to build on, and the guild hall settles
+    // what that means: 26 m across, and nothing may stand nearer a riser than its
+    // pad reaches, so the hall alone needs about 51 m of clear band. On a small
+    // town the fitted band fell to 40 m and the hall could not stand ANYWHERE -
+    // `every_settlement_has_exactly_one_guild_hall` found a city with none.
+    //
+    // So the largest odd count whose bands are still worth having, and one band
+    // if that is none: a town too small to terrace is simply not terraced, which
+    // is what a small town looks like anyway.
+    let room = (span / TERRACE_LEAST).floor().max(1.0);
+    let room = if room % 2.0 == 0.0 { room - 1.0 } else { room };
+    let bands = wants.min(room).clamp(1.0, TERRACES_MOST);
+    (bands, span / bands)
+}
 
 /// How long the riser between two terraces is, in metres.
 ///
-/// Short, because a terrace is a PLATFORM and the thing between two of them is
-/// meant to read as an edge - later a retaining wall with steps in it. Long
-/// enough that a warden walks up rather than being stopped: 3.6 m over 9 is a
-/// slope of 0.4 against `player::CLIMB_LIMIT` of 1.4, and wide enough that the
-/// 2 m terrain grid has vertices to draw it with.
-const RISER_RUNS: f32 = 14.0;
+/// # The riser is exactly as wide as the wall that holds it
+///
+/// This was fourteen metres, then four - both chosen against a guard's slope
+/// limit, which is letting a threshold pick the shape of the world. The number is
+/// not free: `world::town::Wall` stands a retaining wall in this riser, the ground
+/// rises from that wall's face to its back, and a 3.6 m wall can only do that if
+/// the ground finishes rising across its own thickness. At 1.5 m of wall in a
+/// 4.2 m ramp the wall was buried to its parapet, measured in the city at
+/// (-2553, 1771): foot at 29.90, coping at 33.50, and the ground already at 33.50
+/// where the wall itself stood.
+///
+/// So the two are ONE fact, stated here and read there. Three metres carries the
+/// 3.6 m rise at a slope of 1.2, inside `player::CLIMB_LIMIT` of 1.4 - which is
+/// what lets a street climb through a gap in the wall without any of it being
+/// built. That is how a hill town is walked: the road ramps where the wall stops.
+pub const RISER_RUNS: f32 = 3.0;
 
 /// How high a settlement's ground stands at a point, above its own base.
 ///
@@ -178,33 +251,41 @@ const RISER_RUNS: f32 = 14.0;
 /// high, which is the order the concept has and the order a hill town has for the
 /// reason that you build the important thing where it is seen.
 pub fn terrace_at(site: &Site, at: Vec2) -> f32 {
-    // CITIES ONLY.
-    //
-    // A village is a hamlet round a green - one level is what it is, and it has
-    // neither the size to need terracing nor the room for it: its buildings sit
-    // a metre apart where a city's sit two and a half, so a riser through one
-    // put a pad edge against sloping ground and the step guard caught it at
-    // 1.2 to 1 in the settlement at (-4641, 270). The ranch is the player's own
-    // yard and stays flat for the same reason.
-    if site.ranch || !site.city {
+    // Which is nought bands for anything that is not a terraced city - see
+    // `terraces_of`, which is the one place that is decided.
+    let (bands, every) = terraces_of(site);
+    if bands < 2.0 {
         return 0.0;
     }
     // ALONG THE SLOPE, measured from the low side.
     let up = Vec2::from_angle(site.bearing);
     let along = (at - site.at).dot(up) + site.plan.reaches(site.radius);
-    // AND NO MORE THAN A FEW OF THEM.
+    let band = (along / every).floor().clamp(0.0, bands - 1.0);
+    let into = along - band * every;
+    // THE RISER SITS BETWEEN TWO BANDS, so the FIRST band has none.
     //
-    // The fall runs the width of the town, so without a cap a city climbs its
-    // own length: 640 m of slope at one step per 118 m is nineteen metres of
-    // rise, which lifts the ground far enough that the BIOME changes under it -
-    // 158 cells of the home continent came out desert. A hill town is three or
-    // four steps, not a mountainside.
-    let step = (along / TERRACE_EVERY).min(TERRACES_MOST);
-    let whole = step.floor().max(0.0);
-    // The riser sits at the start of each terrace and the rest of it is flat.
-    let into = (step - whole) * TERRACE_EVERY;
-    let climb = crate::util::smoothstep(0.0, RISER_RUNS, into);
-    (whole + climb) * TERRACE_RISE
+    // It used to ramp at the start of every band including the nought-th, which
+    // put a 3.6 m step across the town's own boundary - so every road in the world
+    // arrived at a wall. `a_road_arriving_at_a_town_takes_the_towns_level` measured
+    // it at 1.35 m in 1.13 m on the edge of the city at (-321, 1593), and I blamed
+    // the skirt twice before walking the approach and looking at the numbers.
+    //
+    // STRAIGHT, for the reason in the note on `RISER_RUNS`.
+    let climb = if band >= 1.0 { (into / RISER_RUNS).clamp(0.0, 1.0) } else { 0.0 };
+    let whole = (band - 1.0).max(0.0);
+    // CENTRED ON THE TOWN'S OWN LEVEL, so the middle band sits at `site.height`
+    // and the town is CUT into the hillside rather than piled on top of it.
+    //
+    // Every band used to be at or above the base, which lifted a five-band city
+    // 14.4 m above the land at its far edge - and the skirt then had to put all of
+    // that back over its own length. `a_road_arriving_at_a_town_takes_the_towns
+    // _level` caught the result as a 1.35 m jump in 1.13 m at the boundary of the
+    // city at (-321, 1593): not a terrace, just the side of a mound.
+    //
+    // Centred, the cut at the high side and the fill at the low side are equal and
+    // each is half what it was, which is both what a hill town looks like and what
+    // the earthworks of one actually cost.
+    ((whole + climb) - (bands - 1.0) * 0.5) * TERRACE_RISE
 }
 
 /// How far out a settlement's own ground reaches, as a share of its radius.
@@ -336,6 +417,15 @@ const PAD_SPREADS: f32 = 0.4;
 /// because the cost is a metre of extra terrace nobody will notice and the failure is
 /// a building on a tilt.
 const PAD_HOLDS: f32 = 2.5;
+
+/// How far past its own footprint a building's pad touches the ground.
+///
+/// The pad's three constants stated together, because they were being added up
+/// in four places and one of them - the riser setback in `world::town` - is in
+/// another file entirely and cannot see them at all.
+pub fn pad_reaches(half: Vec2) -> f32 {
+    PAD_HOLDS + PAD_SKIRT + half.length() * PAD_SPREADS
+}
 
 pub struct Settlements {
     sites: Vec<Site>,
@@ -809,7 +899,7 @@ impl Settlements {
         for (i, pad) in self.pads.iter().enumerate() {
             // The half-diagonal, because a pad may be turned any way and the box it
             // needs filing under is the one that contains it however it lies.
-            let reach = pad.half.length() * (1.0 + PAD_SPREADS) + PAD_HOLDS + PAD_SKIRT;
+            let reach = pad.half.length() + pad_reaches(pad.half);
             filings.push((pad_offset + i as u16, pad.at - reach, pad.at + reach));
         }
         for (what, low, high) in filings {

@@ -1605,7 +1605,27 @@ const STANDS_LEVEL: f32 = 0.22;
 /// building there. The lot loop had it alone at first and a WELL came through
 /// the landmark search onto the same slope.
 fn stands_level(site: &crate::world::settle::Site, at: Vec2, what: Building) -> bool {
+    // GROWN BY THE PAD'S OWN REACH, which is the whole difference between a
+    // terrace and a slope with grass on it.
+    //
+    // A building levels a pad under itself and eases that pad back into the
+    // ground over several metres more. Two buildings either side of a riser both
+    // pass a footprint-only test - each stands wholly on its own terrace - and
+    // then their pads flatten the ground right up to their skirts and squeeze the
+    // whole 3.6 m rise into whatever gap is left between them. Measured: pads
+    // holding 29.90 and 33.50 with six metres between them, and where two sit
+    // closer the same rise resolves in less, at any slope you like. That is what
+    // `the_ground_between_two_buildings_has_no_step_in_it` caught at 1.4.
+    //
+    // So a riser is a strip nothing may stand in, which is also true of a real
+    // terrace: there is a wall there, and the buildings sit back from it. The
+    // cleared strip is where `retaining_walls` puts the wall.
+    //
+    // Four corners is still exact, not a sample: `terrace_at` is monotonic along
+    // the slope and the slope is linear in position, so a box's extremes are at
+    // its corners wherever the riser crosses it.
     let half = what.footprint() * 0.5;
+    let half = half + Vec2::splat(crate::world::settle::pad_reaches(half));
     let (low, high) = [
         Vec2::new(half.x, half.y),
         Vec2::new(-half.x, half.y),
@@ -1862,6 +1882,104 @@ pub struct Layout {
     pub nodes: Vec<Node>,
     pub plots: Vec<Plot>,
     pub lamps: Vec<Lamp>,
+    /// The retaining walls along the settlement's terrace edges.
+    pub walls: Vec<Wall>,
+}
+
+/// A run of retaining wall holding up the edge of one terrace.
+///
+/// # What makes a terrace a terrace
+///
+/// The ground was already cut into level bands - see `world::settle::terrace_at`
+/// - and cut ground alone reads as a hillside with a slope in it. It was, and it
+/// was reported as such. What says a place was BUILT is the wall: the flat
+/// stands because somebody stood it up.
+///
+/// Stored as a run rather than as segments because the wall model is a fixed 8 m
+/// tile and how many of them fit is a question for whoever is placing them, not
+/// for whoever worked out where the edge is.
+#[derive(Clone, Debug)]
+pub struct Wall {
+    pub from: Vec2,
+    pub to: Vec2,
+    /// Down the slope: the way the wall's face looks, and the side its foot is on.
+    pub faces: Vec2,
+}
+
+/// How long one wall tile is, and how thick, in metres.
+///
+/// The contract with `dev/art/town.py`, which writes what it built into
+/// `assets/models/town.txt` and is checked against these by
+/// `the_terrace_wall_is_as_tall_as_the_step_it_retains`.
+pub const WALL_TILE: f32 = 8.0;
+
+/// How thick the wall is - which is the width of the riser it stands in, because
+/// they are the same fact. See `world::settle::RISER_RUNS`, where it is decided.
+const WALL_THICK: f32 = crate::world::settle::RISER_RUNS;
+
+/// How far a wall keeps clear of a street, in metres, beyond the street's own half.
+///
+/// Streets RAMP through the terraces rather than stepping up them, so every place
+/// one crosses a terrace edge is a gap in the wall. That is what a hill town does
+/// - the road climbs and the wall stops either side of it - and it means nothing
+/// has to be invented to let a player walk up: the way up is the street, already
+/// laid, already walkable at `RISER_RUNS` of run for `TERRACE_RISE` of rise.
+const WALL_OFF_A_STREET: f32 = 4.0;
+
+/// The shortest run of wall worth standing, in metres. Half a tile.
+const WALL_LEAST: f32 = 4.0;
+
+/// Every wall a settlement's terraces need, along the edges of its bands.
+///
+/// Walked ACROSS the slope at each riser, keeping the stretches that are inside
+/// the town and clear of a street. One statement of where a riser is: the band
+/// count and width come from `settle::terraces_of`, the same call `terrace_at`
+/// makes to decide the ground, so a wall cannot stand where the ground does not
+/// step.
+fn retain_the_terraces(site: &Site, streets: &[Street]) -> Vec<Wall> {
+    let (bands, every) = crate::world::settle::terraces_of(site);
+    if bands < 2.0 {
+        return Vec::new();
+    }
+    let up = Vec2::from_angle(site.bearing);
+    let side = Vec2::new(-up.y, up.x);
+    let reaches = site.plan.reaches(site.radius);
+    let mut walls = Vec::new();
+    for band in 1..(bands as usize) {
+        // IN the riser, not at the top of it. The wall fills the riser exactly,
+        // so the ground meets its face low and its back high - which is what a
+        // retaining wall does and what puts its coping level with the terrace it
+        // holds up. Standing it at the top of the riser buried it to the parapet.
+        let along = band as f32 * every - reaches + WALL_THICK * 0.5;
+        let mut run: Option<Vec2> = None;
+        let mut across = -reaches;
+        // Two metres, which is the terrain grid: finer would resolve nothing the
+        // ground itself can draw.
+        while across <= reaches {
+            let at = site.at + up * along + side * across;
+            // Inside the town, and back from its own edge so a wall never ends
+            // in mid-air on the skirt.
+            let inside = site.plan.off(at - site.at, site.bearing, site.radius) <= -6.0;
+            let clear = !streets.iter().any(|street| {
+                street.nearest_point(at).distance(at) < street.wide * 0.5 + WALL_OFF_A_STREET
+            });
+            if inside && clear {
+                run.get_or_insert(at);
+            } else if let Some(from) = run.take() {
+                if from.distance(at) >= WALL_LEAST {
+                    walls.push(Wall { from, to: at, faces: -up });
+                }
+            }
+            across += 2.0;
+        }
+        if let Some(from) = run.take() {
+            let end = site.at + up * along + side * reaches;
+            if from.distance(end) >= WALL_LEAST {
+                walls.push(Wall { from, to: end, faces: -up });
+            }
+        }
+    }
+    walls
 }
 
 /// How far apart lamps stand along a street, in metres.
@@ -4510,6 +4628,10 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // posts out along the dirt - a street lamp on an unpaved country road, ten
     // to a road, at every town in the world.
     let lamps = light_the_streets(&laid, &plots, site.city);
+    // AGAINST THE TOWN'S OWN STREETS, so a wall breaks where a street climbs
+    // through it. `laid` is what the town draws; the country roads in `streets`
+    // stop at the edge and never cross a riser.
+    let walls = retain_the_terraces(site, &laid);
     Layout {
         opens,
         ways,
@@ -4519,6 +4641,7 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
         nodes,
         plots,
         lamps,
+        walls,
     }
 }
 
@@ -4849,6 +4972,27 @@ impl Built {
                     continue;
                 }
                 plot.walls_into(walls);
+            }
+            // AND THE RETAINING WALLS, which are as solid as anything else the
+            // town built. A run goes in as ONE box rather than as its tiles: the
+            // tiles exist because the model is eight metres long, and a run is
+            // straight, so the collision has no reason to be cut up the same way.
+            //
+            // This is also what makes the terraces work as level design. A player
+            // cannot climb a wall, so the way up is the street ramping through the
+            // gap in it - which is how a hill town is walked in the first place.
+            for wall in &layout.walls {
+                let mid = (wall.from + wall.to) * 0.5;
+                let run = wall.to - wall.from;
+                let far = reach + run.length() * 0.5;
+                if mid.distance_squared(at) > far * far {
+                    continue;
+                }
+                walls.push((
+                    mid,
+                    Vec2::new(run.length() * 0.5, WALL_THICK * 0.5),
+                    run.y.atan2(run.x),
+                ));
             }
         }
     }
@@ -8465,6 +8609,43 @@ pub fn raise_the_towns(
                 Visibility::default(),
             ));
         }
+        // THE RETAINING WALLS, tiled along each terrace edge.
+        for wall in &layout.walls {
+            let run = wall.to - wall.from;
+            let length = run.length();
+            let along = run / length.max(1.0e-4);
+            // As many whole tiles as fit, then stretched to close the remainder -
+            // a run is as long as the town is wide and will not divide by eight.
+            // Stretching a tile a few per cent is invisible; a gap at the end of
+            // every wall in the city is not.
+            let tiles = (length / WALL_TILE).round().max(1.0);
+            let each = length / tiles;
+            for tile in 0..tiles as usize {
+                let mid = wall.from + along * (tile as f32 + 0.5) * each;
+                // THE GROUND ITS FOOT STANDS ON, which is the terrace BELOW -
+                // measured out on that terrace's flat, because at the wall's own
+                // line the ground is halfway up the ramp behind it.
+                let foot = stands_at(
+                    &terrain.0,
+                    mid + wall.faces * (WALL_THICK * 0.5 + 2.0),
+                    Vec2::splat(1.0),
+                    0.0,
+                );
+                commands.spawn((
+                    FromSite(key),
+                    SceneRoot(assets.load(
+                        GltfAssetLabel::Scene(0).from_asset("models/town_terrace_wall.glb"),
+                    )),
+                    // The model runs along its own X and faces its own +Z once
+                    // exported, so a turn of -atan2 lays the run on the line and
+                    // carries the face round with it - see `Wall::faces`.
+                    Transform::from_xyz(mid.x, foot, mid.y)
+                        .with_rotation(Quat::from_rotation_y(-along.y.atan2(along.x)))
+                        .with_scale(Vec3::new(each / WALL_TILE, 1.0, 1.0)),
+                    Visibility::default(),
+                ));
+            }
+        }
         // The streets themselves, as one mesh for the town.
         //
         // The material is made HERE, on demand, rather than looked up from a
@@ -9628,6 +9809,8 @@ mod tests {
     /// run. Both properties at once needs the weight to rise to infinity as a pad
     /// saturates - so this walks the gap between the closest pair of buildings in
     /// every settlement and asks for both.
+
+
     #[test]
     fn the_ground_between_two_buildings_has_no_step_in_it() {
         let terrain = crate::world::terrain::Terrain::new();
@@ -9670,11 +9853,28 @@ mod tests {
 
             // Five centimetres at a time, which is finer than any stride.
             let steps = ((one.distance(other) / 0.05) as usize).max(2);
+            let mut was = one;
             let mut last = terrain.height(one.x, one.y);
             for step in 1..=steps {
                 let at = one.lerp(other, step as f32 / steps as f32);
                 let now = terrain.height(at.x, at.y);
-                let jump = (now - last).abs();
+                // LESS WHAT THE TERRACES MEANT TO DO.
+                //
+                // A city is cut into level bands and the edge between two of them
+                // is a step ON PURPOSE - 3.6 m of it, held up by a retaining wall.
+                // Measuring the raw jump makes this guard refuse the feature: it
+                // caught the riser at 1.2 to 1 and called it pads picking a winner.
+                //
+                // What it is FOR is the seam where two pads disagree, and that is
+                // the ground moving where nothing asked it to. So the intended
+                // step comes off first, and what is left is the ground's own
+                // opinion. A pad seam is untouched by this; a terrace edge nets
+                // out to nothing.
+                let meant = (crate::world::settle::terrace_at(site, at)
+                    - crate::world::settle::terrace_at(site, was))
+                .abs();
+                let jump = ((now - last).abs() - meant).max(0.0);
+                was = at;
                 if jump > worst.0 {
                     worst = (
                         jump,
@@ -10710,6 +10910,55 @@ mod tests {
                 ground.levelled, ground.height
             );
         }
+    }
+
+    /// The wall a terrace stands on is as tall as the step it retains.
+    ///
+    /// # One fact, in Blender and in Rust
+    ///
+    /// `world::settle::TERRACE_RISE` decides how far a city's ground steps up at
+    /// each band, and `dev/art/town.py` builds a wall to hold that step. Those are
+    /// two statements of one number in two languages, which is the bug this
+    /// project has met more times than any other - and its failure here is quiet:
+    /// a wall an inch short leaves a strip of raw earth along every terrace in
+    /// every city, and one an inch tall buries its own coping.
+    ///
+    /// So the figure writes what it BUILT and this refuses a mismatch. The last
+    /// two numbers are measured off the welded mesh rather than restated by it, so
+    /// adding a course or changing the parapet moves them on its own.
+    #[test]
+    fn the_terrace_wall_is_as_tall_as_the_step_it_retains() {
+        let line = TOWN_CONTRACT
+            .lines()
+            .find_map(|line| line.strip_prefix("TERRACE_WALL "))
+            .expect("dev/art/town.py writes a TERRACE_WALL line");
+        let said: Vec<f32> = line
+            .split_whitespace()
+            .map(|n| n.parse().expect("a number"))
+            .collect();
+        let (run, rise, thick, built_long, built_tall) =
+            (said[0], said[1], said[2], said[3], said[4]);
+
+        assert!(
+            (rise - crate::world::settle::TERRACE_RISE).abs() < 1.0e-3,
+            "the wall retains {rise} m and the ground steps {} m",
+            crate::world::settle::TERRACE_RISE
+        );
+        assert!(
+            (run - WALL_TILE).abs() < 1.0e-3 && (thick - WALL_THICK).abs() < 1.0e-3,
+            "the wall is built {run} x {thick} and the game tiles it {WALL_TILE} x {WALL_THICK}"
+        );
+        // AND THE MESH AGREES WITH THE FIGURE'S OWN WORD FOR ITSELF. Both numbers
+        // come from `dev/art/town.py`, but only one of them is measured - so this
+        // is the half that catches a tile that says eight metres and is not.
+        assert!(
+            (built_long - run).abs() < 0.02,
+            "the wall says it is {run} m long and the mesh is {built_long}"
+        );
+        assert!(
+            built_tall > rise,
+            "the wall is {built_tall} m tall and has to hold back {rise} m of ground"
+        );
     }
 
 /// A town has districts you could tell apart standing in them.
@@ -12395,12 +12644,24 @@ mod facing {
                 .filter(|plot| plot.what.is_yard())
                 .map(|plot| format!("{:?}", plot.what))
                 .collect();
-            (tall, yards, laid.plots.len())
+            // HOW MUCH OF ITS GROUND IS BUILT ON, which is what `Character::fills`
+            // actually moves - it scales `District::occupies_for`, and that decides
+            // building against yard lot by lot. It does NOT decide how many lots
+            // there are: that is the block subdivision, minus whatever the public
+            // places take out, so a capital's three squares and a works's two depots
+            // set the total between them and the character lever never shows in it.
+            //
+            // Asked as a total, capital and works came out 461 and 460 - a guard
+            // deciding a 25% difference in programme on one lot in four hundred, and
+            // passing or failing on which way the arithmetic rounded.
+            let built = laid.plots.iter().filter(|plot| !plot.what.is_yard()).count();
+            let dense = built as f32 / laid.plots.len().max(1) as f32;
+            (tall, yards, dense)
         };
 
         let (capital, capital_yards, capital_plots) = towers(Character::Capital);
         let (works, works_yards, works_plots) = towers(Character::Works);
-        let (green, green_yards, _) = towers(Character::Green);
+        let (green, green_yards, green_plots) = towers(Character::Green);
 
         // THE SKYLINE, which is what reads from the road in.
         // Twice over and more, which is a skyline against a roofline rather than one
@@ -12428,9 +12689,15 @@ mod facing {
         );
 
         // A works fills its ground and a green city keeps its air.
+        println!(
+            "built share: works {works_plots:.3}, capital {capital_plots:.3}, green {green_plots:.3}"
+        );
+        // With a MARGIN, and all three in order. Measured at 0.73, 0.61 and 0.46,
+        // so a tenth between neighbours is a difference you would see standing in
+        // the street rather than one that survives in the arithmetic.
         assert!(
-            works_plots > capital_plots,
-            "a works has {works_plots} plots and a capital {capital_plots} — a working              city is meant to be the fuller one"
+            works_plots > capital_plots + 0.08 && capital_plots > green_plots + 0.08,
+            "ground built on: works {works_plots:.2}, capital {capital_plots:.2}, green              {green_plots:.2} — a working city is meant to be the fuller one and a green              city the airiest"
         );
 
         // And every character the world deals is one of the four, so a city cannot
@@ -12459,13 +12726,47 @@ mod facing {
     fn the_kerb_face_is_not_lit_as_flat_ground() {
         use bevy::render::mesh::VertexAttributeValues;
         let terrain = crate::world::terrain::Terrain::new();
+        // ON GROUND THIS GUARD HAS CHECKED IS LEVEL.
+        //
+        // The street used to be paved at the world origin, which is inside the
+        // skirt of the city at (223, 385) - so the section's normals carried that
+        // hillside's tilt as well as the kerb's own profile, and the guard failed
+        // the moment a city's edge moved. It was measuring the terrain.
+        //
+        // A kerb is the same shape wherever it is laid, so the honest place to
+        // measure one is flat ground; the search says so out loud rather than
+        // trusting a coordinate to stay flat while the world around it changes.
+        let mut spot = Vec2::ZERO;
+        let mut flattest = f32::MAX;
+        for x in (-6000..6000).step_by(800) {
+            for z in (-6000..6000).step_by(800) {
+                let at = Vec2::new(x as f32, z as f32);
+                let (mut low, mut high) = (f32::MAX, f32::MIN);
+                for step in -8..=8 {
+                    for over in -1..=1 {
+                        let p = at + Vec2::new(step as f32 * 5.0, over as f32 * 5.0);
+                        let h = terrain.height(p.x, p.y);
+                        low = low.min(h);
+                        high = high.max(h);
+                    }
+                }
+                if high - low < flattest {
+                    flattest = high - low;
+                    spot = at;
+                }
+            }
+        }
+        assert!(
+            flattest < 0.05,
+            "the flattest ground in the world falls {flattest:.2} m under a street —              nothing here can tell a kerb's shading from a hillside's"
+        );
         let ways = vec![Way {
-            points: vec![Vec2::new(-40.0, 0.0), Vec2::new(40.0, 0.0)],
+            points: vec![spot + Vec2::new(-40.0, 0.0), spot + Vec2::new(40.0, 0.0)],
             wide: CITY_STREET_WIDE,
             joins: CITY_STREET_WIDE,
             carries: Carries::Doors,
         }];
-        let mesh = pave(&ways, &[], &[], &terrain, Vec2::ZERO, 1.0);
+        let mesh = pave(&ways, &[], &[], &terrain, spot, 1.0);
         let Some(VertexAttributeValues::Float32x3(facing)) = mesh.attribute(Mesh::ATTRIBUTE_NORMAL)
         else {
             panic!("the paving has no normals");
