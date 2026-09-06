@@ -2880,3 +2880,26 @@ needs one way up a cart can use, which is what the concept has at its low corner
 **Worth knowing.** The placement rule was "spread them evenly along the wall", which
 is a sensible-sounding rule about walls and no rule at all about people. A stair is
 part of a route or it is scenery.
+
+## Terraces running past their own city
+
+**Issue.** Long straight lines drawn across the countryside, well beyond the city
+they belong to — reported from the map view as "the terraces go out further beyond
+the city".
+
+**Solution.** A settlement's claim on the ground fades over its skirt, and the
+TERRACED height went out with it: the riser inside the town appeared again outside
+it, softened but still a step. Measured before it was believed — 1.48 m of step in
+2 m, 160 m outside the city at (-2553, 1771), at the same distance along the slope
+as the riser within it.
+
+The terracing now fades over its own `TERRACE_HOLDS` of 40 m first, so the skirt is
+left with only the smooth level to put away, and the walls stop inside that because
+past there is no step for a wall to hold up.
+`a_towns_terraces_stop_at_its_own_edge` walks the same transects and refuses any
+step out there the open country does not have on its own; with the fade removed it
+reports 1.52 m.
+
+**Worth knowing.** Two fades in series, and only one of them knew what it was
+carrying. The skirt was written to put away a town's LEVEL — one number — and it was
+handed a staircase.

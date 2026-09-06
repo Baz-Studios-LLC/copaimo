@@ -419,6 +419,25 @@ pub fn band_edge_at(site: &Site, want: f32, across: f32) -> Vec2 {
     site.at + up * ((low + high) * 0.5) + side * across
 }
 
+/// How far inside its own edge a settlement's terraces are at full height.
+///
+/// # A step should not ride out of town on the skirt
+///
+/// A settlement's claim on the ground fades over its skirt, and the terraced height
+/// went out with it - so the riser inside the town appeared again, softened but
+/// perfectly straight, well past the boundary. Measured: 1.48 m of step in 2 m,
+/// 160 m outside the city, at the same distance along the slope as the riser
+/// within it. Those are the lines running clear across the landscape in the map
+/// view, and they are the reason the terraces read as streaks laid over the
+/// countryside rather than as ground the town cut for itself.
+///
+/// So the terracing itself fades first, over this, and the skirt is left with only
+/// the smooth level to put away. Forty metres turns the outermost 3.6 m into a
+/// slope of about one in eleven, which is not a step and not anything anybody
+/// notices - and the walls stop inside it, because past here there is no step for a
+/// wall to be holding up.
+pub const TERRACE_HOLDS: f32 = 40.0;
+
 /// How high a settlement's ground stands at a point, above its own base.
 ///
 /// # A city was one plane, and then it was a hill
@@ -472,7 +491,10 @@ pub fn terrace_at(site: &Site, at: Vec2) -> f32 {
     // Every band used to be at or above the base, which lifted a five-band city
     // 14.4 m above the land at its far edge - and the skirt then had to put all of
     // that back over its own length.
-    ((whole + climb) - (bands - 1.0) * 0.5) * TERRACE_RISE
+    // FADED OUT AT THE TOWN'S EDGE - see `TERRACE_HOLDS`.
+    let off = site.plan.off(at - site.at, site.bearing, site.radius);
+    let inside = crate::util::smoothstep(0.0, -TERRACE_HOLDS, off);
+    ((whole + climb) - (bands - 1.0) * 0.5) * TERRACE_RISE * inside
 }
 
 /// How far out a settlement's own ground reaches, as a share of its radius.

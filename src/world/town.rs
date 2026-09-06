@@ -2050,7 +2050,11 @@ fn retain_the_terraces(
             let at = crate::world::settle::band_edge_at(site, want, across);
             // Inside the town, and back from its own edge so a wall never ends in
             // mid-air on the skirt.
-            let inside = site.plan.off(at - site.at, site.bearing, site.radius) <= -6.0;
+            // Far enough in that the terrace is at full height - past
+            // `settle::TERRACE_HOLDS` the step is fading into the skirt and there
+            // is nothing there for a wall to hold up.
+            let inside = site.plan.off(at - site.at, site.bearing, site.radius)
+                <= -crate::world::settle::TERRACE_HOLDS;
             // CLEAR OF EVERY ROAD THROUGH THIS TOWN, not only of the streets the
             // town drew itself. The country roads crossing a settlement belong to
             // `settle` and are drawn there, so they were not in this test at all -
@@ -10075,6 +10079,57 @@ mod tests {
     /// saturates - so this walks the gap between the closest pair of buildings in
     /// every settlement and asks for both.
 
+
+
+
+    /// The terraces do not step outside the town they belong to.
+    ///
+    /// # A step that rode out of town on the skirt
+    ///
+    /// A settlement's claim on the ground fades over its skirt and the TERRACED
+    /// height went out with it, so the riser inside the city appeared again -
+    /// softened, but perfectly straight - well past the boundary. Reported as
+    /// terraces running further than the city, visible from the map as lines drawn
+    /// across the countryside.
+    ///
+    /// Measured before it was believed: 1.48 m of step in 2 m, 160 m outside the
+    /// city at (-2553, 1771), at the same distance along the slope as the riser
+    /// within it. This walks the same transects and refuses any step out there that
+    /// the open country does not have on its own.
+    #[test]
+    fn a_towns_terraces_stop_at_its_own_edge() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        let Some(site) = plan.sites().iter().find(|site| site.first) else {
+            return;
+        };
+        let up = Vec2::from_angle(site.bearing);
+        let side = Vec2::new(-up.y, up.x);
+        // Outside the town, but inside its skirt, which is where the leak was.
+        let out = site.plan.reaches(site.radius) + 160.0;
+        let mut worst = (0.0_f32, Vec2::ZERO);
+        for hand in [-1.0_f32, 1.0] {
+            let mut last = f32::NAN;
+            for step in -400..=400 {
+                let at = site.at + side * (hand * out) + up * (step as f32 * 2.0);
+                let now = terrain.height(at.x, at.y);
+                if last.is_finite() && (now - last).abs() > worst.0 {
+                    worst = ((now - last).abs(), at);
+                }
+                last = now;
+            }
+        }
+        // Open country climbs; it does not STEP. A metre in two metres is a slope of
+        // a half, which the land does on its own; the riser was 1.48.
+        assert!(
+            worst.0 < 1.0,
+            "the ground steps {:.2} m in 2 m at ({:.0}, {:.0}), which is {:.0} m              outside the town — the terraces are running past their own city",
+            worst.0,
+            worst.1.x,
+            worst.1.y,
+            out - site.plan.reaches(site.radius)
+        );
+    }
 
     #[test]
     fn the_ground_between_two_buildings_has_no_step_in_it() {
