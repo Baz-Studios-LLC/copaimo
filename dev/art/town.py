@@ -2503,12 +2503,19 @@ TERRACE_RUN = 8.0
 # The first attempt had a 1.5 m wall against a 4.2 m ramp and the wall was buried
 # to its parapet.
 #
-# Three metres, which is what settles it: 3.6 m of rise across 3.0 m of run is a
-# slope of 1.2, inside `player::CLIMB_LIMIT` of 1.4 - so where the wall breaks for
-# a street, the street climbs through the gap on its own and nothing has to be
-# invented to let a player up. A retaining wall this thick is also simply what one
-# holding back a storey of earth looks like.
-TERRACE_THICK = 3.0
+# Three metres and a half, which is what settles it: 3.6 m of rise across 3.6 m of
+# run is a slope of ONE, against `player::CLIMB_LIMIT` of 1.4.
+#
+# It was 3.0, a slope of 1.2, and that is too near the limit to survive being drawn:
+# the level is read off a grid and interpolated, and the terrain blends it again, so
+# the slope varies about its design value. `walking_into_a_city_is_not_stopped_by
+# _anything_invisible` caught the result as 0.18 m of rise in a 0.12 m stride - a
+# slope of 1.5 - on the way into the first city. A number that is only just legal is
+# a number that will not be, once something else touches it.
+#
+# A retaining wall this thick is also simply what one holding back a storey of earth
+# looks like.
+TERRACE_THICK = 3.6
 
 
 def terrace_wall():

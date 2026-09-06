@@ -415,11 +415,16 @@ pub fn terraces_of(site: &Site) -> (f32, f32) {
 /// (-2553, 1771): foot at 29.90, coping at 33.50, and the ground already at 33.50
 /// where the wall itself stood.
 ///
-/// So the two are ONE fact, stated here and read there. Three metres carries the
-/// 3.6 m rise at a slope of 1.2, inside `player::CLIMB_LIMIT` of 1.4 - which is
-/// what lets a street climb through a gap in the wall without any of it being
-/// built. That is how a hill town is walked: the road ramps where the wall stops.
-pub const RISER_RUNS: f32 = 3.0;
+/// So the two are ONE fact, stated here and read there. Three and a half metres
+/// carries the 3.6 m rise at a slope of ONE, against `player::CLIMB_LIMIT` of 1.4 -
+/// which is what lets a street climb through a gap in the wall without any of it
+/// being built.
+///
+/// It was three metres, a slope of 1.2, and that was too near the limit to survive
+/// being drawn: the level is read off a grid and interpolated and the terrain blends
+/// it again, so the slope varies about its design value. Measured at 1.5 on the way
+/// into the first city.
+pub const RISER_RUNS: f32 = 3.6;
 
 /// Which terrace a point stands on, counting from the low edge.
 pub fn band_of(site: &Site, at: Vec2) -> f32 {
