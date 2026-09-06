@@ -3087,3 +3087,34 @@ cells apiece - two risers almost on top of each other, which
 `levelling_never_puts_a_step_in_the_ground` and
 `walking_into_a_city_is_not_stopped_by_anything_invisible` both refused. How many
 terraces a town can carry is a fact about how many blocks it has.
+
+## Walls floating over the ground they were holding up
+
+**Issue.** Retaining walls standing in level fields, and walls you could see UNDER -
+a gap of daylight between the masonry and the grass. Photographed repeatedly.
+
+**Solution.** Two faults, one root: the walls were worked out from the level grid and
+then built without ever asking the terrain what it had done with that.
+
+Every wall was seated by sampling two metres past its own back, and `stands_at`
+answers with the HIGHEST corner it can see - so near a drop it hands back the terrace
+ABOVE. The same bug had already been found and fixed on the flights, where it read
+26.29 against a true 22.70. A wall seated a whole terrace high floats, and from most
+angles it looks like a slab lying on level ground with the drop somewhere out of
+frame - which is what "walls holding back nothing" actually was.
+
+A wall now hangs from the ground it HOLDS UP rather than standing on the ground
+below: the coping meets the terrace above exactly, which is the join that is walked
+on and looked along, and the foot is buried, which is free.
+
+And the ground decides whether there is a wall at all. The level grid is quantised
+and exact; the terrain is that grid put through the site's claim, the lanes, the pads
+and the skirt, all of which blend it. Where the blend took most of a step out, a wall
+was still being built. Measured: 88 of 96 walls stand over a real 3.4-3.6 m drop, and
+8 stood over nothing. The layout's own list is pruned to what survives, so the
+collision boxes and the models are the same walls.
+
+**Worth knowing.** This is the third time `stands_at`'s "highest corner" has produced
+a fault - it is exactly right for seating a building on a slope and exactly wrong for
+reading the ground at the foot of a drop. Anything that wants the level BELOW a step
+has to sample well clear of it, or better, work down from the level above.

@@ -2097,6 +2097,19 @@ pub struct Wall {
     pub faces: Vec2,
 }
 
+/// How far either side of a wall the ground is read, in metres.
+///
+/// Past the wall's own back and past the blend the terrain puts either side of a
+/// step, so the two answers are the terraces themselves rather than the slope
+/// between them.
+const WALL_STANDS: f32 = 7.0;
+
+/// The least drop worth building a wall for, in metres.
+///
+/// Under this the ground has blended the step away to something a bank can carry,
+/// and a wall standing in it is a wall holding back a field.
+const WALL_SHOWS: f32 = 1.6;
+
 /// How long one wall tile is, and how thick, in metres.
 ///
 /// The contract with `dev/art/town.py`, which writes what it built into
@@ -9430,6 +9443,43 @@ pub fn raise_the_towns(
                 Visibility::default(),
             ));
         }
+        // WHAT THE GROUND ACTUALLY DOES, before anything is stood on it.
+        //
+        // # Walls holding back level fields, and floating while they did it
+        //
+        // The walls were worked out from the LEVEL GRID - which block is a terrace
+        // above which - and then built without ever asking the terrain what it had
+        // done with that. Those are two different things: the grid is quantised and
+        // exact, and the ground is the grid put through the site's own claim, the
+        // lanes, the pads and the skirt, all of which blend it. Where the blend took
+        // most of a step out, a wall was still built, standing in a field with level
+        // ground either side - photographed half a dozen times.
+        //
+        // And every one of them was seated by sampling two metres past its own back,
+        // which `stands_at` answers with the HIGHEST corner it can see - so near a
+        // drop it returns the terrace ABOVE. Measured on the flights, which had the
+        // same bug: 26.29 where the ground below is 22.70. A wall seated a whole
+        // terrace high floats, and you can see under it.
+        //
+        // So the ground is asked first, and it decides both questions: whether there
+        // is a step here at all, and where the wall's coping has to sit to hold it.
+        // The layout's own list is pruned to what survives, so the collision boxes
+        // and the models are the same walls.
+        let mut layout = layout;
+        {
+            let terrain = &terrain.0;
+            let seat = |wall: &Wall, at: Vec2| {
+                let over = stands_at(terrain, at - wall.faces * WALL_STANDS, Vec2::splat(1.0), 0.0);
+                let under = stands_at(terrain, at + wall.faces * WALL_STANDS, Vec2::splat(1.0), 0.0);
+                (over, under)
+            };
+            layout.walls.retain(|wall| {
+                let mid = (wall.from + wall.to) * 0.5;
+                let (over, under) = seat(wall, mid);
+                over - under >= WALL_SHOWS
+            });
+        }
+
         // THE RETAINING WALLS, tiled along each terrace edge.
         for wall in &layout.walls {
             let run = wall.to - wall.from;
@@ -9443,15 +9493,21 @@ pub fn raise_the_towns(
             let each = length / tiles;
             for tile in 0..tiles as usize {
                 let mid = wall.from + along * (tile as f32 + 0.5) * each;
-                // THE GROUND ITS FOOT STANDS ON, which is the terrace BELOW -
-                // measured out on that terrace's flat, because at the wall's own
-                // line the ground is halfway up the ramp behind it.
-                let foot = stands_at(
+                // HUNG FROM THE GROUND IT HOLDS UP, not stood on the ground below.
+                //
+                // The coping has to meet the terrace above it exactly - that join is
+                // walked on and looked along - while the foot only has to be buried,
+                // and burying it is free. Reading the ground below directly cannot be
+                // made exact anyway: `stands_at` answers with the highest corner it
+                // sees, so near a drop it hands back the terrace above and the wall
+                // is seated a whole terrace too high, floating clear of the grass.
+                let over = stands_at(
                     &terrain.0,
-                    mid + wall.faces * (WALL_THICK * 0.5 + 2.0),
+                    mid - wall.faces * WALL_STANDS,
                     Vec2::splat(1.0),
                     0.0,
                 );
+                let foot = over - crate::world::settle::TERRACE_RISE;
                 commands.spawn((
                     FromSite(key),
                     SceneRoot(assets.load(
@@ -10725,6 +10781,7 @@ mod tests {
             out - site.plan.reaches(site.radius)
         );
     }
+
 
 
 
