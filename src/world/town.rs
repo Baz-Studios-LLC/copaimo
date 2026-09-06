@@ -2097,6 +2097,19 @@ pub struct Wall {
     pub faces: Vec2,
 }
 
+/// How far either side of a wall the ground is read, in metres.
+///
+/// Past the wall's own back and past the blend the terrain puts either side of a
+/// step, so the two answers are the terraces themselves rather than the slope
+/// between them.
+const WALL_STANDS: f32 = 7.0;
+
+/// The least drop worth building a wall for, in metres.
+///
+/// Under this the ground has blended the step away to something a bank can carry,
+/// and a wall standing in it is a wall holding back a field.
+const WALL_SHOWS: f32 = 1.6;
+
 /// How long one wall tile is, and how thick, in metres.
 ///
 /// The contract with `dev/art/town.py`, which writes what it built into
@@ -9462,6 +9475,43 @@ pub fn raise_the_towns(
                 Visibility::default(),
             ));
         }
+        // WHAT THE GROUND ACTUALLY DOES, before anything is stood on it.
+        //
+        // # Walls holding back level fields, and floating while they did it
+        //
+        // The walls were worked out from the LEVEL GRID - which block is a terrace
+        // above which - and then built without ever asking the terrain what it had
+        // done with that. Those are two different things: the grid is quantised and
+        // exact, and the ground is the grid put through the site's own claim, the
+        // lanes, the pads and the skirt, all of which blend it. Where the blend took
+        // most of a step out, a wall was still built, standing in a field with level
+        // ground either side - photographed half a dozen times.
+        //
+        // And every one of them was seated by sampling two metres past its own back,
+        // which `stands_at` answers with the HIGHEST corner it can see - so near a
+        // drop it returns the terrace ABOVE. Measured on the flights, which had the
+        // same bug: 26.29 where the ground below is 22.70. A wall seated a whole
+        // terrace high floats, and you can see under it.
+        //
+        // So the ground is asked first, and it decides both questions: whether there
+        // is a step here at all, and where the wall's coping has to sit to hold it.
+        // The layout's own list is pruned to what survives, so the collision boxes
+        // and the models are the same walls.
+        let mut layout = layout;
+        {
+            let terrain = &terrain.0;
+            let seat = |wall: &Wall, at: Vec2| {
+                let over = stands_at(terrain, at - wall.faces * WALL_STANDS, Vec2::splat(1.0), 0.0);
+                let under = stands_at(terrain, at + wall.faces * WALL_STANDS, Vec2::splat(1.0), 0.0);
+                (over, under)
+            };
+            layout.walls.retain(|wall| {
+                let mid = (wall.from + wall.to) * 0.5;
+                let (over, under) = seat(wall, mid);
+                over - under >= WALL_SHOWS
+            });
+        }
+
         // THE RETAINING WALLS, tiled along each terrace edge.
         for wall in &layout.walls {
             let run = wall.to - wall.from;
@@ -9475,15 +9525,21 @@ pub fn raise_the_towns(
             let each = length / tiles;
             for tile in 0..tiles as usize {
                 let mid = wall.from + along * (tile as f32 + 0.5) * each;
-                // THE GROUND ITS FOOT STANDS ON, which is the terrace BELOW -
-                // measured out on that terrace's flat, because at the wall's own
-                // line the ground is halfway up the ramp behind it.
-                let foot = stands_at(
+                // HUNG FROM THE GROUND IT HOLDS UP, not stood on the ground below.
+                //
+                // The coping has to meet the terrace above it exactly - that join is
+                // walked on and looked along - while the foot only has to be buried,
+                // and burying it is free. Reading the ground below directly cannot be
+                // made exact anyway: `stands_at` answers with the highest corner it
+                // sees, so near a drop it hands back the terrace above and the wall
+                // is seated a whole terrace too high, floating clear of the grass.
+                let over = stands_at(
                     &terrain.0,
-                    mid + wall.faces * (WALL_THICK * 0.5 + 2.0),
+                    mid - wall.faces * WALL_STANDS,
                     Vec2::splat(1.0),
                     0.0,
                 );
+                let foot = over - crate::world::settle::TERRACE_RISE;
                 commands.spawn((
                     FromSite(key),
                     SceneRoot(assets.load(
@@ -9509,12 +9565,28 @@ pub fn raise_the_towns(
                 SceneRoot(assets.load(
                     GltfAssetLabel::Scene(0).from_asset("models/town_terrace_stair.glb"),
                 )),
-                // Built with its head at the origin and the flight descending into
-                // its own -y, which exports to +z - the same face the wall turns to
-                // the terrace below, so the same turn lays both.
+                // THE FLIGHT DESCENDS THE WAY IT FACES.
+                //
+                // Built with its head at the origin and descending into its own -y,
+                // which exports to +z - so the turn has to put local +Z on `faces`.
+                // A turn of theta about Y sends local +Z to (sin, cos), so theta is
+                // `atan2(faces.x, faces.y)` and nothing else.
+                //
+                // It was `-atan2(faces.y, faces.x) - pi/2`, which works out to
+                // exactly MINUS faces: every flight in the city was turned to climb
+                // INTO the hill, with its head hanging over the drop and its foot
+                // buried in the bank. Reported as stairs that are backwards and lead
+                // nowhere, and both halves of that are the one sign.
+                //
+                // Nothing caught it, and the reason is worth keeping: `tread_at`
+                // lifts the warden along `faces` correctly, so `--drive` walked the
+                // flight up and reported it climbable while the MODEL faced the
+                // other way. The arithmetic was right and the artefact was wrong -
+                // see `the_flight_descends_the_way_it_faces`, which now asks the
+                // transform itself.
                 Transform::from_xyz(stair.at.x, foot, stair.at.y)
                     .with_rotation(Quat::from_rotation_y(
-                        -stair.faces.y.atan2(stair.faces.x) - std::f32::consts::FRAC_PI_2,
+                        stair.faces.x.atan2(stair.faces.y),
                     ))
                     // Widened to the street it carries. The treads keep their own
                     // rise and run - only the flight gets broader - so the climb a
@@ -10763,6 +10835,7 @@ mod tests {
 
 
 
+
     #[test]
     fn the_ground_between_two_buildings_has_no_step_in_it() {
         let terrain = crate::world::terrain::Terrain::new();
@@ -11998,6 +12071,41 @@ mod tests {
             worst.1.x,
             worst.1.y
         );
+    }
+
+    /// A flight is turned so it descends the way it faces.
+    ///
+    /// # The arithmetic was right and the model was backwards
+    ///
+    /// `Stair::tread_at` lifts a warden along `faces`, and it was correct - so
+    /// `--drive` walked every flight in the city up and reported it climbable. The
+    /// TRANSFORM put the model on minus that: the whole town's steps were turned to
+    /// climb into the hill, head hanging over the drop, foot buried in the bank.
+    /// Reported by eye in one glance, from a screenshot, after the guards had passed
+    /// for days.
+    ///
+    /// So this asks the transform rather than the intent. The figure is built with
+    /// its head at the origin descending into its own -y, which the glTF export
+    /// turns into +z, so the rendered flight goes wherever local +Z lands - and that
+    /// has to be `faces`.
+    #[test]
+    fn the_flight_descends_the_way_it_faces() {
+        for turn in 0..16 {
+            let faces = Vec2::from_angle(std::f32::consts::TAU * turn as f32 / 16.0);
+            // The one line the spawner uses.
+            let laid = Quat::from_rotation_y(faces.x.atan2(faces.y));
+            // Where the model's own downhill ends up once it is laid.
+            let goes = laid * Vec3::Z;
+            let goes = Vec2::new(goes.x, goes.z);
+            assert!(
+                goes.distance(faces) < 1.0e-3,
+                "a flight facing ({:.2}, {:.2}) is laid descending ({:.2}, {:.2}) —              it climbs the bank instead of coming down it",
+                faces.x,
+                faces.y,
+                goes.x,
+                goes.y
+            );
+        }
     }
 
     /// The wall a terrace stands on is as tall as the step it retains.
