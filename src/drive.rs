@@ -343,37 +343,21 @@ fn a_terrace(
         let mid = (wall.from + wall.to) * 0.5;
         let out = wall.faces;
 
-        // A STREET WHERE IT ACTUALLY CROSSES THE RISER.
+        // A STREET WHERE IT CROSSES THE RISER.
         //
-        // Not the street nearest the wall: the point on a street closest to the
-        // middle of a wall run is wherever that street happens to pass, which need
-        // not be where it climbs at all. Asked of the ground instead - a street
-        // whose two ends stand on different terraces crosses one, and the crossing
-        // is where the level changes along it.
-        let level = |at: Vec2| crate::world::settle::terrace_at(site, at);
+        // Asked of `settle::crosses_a_terrace`, which is the same question the
+        // generator asks when it decides where a flight of steps goes - so this
+        // tests the climb the town actually built rather than one worked out a
+        // second time here and liable to drift from it.
         for street in &laid.streets {
-            let (low, high) = (level(street.from), level(street.to));
-            if (high - low).abs() < 1.0 {
+            let Some((crossing, down)) =
+                crate::world::settle::crosses_a_terrace(site, street.from, street.to)
+            else {
                 continue;
-            }
-            // Where along it the change happens, to a metre.
-            let (mut near, mut far) = (0.0_f32, 1.0_f32);
-            for _ in 0..20 {
-                let at = (near + far) * 0.5;
-                if (level(street.from.lerp(street.to, at)) - low).abs() < 0.05 {
-                    near = at;
-                } else {
-                    far = at;
-                }
-            }
-            let crossing = street.from.lerp(street.to, (near + far) * 0.5);
-            // ALONG THE STREET, because that is the way up - a street may cross a
-            // riser at any angle and walking square at the slope is walking off it.
-            let run = (street.to - street.from).normalize_or_zero();
-            let (before, after) = if low < high { (-run, run) } else { (run, -run) };
+            };
             return Some((
-                crossing + before * 20.0,
-                crossing + after * 20.0,
+                crossing - down * 20.0,
+                crossing + down * 20.0,
                 mid + out * 16.0,
                 mid - out * 8.0,
                 step_from,

@@ -2857,3 +2857,26 @@ the bend and not the cutting up — 247 against 248. And the rings still read as
 TOPOLOGY — a middle with true rings round it and radials off it — and a displacement
 moves points without changing a topology. Making these streets organic means growing
 a plan rather than drawing one, which is its own piece of work.
+
+## Stairs that led from nothing to nothing
+
+**Issue.** Flights of steps stood in open grass, offset from every road, reported
+with a picture of one in a field.
+
+**Solution.** They were placed at the MIDDLE of each wall run - which is, by
+construction, as far from a street as that run allows. The concept art settles what
+they should be instead: every flight in it is the continuation of a paved route,
+with paving at its head and paving at its foot.
+
+So a flight now goes where a street changes terrace, and nowhere else. It is
+stretched to that street's width and turned to its direction, and it stands in the
+break the street had already cut in the wall. `settle::crosses_a_terrace` is the one
+place that question is answered, and `--drive` asks it too, so the route the test
+climbs is the route the town built.
+
+The widest crossing on each edge keeps its ramp rather than taking steps: a town
+needs one way up a cart can use, which is what the concept has at its low corner.
+
+**Worth knowing.** The placement rule was "spread them evenly along the wall", which
+is a sensible-sounding rule about walls and no rule at all about people. A stair is
+part of a route or it is scenery.

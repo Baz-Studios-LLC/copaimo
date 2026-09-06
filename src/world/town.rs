@@ -1930,6 +1930,8 @@ pub struct Stair {
     pub at: Vec2,
     /// Down the slope: the way the flight descends, and the way the wall faces.
     pub faces: Vec2,
+    /// How wide the flight is, which is the width of the street it carries.
+    pub wide: f32,
 }
 
 impl Stair {
@@ -1967,7 +1969,7 @@ impl Stair {
             return None;
         }
         let side = Vec2::new(-self.faces.y, self.faces.x);
-        if away.dot(side).abs() > STAIR_WIDE * 0.5 {
+        if away.dot(side).abs() > self.wide * 0.5 {
             return None;
         }
         let foot = self.foot(terrain);
@@ -1991,23 +1993,15 @@ const STAIR_STEPS: f32 = 20.0;
 /// flight because the parapets stand outside it.
 pub const STAIR_WIDE: f32 = 4.0;
 pub const STAIR_FLIGHT: f32 = 6.0;
-const STAIR_BREAKS: f32 = 5.0;
+
+/// The widest a flight is ever built, in metres.
+///
+/// A flight is stretched to the street it carries, and a street is as wide as it
+/// is; this is where that stops, so a stair never becomes a plaza with steps on it.
+const STAIR_WIDEST: f32 = 9.0;
 
 /// How far the landing at the head of the flight reaches into the terrace above.
 const STAIR_LANDS: f32 = 1.4;
-
-/// How far apart stairs stand along one terrace edge, in metres.
-///
-/// Near enough that a player walking along a wall meets one without going looking,
-/// far enough that a terrace edge still reads as a wall rather than as a flight of
-/// steps with some masonry between them.
-const STAIRS_EVERY: f32 = 70.0;
-
-/// The shortest wall run worth putting a stair in, in metres.
-///
-/// A break costs `STAIR_BREAKS` of wall and wants a piece of wall either side of
-/// it, or the "stair in a wall" is a stair standing on its own in a gap.
-const STAIR_NEEDS: f32 = 22.0;
 
 /// How far a wall keeps clear of a street, in metres, beyond the street's own half.
 ///
@@ -2084,41 +2078,12 @@ fn retain_the_terraces(
             if length < WALL_LEAST {
                 continue;
             }
-            // How many flights this run carries, and how far along each one stands.
-            let many = if length >= STAIR_NEEDS {
-                (length / STAIRS_EVERY).floor().max(1.0)
-            } else {
-                0.0
-            };
-            let heads: Vec<f32> = (0..many as usize)
-                .map(|which| length * (which as f32 + 0.5) / many)
-                .collect();
-
-            // Walk the traced line, laying a tile at a time and breaking where a
-            // flight stands. Distance is measured ALONG the curve, so a tile is a
-            // tile whichever way the wall is bending.
-            let mut gone = 0.0_f32;
+            // Walk the traced line, laying a tile at a time.
             let mut anchor = line[0];
             let mut since = 0.0_f32;
             for pair in line.windows(2) {
                 let (here, next) = (pair[0], pair[1]);
-                let step = here.distance(next);
-                let was = gone;
-                gone += step;
-                since += step;
-
-                // A flight, if one belongs in this stretch.
-                if let Some(&head) = heads.iter().find(|h| (was..gone).contains(h)) {
-                    let cut = here.lerp(next, ((head - was) / step.max(1.0e-4)).clamp(0.0, 1.0));
-                    if anchor.distance(cut) >= WALL_LEAST {
-                        walls.push(a_wall(anchor, cut, up));
-                    }
-                    stairs.push(Stair { at: cut, faces: faces_down(anchor, cut, up) });
-                    // Past the break, which the wall picks up from.
-                    anchor = cut + (next - here).normalize_or_zero() * STAIR_BREAKS;
-                    since = 0.0;
-                    continue;
-                }
+                since += here.distance(next);
                 if since >= WALL_TILE {
                     walls.push(a_wall(anchor, next, up));
                     anchor = next;
@@ -2131,6 +2096,42 @@ fn retain_the_terraces(
             }
         }
     }
+
+    // THE FLIGHTS, WHERE THE ROUTES CROSS, and nowhere else.
+    //
+    // Every street that changes terrace gets one, standing in the break its own
+    // width already cut in the wall - so a flight has paving at its head and paving
+    // at its foot, which is what every stair in the concept art does and what the
+    // ones stood at the middle of a wall run conspicuously did not.
+    //
+    // Except the widest crossing on each edge, which stays a ramp. A town needs one
+    // way up that a cart can take, and the concept has exactly that: a road climbing
+    // in at the low corner while every other way up is steps.
+    let mut climbs: Vec<(f32, Vec2, Vec2, f32)> = Vec::new();
+    for street in streets.iter().chain(crossing) {
+        if let Some((at, down)) =
+            crate::world::settle::crosses_a_terrace(site, street.from, street.to)
+        {
+            let band = crate::world::settle::band_of(site, at - down * 4.0);
+            climbs.push((band, at, down, street.wide));
+        }
+    }
+    for band in 1..(bands as usize) {
+        let mut on_this: Vec<&(f32, Vec2, Vec2, f32)> = climbs
+            .iter()
+            .filter(|(which, ..)| (*which - band as f32).abs() < 0.5)
+            .collect();
+        // The widest is the cart road. Everything else is steps.
+        on_this.sort_by(|a, b| b.3.total_cmp(&a.3));
+        for &&(_, at, down, wide) in on_this.iter().skip(1) {
+            stairs.push(Stair {
+                at,
+                faces: down,
+                wide: wide.clamp(STAIR_WIDE, STAIR_WIDEST),
+            });
+        }
+    }
+
     (walls, stairs)
 }
 
@@ -5178,7 +5179,7 @@ impl Built {
                 let middle = stair.at + out * (STAIR_FLIGHT * 0.5 - STAIR_LANDS * 0.5);
                 for hand in [-1.0_f32, 1.0] {
                     walls.push((
-                        middle + side * hand * (STAIR_WIDE + 0.5) * 0.5,
+                        middle + side * hand * (stair.wide + 0.5) * 0.5,
                         Vec2::new((STAIR_FLIGHT + STAIR_LANDS) * 0.5, 0.25),
                         out.y.atan2(out.x),
                     ));
@@ -8889,8 +8890,13 @@ pub fn raise_the_towns(
                 // its own -y, which exports to +z - the same face the wall turns to
                 // the terrace below, so the same turn lays both.
                 Transform::from_xyz(stair.at.x, foot, stair.at.y)
-                    .with_rotation(Quat::from_rotation_y(-stair.faces.y.atan2(stair.faces.x)
-                        - std::f32::consts::FRAC_PI_2)),
+                    .with_rotation(Quat::from_rotation_y(
+                        -stair.faces.y.atan2(stair.faces.x) - std::f32::consts::FRAC_PI_2,
+                    ))
+                    // Widened to the street it carries. The treads keep their own
+                    // rise and run - only the flight gets broader - so the climb a
+                    // warden walks is the one `tread_at` works out.
+                    .with_scale(Vec3::new(stair.wide / STAIR_WIDE, 1.0, 1.0)),
                 Visibility::default(),
             ));
         }
@@ -11207,11 +11213,19 @@ mod tests {
             "the stair is built {wide} wide, {flight} long, in {steps} steps, and the              game walks it {STAIR_WIDE} / {STAIR_FLIGHT} / {STAIR_STEPS}"
         );
 
-        // AND THE BREAK IN THE WALL CLEARS THE MESH. The parapets stand outside the
-        // treads, so a break as wide as the flight leaves a wall through them.
+        // AND THE BREAK IN THE WALL CLEARS THE MESH.
+        //
+        // A flight stands in the gap its own STREET cut: the wall stops
+        // `WALL_OFF_A_STREET` clear of the kerb either side, so the gap is that
+        // street's width plus twice that. The mesh is wider than its treads,
+        // because the parapets stand outside them - and a flight is stretched to
+        // the street it carries, so both grow together. This asks that the gap
+        // still wins at the widest flight the town will ever build.
+        let gap = STAIR_WIDEST + WALL_OFF_A_STREET * 2.0;
+        let mesh = STAIR_WIDEST * built_wide / wide;
         assert!(
-            STAIR_BREAKS >= built_wide,
-            "the wall breaks {STAIR_BREAKS} m for a stair that is {built_wide} m wide"
+            gap >= mesh,
+            "the widest flight is {mesh:.1} m of mesh standing in a {gap:.1} m gap —              the wall runs through its own parapets"
         );
         assert!(
             built_deep >= flight && built_tall > rise,

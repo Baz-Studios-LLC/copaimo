@@ -236,7 +236,14 @@ fn along_the_slope(site: &Site, at: Vec2) -> f32 {
 ///
 /// Wanted rather than used: the number actually used is this rounded to fit the
 /// town, for the reason in `terraces_of`.
-const TERRACE_WANTS: f32 = 170.0;
+///
+/// # As few as the concept has
+///
+/// Wide, because the concept art has THREE levels and each one is a platform with
+/// a quarter of a town on it - a market square, a street of shops, a civic top.
+/// Five thinner bands read as stripes across a field rather than as ground anybody
+/// built, which is what they were called.
+const TERRACE_WANTS: f32 = 330.0;
 
 /// How much each terrace stands above the one below it, in metres.
 pub const TERRACE_RISE: f32 = 3.6;
@@ -337,6 +344,53 @@ pub fn terraces_of(site: &Site) -> (f32, f32) {
 /// what lets a street climb through a gap in the wall without any of it being
 /// built. That is how a hill town is walked: the road ramps where the wall stops.
 pub const RISER_RUNS: f32 = 3.0;
+
+/// Which terrace a point stands on, counting from the low edge.
+pub fn band_of(site: &Site, at: Vec2) -> f32 {
+    let (bands, every) = terraces_of(site);
+    if bands < 2.0 {
+        return 0.0;
+    }
+    (along_the_slope(site, at) / every)
+        .floor()
+        .clamp(0.0, bands - 1.0)
+}
+
+/// Where a straight run crosses from one terrace to the next, if it does.
+///
+/// # A stair belongs where a route already goes
+///
+/// Stairs were being stood at the middle of each wall run - as far from a street
+/// as the geometry allowed - so they came out in open grass, leading from nothing
+/// to nothing. Reported with a picture of exactly that, and it is the opposite of
+/// what a terraced town does: in the concept every flight is the CONTINUATION of a
+/// paved route, with paving above it and paving below it.
+///
+/// So this is the question that decides where one goes: does this street change
+/// terrace, and if so, where. Shared with `--drive`, which asks it to find a climb
+/// to test.
+pub fn crosses_a_terrace(site: &Site, from: Vec2, to: Vec2) -> Option<(Vec2, Vec2)> {
+    let (low, high) = (band_of(site, from), band_of(site, to));
+    if (high - low).abs() < 0.5 {
+        return None;
+    }
+    // Where along the run the change happens, to a fraction of a metre.
+    let (mut near, mut far) = (0.0_f32, 1.0_f32);
+    for _ in 0..24 {
+        let mid = (near + far) * 0.5;
+        if (band_of(site, from.lerp(to, mid)) - low).abs() < 0.5 {
+            near = mid;
+        } else {
+            far = mid;
+        }
+    }
+    let at = from.lerp(to, (near + far) * 0.5);
+    // DOWNHILL ALONG THE RUN, which is the way a flight descends and the way the
+    // model is laid. Taken from the run rather than from the settlement's axis, so
+    // a stair sits square in its own street however that street meets the edge.
+    let run = (to - from).normalize_or_zero();
+    Some((at, if high > low { -run } else { run }))
+}
 
 /// Where `want` metres along the slope falls, on the line `across` off the axis.
 ///
