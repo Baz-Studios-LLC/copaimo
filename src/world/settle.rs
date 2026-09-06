@@ -242,6 +242,72 @@ fn along_the_slope(site: &Site, at: Vec2) -> f32 {
     (at - site.at + drift_in(site, at)).dot(up) + site.plan.reaches(site.radius)
 }
 
+/// How far the hillside a settlement stands on falls across it, as a share of the
+/// rise the terraces will cut it into.
+///
+/// The hill is what the terraces are cut FROM, so this only has to be enough that
+/// its shape survives quantising: too little and the whole town lands on one band.
+const HILL_FALLS: f32 = 1.0;
+
+/// How much of that fall is lumps rather than a steady tilt.
+///
+/// # Contours you can lay a street along
+///
+/// A pure tilt gives straight parallel contours - which is where the terraces
+/// started, and they were called what they are. The lumps bend them into the
+/// wandering lines a real hillside has, and it is the SAME field the streets are
+/// warped through, so a street laid along a contour and the wall at its kerb bend
+/// together instead of disagreeing.
+const HILL_LUMPS: f32 = 0.42;
+
+/// The hillside a settlement stands on, rising with the ground it faces away from.
+///
+/// # The slope comes first, and the streets follow it
+///
+/// This is the thing that was missing, and it is why walls kept turning up in the
+/// middle of fields with level ground either side of them.
+///
+/// The terraces used to be cut from the BLOCKS - a level per block, dealt by how far
+/// along the town the block lay. That put the level wherever the streets happened to
+/// leave a block boundary, and since the streets were grown without any idea of a
+/// slope, the boundaries ran every which way. A terrace edge would cross open ground
+/// with nothing built on either side of it, and a wall would be built there holding
+/// back a field.
+///
+/// Every account of how hill towns are actually built says the opposite: paths hold
+/// the grade near its lowest practical value and WIND ALONG THE CONTOURS, and the
+/// ways that climb are steps rather than roads. The slope is the primary thing and
+/// the streets are laid on it.
+///
+/// So the hill exists first, on its own, and everything else reads it: the terraces
+/// are its contours, the growth prefers to run along them, and a wall stands where a
+/// contour has a street on it.
+pub fn hill(site: &Site, at: Vec2) -> f32 {
+    let up = Vec2::from_angle(site.bearing);
+    let reaches = site.plan.reaches(site.radius).max(1.0);
+    // A steady fall from the side the road arrives on to the far side - arrival low,
+    // civic high, which is the order the concept has.
+    let tilt = (at - site.at).dot(up) / reaches;
+    // And the same wandering field the streets are bent through, so the two agree.
+    let lump = drift(at).x / WANDERS;
+    (tilt + lump * HILL_LUMPS) * HILL_FALLS
+}
+
+/// Which way is ALONG the hillside here: the contour, not the fall line.
+///
+/// What a street wants to do, and what a wall stands on.
+pub fn contour_at(site: &Site, at: Vec2) -> Vec2 {
+    let step = 4.0;
+    let fall = Vec2::new(
+        hill(site, at + Vec2::X * step) - hill(site, at - Vec2::X * step),
+        hill(site, at + Vec2::Y * step) - hill(site, at - Vec2::Y * step),
+    );
+    if fall.length_squared() < 1.0e-12 {
+        return Vec2::from_angle(site.bearing).perp();
+    }
+    fall.normalize().perp()
+}
+
 /// About how wide one terrace wants to be, in metres.
 ///
 /// Wanted rather than used: the number actually used is this rounded to fit the
@@ -633,31 +699,26 @@ pub fn terrace_the_town(
         middles.push((sum / many.max(1.0), many));
     }
 
-    // ------------------------------------------------ 3. the terrace each block is on
+    // -------------------------------- 3. the terrace each block is on, by its hill
     //
-    // # By SHARE OF THE TOWN, not by distance along the slope
+    // # From the HILLSIDE, and cut into equal shares of the town
     //
-    // This cut the slope into bands of equal width and dealt each block the band its
-    // middle fell in. A town is round, so bands of equal width across a diameter
-    // hold wildly unequal amounts of it: measured, the middle band held 78% of the
-    // ground and the two ends 12% and 10% between them. One enormous platform with a
-    // sliver at each end is not a terraced town, and it is why the terraces did not
-    // read - there were only two edges in the whole city.
+    // The level used to come from how far along the town a block lay. That is a
+    // property of the block, so a terrace edge landed wherever the streets happened
+    // to leave a boundary - across open ground as readily as along a street - and
+    // walls were built holding back fields. See `hill`, which is the slope the
+    // streets are now laid on rather than something cut across them afterwards.
     //
-    // So the blocks are ranked by how far along the slope they lie and cut into
-    // bands of equal AREA. Every terrace is then a real quarter of the town with
-    // real edges round it, however the town is shaped - and the same rule holds for
-    // a long thin one as for a round one, which an equal-width band never could.
+    // Equal SHARES, because a town is round and equal widths of hillside across a
+    // diameter hold wildly unequal amounts of it: measured at 12 / 78 / 10 per cent
+    // when this was cut by height, which is one platform and two slivers.
+    let heights: Vec<f32> = middles.iter().map(|(middle, _)| hill(site, *middle)).collect();
     let mut ranked: Vec<usize> = (0..middles.len()).collect();
-    ranked.sort_by(|&a, &b| {
-        along_the_slope(site, middles[a].0).total_cmp(&along_the_slope(site, middles[b].0))
-    });
+    ranked.sort_by(|&a, &b| heights[a].total_cmp(&heights[b]));
     let whole: f32 = middles.iter().map(|(_, area)| *area).sum();
     let mut levels = vec![0.0_f32; middles.len()];
     let mut so_far = 0.0_f32;
     for which in ranked {
-        // The band this block's own share falls in, measured at its middle so a
-        // large block is not split between two terraces.
         let share = (so_far + middles[which].1 * 0.5) / whole.max(1.0);
         levels[which] = (share * bands).floor().clamp(0.0, bands - 1.0);
         so_far += middles[which].1;

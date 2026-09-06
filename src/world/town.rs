@@ -3077,6 +3077,13 @@ fn perimeter_streets(on: &Ground, plan: Plan, ways: &mut Vec<Way>, parcels: &mut
 /// Turned off the compass by the approach bearing, because a grid aligned to north
 /// reads as the world's axes rather than as a decision somebody made, and because
 /// the road into town should meet it at the angle it arrives at.
+/// How strongly a growing street is pulled onto the contour, nought to one.
+///
+/// Not all the way: a town whose every street ran level would be a set of contour
+/// lines with no way up it. Two thirds leaves the bends and the branches free while
+/// making the run of a street follow the hillside - see `grown_streets`.
+const CONTOUR_PULLS: f32 = 0.32;
+
 /// The most streets a grown plan lays before it stops.
 const GROWN_MOST: usize = 300;
 
@@ -3158,6 +3165,7 @@ fn nearest_on(seg: (Vec2, Vec2), at: Vec2) -> (Vec2, f32) {
 /// arranged here.
 fn grown_streets(
     on: &Ground,
+    for_site: Option<&Site>,
     arriving: &[Street],
     ways: &mut Vec<Way>,
     parcels: &mut Vec<Parcel>,
@@ -3401,6 +3409,30 @@ fn grown_streets(
         let ahead = Vec2::from_angle(
             along.y.atan2(along.x) + (roll(salt, 31) - 0.5) * 2.0 * bends,
         );
+        // AND PULLED TOWARD THE CONTOUR.
+        //
+        // A street on a hillside does not go wherever it was pointed. Every account
+        // of how these towns are actually built says the same thing: a path holds
+        // the grade near its lowest practical value and winds ALONG the slope, and
+        // the ways that climb are steps rather than roads.
+        //
+        // Growing without that was the fault under most of the rest. Streets ran in
+        // every direction, so terrace edges crossed them at every angle - a wall
+        // ended up in open ground as readily as along a street, roads had to ramp
+        // because they were forever changing level, and nothing lined up with
+        // anything. Pulling each new street toward the contour is what makes a
+        // terrace edge and a street the same line, which is what the concept art
+        // shows and what a hill town is.
+        //
+        // A pull rather than a rule: a street that only ever ran level would draw
+        // contour lines, and a town needs its ways up as well.
+        let ahead = if let Some(site) = for_site {
+            let contour = crate::world::settle::contour_at(site, to);
+            let with = if contour.dot(ahead) < 0.0 { -contour } else { contour };
+            (ahead * (1.0 - CONTOUR_PULLS) + with * CONTOUR_PULLS).normalize_or_zero()
+        } else {
+            ahead
+        };
         queue.push_back(Sprout {
             from: to,
             dir: ahead,
@@ -4138,7 +4170,7 @@ pub fn lay_out(site: &Site, crossing: &[Street], seed: u32) -> Layout {
     // twice already.
     let plan = site.plan;
     if site.first {
-        grown_streets(&on, crossing, &mut ways, &mut parcels);
+        grown_streets(&on, Some(site), crossing, &mut ways, &mut parcels);
     } else if plan != Plan::Rings {
         match plan {
             Plan::Grid => grid_streets(&on, &mut ways, &mut parcels),
