@@ -3014,3 +3014,52 @@ over exactly one cell, which is the ramp the wall was built to fill.
 
 Walls follow the streets they retain: every street is asked whether the land differs
 across it, and where it does the wall stands at the far kerb.
+
+## Torn paving, and the ground under a road
+
+**Issue.** Setts shot through with shards of grass, all over the first city,
+photographed four times.
+
+**Solution.** Not overlapping streets - measured, zero pairs. It was the ground: a
+street that runs from one terrace to the next changed level over the width of the
+riser, 3.6 m in 3 m, underneath the carriageway. The paving is a mesh laid over the
+terrain and cannot follow a step that sharp, so the ground came through it.
+
+The level is smoothed ALONG the streets now and nowhere else, so a road climbs over
+about twenty metres - a road on a hill - while the ground either side keeps the hard
+step the wall was built to fill. Roads ramp; walls step.
+
+**Worth knowing.** Smoothing in all four directions instead of along the road also
+smears the drop ACROSS the street - and the retaining wall stands at that street's
+kerb, in the very step being smeared. Measured: a wall's foot reading 24.52 where the
+ground it retains is 22.70. That is why the terraces had stopped reading as terraces.
+
+## A wall standing in a field, and a stair standing in a wall
+
+**Issue.** Walls with level ground either side of them, walls a metre clear of the
+pavement they hold up, and a flight of steps a warden walks up to and stops at.
+
+**Solution.** Three separate things.
+
+The wall stood `street.wide * 0.5 + 2` from the middle of the road and then half its
+own thickness further - three and a half metres past the kerb, with grass between the
+pavement and the wall. Its FACE belongs on the kerb line.
+
+The step was measured once for a whole street and a wall run down all of it. A block
+edge is rarely a whole street long, so walls appeared in open grass. Each tile asks
+about its own piece of ground now.
+
+And a flight in an unbroken run has the wall through its own steps, which is solid.
+The run is split for it.
+
+**Worth knowing.** The flight's foot was read two metres past the wall, where
+`stands_at` - which answers with the HIGHEST corner it samples, rightly, for seating a
+building - was still catching the terrace above: 26.29 where the ground below is
+22.70, leaving the bottom step a 3.6 m ledge. At seven and a half metres it was still
+24.53, because the terrain blends the drop over about six. So the flight hangs from
+its LANDING instead, which is the join that has to be exact: a stair whose top is a
+step off the footway is wrong every time anybody uses it.
+
+Flights also moved out of the streets and into the walls. Putting them where a street
+changes terrace was right while a street changed terrace abruptly; once roads ramp,
+a flight standing on a ramp fights the ground under it.

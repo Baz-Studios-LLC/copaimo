@@ -518,6 +518,13 @@ impl Terraces {
     }
 }
 
+/// How many passes of smoothing a street's own level gets.
+///
+/// Each pass spreads a step by about a cell either way, so seven of them at a 3 m
+/// cell carry 3.6 m of rise over something like twenty metres - a slope of about one
+/// in six, which is a steep street and not a wall in the road.
+const STREET_RAMPS: usize = 11;
+
 /// The terraces of the one city that has them.
 ///
 /// # Why this is a static
@@ -561,6 +568,9 @@ pub fn terrace_the_town(
 
     // ------------------------------------------------------- 1. stamp the streets
     let mut street = vec![false; across * across];
+    // WHICH WAY EACH STREET CELL RUNS, so its level can be ramped ALONG the road
+    // without being smeared ACROSS it - see the note where this is used.
+    let mut runs = vec![Vec2::ZERO; across * across];
     for lane in streets {
         let run = lane.to - lane.from;
         let length = run.length();
@@ -581,7 +591,9 @@ pub fn terrace_the_town(
                         continue;
                     }
                     if cell_at(x as usize, y as usize).distance(on) <= wide {
-                        street[y as usize * across + x as usize] = true;
+                        let cell = y as usize * across + x as usize;
+                        street[cell] = true;
+                        runs[cell] = run / length;
                     }
                 }
             }
@@ -639,6 +651,7 @@ pub fn terrace_the_town(
     // Spread outward from the blocks until every street cell has a level, taking
     // the highest that reaches it - which puts the whole carriageway on the terrace
     // above and leaves the wall standing at its far kerb.
+    let mut filled = vec![false; across * across];
     for _ in 0..((8.0 / step).ceil() as usize + 2) {
         let was = cells.clone();
         for cell in 0..across * across {
@@ -655,6 +668,62 @@ pub fn terrace_the_town(
                 best = best.max(was[ny as usize * across + nx as usize]);
             }
             cells[cell] = best;
+            filled[cell] = true;
+        }
+    }
+
+    // ------------------------------------ 5. AND A ROAD RAMPS WHERE A WALL STEPS
+    //
+    // A street that runs from one terrace to the next has to change level somewhere
+    // along its length, and until now it did so over the width of the riser - 3.6 m
+    // of ground in 3 m, underneath the carriageway. The paving is a mesh laid over
+    // the terrain and it cannot follow a step that sharp: the ground came through
+    // it, and what that looks like is torn setts with shards of grass in them, all
+    // over the first city and photographed four times.
+    //
+    // So the level is smoothed ALONG THE STREETS and nowhere else. A road climbs
+    // gently over twenty metres or so - which is a road on a hill - while the ground
+    // either side of it keeps the hard step the retaining wall was built to fill.
+    // Roads ramp; walls step.
+    for _ in 0..STREET_RAMPS {
+        let was = cells.clone();
+        for cell in 0..across * across {
+            if !filled[cell] {
+                continue;
+            }
+            let (x, y) = (cell % across, cell / across);
+            let (mut sum, mut many) = (was[cell], 1.0_f32);
+            for (dx, dy) in [(1_i32, 0_i32), (-1, 0), (0, 1), (0, -1)] {
+                // ALONG THE ROAD ONLY.
+                //
+                // Averaging in all four directions ramps the road AND smears the
+                // drop across its width - and the retaining wall stands at that
+                // road's kerb, in the very step being smeared. Measured: a wall's
+                // foot reading 24.52 where the ground it retains is 22.70, so the
+                // step it was built to fill was half gone. That is why the terraces
+                // stopped reading as terraces at all.
+                //
+                // A road climbs along itself and drops away at its kerb, so only
+                // neighbours lying along this cell's own street count.
+                let way = Vec2::new(dx as f32, dy as f32);
+                // Fully along the road; barely across it. A hard edge across the
+                // carriageway leaves the pads either side of it disagreeing by a
+                // finger's width, which `the_ground_between_two_buildings_has_no
+                // _step_in_it` reads as a seam - and a quarter of a share is enough
+                // to take that out while leaving the kerb its drop.
+                let share = if runs[cell].dot(way).abs() < 0.5 { 0.25 } else { 1.0 };
+                let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+                if nx < 0 || ny < 0 || nx >= across as i32 || ny >= across as i32 {
+                    continue;
+                }
+                let next = ny as usize * across + nx as usize;
+                if !filled[next] {
+                    continue;
+                }
+                sum += was[next] * share;
+                many += share;
+            }
+            cells[cell] = sum / many;
         }
     }
 
