@@ -58,6 +58,16 @@ pub struct Site {
     /// How far along this settlement is - see `world::town::Era`. Filled once
     /// every site is placed, from its rank by distance out from the ranch.
     pub era: crate::world::town::Era,
+    /// The seed this settlement's own layout is dealt from.
+    ///
+    /// Carried rather than worked out from the site's index at each call site -
+    /// `lay_the_site_out` had it, and `world::town::PlanShape` needs the same one
+    /// to place the same radials.
+    pub seed: u32,
+    /// The measurements this settlement's plan is laid out from - see
+    /// `world::town::PlanShape`. Filled once `bearing` is known, because the
+    /// radials are set out from the road that arrives.
+    pub shape: crate::world::town::PlanShape,
     /// Whether this is the FIRST city out from the ranch: the one a player walks
     /// into before any other, and the one being built to the concept art.
     ///
@@ -636,6 +646,20 @@ pub fn pad_reaches(half: Vec2) -> f32 {
     PAD_HOLDS + PAD_SKIRT + half.length() * PAD_SPREADS
 }
 
+impl Site {
+    /// The same site, facing a different way.
+    ///
+    /// Sets the bearing AND the plan shape that follows from it, because the
+    /// radials are set out from the road that arrives - see `world::town::PlanShape`.
+    /// Two statements of which way a town faces is how a spine came to be laid along
+    /// one axis and measured along another.
+    pub fn facing(mut self, approach: Vec2) -> Self {
+        self.bearing = approach.y.atan2(approach.x);
+        self.shape = crate::world::town::PlanShape::of(&self);
+        self
+    }
+}
+
 pub struct Settlements {
     sites: Vec<Site>,
     roads: Vec<Road>,
@@ -845,6 +869,8 @@ impl Settlements {
             // The ranch is the origin of the progression, not a step in it.
             era: crate::world::town::Era::Old,
             first: false,
+            seed: 0,
+            shape: Default::default(),
             // A ranch is not a settlement and `world::town` skips it; this is here
             // because the field exists, not because it means anything.
             character: crate::world::town::Character::of(0),
@@ -872,6 +898,8 @@ impl Settlements {
                 // Ranked below, once every site is placed.
                 era: crate::world::town::Era::default(),
                 first: false,
+                seed: 0,
+                shape: Default::default(),
                 city,
                 // Dealt round the settlements in order, so a world cannot come out
                 // with seven capitals by luck. See `world::town::Character`.
@@ -968,6 +996,15 @@ impl Settlements {
             })
         {
             settlements.sites[which].first = true;
+        }
+
+        // AND THE SHAPE OF EACH PLAN, last, because the radials are set out from
+        // the road that arrives and `bearing` is only settled above.
+        for which in 0..settlements.sites.len() {
+            settlements.sites[which].seed =
+                crate::config::WORLD_SEED.wrapping_add(which as u32 * 7717);
+            settlements.sites[which].shape =
+                crate::world::town::PlanShape::of(&settlements.sites[which]);
         }
 
         // The streets inside each town, once there are sites and roads for the

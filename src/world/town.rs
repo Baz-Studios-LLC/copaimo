@@ -1888,6 +1888,142 @@ pub struct Layout {
     pub stairs: Vec<Stair>,
 }
 
+/// The most radials a plan is ever set out on: the road through, plus six.
+const SPOKES_MOST: usize = 8;
+
+/// The measurements a settlement's plan is laid out from.
+///
+/// # One derivation, because two things need the same blocks
+///
+/// These were local variables inside `lay_out`: the size of the square, the depth
+/// of a block, the pitch from one ring street to the next, how many rings there
+/// are, and where the radials run. That was fine while `lay_out` was the only thing
+/// that needed to know the shape of the plan.
+///
+/// The terraces need it too. A terrace edge in the concept art is the edge of a
+/// PLATFORM - a wall in straight runs turning corners, following the built fabric -
+/// and a level that is a function of POSITION can only ever produce bands, which is
+/// what they were called: streaks with a wobble on them. A level has to belong to a
+/// BLOCK, and this plan's blocks are the cells between two radials and two ring
+/// streets, so the terracing has to know exactly where those are.
+///
+/// Restating the formulas in `world::settle` would be the bug this project keeps
+/// meeting: one fact with two derivations, drifting the first time either moves. So
+/// they are computed once, here, and both sides read the same answer.
+///
+/// Held on the `Site` rather than worked out on demand, because `terrace_at` is
+/// asked millions of times to mesh a world. The radials are a fixed array rather
+/// than a `Vec` because `Site` is `Copy` and passed by value everywhere; a plan has
+/// at most a pair for the road through plus six more, so the capacity is a fact
+/// about the plan rather than a guess.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PlanShape {
+    /// How far out the plan is drawn, which is short of the settlement's radius.
+    pub reach: f32,
+    /// The radius of the market square at the middle.
+    pub square: f32,
+    /// How deep one row of frontage is.
+    pub depth: f32,
+    /// The pitch from one ring street to the next.
+    pub band: f32,
+    /// How many rings of blocks there are outside the square.
+    pub rings: usize,
+    /// Where the radials run, sorted, in radians. Read with `spokes()`.
+    spokes: [f32; SPOKES_MOST],
+    many: usize,
+    pub high_street: f32,
+    pub lane: f32,
+    seed: u32,
+}
+
+impl PlanShape {
+    /// The plan a site implies.
+    ///
+    /// A pure function of the site, so neither the layout nor the terracing has to
+    /// run before the other can ask.
+    pub fn of(site: &Site) -> Self {
+        let reach = town_reaches(site);
+        let square = (reach * 0.19).clamp(11.0, 17.0);
+        let depth = (reach * 0.16).clamp(14.0, 22.0);
+        let (high_street, lane) = if site.city {
+            (CITY_STREET_WIDE, CITY_LANE_WIDE)
+        } else {
+            (STREET_WIDE, LANE_WIDE)
+        };
+        let band = depth * 2.0 + lane + SETBACK * 2.0;
+        let most = if site.city { 5 } else { 2 };
+        let rings = (((reach - square) / band).floor() as usize).clamp(1, most);
+
+        // The radials. One PAIR of them is the road that got here, carried straight
+        // through the square and out the other side.
+        let through = site.bearing;
+        let mut spokes = [0.0_f32; SPOKES_MOST];
+        spokes[0] = through;
+        spokes[1] = through + std::f32::consts::PI;
+        let mut many = 2;
+        let want = if site.city { 6 } else { 4 };
+        for extra in 0..want {
+            // Irregularly spaced, because a town is not a wheel.
+            let turn = through
+                + std::f32::consts::TAU
+                    * (extra as f32 + 0.5 + 0.42 * unit(site.seed, 60 + extra as u32))
+                    / want as f32;
+            // Never so close to an existing radial that the block between them is a
+            // wedge too thin to build on.
+            if many < SPOKES_MOST
+                && spokes[..many]
+                    .iter()
+                    .all(|had: &f32| angle_between(*had, turn) > 0.55)
+            {
+                spokes[many] = turn;
+                many += 1;
+            }
+        }
+        spokes[..many].sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        PlanShape {
+            reach,
+            square,
+            depth,
+            band,
+            rings,
+            spokes,
+            many,
+            high_street,
+            lane,
+            seed: site.seed,
+        }
+    }
+
+    /// The radials this plan is set out on, sorted.
+    pub fn spokes(&self) -> &[f32] {
+        &self.spokes[..self.many]
+    }
+
+    /// The radius of ring `n` where the `spoke`th radial crosses it.
+    ///
+    /// Not a circle: each ring is pulled in or pushed out at every radial, so a ring
+    /// is a wandering polygon and a block is a quadrilateral. That jitter was
+    /// already here - this only gives it a name both sides can call.
+    pub fn ring_r(&self, spoke: usize, n: usize) -> f32 {
+        if n == 0 {
+            return self.square;
+        }
+        (self.square + self.band * n as f32)
+            * (0.86 + 0.27 * unit(self.seed.wrapping_add(spoke as u32 * 31), 70 + n as u32))
+    }
+
+    /// How far out the `spoke`th radial actually goes.
+    pub fn spoke_reaches(&self, spoke: usize) -> usize {
+        let roll = unit(self.seed.wrapping_add(spoke as u32 * 53), 80);
+        if roll < 0.22 && self.rings > 1 {
+            self.rings - 1
+        } else {
+            self.rings
+        }
+    }
+}
+
 /// A run of retaining wall holding up the edge of one terrace.
 ///
 /// # What makes a terrace a terrace
@@ -3275,7 +3411,7 @@ pub fn lay_the_site_out(
     key: usize,
     site: &crate::world::settle::Site,
 ) -> Layout {
-    lay_out(site, plan.approach(site.at),
+    lay_out(site,
         &roads_through(plan, site),
         crate::config::WORLD_SEED.wrapping_add(key as u32 * 7717),
     )
@@ -3446,7 +3582,12 @@ pub fn roads_through(
 ///
 /// `approach` is the direction the road network arrives from, which the high street
 /// is built along. `seed` separates one town's dice from another's.
-pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> Layout {
+/// `approach` used to be a parameter. It is not, because it was already a field:
+/// `Site::bearing` is set from the same vector, and carrying a second copy let a
+/// town be LAID on one axis and MEASURED on another the moment the radials started
+/// coming from the site. Point a site somewhere else with `Site::facing`.
+pub fn lay_out(site: &Site, crossing: &[Street], seed: u32) -> Layout {
+    let approach = Vec2::from_angle(site.bearing);
     let reach = site.radius * FILLS;
     if reach < 24.0 {
         return Layout::default();
@@ -3468,84 +3609,18 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // it is worth the most.
     //
     // Every one of those is a thing this plan now has and the last two did not.
-    let square = (reach * 0.19).clamp(11.0, 17.0);
-    // A block has to be deep enough for the DEEPEST building plus its air, or a lot
-    // passes the frontage rule and then nothing will stand on it. That is what
-    // happened when the air around a building went from 1.6 m to 4: a cottage needs
-    // 7.5 + 4 = 11.5 m of depth, the floor here was 9, and every village in the
-    // world came out with zero buildings in it while the frontage rule took the
-    // blame. The floor is the requirement, not a round number.
-    let depth = (reach * 0.16).clamp(14.0, 22.0);
-    // HOW WIDE THIS PLACE'S STREETS ARE.
+    // THE PLAN'S OWN MEASUREMENTS, read rather than worked out again here.
     //
-    // A city's are wider than a village's by exactly the two footways they carry -
-    // see `CITY_STREET_WIDE`. Decided once, here, and handed to everything that
-    // lays a road, so the width a street is drawn at, the width the warden walks,
-    // and the width the buildings are set back from are one number.
-    //
-    // Bound HERE, above `band`, because `band` depends on it. It used to sit two
-    // hundred lines below and `band` used the constant `LANE_WIDE` instead - see
-    // the note on `band`.
-    let (high_street, lane) = if site.city {
-        (CITY_STREET_WIDE, CITY_LANE_WIDE)
-    } else {
-        (STREET_WIDE, LANE_WIDE)
-    };
-
-    // One ring per band of blocks, out as far as the town reaches.
-    //
-    // # A block that was three metres eight too small for what stood in it
-    //
-    // The pitch from one street to the next has to hold a lane and two rows of
-    // frontage with their setbacks, and this said `LANE_WIDE` - the VILLAGE lane,
-    // 4.2 m - while a city's lanes are `CITY_LANE_WIDE`, 8.0. So in every city
-    // the two rows of buildings were dealt 3.8 m more depth than the block
-    // actually had, and their backs interpenetrated by that much; along a high
-    // street, 5.8. It never showed as a fault because `clear_of_buildings` simply
-    // refused the ones that collided, so it read as a city that had fewer
-    // buildings than it asked for rather than as a block that was too small.
-    //
-    // It also left nowhere to put a back lane, which is what turned this up:
-    // measured, the gap between the two rows' backs was NEGATIVE 3.8 m.
-    let band = depth * 2.0 + lane + SETBACK * 2.0;
-    // A city may have three bands of blocks; a village has one or two. A place with
-    // forty houses does not need three ring roads, and giving it them is what turned
-    // the ranch's town into a small city.
-    // Two bands for a city and ONE for a village. Three rings of blocks is a
-    // county town; the ranch's neighbour had a hundred buildings in it.
-    // A CITY GETS THE RINGS ITS SIZE IMPLIES. This was two for both, which was
-    // right when a city was 232 m across and is not now: at 340 m a two-ring town
-    // has streets over its inner third and empty levelled ground round the rest, so
-    // the lot supply ran out long before the ninety-six buildings a city has.
-    //
-    // The note below is about a VILLAGE, and it stands - three rings of blocks round
-    // a hamlet is a county town. A city is the other thing.
-    let most = if site.city { 5 } else { 2 };
-    let rings = (((reach - square) / band).floor() as usize).clamp(1, most);
-
-    // The radials. One PAIR of them is the road that got here, carried straight
-    // through the square and out the other side - a town on a road has that road
-    // as its main street, and everything else is arranged around it.
-    let through = approach.y.atan2(approach.x);
-    let mut spokes = vec![through, through + std::f32::consts::PI];
-    let want = if site.city { 6 } else { 4 };
-    for extra in 0..want {
-        // Irregularly spaced, because a town is not a wheel. Terrain, ownership and
-        // where the last cart went are what set these in a real one, and an even
-        // fan is the one thing that reads as drawn rather than grown.
-        let turn = through
-            + std::f32::consts::TAU * (extra as f32 + 0.5 + 0.42 * unit(seed, 60 + extra as u32))
-                / want as f32;
-        // Never so close to an existing spoke that the block between them is a
-        // wedge too thin to build on.
-        if spokes
-            .iter()
-            .all(|had: &f32| angle_between(*had, turn) > 0.55)
-        {
-            spokes.push(turn);
-        }
-    }
-    spokes.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    // The square, the block depth, the pitch between ring streets, the ring count
+    // and the radials were all computed inline. The terracing needs the same numbers
+    // - a terrace level belongs to a BLOCK, and this plan's blocks are the cells
+    // between two radials and two rings - so they live in one place now and both
+    // sides read it. See `PlanShape`.
+    let shape = site.shape;
+    let (square, depth, band, rings) = (shape.square, shape.depth, shape.band, shape.rings);
+    let (high_street, lane) = (shape.high_street, shape.lane);
+    let spokes = shape.spokes();
+    let through = site.bearing;
 
     // HOW WIDE THIS PLACE'S STREETS ARE.
     //
@@ -3599,18 +3674,10 @@ pub fn lay_out(site: &Site, approach: Vec2, crossing: &[Street], seed: u32) -> L
     // edge of town is the commonest thing there is. The blocks between then come out
     // all different sizes, which is the point: a block that is the same as its
     // neighbour is a block somebody drew.
-    let ring_at = |n: usize| square + band * n as f32;
-    let ring_r = |spoke: usize, n: usize| -> f32 {
-        if n == 0 {
-            return square;
-        }
-        ring_at(n) * (0.86 + 0.27 * unit(seed.wrapping_add(spoke as u32 * 31), 70 + n as u32))
-    };
-    // How far out each radial actually goes.
-    let spoke_reaches = |spoke: usize| -> usize {
-        let roll = unit(seed.wrapping_add(spoke as u32 * 53), 80);
-        if roll < 0.22 && rings > 1 { rings - 1 } else { rings }
-    };
+    // Asked of the shape, so the ring a street is DRAWN on and the ring the
+    // terracing reads a block edge off are the same ring.
+    let ring_r = |spoke: usize, n: usize| shape.ring_r(spoke, n);
+    let spoke_reaches = |spoke: usize| shape.spoke_reaches(spoke);
     for spoke in 0..spokes.len() {
         let (a, b) = (spokes[spoke], spokes[(spoke + 1) % spokes.len()]);
         let from = site.at + Vec2::from_angle(a) * square;
@@ -9389,7 +9456,7 @@ mod tests {
         character: Character,
         plan: Plan,
     ) -> Site {
-        Site {
+        let mut site = Site {
             at: Vec2::new(120.0, -80.0),
             height: 30.0,
             radius,
@@ -9417,7 +9484,15 @@ mod tests {
             // are for what a plan IS; the first city's own shape is measured against
             // the real world, by the step, road and kerb guards and by `--drive`.
             first: false,
-        }
+            // The fixture's own seed, and the plan shape that follows from it.
+            // Filled here because nothing has run `Settlements::plan` over this one
+            // - which `PlanShape::of` allows precisely because it is a pure
+            // function of the site.
+            seed: crate::config::WORLD_SEED,
+            shape: PlanShape::default(),
+        };
+        site.shape = PlanShape::of(&site);
+        site
     }
 
     /// The same, of a named era, for the tests that care which world it is.
@@ -9447,7 +9522,7 @@ mod tests {
         // happens to put the guild hall where a lot was going to be.
         for seed in 0..40u32 {
         for (city, radius) in [(true, 120.0_f32), (false, 70.0)] {
-            let laid = lay_out(&a_site(city, radius), Vec2::new(0.6, -0.8).normalize(), &[], seed);
+            let laid = lay_out(&a_site(city, radius).facing(Vec2::new(0.6, -0.8).normalize()), &[], seed);
             let solid: Vec<&Plot> = laid.plots.iter().filter(|p| !p.what.is_yard()).collect();
 
             let corners = |plot: &Plot| {
@@ -9833,7 +9908,7 @@ mod tests {
     #[test]
     fn no_pavement_crosses_a_carriageway() {
         let site = a_site(true, 120.0);
-        let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), &[], 3);
+        let layout = lay_out(&site.facing(Vec2::new(0.7, -0.7).normalize()), &[], 3);
         assert!(!layout.nodes.is_empty(), "a city laid no meetings at all");
 
         let mut in_the_road = 0;
@@ -9930,7 +10005,7 @@ mod tests {
     #[test]
     fn a_road_stops_where_the_meeting_starts() {
         let site = a_site(true, 120.0);
-        let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), &[], 3);
+        let layout = lay_out(&site.facing(Vec2::new(0.7, -0.7).normalize()), &[], 3);
         let mut through = 0;
         let mut stopped = 0;
         for way in &layout.ways {
@@ -10395,7 +10470,7 @@ mod tests {
         // make it again; the name is the tell, because nobody would write that one
         // down as a design goal.
         for (city, radius) in [(true, 90.0_f32), (false, 55.0)] {
-            let laid = lay_out(&a_site(city, radius), Vec2::X, &[], 7);
+            let laid = lay_out(&a_site(city, radius).facing(Vec2::X), &[], 7);
             let halls = laid
                 .plots
                 .iter()
@@ -10413,7 +10488,7 @@ mod tests {
         let mut home = a_site(false, 55.0);
         home.ranch = true;
         assert!(
-            !lay_out(&home, Vec2::X, &[], 7)
+            !lay_out(&home.facing(Vec2::X), &[], 7)
                 .plots
                 .iter()
                 .any(|p| p.what == Building::GuildHall),
@@ -10428,7 +10503,7 @@ mod tests {
         // through them.
         for seed in 0..40 {
             let site = a_site(seed % 2 == 0, 70.0 + (seed % 5) as f32 * 12.0);
-            let layout = lay_out(&site, Vec2::new(1.0, 0.4).normalize(), &[], seed);
+            let layout = lay_out(&site.facing(Vec2::new(1.0, 0.4).normalize()), &[], seed);
             for plot in &layout.plots {
                 let half = plot.what.footprint().max_element() * 0.5;
                 for street in &layout.streets {
@@ -10449,7 +10524,7 @@ mod tests {
     fn no_two_buildings_stand_in_each_other() {
         for seed in 0..40 {
             let site = a_site(seed % 3 == 0, 60.0 + (seed % 7) as f32 * 10.0);
-            let layout = lay_out(&site, Vec2::Y, &[], seed);
+            let layout = lay_out(&site.facing(Vec2::Y), &[], seed);
             for (index, one) in layout.plots.iter().enumerate() {
                 for other in &layout.plots[index + 1..] {
                     let want = (one.what.footprint().max_element()
@@ -10472,7 +10547,7 @@ mod tests {
     fn a_town_keeps_inside_the_ground_that_was_levelled_for_it() {
         for seed in 0..30 {
             let site = a_site(seed % 2 == 0, 80.0);
-            let layout = lay_out(&site, Vec2::X, &[], seed);
+            let layout = lay_out(&site.facing(Vec2::X), &[], seed);
             for plot in &layout.plots {
                 let out = plot.at.distance(site.at);
                 assert!(
@@ -10508,7 +10583,7 @@ mod tests {
         {
             let site = a_site(*city, *radius);
             let approach = Vec2::new(0.82, 0.57).normalize();
-            let layout = lay_out(&site, approach, &[], *seed);
+            let layout = lay_out(&site.facing(approach), &[], *seed);
             let origin = (PAD + panel as u32 * 620 + 310, 320_u32);
             let to_px = |at: Vec2| {
                 let off = (at - site.at) * SCALE;
@@ -11149,7 +11224,7 @@ mod tests {
         let terrain = crate::world::terrain::Terrain::new();
         let plan = terrain.plan();
         let site = plan.sites()[0];
-        let layout = lay_out(&site, plan.approach(site.at), &[], crate::config::WORLD_SEED);
+        let layout = lay_out(&site, &[], crate::config::WORLD_SEED);
         assert!(!layout.streets.is_empty(), "the town has no streets");
 
         let paving = pave(&layout.ways, &layout.nodes, &layout.opens, &terrain, site.at, f32::from(u8::from(site.city)));
@@ -11205,7 +11280,7 @@ mod tests {
         let plan = terrain.plan();
         let climate = terrain.climate();
         let site = plan.sites()[0];
-        let layout = lay_out(&site, plan.approach(site.at), &[], crate::config::WORLD_SEED);
+        let layout = lay_out(&site, &[], crate::config::WORLD_SEED);
         println!("site at ({:.0},{:.0}) r={:.0}, {} buildings, {} streets",
             site.at.x, site.at.y, site.radius, layout.plots.len(), layout.streets.len());
 
@@ -11355,7 +11430,7 @@ mod tests {
     #[test]
     fn a_town_has_districts_and_they_do_not_look_alike() {
         let site = a_site(true, 190.0);
-        let layout = lay_out(&site, Vec2::X, &[], 9);
+        let layout = lay_out(&site.facing(Vec2::X), &[], 9);
 
         let mut counts = std::collections::HashMap::new();
         for plot in &layout.plots {
@@ -11434,7 +11509,7 @@ mod tests {
         let terrain = crate::world::terrain::Terrain::new();
         let plan = terrain.plan();
         let site = plan.sites()[0];
-        let layout = lay_out(&site, plan.approach(site.at), &[], crate::config::WORLD_SEED);
+        let layout = lay_out(&site, &[], crate::config::WORLD_SEED);
         println!("{} streets", layout.streets.len());
         let mesh = pave(&layout.ways, &layout.nodes, &layout.opens, &terrain, site.at, f32::from(u8::from(site.city)));
         use bevy::render::mesh::VertexAttributeValues;
@@ -11494,7 +11569,7 @@ mod tests {
     fn why_the_junction_landmarks_vanish() {
         for city in [true, false] {
             let site = a_site(city, if city { 190.0 } else { 95.0 });
-            let layout = lay_out(&site, Vec2::X, &[], 5);
+            let layout = lay_out(&site.facing(Vec2::X), &[], 5);
             let marks = layout.plots.iter().filter(|p| p.what.is_landmark()).count();
             let radials = layout
                 .streets
@@ -11530,7 +11605,7 @@ mod tests {
         for seed in 0..12 {
             for city in [true, false] {
                 let site = a_site(city, if city { 190.0 } else { 95.0 });
-                let layout = lay_out(&site, Vec2::new(0.6, -0.8).normalize(), &[], seed);
+                let layout = lay_out(&site.facing(Vec2::new(0.6, -0.8).normalize()), &[], seed);
 
                 let marks: Vec<&Plot> =
                     layout.plots.iter().filter(|p| p.what.is_landmark()).collect();
@@ -11681,7 +11756,7 @@ mod tests {
         // building. A guard that reruns the rule it is guarding cannot fail.
         for seed in 0..30 {
             let site = a_site(seed % 2 == 0, 85.0);
-            let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), &[], seed);
+            let layout = lay_out(&site.facing(Vec2::new(0.7, -0.7).normalize()), &[], seed);
             for plot in &layout.plots {
                 let half = plot.what.footprint() * 0.5;
                 let (sin, cos) = plot.facing.sin_cos();
@@ -11719,7 +11794,7 @@ mod tests {
         for seed in 0..30 {
             let site = a_site(seed % 2 == 0, 85.0);
             let approach = Vec2::new(0.7, -0.7).normalize();
-            let layout = lay_out(&site, approach, &[], seed);
+            let layout = lay_out(&site.facing(approach), &[], seed);
             for plot in &layout.plots {
                 // A landmark stands in the open ON a node - it has no frontage and
                 // faces nothing, which is exactly what makes it a landmark rather
@@ -11791,7 +11866,7 @@ mod tests {
         // city under the floor while every real one was still comfortably over it,
         // which is a test failing for a shape of city nobody will ever walk through.
         for seed in 0..30 {
-            let city = lay_out(&a_site(true, crate::config::CITY_RADIUS), Vec2::new(0.8, 0.6).normalize(), &[], seed);
+            let city = lay_out(&a_site(true, crate::config::CITY_RADIUS).facing(Vec2::new(0.8, 0.6).normalize()), &[], seed);
             // BUILDINGS, not everything standing. Yards went into `plots` and
             // straight into this count, so a settlement whose houses had collapsed
             // toward zero could still sail through on the strength of its gardens -
@@ -11804,7 +11879,7 @@ mod tests {
                 "seed {seed}: a city has {} buildings in it",
                 houses(&city)
             );
-            let village = lay_out(&a_site(false, crate::config::TOWN_RADIUS), Vec2::new(0.3, -0.95).normalize(), &[], seed);
+            let village = lay_out(&a_site(false, crate::config::TOWN_RADIUS).facing(Vec2::new(0.3, -0.95).normalize()), &[], seed);
             assert!(
                 houses(&village) >= 6,
                 "seed {seed}: a village has {} buildings in it",
@@ -11846,8 +11921,8 @@ mod tests {
     #[test]
     fn a_town_is_the_same_town_every_time_it_is_asked() {
         let site = a_site(true, 90.0);
-        let once = lay_out(&site, Vec2::X, &[], 21);
-        let twice = lay_out(&site, Vec2::X, &[], 21);
+        let once = lay_out(&site.facing(Vec2::X), &[], 21);
+        let twice = lay_out(&site.facing(Vec2::X), &[], 21);
         assert_eq!(once.plots.len(), twice.plots.len());
         for (a, b) in once.plots.iter().zip(&twice.plots) {
             assert_eq!(a.what, b.what);
@@ -12472,7 +12547,7 @@ mod facing {
     fn a_road_that_wanders_wider_is_walked_as_wide_as_it_is_drawn() {
         let terrain = crate::world::terrain::Terrain::new();
         let site = a_site(false, 70.0);
-        let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), &[], 3);
+        let layout = lay_out(&site.facing(Vec2::new(0.7, -0.7).normalize()), &[], 3);
         let mut built = Built::default();
         built.standing.insert(0, layout);
 
@@ -12688,7 +12763,7 @@ mod facing {
         use bevy::render::mesh::VertexAttributeValues;
         let terrain = crate::world::terrain::Terrain::new();
         let site = a_site(true, 120.0);
-        let layout = lay_out(&site, Vec2::X, &[], 3);
+        let layout = lay_out(&site.facing(Vec2::X), &[], 3);
         for paved in [0.3_f32, 0.5, 0.85] {
             let mesh = pave(&layout.ways, &layout.nodes, &layout.opens, &terrain, site.at, paved);
             // UV_1, WHICH IS WHERE THE PAVING AMOUNT LIVES.
@@ -12766,7 +12841,7 @@ mod facing {
             Character::Trade,
         ] {
             let site = tests::a_site_of(true, crate::config::CITY_RADIUS, character);
-            let laid = lay_out(&site, Vec2::new(0.6, -0.8).normalize(), &[], 5);
+            let laid = lay_out(&site.facing(Vec2::new(0.6, -0.8).normalize()), &[], 5);
             let asked = Open::wanted(character, Era::Modern);
 
             assert_eq!(
@@ -12869,7 +12944,7 @@ mod facing {
             for character in [Character::Capital, Character::Works] {
                 let site =
                     tests::a_site_on(true, crate::config::CITY_RADIUS, character, plan);
-                let laid = lay_out(&site, Vec2::new(0.6, -0.8).normalize(), &[], 5);
+                let laid = lay_out(&site.facing(Vec2::new(0.6, -0.8).normalize()), &[], 5);
 
                 // An end is joined if any OTHER street passes within touching of it.
                 // By INDEX, because a street is only ever unconnected to itself.
@@ -12925,7 +13000,7 @@ mod facing {
                 Character::Capital,
                 plan,
             );
-            let laid = lay_out(&site, Vec2::new(0.6, -0.8).normalize(), &[], 5);
+            let laid = lay_out(&site.facing(Vec2::new(0.6, -0.8).normalize()), &[], 5);
 
             // How much of the street length runs on each of two bearings, folded to
             // a half turn so a road and its reverse agree.
@@ -13014,7 +13089,7 @@ mod facing {
     fn a_capital_and_a_works_are_not_the_same_city() {
         let towers = |character: Character| {
             let site = tests::a_site_of(true, crate::config::CITY_RADIUS, character);
-            let laid = lay_out(&site, Vec2::new(0.6, -0.8).normalize(), &[], 5);
+            let laid = lay_out(&site.facing(Vec2::new(0.6, -0.8).normalize()), &[], 5);
             let tall = laid
                 .plots
                 .iter()
@@ -13290,7 +13365,7 @@ mod facing {
     #[test]
     fn a_meeting_reaches_the_corners_of_its_own_mouths() {
         let site = a_site(true, 120.0);
-        let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), &[], 3);
+        let layout = lay_out(&site.facing(Vec2::new(0.7, -0.7).normalize()), &[], 3);
         assert!(!layout.nodes.is_empty(), "a city laid no meetings at all");
         let mut worst = 0.0_f32;
         let mut where_at = Vec2::ZERO;
@@ -13388,7 +13463,7 @@ mod facing {
 
         for city in [false, true] {
             let site = a_site(city, if city { 120.0 } else { 70.0 });
-            let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), &[], 3);
+            let layout = lay_out(&site.facing(Vec2::new(0.7, -0.7).normalize()), &[], 3);
             for node in &layout.nodes {
                 // ONE NODE AT A TIME, so a triangle is asked about the surface it was
                 // built from rather than about its neighbour's.
@@ -13483,7 +13558,7 @@ mod facing {
         let mut nearest = f32::MAX;
         for city in [false, true] {
             let site = a_site(city, if city { 120.0 } else { 70.0 });
-            let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), &[], 3);
+            let layout = lay_out(&site.facing(Vec2::new(0.7, -0.7).normalize()), &[], 3);
             for one in 0..layout.nodes.len() {
                 for two in (one + 1)..layout.nodes.len() {
                     let (a, b) = (&layout.nodes[one], &layout.nodes[two]);
@@ -13643,7 +13718,7 @@ mod facing {
         let terrain = crate::world::terrain::Terrain::new();
         for city in [false, true] {
             let site = a_site(city, if city { 120.0 } else { 70.0 });
-            let layout = lay_out(&site, Vec2::new(0.7, -0.7).normalize(), &[], 3);
+            let layout = lay_out(&site.facing(Vec2::new(0.7, -0.7).normalize()), &[], 3);
             let mesh = pave(&layout.ways, &layout.nodes, &layout.opens, &terrain, site.at, f32::from(u8::from(city)));
             let Some(VertexAttributeValues::Float32x3(places)) =
                 mesh.attribute(Mesh::ATTRIBUTE_POSITION)
