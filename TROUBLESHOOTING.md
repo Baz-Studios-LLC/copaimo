@@ -2903,3 +2903,56 @@ reports 1.52 m.
 **Worth knowing.** Two fades in series, and only one of them knew what it was
 carrying. The skirt was written to put away a town's LEVEL — one number — and it was
 handed a staircase.
+
+## A terrace level that belongs to a block
+
+**Issue.** "Terraces are still just long streaks with a slight wobble." Correct, and
+warping them harder was never going to fix it.
+
+**Solution.** The level was a function of POSITION — how far along the slope a point
+lies, quantised — and the level set of a straight measure is a band. That is all it
+can ever be. The concept art's terrace edges are the edges of PLATFORMS: walls in
+straight runs that turn corners, following the streets and the blocks between them,
+with a street along the top of each wall.
+
+So the level belongs to the BLOCK. This plan's blocks are the cells between two
+radials and two ring streets, and every point in one gets the level its block was
+dealt — which puts the edges exactly on the streets and turns them where the streets
+turn, with no arranging.
+
+Three things had to be settled to get there:
+
+`PlanShape` — the square, the block depth, the ring pitch, the ring count and the
+radials were local variables inside `lay_out`. The terracing needs the same numbers,
+and restating them in `world::settle` would be one fact with two derivations. They
+are computed once from the site and both sides read them. `lay_out` also stopped
+taking an `approach`, because `Site::bearing` was already the same vector and a
+second copy let a town be laid on one axis and measured on another.
+
+Where the step goes — a block edge is the MIDDLE of a street, and a street cannot be
+split down its length by a wall. The step is pushed clear into the lower block, so
+the carriageway and both footways stand on the terrace above and the wall holds them
+up from the far kerb.
+
+Every edge, not the nearest — the ramp has to be taken from all four edges of a
+block and the highest answer kept. Asking only the nearest left a hard 3.60 m cliff
+at (-2692, 1969), which `levelling_never_puts_a_step_in_the_ground` refused on sight:
+a point in a corner is near two edges, and a point whose nearest edge has no step can
+still be inside the ramp of one that does.
+
+**Worth knowing.** Two things nearly went out with it.
+
+A block's level takes a domain-warp sample and some trigonometry, and `terrace_at`
+needs five of them per point — its own block and the four over its edges. On the
+terrain's hot path that is about eight Perlin evaluations a sample, and the symptom
+was not slowness: `--photo` stopped writing its screenshot at that city and only
+that city, because the world no longer streamed in fast enough for the file to be
+written before the process finished. There are at most forty-eight blocks; they are
+worked out once and read from a table.
+
+And the wall's own street nearly refused it. A block edge IS a street, so testing the
+wall against every road rejected it for the very street it retains — 16 pieces of
+wall against 60 flights of steps. A road running ALONG a wall is the road on top of
+it; only a road crossing it is a way through. Twelve degrees, not thirty: at thirty a
+street meeting a wall at twenty degrees was read as parallel and got a wall through
+it, which `--drive` caught as a terrace a warden could not climb.

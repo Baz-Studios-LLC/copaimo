@@ -357,13 +357,16 @@ pub const RISER_RUNS: f32 = 3.0;
 
 /// Which terrace a point stands on, counting from the low edge.
 pub fn band_of(site: &Site, at: Vec2) -> f32 {
-    let (bands, every) = terraces_of(site);
+    let (bands, _) = terraces_of(site);
     if bands < 2.0 {
         return 0.0;
     }
-    (along_the_slope(site, at) / every)
-        .floor()
-        .clamp(0.0, bands - 1.0)
+    // THE BLOCK'S LEVEL, which is where a terrace's level now lives - see
+    // `terrace_at`. Asking the slope directly would answer for the band this point
+    // is in rather than for the platform it stands on, and those are different
+    // questions the moment a level belongs to a block.
+    let (sector, ring) = site.shape.block_of(site.at, at);
+    block_level(site, sector, ring)
 }
 
 /// Where a straight run crosses from one terrace to the next, if it does.
@@ -474,37 +477,95 @@ pub const TERRACE_HOLDS: f32 = 40.0;
 /// one a road arrives at and the highest is at the far side - arrival low, civic
 /// high, which is the order the concept has and the order a hill town has for the
 /// reason that you build the important thing where it is seen.
+/// The terrace a BLOCK stands on, counting from the low side of the settlement.
+///
+/// Decided from one point inside the block - see `PlanShape::block_middle` - so the
+/// whole block is one level and its edges land on the streets around it.
+pub fn block_level_at(
+    site: &Site,
+    shape: &crate::world::town::PlanShape,
+    sector: usize,
+    ring: usize,
+) -> f32 {
+    let (bands, every) = terraces_of(site);
+    let middle = shape.block_middle(site.at, sector, ring);
+    (along_the_slope(site, middle) / every)
+        .floor()
+        .clamp(0.0, bands - 1.0)
+}
+
+/// The same, read from the table the site already holds.
+pub fn block_level(site: &Site, sector: usize, ring: usize) -> f32 {
+    site.shape.level_of(sector, ring)
+}
+
+/// How high a settlement's ground stands at a point, above its own base.
+///
+/// # A level belongs to a block, not to a position
+///
+/// This was a function of how far a point lies along the slope, quantised - which
+/// can only ever produce parallel bands, because that is what the level set of a
+/// straight measure is. Warping the measure made them bend, and they were still
+/// bands: "terraces are still just long streaks with a slight wobble".
+///
+/// The concept art settles what they should be. Its terrace edges are the edges of
+/// PLATFORMS: walls in straight runs that turn corners, following the streets and
+/// the blocks between them, with a street running along the top of each wall. That
+/// is not a shape a position-field has; it is the shape of the built fabric.
+///
+/// So the level belongs to the BLOCK. This plan's blocks are the cells between two
+/// radials and two ring streets - see `world::town::PlanShape` - and every point in
+/// one gets the level its block was dealt. The edges are then exactly the streets,
+/// they turn corners where the streets do, and a whole quarter of the town is one
+/// platform.
+///
+/// # Where the step goes, given the boundary is a street
+///
+/// A block edge is the MIDDLE of a street, and a street cannot be split down its
+/// length by a retaining wall. So the step is pushed clear into the lower block by
+/// `street_clears`: the carriageway and both footways stand on the upper terrace,
+/// and the wall stands at the far kerb holding them up. That is what the concept
+/// shows wherever it shows a wall.
 pub fn terrace_at(site: &Site, at: Vec2) -> f32 {
     // Which is nought bands for anything that is not a terraced city - see
     // `terraces_of`, which is the one place that is decided.
-    let (bands, every) = terraces_of(site);
+    let (bands, _) = terraces_of(site);
     if bands < 2.0 {
         return 0.0;
     }
-    let along = along_the_slope(site, at);
-    let band = (along / every).floor().clamp(0.0, bands - 1.0);
-    let into = along - band * every;
-    // THE RISER SITS BETWEEN TWO BANDS, so the FIRST band has none.
+    let shape = &site.shape;
+    let (sector, ring) = shape.block_of(site.at, at);
+    let mine = block_level(site, sector, ring);
+
+    // EVERY EDGE OF THE BLOCK, and the highest answer among them.
     //
-    // It used to ramp at the start of every band including the nought-th, which
-    // put a 3.6 m step across the town's own boundary - so every road in the world
-    // arrived at a wall. `a_road_arriving_at_a_town_takes_the_towns_level` measured
-    // it at 1.35 m in 1.13 m on the edge of the city at (-321, 1593), and I blamed
-    // the skirt twice before walking the approach and looking at the numbers.
+    // Each edge ramps its own step, and deep inside the block every one of them
+    // returns this block's own level - so the maximum is the level here, raised
+    // where a higher neighbour's terrace reaches over the street between them.
+    // Taking the highest is what makes a corner work: two higher neighbours meeting
+    // at one, and the ground carries on round it at the level they share.
+    let clears = shape.street_clears();
+    let mut level = mine;
+    for (away, (other_sector, other_ring)) in shape.edges_of(site.at, at) {
+        let theirs = block_level(site, other_sector, other_ring);
+        if (theirs - mine).abs() < 0.5 {
+            continue;
+        }
+        // HOW FAR THIS POINT IS FROM THE STEP, counting toward the upper side. The
+        // step sits `street_clears` INTO the lower block, so the street on the
+        // boundary belongs wholly to the upper one.
+        let toward = if mine > theirs { away + clears } else { clears - away };
+        let (low, high) = (mine.min(theirs), mine.max(theirs));
+        level = level.max(low + (high - low) * (toward / RISER_RUNS).clamp(0.0, 1.0));
+    }
+
+    // CENTRED ON THE TOWN'S OWN LEVEL, so the middle band sits at `site.height` and
+    // the town is CUT into the hillside rather than piled on top of it.
     //
-    // STRAIGHT, for the reason in the note on `RISER_RUNS`.
-    let climb = if band >= 1.0 { (into / RISER_RUNS).clamp(0.0, 1.0) } else { 0.0 };
-    let whole = (band - 1.0).max(0.0);
-    // CENTRED ON THE TOWN'S OWN LEVEL, so the middle band sits at `site.height`
-    // and the town is CUT into the hillside rather than piled on top of it.
-    //
-    // Every band used to be at or above the base, which lifted a five-band city
-    // 14.4 m above the land at its far edge - and the skirt then had to put all of
-    // that back over its own length.
     // FADED OUT AT THE TOWN'S EDGE - see `TERRACE_HOLDS`.
     let off = site.plan.off(at - site.at, site.bearing, site.radius);
     let inside = crate::util::smoothstep(0.0, -TERRACE_HOLDS, off);
-    ((whole + climb) - (bands - 1.0) * 0.5) * TERRACE_RISE * inside
+    (level - (bands - 1.0) * 0.5) * TERRACE_RISE * inside
 }
 
 /// How far out a settlement's own ground reaches, as a share of its radius.
@@ -1005,6 +1066,10 @@ impl Settlements {
                 crate::config::WORLD_SEED.wrapping_add(which as u32 * 7717);
             settlements.sites[which].shape =
                 crate::world::town::PlanShape::of(&settlements.sites[which]);
+            // AND THE TERRACE EACH BLOCK STANDS ON, once the shape exists to ask.
+            let mut shape = settlements.sites[which].shape;
+            shape.levels_from(&settlements.sites[which]);
+            settlements.sites[which].shape = shape;
         }
 
         // The streets inside each town, once there are sites and roads for the

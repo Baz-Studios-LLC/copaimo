@@ -343,27 +343,34 @@ fn a_terrace(
         let mid = (wall.from + wall.to) * 0.5;
         let out = wall.faces;
 
-        // A STREET WHERE IT CROSSES THE RISER.
+        // THE WAY UP A CART TAKES, which the town names rather than this working
+        // out a second time.
         //
-        // Asked of `settle::crosses_a_terrace`, which is the same question the
-        // generator asks when it decides where a flight of steps goes - so this
-        // tests the climb the town actually built rather than one worked out a
-        // second time here and liable to drift from it.
-        for street in &laid.streets {
-            let Some((crossing, down)) =
-                crate::world::settle::crosses_a_terrace(site, street.from, street.to)
-            else {
-                continue;
-            };
-            return Some((
-                crossing - down * 20.0,
-                crossing + down * 20.0,
-                mid + out * 16.0,
-                mid - out * 8.0,
-                step_from,
-                step_to,
-            ));
-        }
+        // It used to look for any street whose two ends stood on different terraces.
+        // That is not the same question: a terrace edge follows the block edges, and
+        // a ring street lies ON one - so its own segments flip from one level to the
+        // next along its length, and the first "crossing" found was a street running
+        // ALONG the wall with the wall beside it. The route it produced could not be
+        // walked, and it was right that it could not.
+        //
+        // `Layout::ramps` is where the generator left a way through on purpose.
+        let up = *laid.ramps.first()?;
+        let down = (up - site.at).normalize_or_zero();
+        let downhill = if crate::world::settle::band_of(site, up + down * 18.0)
+            < crate::world::settle::band_of(site, up - down * 18.0)
+        {
+            down
+        } else {
+            -down
+        };
+        return Some((
+            up + downhill * 22.0,
+            up - downhill * 22.0,
+            mid + out * 16.0,
+            mid - out * 8.0,
+            step_from,
+            step_to,
+        ));
     }
     None
 }
