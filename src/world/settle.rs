@@ -58,6 +58,12 @@ pub struct Site {
     /// How far along this settlement is - see `world::town::Era`. Filled once
     /// every site is placed, from its rank by distance out from the ranch.
     pub era: crate::world::town::Era,
+    /// Whether this is the FIRST city out from the ranch: the one a player walks
+    /// into before any other, and the one being built to the concept art.
+    ///
+    /// Filled in the same post-pass as `era`, and for the same reason - which city
+    /// is first is a property of the whole world, not of any one site.
+    pub first: bool,
     /// What this city is FOR - see `world::town::Character`. Carried here rather
     /// than worked out at layout time because it is a property of the settlement,
     /// the way its radius is, and because two callers deriving it separately is the
@@ -133,6 +139,99 @@ impl Lane {
     }
 }
 
+/// How far a settlement's lines wander off the straight, in metres.
+///
+/// # Straight lines and true circles are the tell
+///
+/// The first city came out as perfect concentric rings with perfectly straight
+/// terrace edges cutting across them, and both were called what they are: nothing
+/// in a town that grew is drawn with a compass and a ruler. A real hill town's
+/// streets follow the ground and its retaining walls follow the contours, so every
+/// long line in it bends.
+///
+/// # One field, so they bend TOGETHER
+///
+/// This is a domain warp: a smooth displacement applied to the whole plan before
+/// anything is drawn in it. The streets are warped through it and so is the field
+/// the terraces are cut from, which means a street and the wall it meets wander in
+/// sympathy instead of each wobbling on its own noise - which is what makes a place
+/// read as one hillside rather than as two systems disagreeing.
+///
+/// It is also the cheap way to be organic without giving up anything: the plan is
+/// still laid out as rings and radials, so it still joins up, still encloses
+/// blocks, and every guarantee downstream survives. Only the shape moves.
+const WANDERS: f32 = 26.0;
+
+/// Over what distance that wander plays out, in metres.
+///
+/// # The bound that keeps the terraces solvable
+///
+/// A terrace's height is a function of how far a point lies ALONG the slope, and
+/// the walls are found by solving for where that reaches each band's edge. That
+/// only works while the function still climbs - so the warp's slope has to stay
+/// under one. Perlin's gradient is about two over its feature size, so the ratio
+/// here is 26 x 2 / 260 = 0.2, and the field climbs at no less than 0.8 anywhere.
+/// Widen `WANDERS` without widening this and the terraces fold over themselves.
+const WANDERS_OVER: f32 = 260.0;
+
+/// The smooth displacement every line in a settlement is warped through.
+pub fn drift(at: Vec2) -> Vec2 {
+    use noise::NoiseFn;
+    static FIELD: std::sync::OnceLock<(noise::Perlin, noise::Perlin)> =
+        std::sync::OnceLock::new();
+    let (one, two) = FIELD.get_or_init(|| {
+        (
+            noise::Perlin::new(crate::config::WORLD_SEED ^ 0x51ED),
+            noise::Perlin::new(crate::config::WORLD_SEED ^ 0x2C7B),
+        )
+    });
+    let of = [
+        (at.x / WANDERS_OVER) as f64,
+        (at.y / WANDERS_OVER) as f64,
+    ];
+    Vec2::new(one.get(of) as f32, two.get(of) as f32) * WANDERS
+}
+
+/// The same, as it applies to ONE settlement.
+///
+/// # Whose lines bend, and where they stop bending
+///
+/// Two things `drift` alone cannot know.
+///
+/// WHOSE: only the first city. Warping every settlement in the world was the same
+/// mistake as terracing every one - a feature applied at the scope of the code
+/// rather than of the task. It bent six cities nobody asked about and every
+/// village, and villages are not to be disturbed: it cost one its guild hall
+/// outright and turned two of its paving triangles upside down.
+///
+/// WHERE IT STOPS: nothing at the boundary, everything well inside. The country
+/// roads are laid before a town is, and they arrive at points on its edge; move the
+/// edge and they arrive at nothing. `every_arriving_road_meets_the_town_it_arrives
+/// _at` measured the worst at 26.1 m short - which is the warp's own amplitude,
+/// arriving as a gap. Tapered, the arrivals are where they always were and the
+/// bending is all in the interior, where a town's own streets are its own business.
+///
+/// It is also what keeps the terraces inside the town they belong to: the field the
+/// bands are cut from is warped through this, so at the boundary it goes back to
+/// being the plain measure the skirt already knows how to put away.
+pub fn drift_in(site: &Site, at: Vec2) -> Vec2 {
+    if !site.first {
+        return Vec2::ZERO;
+    }
+    let off = site.plan.off(at - site.at, site.bearing, site.radius);
+    drift(at) * crate::util::smoothstep(0.0, -WANDERS * 2.5, off)
+}
+
+/// How far along the slope a point lies, from the low edge of the settlement.
+///
+/// WARPED, which is the whole of what makes a terrace edge organic: the bands are
+/// still evenly spaced in this measure, so they are still level ground of an even
+/// width, but the LINE where one ends is wherever the warp puts it. See `drift`.
+fn along_the_slope(site: &Site, at: Vec2) -> f32 {
+    let up = Vec2::from_angle(site.bearing);
+    (at - site.at + drift_in(site, at)).dot(up) + site.plan.reaches(site.radius)
+}
+
 /// About how wide one terrace wants to be, in metres.
 ///
 /// Wanted rather than used: the number actually used is this rounded to fit the
@@ -170,7 +269,7 @@ const TERRACE_LEAST: f32 = 90.0;
 /// itself in every town, at every size, by construction rather than by luck.
 pub fn terraces_of(site: &Site) -> (f32, f32) {
     let span = site.plan.reaches(site.radius) * 2.0;
-    // CITIES ONLY, and asked HERE so there is one answer to it.
+    // THE FIRST CITY ONLY, and asked HERE so there is one answer to it.
     //
     // A village is a hamlet round a green - one level is what it is, and it has
     // neither the size to need terracing nor the room for it: its buildings sit a
@@ -183,7 +282,22 @@ pub fn terraces_of(site: &Site) -> (f32, f32) {
     // nought for - and it is also what stops `world::town::retain_the_terraces`
     // standing retaining walls across a flat village green. The test used to live
     // in `terrace_at` alone, where the wall builder could not see it.
-    if site.ranch || !site.city {
+    // ONE CITY, not every city. The terraces exist to build the first city to its
+    // concept art, and the brief was that city and nothing else. Cutting every
+    // city in the world into bands was me applying a feature at the scope of the
+    // code rather than at the scope of the task - and it changed six cities that
+    // nobody had asked to change.
+    //
+    // A village is also never terraced: a hamlet round a green is one level, and
+    // its buildings sit a metre apart where a city's sit two and a half, so a riser
+    // through one put a pad edge against sloping ground - the step guard caught it
+    // at 1.2 to 1 in the settlement at (-4641, 270). The ranch is the player's own
+    // yard and stays flat for the same reason.
+    //
+    // One band means no riser and no step, which is what `terrace_at` returns
+    // nought for - and it is what stops `world::town::retain_the_terraces` standing
+    // walls and stairs across ground that never steps.
+    if !site.first {
         return (1.0, span.max(1.0));
     }
     // What the town would like, odd.
@@ -224,6 +338,33 @@ pub fn terraces_of(site: &Site) -> (f32, f32) {
 /// built. That is how a hill town is walked: the road ramps where the wall stops.
 pub const RISER_RUNS: f32 = 3.0;
 
+/// Where `want` metres along the slope falls, on the line `across` off the axis.
+///
+/// # A wall follows a contour, so it has to be FOUND rather than drawn
+///
+/// Straight terrace edges could be walked across in a straight line. A warped one
+/// cannot: the edge is wherever `along_the_slope` reaches the band's value, and
+/// that is a curve. So it is solved for - bisection along the axis, which is sound
+/// because the warp is bounded to keep that measure climbing everywhere. See
+/// `WANDERS_OVER`.
+pub fn band_edge_at(site: &Site, want: f32, across: f32) -> Vec2 {
+    let up = Vec2::from_angle(site.bearing);
+    let side = Vec2::new(-up.y, up.x);
+    let reaches = site.plan.reaches(site.radius);
+    // Wide enough to bracket the answer whatever the warp does to it.
+    let (mut low, mut high) = (-reaches - WANDERS * 2.0, reaches + WANDERS * 2.0);
+    for _ in 0..26 {
+        let mid = (low + high) * 0.5;
+        let at = site.at + up * mid + side * across;
+        if along_the_slope(site, at) < want {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+    site.at + up * ((low + high) * 0.5) + side * across
+}
+
 /// How high a settlement's ground stands at a point, above its own base.
 ///
 /// # A city was one plane, and then it was a hill
@@ -257,9 +398,7 @@ pub fn terrace_at(site: &Site, at: Vec2) -> f32 {
     if bands < 2.0 {
         return 0.0;
     }
-    // ALONG THE SLOPE, measured from the low side.
-    let up = Vec2::from_angle(site.bearing);
-    let along = (at - site.at).dot(up) + site.plan.reaches(site.radius);
+    let along = along_the_slope(site, at);
     let band = (along / every).floor().clamp(0.0, bands - 1.0);
     let into = along - band * every;
     // THE RISER SITS BETWEEN TWO BANDS, so the FIRST band has none.
@@ -278,13 +417,7 @@ pub fn terrace_at(site: &Site, at: Vec2) -> f32 {
     //
     // Every band used to be at or above the base, which lifted a five-band city
     // 14.4 m above the land at its far edge - and the skirt then had to put all of
-    // that back over its own length. `a_road_arriving_at_a_town_takes_the_towns
-    // _level` caught the result as a 1.35 m jump in 1.13 m at the boundary of the
-    // city at (-321, 1593): not a terrace, just the side of a mound.
-    //
-    // Centred, the cut at the high side and the fill at the low side are equal and
-    // each is half what it was, which is both what a hill town looks like and what
-    // the earthworks of one actually cost.
+    // that back over its own length.
     ((whole + climb) - (bands - 1.0) * 0.5) * TERRACE_RISE
 }
 
@@ -635,6 +768,7 @@ impl Settlements {
             city: false,
             // The ranch is the origin of the progression, not a step in it.
             era: crate::world::town::Era::Old,
+            first: false,
             // A ranch is not a settlement and `world::town` skips it; this is here
             // because the field exists, not because it means anything.
             character: crate::world::town::Character::of(0),
@@ -661,6 +795,7 @@ impl Settlements {
                 radius: if city { CITY_RADIUS } else { TOWN_RADIUS },
                 // Ranked below, once every site is placed.
                 era: crate::world::town::Era::default(),
+                first: false,
                 city,
                 // Dealt round the settlements in order, so a world cannot come out
                 // with seven capitals by luck. See `world::town::Character`.
@@ -741,6 +876,24 @@ impl Settlements {
                 settlements.sites[which].plan = crate::world::town::Plan::of(which, era);
             }
         }
+        // AND WHICH CITY IS FIRST, which is the nearest one to the ranch.
+        //
+        // `order` above is already sorted by that distance, so the first city in it
+        // is the one a player reaches before any other. Marked rather than worked
+        // out on demand, because "first" is a fact about the whole world and every
+        // caller asking it independently is the same bug in a different place.
+        if let Some(which) = (0..settlements.sites.len())
+            .filter(|&which| settlements.sites[which].city)
+            .min_by(|&a, &b| {
+                settlements.sites[a]
+                    .at
+                    .distance(ranch_at)
+                    .total_cmp(&settlements.sites[b].at.distance(ranch_at))
+            })
+        {
+            settlements.sites[which].first = true;
+        }
+
         // The streets inside each town, once there are sites and roads for the
         // layout to be built from. Filed as claims like everything else, so from
         // here on the ground itself knows where a street is.

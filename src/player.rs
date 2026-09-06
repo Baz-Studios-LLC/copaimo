@@ -1203,6 +1203,7 @@ mod tests {
                     plots: vec![plot],
                     lamps: Vec::new(),
                     walls: Vec::new(),
+                    stairs: Vec::new(),
                 },
             );
 

@@ -2600,6 +2600,95 @@ def terrace_wall():
     return parts, TERRACE_RISE + 0.84
 
 
+
+# How wide the flight is, how far it projects, and how it is divided into steps.
+#
+# # A stair is a real stair, so it cannot fit in the riser
+#
+# The riser between two terraces is 3 m wide - it is exactly the wall's thickness,
+# see `world::settle::RISER_RUNS` - and 3.6 m of rise in 3 m of run is fifty
+# degrees, which is a ladder. A stair anyone would draw is about thirty-two: a
+# 0.18 m riser to a 0.30 m tread, which is what a building code asks for and what
+# a foot expects.
+#
+# So the flight PROJECTS out of the wall into the terrace below rather than being
+# cut into the bank above it, and takes the six metres it needs. The ground under
+# it is the lower terrace, flat, and the game lifts the warden onto the steps the
+# same way it lifts them onto a kerb - see `world::town::stands_on`.
+TERRACE_STEPS = 20
+STEP_RISES = TERRACE_RISE / TERRACE_STEPS
+STEP_TREADS = 0.30
+TERRACE_FLIGHT = TERRACE_STEPS * STEP_TREADS
+TERRACE_STAIR_WIDE = 4.0
+
+
+def terrace_stair():
+    """A flight of steps down a terrace wall, with a parapet either side.
+
+    Built with its TOP at the origin - y nought, z at the full rise - because that
+    is where it meets the wall line, and the flight descends toward -y into the
+    terrace below. The game places it by the wall it breaks, so the top is the end
+    that has to land in a known place.
+    """
+    parts = []
+    half = TERRACE_STAIR_WIDE * 0.5
+
+    for step in range(TERRACE_STEPS):
+        # Each tread's top, counting DOWN from the landing.
+        top = TERRACE_RISE - step * STEP_RISES
+        deep = STEP_TREADS
+        middle = -(step + 0.5) * deep
+        # Solid to the ground rather than a plate on air: a flight of steps with
+        # nothing under it reads as cardboard the moment you see it from the side.
+        parts.append(box((TERRACE_STAIR_WIDE, deep, top), (0.0, middle, top * 0.5), "stone"))
+        # The nosing, a lip standing proud of the riser below it.
+        parts.append(
+            box(
+                (TERRACE_STAIR_WIDE, 0.06, 0.05),
+                (0.0, middle - deep * 0.5 - 0.02, top - 0.025),
+                "stone",
+            )
+        )
+        # A PARAPET EITHER SIDE, stepping down with the flight.
+        #
+        # Not only for looks: it is what stops a warden wandering off the side of a
+        # flight, and it is the collision the game stands along the same line.
+        for side in (-1.0, 1.0):
+            parts.append(
+                box(
+                    (0.5, deep, top + 0.95),
+                    (side * (half + 0.25), middle, (top + 0.95) * 0.5),
+                    "stone",
+                )
+            )
+
+    # The landing at the head of the flight, flush with the terrace above.
+    parts.append(
+        box(
+            (TERRACE_STAIR_WIDE + 1.0, 1.4, TERRACE_RISE),
+            (0.0, 0.7, TERRACE_RISE * 0.5),
+            "stone",
+        )
+    )
+    # And a coping on the landing's parapets, so the wall's line carries across it.
+    for side in (-1.0, 1.0):
+        parts.append(
+            box(
+                (0.5, 1.4, TERRACE_RISE + 0.95),
+                (side * (half + 0.25), 0.7, (TERRACE_RISE + 0.95) * 0.5),
+                "stone",
+            )
+        )
+    parts.append(
+        box(
+            (TERRACE_STAIR_WIDE + 1.0, 1.4, 0.22),
+            (0.0, 0.7, TERRACE_RISE + 0.11),
+            "slate",
+        )
+    )
+    return parts, TERRACE_RISE + 0.95
+
+
 FIGURES = {
     # The old world: villages and towns.
     "cottage": cottage,
@@ -2631,6 +2720,7 @@ FIGURES = {
     "monument": monument,
     # The earthworks a hill city stands on.
     "terrace_wall": terrace_wall,
+    "terrace_stair": terrace_stair,
 }
 
 
@@ -3058,6 +3148,18 @@ with open(NOTE, "w", encoding="utf-8") as note:
     print(
         f"TERRACE_WALL {TERRACE_RUN} {TERRACE_RISE} {TERRACE_THICK} "
         f"{_built.x:.3f} {_built.z:.3f}",
+        file=note,
+    )
+    # THE STAIR, measured the same way: how wide the break in the wall has to be,
+    # how far the flight projects, and the rise it carries.
+    masonry.fresh()
+    _parts, _tall = terrace_stair()
+    _whole = masonry.weld(_parts, PAINT, _tall, name="prop")
+    _built = _whole.dimensions
+    print(
+        f"TERRACE_STAIR {TERRACE_STAIR_WIDE} {TERRACE_FLIGHT} {TERRACE_RISE} "
+        f"{TERRACE_STEPS} "
+        f"{_built.x:.3f} {_built.y:.3f} {_built.z:.3f}",
         file=note,
     )
     write_the_plan(note, COTTAGE_PLAN, COTTAGE_DOOR, COTTAGE_CLEAR)

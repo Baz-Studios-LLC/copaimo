@@ -2805,3 +2805,55 @@ and at any closer spacing, any slope you like.
 `stands_level` now grows the footprint by the pad's own reach, so a riser is a strip
 nothing may stand in. Which is also true of a real terrace: there is a wall there,
 and the buildings sit back from it. That cleared strip is where the wall goes.
+
+## A feature applied at the scope of the code, three times in one session
+
+**Issue.** Terraces were asked for on the first city — the one being built to the
+concept art. They landed on all seven. Then the warp that bends its lines landed on
+every settlement including the villages, which cost one its guild hall and turned
+two of a village's paving triangles upside down. Then the SUBDIVISION that the warp
+needs ran everywhere even where the warp itself was a no-op, cutting every town's
+plan into eleven-metre pieces — a different street count, different blocks and
+different lots for every settlement in the world.
+
+**Solution.** `Site::first` marks the nearest city to the ranch, filled in the same
+post-pass as `Era` because which city is first is a fact about the whole world.
+`terraces_of` and `drift_in` both gate on it, and the plan subdivision is inside the
+same `if`.
+
+**Worth knowing.** Each time, the code had a natural scope — "every city", "every
+settlement" — and the task had a smaller one, and I took the code's. The third was
+the worst kind: `drift_in` correctly returned nothing for other settlements, so the
+step LOOKED gated, and the resampling above it still ran. A step that is a no-op has
+to be a no-op all the way down, not just in its last line.
+
+## A wall through a paved road
+
+**Issue.** A retaining wall ran straight through a road, reported with a picture.
+
+**Solution.** The wall's clearance test asked the town's own streets. The country
+roads that cross a settlement belong to `settle` and are drawn there, so they were
+never in the test at all. It asks both now. A road is a road whoever laid it.
+
+## Bending a radial plan does not make it organic
+
+**Issue.** The first city read as machine-made: true concentric rings meeting
+radials at right angles, and perfectly straight terrace edges cutting across them.
+
+**Solution, half of it.** The terraces were straightforward. The field the bands are
+cut from is warped through a smooth displacement, so a band edge is now a curve —
+found by solving for it rather than drawn, which is what `settle::band_edge_at` is
+for, and sound because the warp's slope is bounded under one so the measure still
+climbs everywhere. The walls trace that curve and each piece faces square to its own
+run rather than to the settlement's axis.
+
+**What did not work.** The same warp on the street plan. It bent the rings and took a
+third of the city with it: 336 buildings and 186 yards became 247 and 32, because a
+warped ring no longer meets its radials the way the block finder needs, so most of
+the town had no lots in it. Measured at two subdivision densities to be sure it was
+the bend and not the cutting up — 247 against 248. And the rings still read as rings.
+
+**Worth knowing.** A wobbly circle is a circle. What reads as machine-made is the
+TOPOLOGY — a middle with true rings round it and radials off it — and a displacement
+moves points without changing a topology. Making these streets organic means growing
+a plan rather than drawing one, which is its own piece of work.
