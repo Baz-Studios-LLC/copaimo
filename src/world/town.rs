@@ -9533,12 +9533,28 @@ pub fn raise_the_towns(
                 SceneRoot(assets.load(
                     GltfAssetLabel::Scene(0).from_asset("models/town_terrace_stair.glb"),
                 )),
-                // Built with its head at the origin and the flight descending into
-                // its own -y, which exports to +z - the same face the wall turns to
-                // the terrace below, so the same turn lays both.
+                // THE FLIGHT DESCENDS THE WAY IT FACES.
+                //
+                // Built with its head at the origin and descending into its own -y,
+                // which exports to +z - so the turn has to put local +Z on `faces`.
+                // A turn of theta about Y sends local +Z to (sin, cos), so theta is
+                // `atan2(faces.x, faces.y)` and nothing else.
+                //
+                // It was `-atan2(faces.y, faces.x) - pi/2`, which works out to
+                // exactly MINUS faces: every flight in the city was turned to climb
+                // INTO the hill, with its head hanging over the drop and its foot
+                // buried in the bank. Reported as stairs that are backwards and lead
+                // nowhere, and both halves of that are the one sign.
+                //
+                // Nothing caught it, and the reason is worth keeping: `tread_at`
+                // lifts the warden along `faces` correctly, so `--drive` walked the
+                // flight up and reported it climbable while the MODEL faced the
+                // other way. The arithmetic was right and the artefact was wrong -
+                // see `the_flight_descends_the_way_it_faces`, which now asks the
+                // transform itself.
                 Transform::from_xyz(stair.at.x, foot, stair.at.y)
                     .with_rotation(Quat::from_rotation_y(
-                        -stair.faces.y.atan2(stair.faces.x) - std::f32::consts::FRAC_PI_2,
+                        stair.faces.x.atan2(stair.faces.y),
                     ))
                     // Widened to the street it carries. The treads keep their own
                     // rise and run - only the flight gets broader - so the climb a
@@ -12023,6 +12039,41 @@ mod tests {
             worst.1.x,
             worst.1.y
         );
+    }
+
+    /// A flight is turned so it descends the way it faces.
+    ///
+    /// # The arithmetic was right and the model was backwards
+    ///
+    /// `Stair::tread_at` lifts a warden along `faces`, and it was correct - so
+    /// `--drive` walked every flight in the city up and reported it climbable. The
+    /// TRANSFORM put the model on minus that: the whole town's steps were turned to
+    /// climb into the hill, head hanging over the drop, foot buried in the bank.
+    /// Reported by eye in one glance, from a screenshot, after the guards had passed
+    /// for days.
+    ///
+    /// So this asks the transform rather than the intent. The figure is built with
+    /// its head at the origin descending into its own -y, which the glTF export
+    /// turns into +z, so the rendered flight goes wherever local +Z lands - and that
+    /// has to be `faces`.
+    #[test]
+    fn the_flight_descends_the_way_it_faces() {
+        for turn in 0..16 {
+            let faces = Vec2::from_angle(std::f32::consts::TAU * turn as f32 / 16.0);
+            // The one line the spawner uses.
+            let laid = Quat::from_rotation_y(faces.x.atan2(faces.y));
+            // Where the model's own downhill ends up once it is laid.
+            let goes = laid * Vec3::Z;
+            let goes = Vec2::new(goes.x, goes.z);
+            assert!(
+                goes.distance(faces) < 1.0e-3,
+                "a flight facing ({:.2}, {:.2}) is laid descending ({:.2}, {:.2}) —              it climbs the bank instead of coming down it",
+                faces.x,
+                faces.y,
+                goes.x,
+                goes.y
+            );
+        }
     }
 
     /// The wall a terrace stands on is as tall as the step it retains.

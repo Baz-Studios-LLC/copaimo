@@ -2670,6 +2670,37 @@ def terrace_stair():
             "stone",
         )
     )
+    # AND AN APRON AT THE FOOT, so the flight lands on something.
+    #
+    # A stair that ends in grass is a stair that leads nowhere, and it was reported
+    # as exactly that. Every flight in the concept art has paving at its head and
+    # paving at its foot - it is the pair that makes it a route rather than an object.
+    # The head has the terrace it breaks; this is the other half.
+    parts.append(
+        box(
+            (TERRACE_STAIR_WIDE + 1.6, 3.4, 0.34),
+            (0.0, -(TERRACE_FLIGHT + 1.5), 0.17),
+            "stone",
+        )
+    )
+    # A kerb round its outer edge, so the apron reads as laid rather than as a slab
+    # somebody dropped.
+    for side in (-1.0, 1.0):
+        parts.append(
+            box(
+                (0.4, 3.4, 0.42),
+                (side * (TERRACE_STAIR_WIDE + 1.6) * 0.5, -(TERRACE_FLIGHT + 1.5), 0.21),
+                "slate",
+            )
+        )
+    parts.append(
+        box(
+            (TERRACE_STAIR_WIDE + 1.6, 0.4, 0.42),
+            (0.0, -(TERRACE_FLIGHT + 3.2), 0.21),
+            "slate",
+        )
+    )
+
     # And a coping on the landing's parapets, so the wall's line carries across it.
     for side in (-1.0, 1.0):
         parts.append(
