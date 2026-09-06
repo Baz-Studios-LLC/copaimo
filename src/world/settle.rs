@@ -361,12 +361,7 @@ pub fn band_of(site: &Site, at: Vec2) -> f32 {
     if bands < 2.0 {
         return 0.0;
     }
-    // THE BLOCK'S LEVEL, which is where a terrace's level now lives - see
-    // `terrace_at`. Asking the slope directly would answer for the band this point
-    // is in rather than for the platform it stands on, and those are different
-    // questions the moment a level belongs to a block.
-    let (sector, ring) = site.shape.block_of(site.at, at);
-    block_level(site, sector, ring)
+    TERRACES.get().map_or(0.0, |found| found.at(at).round())
 }
 
 /// Where a straight run crosses from one terrace to the next, if it does.
@@ -477,27 +472,199 @@ pub const TERRACE_HOLDS: f32 = 40.0;
 /// one a road arrives at and the highest is at the far side - arrival low, civic
 /// high, which is the order the concept has and the order a hill town has for the
 /// reason that you build the important thing where it is seen.
+/// A settlement's terraces, as a grid of levels.
+///
+/// # Blocks, when the streets were grown rather than drawn
+///
+/// A terrace level belongs to a BLOCK - that was settled when the edges stopped
+/// being streaks and started following the fabric. While the plan was rings and
+/// radials a block was a polar cell and could be worked out from four numbers.
+/// A GROWN plan has no such formula: its blocks are the faces of whatever graph the
+/// streets ended up making, and the only thing that knows what they are is the
+/// streets themselves.
+///
+/// So they are found rather than derived. The streets are stamped into a grid, what
+/// is left is flooded into connected regions - those regions ARE the blocks, with no
+/// planar-graph traversal needed - and each one is dealt the terrace its middle
+/// falls on. A street's own cells take the HIGHER of the levels either side, so a
+/// street belongs whole to the terrace above it and the wall stands at its far kerb.
+///
+/// The grid step is the width of the riser, so reading it back with a straight
+/// interpolation gives a step that resolves over exactly one cell - which is the
+/// ramp the retaining wall was built to fill.
+pub struct Terraces {
+    at: Vec2,
+    step: f32,
+    across: usize,
+    cells: Vec<f32>,
+}
+
+impl Terraces {
+    /// The level at a point, in terrace steps, interpolated across a cell.
+    pub fn at(&self, at: Vec2) -> f32 {
+        let half = self.across as f32 * 0.5;
+        let on = (at - self.at) / self.step + Vec2::splat(half);
+        let (x, y) = (on.x.floor(), on.y.floor());
+        let (fx, fy) = (on.x - x, on.y - y);
+        let read = |x: f32, y: f32| -> f32 {
+            if x < 0.0 || y < 0.0 || x >= self.across as f32 || y >= self.across as f32 {
+                return 0.0;
+            }
+            self.cells[y as usize * self.across + x as usize]
+        };
+        let top = read(x, y) * (1.0 - fx) + read(x + 1.0, y) * fx;
+        let bottom = read(x, y + 1.0) * (1.0 - fx) + read(x + 1.0, y + 1.0) * fx;
+        top * (1.0 - fy) + bottom * fy
+    }
+}
+
+/// The terraces of the one city that has them.
+///
+/// # Why this is a static
+///
+/// The grid is found from the street network, and the street network is laid in
+/// `world::town::lay_out` - but `terrace_at` is asked by the terrain, by building
+/// placement, by the wall builder and by `--drive`, most of which hold a `Site` and
+/// nothing else. Threading it through every one of those would be a wide change for
+/// a thing there is exactly one of.
+///
+/// There IS exactly one: a world is generated once from a fixed seed, and only the
+/// first city is terraced. The first writer wins and every later world is the same
+/// world, so a second call cannot disagree with the first.
+static TERRACES: std::sync::OnceLock<Terraces> = std::sync::OnceLock::new();
+
+/// Files the terraces found while laying a town out. The first call wins.
+pub fn remember_the_terraces(found: Terraces) {
+    let _ = TERRACES.set(found);
+}
+
+/// Finds a settlement's terraces from the streets it just laid.
+///
+/// Returns nothing for a settlement that is not terraced, which is every one but the
+/// first city - see `terraces_of`.
+pub fn terrace_the_town(
+    site: &Site,
+    streets: &[crate::world::town::Street],
+) -> Option<Terraces> {
+    let (bands, every) = terraces_of(site);
+    if bands < 2.0 || streets.is_empty() {
+        return None;
+    }
+    // A cell the width of the riser, so a step read back off this grid resolves
+    // over the same distance the retaining wall was built to fill.
+    let step = RISER_RUNS;
+    let reach = crate::world::town::town_reaches(site) + TERRACE_HOLDS;
+    let across = ((reach * 2.0 / step).ceil() as usize + 2).max(4);
+    let cell_at = |x: usize, y: usize| {
+        site.at + (Vec2::new(x as f32, y as f32) - Vec2::splat(across as f32 * 0.5)) * step
+    };
+
+    // ------------------------------------------------------- 1. stamp the streets
+    let mut street = vec![false; across * across];
+    for lane in streets {
+        let run = lane.to - lane.from;
+        let length = run.length();
+        if length < 0.1 {
+            continue;
+        }
+        let steps = (length / (step * 0.5)).ceil() as usize;
+        // Half the carriageway, plus the footways, plus a cell of margin.
+        let wide = lane.wide * 0.5 + 2.0;
+        let spread = (wide / step).ceil() as i32;
+        for at in 0..=steps {
+            let on = lane.from + run * (at as f32 / steps as f32);
+            let here = (on - site.at) / step + Vec2::splat(across as f32 * 0.5);
+            for dy in -spread..=spread {
+                for dx in -spread..=spread {
+                    let (x, y) = (here.x as i32 + dx, here.y as i32 + dy);
+                    if x < 0 || y < 0 || x >= across as i32 || y >= across as i32 {
+                        continue;
+                    }
+                    if cell_at(x as usize, y as usize).distance(on) <= wide {
+                        street[y as usize * across + x as usize] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------- 2. flood what is left into blocks
+    let mut block = vec![usize::MAX; across * across];
+    let mut middles: Vec<(Vec2, f32)> = Vec::new();
+    let mut edge: Vec<usize> = Vec::new();
+    for start in 0..across * across {
+        if street[start] || block[start] != usize::MAX {
+            continue;
+        }
+        let which = middles.len();
+        let (mut sum, mut many) = (Vec2::ZERO, 0.0_f32);
+        edge.clear();
+        edge.push(start);
+        block[start] = which;
+        while let Some(cell) = edge.pop() {
+            let (x, y) = (cell % across, cell / across);
+            sum += cell_at(x, y);
+            many += 1.0;
+            for (dx, dy) in [(1_i32, 0_i32), (-1, 0), (0, 1), (0, -1)] {
+                let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+                if nx < 0 || ny < 0 || nx >= across as i32 || ny >= across as i32 {
+                    continue;
+                }
+                let next = ny as usize * across + nx as usize;
+                if street[next] || block[next] != usize::MAX {
+                    continue;
+                }
+                block[next] = which;
+                edge.push(next);
+            }
+        }
+        middles.push((sum / many.max(1.0), many));
+    }
+
+    // ------------------------------------------------ 3. the terrace each block is on
+    let level_of = |middle: Vec2| {
+        (along_the_slope(site, middle) / every)
+            .floor()
+            .clamp(0.0, bands - 1.0)
+    };
+    let levels: Vec<f32> = middles.iter().map(|(middle, _)| level_of(*middle)).collect();
+
+    // ---------------------------- 4. and the streets take the higher of their sides
+    let mut cells = vec![0.0_f32; across * across];
+    for cell in 0..across * across {
+        if !street[cell] {
+            cells[cell] = levels[block[cell]];
+        }
+    }
+    // Spread outward from the blocks until every street cell has a level, taking
+    // the highest that reaches it - which puts the whole carriageway on the terrace
+    // above and leaves the wall standing at its far kerb.
+    for _ in 0..((8.0 / step).ceil() as usize + 2) {
+        let was = cells.clone();
+        for cell in 0..across * across {
+            if !street[cell] {
+                continue;
+            }
+            let (x, y) = (cell % across, cell / across);
+            let mut best = cells[cell];
+            for (dx, dy) in [(1_i32, 0_i32), (-1, 0), (0, 1), (0, -1)] {
+                let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+                if nx < 0 || ny < 0 || nx >= across as i32 || ny >= across as i32 {
+                    continue;
+                }
+                best = best.max(was[ny as usize * across + nx as usize]);
+            }
+            cells[cell] = best;
+        }
+    }
+
+    Some(Terraces { at: site.at, step, across, cells })
+}
+
 /// The terrace a BLOCK stands on, counting from the low side of the settlement.
 ///
 /// Decided from one point inside the block - see `PlanShape::block_middle` - so the
 /// whole block is one level and its edges land on the streets around it.
-pub fn block_level_at(
-    site: &Site,
-    shape: &crate::world::town::PlanShape,
-    sector: usize,
-    ring: usize,
-) -> f32 {
-    let (bands, every) = terraces_of(site);
-    let middle = shape.block_middle(site.at, sector, ring);
-    (along_the_slope(site, middle) / every)
-        .floor()
-        .clamp(0.0, bands - 1.0)
-}
-
-/// The same, read from the table the site already holds.
-pub fn block_level(site: &Site, sector: usize, ring: usize) -> f32 {
-    site.shape.level_of(sector, ring)
-}
 
 /// How high a settlement's ground stands at a point, above its own base.
 ///
@@ -533,31 +700,12 @@ pub fn terrace_at(site: &Site, at: Vec2) -> f32 {
     if bands < 2.0 {
         return 0.0;
     }
-    let shape = &site.shape;
-    let (sector, ring) = shape.block_of(site.at, at);
-    let mine = block_level(site, sector, ring);
-
-    // EVERY EDGE OF THE BLOCK, and the highest answer among them.
-    //
-    // Each edge ramps its own step, and deep inside the block every one of them
-    // returns this block's own level - so the maximum is the level here, raised
-    // where a higher neighbour's terrace reaches over the street between them.
-    // Taking the highest is what makes a corner work: two higher neighbours meeting
-    // at one, and the ground carries on round it at the level they share.
-    let clears = shape.street_clears();
-    let mut level = mine;
-    for (away, (other_sector, other_ring)) in shape.edges_of(site.at, at) {
-        let theirs = block_level(site, other_sector, other_ring);
-        if (theirs - mine).abs() < 0.5 {
-            continue;
-        }
-        // HOW FAR THIS POINT IS FROM THE STEP, counting toward the upper side. The
-        // step sits `street_clears` INTO the lower block, so the street on the
-        // boundary belongs wholly to the upper one.
-        let toward = if mine > theirs { away + clears } else { clears - away };
-        let (low, high) = (mine.min(theirs), mine.max(theirs));
-        level = level.max(low + (high - low) * (toward / RISER_RUNS).clamp(0.0, 1.0));
-    }
+    let Some(found) = TERRACES.get() else {
+        // Asked before the town it belongs to has been laid out. That happens once,
+        // inside the first `lay_out`, before the streets exist to be flooded - and
+        // nothing that asks this early is deciding anything that outlives the call.
+        return 0.0;
+    };
 
     // CENTRED ON THE TOWN'S OWN LEVEL, so the middle band sits at `site.height` and
     // the town is CUT into the hillside rather than piled on top of it.
@@ -565,7 +713,7 @@ pub fn terrace_at(site: &Site, at: Vec2) -> f32 {
     // FADED OUT AT THE TOWN'S EDGE - see `TERRACE_HOLDS`.
     let off = site.plan.off(at - site.at, site.bearing, site.radius);
     let inside = crate::util::smoothstep(0.0, -TERRACE_HOLDS, off);
-    (level - (bands - 1.0) * 0.5) * TERRACE_RISE * inside
+    (found.at(at) - (bands - 1.0) * 0.5) * TERRACE_RISE * inside
 }
 
 /// How far out a settlement's own ground reaches, as a share of its radius.
@@ -1066,10 +1214,6 @@ impl Settlements {
                 crate::config::WORLD_SEED.wrapping_add(which as u32 * 7717);
             settlements.sites[which].shape =
                 crate::world::town::PlanShape::of(&settlements.sites[which]);
-            // AND THE TERRACE EACH BLOCK STANDS ON, once the shape exists to ask.
-            let mut shape = settlements.sites[which].shape;
-            shape.levels_from(&settlements.sites[which]);
-            settlements.sites[which].shape = shape;
         }
 
         // The streets inside each town, once there are sites and roads for the

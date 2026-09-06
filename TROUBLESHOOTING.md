@@ -2956,3 +2956,61 @@ wall against 60 flights of steps. A road running ALONG a wall is the road on top
 it; only a road crossing it is a way through. Twelve degrees, not thirty: at thirty a
 street meeting a wall at twenty degrees was read as parallel and got a wall through
 it, which `--drive` caught as a terrace a warden could not climb.
+
+## Streets that are grown rather than drawn
+
+**Issue.** The first city read as machine-made from any height: a market square with
+true rings round it and radials off it is a wheel, and no amount of wobble changes
+that. Warping it had already been tried and cost a third of the buildings.
+
+**Solution.** Parish and Müller's method (*Procedural Modeling of Cities*, 2001) in
+the priority-queue form. A street is proposed from where the last one ended - carry
+on, or turn off - and then tested against everything already built: snap to a
+junction it ends near, cut at a street it crosses, run to a street it ends near,
+refuse if it lies alongside one, refuse if it leaves the town. The snapping is the
+whole thing, because it is what closes cycles, and a cycle is a block.
+
+Growth is also seeded INWARD from every arriving country road, so a road that gets
+here becomes a street rather than stopping at a boundary the growth had no reason to
+visit.
+
+**Three things it cost, all found by looking.**
+
+The first attempt built 14 streets and stopped. A street carrying on from another is
+nearly parallel to it and starts at its end, so "runs alongside an existing street"
+caught every continuation against its own parent - 10 of 18 sprouts refused. A
+street that shares a junction with another is joined to it, not doubling it.
+
+Then the junctions tore. `Node` fans a paved mouth between the roads that meet it,
+and two roads meeting at fifteen degrees give it a mouth that folds through itself:
+slivers of grass through the setts, zig-zag kerbs, whole shards of surface missing,
+reported with pictures. The drawn plans could not produce one - radials and rings
+meet square by construction - so nothing had ever asked. A minimum angle is a local
+constraint in every account of this method, and now in this one.
+
+And a flight of steps was built on a dirt road in open country, because the roads
+that pass THROUGH a town run on out the other side and the crossing test did not say
+where it wanted them.
+
+**Worth knowing.** The guard written for the torn junctions asserted
+`worst <= GROWN_SHARPEST + 0.02` - the guard comparing its subject against its
+subject's own input. Proved worthless by putting the fault back: with the growth's
+limit relaxed to six degrees the test still passed. It asks against a fixed number
+that describes what `Node` can draw, so tightening the growth cannot move it and
+loosening the growth past it has to fail.
+
+## Blocks, when the streets are grown
+
+**Issue.** A terrace level belongs to a block, and the blocks were polar cells of a
+rings plan. A grown plan has no such formula.
+
+**Solution.** They are found rather than derived: the streets are stamped into a
+grid, what is left is flooded into connected regions - those regions ARE the blocks,
+with no planar-graph traversal - and each is dealt the terrace its middle falls on. A
+street's own cells take the higher of the levels either side, so a street belongs
+whole to the terrace above it and the wall stands at its far kerb. The grid step is
+the width of the riser, so reading it back interpolated gives a step that resolves
+over exactly one cell, which is the ramp the wall was built to fill.
+
+Walls follow the streets they retain: every street is asked whether the land differs
+across it, and where it does the wall stands at the far kerb.
