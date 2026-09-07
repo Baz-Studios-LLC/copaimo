@@ -2612,6 +2612,70 @@ def terrace_wall():
             slide += wide
             stone += 1
 
+    # BUTTRESSES, standing out of the face at intervals.
+    #
+    # A retaining wall of any height has them, and they are what stops a long run
+    # reading as one flat plane: they break the light along it, they cast a rhythm of
+    # shadow, and they say the thing is holding something back. The concept art has
+    # them on every wall it shows.
+    #
+    # Battered like the wall, and stopped below the coping so the coping runs
+    # unbroken over the top of them - which is how a coped wall with buttresses is
+    # actually built, and what keeps the line along the top continuous.
+    # Two piers, at the thirds, so the tile has three bays and its ends line up
+    # with the next tile's rather than doubling a pier at every joint.
+    piers = 2
+    bays = piers + 1
+    for pier in range(piers):
+        stands = (pier + 1 - bays * 0.5) * long / bays
+        tall = TERRACE_RISE + TERRACE_BURIED - 0.5
+        parts.append(
+            box(
+                (0.58, 0.42, tall),
+                (stands, -thick * 0.5 - 0.16, -TERRACE_BURIED + tall * 0.5),
+                "stone",
+            )
+        )
+        # Its own shoulder, sloping back into the wall under the coping.
+        parts.append(
+            box(
+                (0.58, 0.26, 0.30),
+                (stands, -thick * 0.5 - 0.09, TERRACE_RISE - 0.42),
+                "stone",
+            )
+        )
+
+    # BLIND ARCHES in the bays between them, recessed into the face.
+    #
+    # Relieving arches: the load over an opening or a recess is carried round it, and
+    # a retaining wall is built with them whether or not there is anything behind.
+    # Drawn as a recess rather than a hole - there is earth back there - and it is
+    # the recess that reads, because it is what puts a deep shadow in every bay.
+    for bay in range(bays):
+        middle = (bay + 0.5 - bays * 0.5) * long / bays
+        span = long / bays * 0.62
+        head = TERRACE_RISE - 1.15
+        parts.append(
+            box(
+                (span, 0.20, head),
+                (middle, -thick * 0.5 + 0.18, head * 0.5 - 0.05),
+                "slate",
+            )
+        )
+        # The head, as courses stepping in over a half-circle.
+        rings = 4
+        for ring in range(rings):
+            at = (ring + 0.5) / rings
+            rise = (span * 0.5) * (1.0 - (1.0 - at) ** 2) ** 0.5
+            wide = span * (1.0 - at * 0.62)
+            parts.append(
+                box(
+                    (wide, 0.20, span * 0.5 / rings + 0.05),
+                    (middle, -thick * 0.5 + 0.18, head + rise - span * 0.25),
+                    "slate",
+                )
+            )
+
     # The coping, projecting on both faces to throw water clear.
     parts.append(box((long, thick + 0.24, 0.22), (0.0, 0.06, TERRACE_RISE + 0.11), "slate"))
 
@@ -2624,16 +2688,49 @@ def terrace_wall():
         )
     )
 
-    # Something growing out of it. A dry wall in an old town always has.
-    for clump in range(2):
-        slide = (clump * 2.0 - 1.0) * long * 0.27
+    # PLANTING, on the wall and over it.
+    #
+    # Two tufts was what this had, and a wall in an old town is greener than that:
+    # things root in the joints, and whatever is growing on the terrace above spills
+    # over the parapet. It is also the only colour on a long grey run, which is most
+    # of why the walls read as concrete in a photograph.
+    #
+    # Along the top first - the spill over the coping, which is what you see from
+    # the street on top of the wall.
+    for over in range(5):
+        slide = (over - 2.0) * long * 0.19 + (masonry.wobble(over, 81) - 0.5) * 0.9
         parts.append(
             masonry.lump(
-                0.42,
-                (slide, -thick * 0.5 + 0.05, TERRACE_RISE - 0.55),
+                0.34 + masonry.wobble(over, 82) * 0.22,
+                (slide, -thick * 0.5 + 0.34, TERRACE_RISE + 0.28),
                 "leafy",
-                squash=0.55,
+                squash=0.62,
+                seed=over * 11 + 5,
+            )
+        )
+    # And in the joints of the face, low enough to catch the light on it.
+    for clump in range(4):
+        slide = (clump - 1.5) * long * 0.24 + (masonry.wobble(clump, 83) - 0.5) * 1.1
+        drop = TERRACE_RISE * (0.24 + masonry.wobble(clump, 84) * 0.52)
+        parts.append(
+            masonry.lump(
+                0.24 + masonry.wobble(clump, 85) * 0.16,
+                (slide, -thick * 0.5 - 0.06, drop),
+                "leafy",
+                squash=0.5,
                 seed=clump * 7 + 3,
+            )
+        )
+    # A flower or two in among it, because a grey wall wants one warm note.
+    for flower in range(2):
+        slide = (flower * 2.0 - 1.0) * long * 0.3
+        parts.append(
+            masonry.lump(
+                0.16,
+                (slide, -thick * 0.5 - 0.1, TERRACE_RISE * 0.62),
+                "flower",
+                squash=0.7,
+                seed=flower * 13 + 2,
             )
         )
     return parts, TERRACE_RISE + 0.84
@@ -2803,14 +2900,26 @@ FIGURES = {
 }
 
 
+# Figures whose masonry carries BELOW their own origin - see `TERRACE_BURIED`.
+#
+# `masonry.paint` ramps a piece from dark at the floor to full colour at the top, and
+# it takes the floor as z nought. A terrace wall runs three metres under that, so
+# every course down there was clamped to `FOOT_SHADE` - and those courses are on show
+# wherever the ground falls further than one terrace. Which is exactly the blank dark
+# face that kept being photographed and called a concrete dam: it was not the shape,
+# it was the shading, painted as though it were underground when it was not.
+SHADES_FROM_BELOW = {"terrace_wall", "terrace_stair"}
+
+
 def build(name: str) -> None:
     masonry.fresh()
     parts, tall = FIGURES[name]()
+    under = -TERRACE_BURIED if name in SHADES_FROM_BELOW else 0.0
 
     def floor_of(colour):
         # An indoor piece shades from the storey it stands on. Which storey that is
         # comes from the piece's own height, so nothing has to be told twice.
-        return 0.0 if colour not in INDOORS else 0.0
+        return under if colour not in INDOORS else under
 
     whole = masonry.weld(parts, PAINT, tall, name="prop", floor_of=floor_of)
     # NO INVERTED HULL ON A BUILDING. See `ink`.
@@ -3226,7 +3335,7 @@ with open(NOTE, "w", encoding="utf-8") as note:
     _built = _whole.dimensions
     print(
         f"TERRACE_WALL {TERRACE_RUN} {TERRACE_RISE} {TERRACE_THICK} "
-        f"{_built.x:.3f} {_built.z:.3f}",
+        f"{_built.x:.3f} {_built.z:.3f} {TERRACE_BURIED}",
         file=note,
     )
     # THE STAIR, measured the same way: how wide the break in the wall has to be,
@@ -3237,7 +3346,7 @@ with open(NOTE, "w", encoding="utf-8") as note:
     _built = _whole.dimensions
     print(
         f"TERRACE_STAIR {TERRACE_STAIR_WIDE} {TERRACE_FLIGHT} {TERRACE_RISE} "
-        f"{TERRACE_STEPS} "
+        f"{TERRACE_STEPS} {TERRACE_BURIED} "
         f"{_built.x:.3f} {_built.y:.3f} {_built.z:.3f}",
         file=note,
     )

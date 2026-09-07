@@ -3205,3 +3205,50 @@ measurement said so: still 12 walls at 7.20. The flood fill takes the STREETS ou
 two blocks never touch cell-to-cell — there is always a road between them, which is
 what a block is. A cell-to-cell adjacency finds no neighbours anywhere in the town.
 It reaches over the street now.
+
+## Walls that were three metres too tall, all along
+
+**Issue.** Retaining walls reading as enormous blank faces — a dam rather than a
+wall — even after the double-terrace steps were fixed.
+
+**Solution.** `masonry.weld` stands every figure on its own lowest point. The wall's
+footing had been carried three metres below its foot so undulating ground could not
+saw through the base, and weld then reseated the whole figure so that footing's
+underside sat at the origin. So the coping is not `TERRACE_RISE` above the origin, it
+is `TERRACE_RISE + TERRACE_BURIED` — and the game had been seating it as though it
+were. Every wall in the city stood three metres proud of the terrace it was holding
+up, from the moment the burial went in.
+
+`dev/art/town.py` writes the buried depth into the contract, `world::town::
+WALL_BURIED` reads it, and the guard refuses a mismatch. Flights had the same datum
+and the same fix.
+
+**Worth knowing.** This is what made the exposed faces enormous, and it is why
+burying the footing appeared to make the dam WORSE rather than better: the burial and
+the error arrived together. Any figure that carries below its own origin has to say
+how far, because weld will not.
+
+## Bare terraces
+
+**Issue.** The ground below every wall was empty grass, so the terraces read as
+banks with nothing on them.
+
+**Solution.** Two things, and the second is the real one.
+
+The ground at the foot of a wall cannot carry buildings and does not want them - the
+sources have each level "serving a purpose from lush planting beds to stone
+walkways", and the concept art has beds under every wall. So it is planted: shrubs
+with flowers among them, jittered along the wall and out from it. Not from the
+countryside pool, which was the first cut and reads as wasteland - dead sticks and
+pale scrub at the foot of a town wall.
+
+But the strip was far wider than it needed to be. `RISER_KEEPS` was the pad's WHOLE
+reach, sized when the riser was 3.0 m carrying 3.6 - a slope of 1.2, which pads could
+squeeze flat. The riser is 3.6 m now, a slope of one, and the ground along a street
+is smoothed besides. Measured: `the_ground_between_two_buildings_has_no_step_in_it`
+passes at a third of that reach, and the city goes from 302 buildings and 35 yards to
+336 and 100.
+
+**Worth knowing.** The terraces were not bare because nothing was placed on them.
+They were bare because a guard's setback had outlived the geometry it was written
+for, and it was quietly eating a third of the town's open ground.

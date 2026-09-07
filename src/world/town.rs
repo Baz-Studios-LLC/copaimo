@@ -1650,6 +1650,27 @@ const ELBOW: f32 = 1.0;
 /// allows for everything else, so a lot that spans more than that is not a lot.
 const STANDS_LEVEL: f32 = 0.22;
 
+/// What share of a pad's reach a building must keep clear of a riser.
+///
+/// # A setback sized for a riser that no longer exists
+///
+/// A building levels a pad and eases it into the ground for several metres past its
+/// walls, and two buildings either side of a riser used to flatten the whole rise
+/// into the gap between their skirts - measured at 1.4 where the terrace was built
+/// at 0.86. The answer was to keep a building clear of a riser by the pad's WHOLE
+/// reach.
+///
+/// That riser was 3.0 m carrying 3.6, a slope of 1.2. It is 3.6 m now, a slope of
+/// one, and the ground along a street is smoothed besides - so the pads have far
+/// less to squeeze. The full reach was costing the city a third of its open ground:
+/// 302 buildings and 35 yards against 336 and 100, and terraces that read as empty
+/// because they were. `the_ground_between_two_buildings_has_no_step_in_it` passes at
+/// a third of it, measured, and that is what it is set to.
+///
+/// If that guard ever starts failing again, this is the first place to look: it is
+/// the knob that trades open ground against pad seams.
+const RISER_KEEPS: f32 = 0.35;
+
 /// Whether this footprint sits wholly on one terrace.
 ///
 /// Asked by every placement path there is - the lot loop, the landmark search
@@ -1677,7 +1698,7 @@ fn stands_level(site: &crate::world::settle::Site, at: Vec2, what: Building) -> 
     // the slope and the slope is linear in position, so a box's extremes are at
     // its corners wherever the riser crosses it.
     let half = what.footprint() * 0.5;
-    let half = half + Vec2::splat(crate::world::settle::pad_reaches(half));
+    let half = half + Vec2::splat(crate::world::settle::pad_reaches(half) * RISER_KEEPS);
     let (low, high) = [
         Vec2::new(half.x, half.y),
         Vec2::new(-half.x, half.y),
@@ -2097,6 +2118,28 @@ pub struct Wall {
     pub faces: Vec2,
 }
 
+/// How far a piece of terrace masonry carries BELOW the ground it stands on.
+///
+/// # `weld` stands every figure on its own lowest point
+///
+/// The wall's footing runs three metres under its foot so undulating ground cannot
+/// saw through the base - and `masonry.weld` then reseats the whole figure so that
+/// footing's underside sits at the model's origin. So the coping is not
+/// `TERRACE_RISE` above the origin, it is `TERRACE_RISE + this`, and seating the
+/// wall as though it were put every wall in the city three metres too high. That is
+/// what those enormous exposed faces were: not the shape of the wall, its height.
+///
+/// The contract with `dev/art/town.py`, checked by
+/// `the_terrace_wall_is_as_tall_as_the_step_it_retains`.
+pub const WALL_BURIED: f32 = 3.0;
+
+/// How far apart the planting under a wall stands, in metres.
+///
+/// Close enough to read as a bed rather than as scattered bushes, loose enough that
+/// it is not a hedge: each one is jittered along the wall and out from it by its own
+/// roll, so the row has no spacing you can count.
+const PLANTED_EVERY: f32 = 5.0;
+
 /// How far either side of a wall the ground is read, in metres.
 ///
 /// Past the wall's own back and past the blend the terrain puts either side of a
@@ -2168,6 +2211,7 @@ impl Stair {
             Vec2::splat(1.0),
             0.0,
         ) - crate::world::settle::TERRACE_RISE
+            - WALL_BURIED
     }
 
     /// The height of the tread under `at`, if the flight has one there.
@@ -2192,9 +2236,12 @@ impl Stair {
             return None;
         }
         let foot = self.foot(terrain);
+        // The model's own surface is `WALL_BURIED` above its origin plus the rise
+        // it climbs - see `WALL_BURIED`, which is why `foot` is that far down.
+        let head = foot + WALL_BURIED + crate::world::settle::TERRACE_RISE;
         if down <= 0.0 {
             // The landing at the head, flush with the terrace above.
-            return Some(foot + crate::world::settle::TERRACE_RISE);
+            return Some(head);
         }
         // A RAMP THROUGH THE TREADS, not the treads themselves.
         //
@@ -2212,7 +2259,7 @@ impl Stair {
         // the cost is that a foot sits up to half a riser - nine centimetres - into
         // the tread behind it. Nine centimetres of shoe against a flight nobody can
         // climb is not a close call.
-        Some(foot + crate::world::settle::TERRACE_RISE * (1.0 - down / STAIR_FLIGHT))
+        Some(head - crate::world::settle::TERRACE_RISE * (down / STAIR_FLIGHT))
     }
 }
 
@@ -9654,7 +9701,7 @@ pub fn raise_the_towns(
                     Vec2::splat(1.0),
                     0.0,
                 );
-                let foot = over - crate::world::settle::TERRACE_RISE;
+                let foot = over - crate::world::settle::TERRACE_RISE - WALL_BURIED;
                 commands.spawn((
                     FromSite(key),
                     SceneRoot(assets.load(
@@ -9670,6 +9717,75 @@ pub fn raise_the_towns(
                 ));
             }
         }
+        // AND THE TERRACE BELOW EACH WALL IS PLANTED.
+        //
+        // # A terrace with nothing on it is a bank
+        //
+        // Nothing may stand within a riser - a building levels a pad and its pad
+        // squeezes the step flat, see `stands_level` - so there is a clear strip at
+        // the foot of every wall in the city, and 82 walls' worth of it came out as
+        // bare grass. The terraces read as empty because they were.
+        //
+        // The strip cannot carry buildings and does not want them: the sources have
+        // the ground below a retaining wall as planting, each level "serving a
+        // purpose from lush planting beds to stone walkways", and the concept art
+        // has beds and shrubs under every wall it shows. Planting is also the only
+        // thing that will grow in a strip too narrow to build on, which is why real
+        // terraces use it.
+        //
+        // Spawned rather than laid out as lots, because a bed is not a plot: it
+        // takes no frontage, needs no door, and wants to follow the wall it is under
+        // rather than a street.
+        for wall in &layout.walls {
+            let run = wall.to - wall.from;
+            let length = run.length();
+            let along = run / length.max(1.0e-4);
+            let many = (length / PLANTED_EVERY).floor().max(1.0);
+            for which in 0..many as usize {
+                let salt = key
+                    .wrapping_mul(7919)
+                    .wrapping_add(which as u32)
+                    .wrapping_add((wall.from.x.abs() as u32).wrapping_mul(31));
+                let step = (which as f32 + 0.5) / many;
+                // Off the wall's foot by its own roll, so a bed is not a fence.
+                let out = WALL_THICK * 0.5 + 1.4 + unit(salt, 3) * 2.6;
+                let at = wall.from
+                    + along * (length * step + (unit(salt, 5) - 0.5) * PLANTED_EVERY * 0.7)
+                    + wall.faces * out;
+                // SHRUBS AND FLOWERS, not the wild pool.
+                //
+                // The first cut drew from the countryside props - `prop_brush` and
+                // `tree_birch` - and a terrace bed planted out of those reads as
+                // wasteland: dead sticks and pale scrub at the foot of a town wall.
+                // A bed under a retaining wall is tended. Bushes for the mass and
+                // flowers among them for the one warm note on a grey run.
+                let flowering = unit(salt, 7) < 0.3;
+                let model = if flowering {
+                    "models/cover_flower.glb"
+                } else {
+                    "models/prop_bush.glb"
+                };
+                commands.spawn((
+                    FromSite(key),
+                    SceneRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(model))),
+                    Transform::from_xyz(
+                        at.x,
+                        stands_at(&terrain.0, at, Vec2::splat(0.8), 0.0),
+                        at.y,
+                    )
+                    .with_rotation(Quat::from_rotation_y(unit(salt, 13) * std::f32::consts::TAU))
+                    // Flowers are a ground-cover piece and want to be bigger than
+                    // life to read at all; a bush is nearly right as it stands.
+                    .with_scale(Vec3::splat(if flowering {
+                        2.4 + unit(salt, 17) * 1.4
+                    } else {
+                        0.9 + unit(salt, 19) * 0.7
+                    })),
+                    Visibility::default(),
+                ));
+            }
+        }
+
         // AND THE FLIGHTS OF STEPS that break them.
         for stair in &layout.stairs {
             // The same foot as the wall it stands in: the terrace BELOW, measured
@@ -12078,7 +12194,12 @@ mod tests {
             .map(|n| n.parse().expect("a number"))
             .collect();
         let (wide, flight, rise, steps) = (said[0], said[1], said[2], said[3]);
-        let (built_wide, built_deep, built_tall) = (said[4], said[5], said[6]);
+        let buried = said[4];
+        let (built_wide, built_deep, built_tall) = (said[5], said[6], said[7]);
+        assert!(
+            (buried - WALL_BURIED).abs() < 1.0e-3,
+            "the flight is built {buried} m below its foot and the game seats it as              though it were {WALL_BURIED}"
+        );
 
         assert!(
             (rise - crate::world::settle::TERRACE_RISE).abs() < 1.0e-3,
@@ -12248,8 +12369,12 @@ mod tests {
             .split_whitespace()
             .map(|n| n.parse().expect("a number"))
             .collect();
-        let (run, rise, thick, built_long, built_tall) =
-            (said[0], said[1], said[2], said[3], said[4]);
+        let (run, rise, thick, built_long, built_tall, buried) =
+            (said[0], said[1], said[2], said[3], said[4], said[5]);
+        assert!(
+            (buried - WALL_BURIED).abs() < 1.0e-3,
+            "the wall is built {buried} m below its foot and the game seats it as              though it were {WALL_BURIED} — every wall in the city stands that far out"
+        );
 
         assert!(
             (rise - crate::world::settle::TERRACE_RISE).abs() < 1.0e-3,
