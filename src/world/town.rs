@@ -2217,6 +2217,12 @@ impl Stair {
 }
 
 /// How many steps the flight is cut into. The contract with `dev/art/town.py`.
+///
+/// Read by `the_terrace_stair_carries_the_step_it_breaks` rather than by the game:
+/// the surface a warden walks is a line through the nosings, not the treads
+/// themselves - see `Stair::tread_at` - but the model still has to be cut into steps
+/// a foot would accept, and this is what that is checked against.
+#[cfg_attr(not(test), allow(dead_code))]
 const STAIR_STEPS: f32 = 20.0;
 
 /// How wide the flight is, how far it projects, and how wide a break it needs.
@@ -2227,17 +2233,17 @@ const STAIR_STEPS: f32 = 20.0;
 pub const STAIR_WIDE: f32 = 4.0;
 pub const STAIR_FLIGHT: f32 = 6.0;
 
-/// The shortest run of wall worth breaking for a flight of steps, in metres.
-const STAIRS_NEED: f32 = 26.0;
+/// How square to the contour a street has to run to count as a way UP.
+///
+/// A rail wanders across a terrace edge wherever the edge wanders across it, and
+/// those crossings are the street changing its mind rather than anywhere anybody
+/// climbs. 0.5 is sixty degrees off the contour. See `Role`.
+const RUNG_CROSSES: f32 = 0.5;
 
 /// How far apart two flights of steps have to be to be two flights, in metres.
 const STAIRS_APART: f32 = 55.0;
 
-/// The widest a flight is ever built, in metres.
-///
-/// A flight is stretched to the street it carries, and a street is as wide as it
-/// is; this is where that stops, so a stair never becomes a plaza with steps on it.
-const STAIR_WIDEST: f32 = 9.0;
+
 
 /// How far the landing at the head of the flight reaches into the terrace above.
 const STAIR_LANDS: f32 = 1.4;
@@ -2355,86 +2361,92 @@ fn retain_the_terraces(
         }
     }
 
-    // THE FLIGHTS, IN THE WALL, where the pavement above meets the ground below.
+    // THE FLIGHTS, WHERE A RUNG CROSSES A TERRACE EDGE.
     //
-    // They used to be put where a STREET changes terrace. That was right while a
-    // street changed terrace over the width of the riser; it is wrong now that a
-    // road ramps gently along its own length instead - see `settle::STREET_RAMPS`,
-    // which is what stopped the paving tearing. A flight standing on a ramp fights
-    // the ground it is standing on, and `--drive` found it as a terrace a warden
-    // could neither walk up nor get past.
+    // # A stair belongs to the ladder
     //
-    // A wall now runs along the kerb of the street it retains, so the middle of a
-    // wall run IS a piece of pavement with a drop on the far side of it - which is
-    // what a flight of steps is for, and what the concept art shows: paving at the
-    // head, paving at the foot, and the wall carrying on either side.
+    // These have been in three places and the first two were wrong for the same
+    // reason: nothing about the town said where a way UP was, so a flight had to be
+    // guessed at. Spread along a wall, they came out in open grass leading from
+    // nothing to nothing. Put at any street that changed level, most of what they
+    // found was a street running ALONG a terrace edge and flickering across it, not
+    // a way up at all.
     //
-    // AND THE WALL IS BROKEN FOR IT. A flight standing in an unbroken run has the
-    // wall through its own steps, which is solid, so the steps go nowhere - found by
-    // `--drive` as a stair a warden could not climb.
-    let mut kept: Vec<Wall> = Vec::new();
-    for wall in walls.drain(..) {
-        let run = wall.to - wall.from;
-        let length = run.length();
-        let at = wall.from + run * 0.5;
-        let wanted = length >= STAIRS_NEED
-            && !stairs.iter().any(|had: &Stair| had.at.distance(at) < STAIRS_APART);
-        if !wanted {
-            kept.push(wall);
+    // The ladder answers it. A rung is a street that crosses the contour to join one
+    // level to the next - that is what it is FOR - so a rung meeting a terrace edge
+    // is precisely a place people go up, and it has paving above it and paving below
+    // it because the rung is paved both sides of the step. That pair is what the
+    // concept art has at every flight in it.
+    //
+    // Beside the rung rather than in it. The rung's own ground is smoothed along its
+    // length so a cart can take it - see `settle::STREET_RAMPS`, which is what
+    // stopped the paving tearing - and a flight standing on that ramp fights it. A
+    // pace off the kerb the ground still has its full step, which is the step the
+    // flight was built to fill. A ramped way up with steps beside it is also simply
+    // what a hill town has.
+    let mut climbs: Vec<(f32, Vec2, Vec2, f32)> = Vec::new();
+    for street in streets.iter().chain(crossing) {
+        let Some((at, down)) =
+            crate::world::settle::crosses_a_terrace(site, street.from, street.to)
+        else {
+            continue;
+        };
+        // Inside the town, where the terraces are at their full height.
+        if site.plan.off(at - site.at, site.bearing, site.radius)
+            > -crate::world::settle::TERRACE_HOLDS
+        {
             continue;
         }
-        stairs.push(Stair { at, faces: wall.faces, wide: STAIR_WIDE });
-        // The wall either side of the break, which is what makes it a break in a
-        // wall rather than a stair standing on its own.
-        let along = run / length;
-        let half = (STAIR_WIDE + 1.0) * 0.5 + WALL_OFF_A_STREET * 0.5;
-        for (from, to) in [
-            (wall.from, at - along * half),
-            (at + along * half, wall.to),
-        ] {
-            if from.distance(to) >= WALL_LEAST {
-                kept.push(Wall { from, to, faces: wall.faces });
-            }
+        // A RUNG, not a rail. A street running along the contour crosses the edge
+        // wherever the edge wanders across it, and those crossings are not ways up -
+        // they are the same street changing its mind. A rung runs at the contour.
+        let level = crate::world::settle::contour_at(site, at);
+        if down.dot(level).abs() > RUNG_CROSSES {
+            continue;
         }
+        let band = crate::world::settle::band_of(site, at - down * 6.0);
+        climbs.push((band, at, down, street.wide));
     }
-    walls = kept;
 
-    // AND THE WAY UP A CART TAKES, which is a street that climbs rather than steps.
-    //
-    // Named rather than implied, because "there is a way up that is not steps" is a
-    // claim about the town and `--drive` tests it.
-    for street in streets {
-        if let Some((at, _)) =
-            crate::world::settle::crosses_a_terrace(site, street.from, street.to)
-        {
-            if site.plan.off(at - site.at, site.bearing, site.radius)
-                <= -crate::world::settle::TERRACE_HOLDS
-                && !ramps.iter().any(|had: &Vec2| had.distance(at) < STAIRS_APART)
-            {
-                ramps.push(at);
+    for band in 1..(bands as usize) {
+        let mut on_this: Vec<&(f32, Vec2, Vec2, f32)> = climbs
+            .iter()
+            .filter(|(which, ..)| (*which - band as f32).abs() < 0.5)
+            .collect();
+        // Widest first: the widest is the cart's way up and keeps its ramp, so a
+        // terrace is never reachable by steps alone. Recorded, because that is a
+        // claim about the town and `--drive` tests it.
+        on_this.sort_by(|a, b| b.3.total_cmp(&a.3));
+        if let Some(&&(_, at, ..)) = on_this.first() {
+            ramps.push(at);
+        }
+        let mut taken: Vec<Vec2> = Vec::new();
+        for &&(_, at, down, wide) in on_this.iter().skip(1) {
+            if taken.iter().any(|had| had.distance(at) < STAIRS_APART) {
+                continue;
             }
+            taken.push(at);
+            // A pace off the kerb, on whichever hand has room.
+            let side = Vec2::new(-down.y, down.x);
+            let off = wide * 0.5 + STAIR_WIDE * 0.5 + 1.5;
+            let hand = if crate::world::settle::band_of(site, at + side * off)
+                >= crate::world::settle::band_of(site, at - side * off)
+            {
+                1.0
+            } else {
+                -1.0
+            };
+            stairs.push(Stair {
+                at: at + side * hand * off,
+                faces: down,
+                wide: STAIR_WIDE,
+            });
         }
     }
 
     (walls, stairs, ramps)
 }
 
-/// One piece of wall between two points on a traced edge.
-fn a_wall(from: Vec2, to: Vec2, up: Vec2) -> Wall {
-    Wall { from, to, faces: faces_down(from, to, up) }
-}
-
-/// Which way a piece of wall looks: square to its own run, and DOWNHILL.
-///
-/// Taken from the piece rather than from the settlement's axis. On a straight edge
-/// those are the same and on a warped one they are not, and a wall whose face is
-/// square to the axis rather than to itself is one turned a few degrees out of the
-/// bank it is holding - visible as a sawtooth all the way along.
-fn faces_down(from: Vec2, to: Vec2, up: Vec2) -> Vec2 {
-    let run = (to - from).normalize_or_zero();
-    let out = Vec2::new(-run.y, run.x);
-    if out.dot(up) > 0.0 { -out } else { out }
-}
 
 /// How far apart lamps stand along a street, in metres.
 ///
@@ -9587,6 +9599,32 @@ pub fn raise_the_towns(
                 let (over, under) = seat(wall, mid);
                 over - under >= WALL_SHOWS
             });
+            // AND THE FLIGHTS, for the same reason and by the same measure.
+            //
+            // A flight is placed where a rung crosses a terrace edge, which is read
+            // off the level grid at the ROAD - and a flight stands a pace to the
+            // side of that road, on ground the grid has been blended into. Measured
+            // there, most of them had no drop at all to come down: -0.07, 0.09,
+            // 0.72, 1.25 against the one real 3.03.
+            //
+            // So the ground says whether there is a flight, exactly as it says
+            // whether there is a wall. Head to foot, because that is the span a
+            // flight has to cover.
+            layout.stairs.retain(|stair| {
+                let head = stands_at(
+                    terrain,
+                    stair.at - stair.faces * 2.0,
+                    Vec2::splat(1.0),
+                    0.0,
+                );
+                let foot = stands_at(
+                    terrain,
+                    stair.at + stair.faces * (STAIR_FLIGHT + 3.0),
+                    Vec2::splat(1.0),
+                    0.0,
+                );
+                head - foot >= WALL_SHOWS
+            });
         }
 
         // THE RETAINING WALLS, tiled along each terrace edge.
@@ -10914,6 +10952,7 @@ mod tests {
 
 
 
+
     #[test]
     fn the_ground_between_two_buildings_has_no_step_in_it() {
         let terrain = crate::world::terrain::Terrain::new();
@@ -12053,17 +12092,14 @@ mod tests {
 
         // AND THE BREAK IN THE WALL CLEARS THE MESH.
         //
-        // A flight stands in the gap its own STREET cut: the wall stops
-        // `WALL_OFF_A_STREET` clear of the kerb either side, so the gap is that
-        // street's width plus twice that. The mesh is wider than its treads,
-        // because the parapets stand outside them - and a flight is stretched to
-        // the street it carries, so both grow together. This asks that the gap
-        // still wins at the widest flight the town will ever build.
-        let gap = STAIR_WIDEST + WALL_OFF_A_STREET * 2.0;
-        let mesh = STAIR_WIDEST * built_wide / wide;
+        // A flight stands beside the rung it belongs to, in the gap that rung
+        // already cut in the wall: the wall stops `WALL_OFF_A_STREET` clear of the
+        // kerb either side. The mesh is wider than its treads, because the parapets
+        // and the apron stand outside them.
+        let gap = wide + WALL_OFF_A_STREET * 2.0;
         assert!(
-            gap >= mesh,
-            "the widest flight is {mesh:.1} m of mesh standing in a {gap:.1} m gap —              the wall runs through its own parapets"
+            gap >= built_wide,
+            "a flight is {built_wide:.1} m of mesh standing in a {gap:.1} m gap — the              wall runs through its own parapets"
         );
         assert!(
             built_deep >= flight && built_tall > rise,

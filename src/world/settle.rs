@@ -202,45 +202,6 @@ pub fn drift(at: Vec2) -> Vec2 {
     Vec2::new(one.get(of) as f32, two.get(of) as f32) * WANDERS
 }
 
-/// The same, as it applies to ONE settlement.
-///
-/// # Whose lines bend, and where they stop bending
-///
-/// Two things `drift` alone cannot know.
-///
-/// WHOSE: only the first city. Warping every settlement in the world was the same
-/// mistake as terracing every one - a feature applied at the scope of the code
-/// rather than of the task. It bent six cities nobody asked about and every
-/// village, and villages are not to be disturbed: it cost one its guild hall
-/// outright and turned two of its paving triangles upside down.
-///
-/// WHERE IT STOPS: nothing at the boundary, everything well inside. The country
-/// roads are laid before a town is, and they arrive at points on its edge; move the
-/// edge and they arrive at nothing. `every_arriving_road_meets_the_town_it_arrives
-/// _at` measured the worst at 26.1 m short - which is the warp's own amplitude,
-/// arriving as a gap. Tapered, the arrivals are where they always were and the
-/// bending is all in the interior, where a town's own streets are its own business.
-///
-/// It is also what keeps the terraces inside the town they belong to: the field the
-/// bands are cut from is warped through this, so at the boundary it goes back to
-/// being the plain measure the skirt already knows how to put away.
-pub fn drift_in(site: &Site, at: Vec2) -> Vec2 {
-    if !site.first {
-        return Vec2::ZERO;
-    }
-    let off = site.plan.off(at - site.at, site.bearing, site.radius);
-    drift(at) * crate::util::smoothstep(0.0, -WANDERS * 2.5, off)
-}
-
-/// How far along the slope a point lies, from the low edge of the settlement.
-///
-/// WARPED, which is the whole of what makes a terrace edge organic: the bands are
-/// still evenly spaced in this measure, so they are still level ground of an even
-/// width, but the LINE where one ends is wherever the warp puts it. See `drift`.
-fn along_the_slope(site: &Site, at: Vec2) -> f32 {
-    let up = Vec2::from_angle(site.bearing);
-    (at - site.at + drift_in(site, at)).dot(up) + site.plan.reaches(site.radius)
-}
 
 /// How far the hillside a settlement stands on falls across it, as a share of the
 /// rise the terraces will cut it into.
@@ -471,32 +432,6 @@ pub fn crosses_a_terrace(site: &Site, from: Vec2, to: Vec2) -> Option<(Vec2, Vec
     Some((at, if high > low { -run } else { run }))
 }
 
-/// Where `want` metres along the slope falls, on the line `across` off the axis.
-///
-/// # A wall follows a contour, so it has to be FOUND rather than drawn
-///
-/// Straight terrace edges could be walked across in a straight line. A warped one
-/// cannot: the edge is wherever `along_the_slope` reaches the band's value, and
-/// that is a curve. So it is solved for - bisection along the axis, which is sound
-/// because the warp is bounded to keep that measure climbing everywhere. See
-/// `WANDERS_OVER`.
-pub fn band_edge_at(site: &Site, want: f32, across: f32) -> Vec2 {
-    let up = Vec2::from_angle(site.bearing);
-    let side = Vec2::new(-up.y, up.x);
-    let reaches = site.plan.reaches(site.radius);
-    // Wide enough to bracket the answer whatever the warp does to it.
-    let (mut low, mut high) = (-reaches - WANDERS * 2.0, reaches + WANDERS * 2.0);
-    for _ in 0..26 {
-        let mid = (low + high) * 0.5;
-        let at = site.at + up * mid + side * across;
-        if along_the_slope(site, at) < want {
-            low = mid;
-        } else {
-            high = mid;
-        }
-    }
-    site.at + up * ((low + high) * 0.5) + side * across
-}
 
 /// How far inside its own edge a settlement's terraces are at full height.
 ///
@@ -1020,6 +955,9 @@ impl Site {
     /// radials are set out from the road that arrives - see `world::town::PlanShape`.
     /// Two statements of which way a town faces is how a spine came to be laid along
     /// one axis and measured along another.
+    /// Used by the layout tests, which point a fabricated site somewhere; the
+    /// world's own sites take their bearing from the road that reaches them.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn facing(mut self, approach: Vec2) -> Self {
         self.bearing = approach.y.atan2(approach.x);
         self.shape = crate::world::town::PlanShape::of(&self);

@@ -3144,3 +3144,30 @@ a flight facing (1.00, 0.00) laid descending (-1.00, 0.00).
 nowhere however it is turned: every flight in the concept art has paving at its head
 AND at its foot, and it is the pair that makes it a route rather than an object. The
 figure has an apron with a kerb round it at the bottom now.
+
+## A stair belongs to the ladder
+
+**Issue.** Flights had been placed three ways and the first two were wrong for the
+same reason: nothing about the town said where a way UP was, so a flight had to be
+guessed at. Spread along a wall, they came out in open grass leading from nothing to
+nothing. Put at any street that changed level, most of what they found was a street
+running ALONG a terrace edge and flickering across it — not a way up at all.
+
+**Solution.** The ladder answers it. A rung is a street that crosses the contour to
+join one level to the next; that is what it is FOR. So a rung meeting a terrace edge
+is precisely where people go up, and it has paving above it and paving below it
+because the rung is paved on both sides of the step — which is the pair the concept
+art has at every flight in it. A rail is refused: `RUNG_CROSSES` asks that the
+street run within sixty degrees of the fall line.
+
+Beside the rung rather than in it. The rung's own ground is smoothed along its
+length so a cart can take it, and a flight standing on that ramp fights it. A pace
+off the kerb the ground still has its full step. A ramped way up with steps beside it
+is also simply what a hill town has.
+
+**Worth knowing.** The placement is read off the level grid at the ROAD, and the
+flight stands a pace to the side of that road — on ground the grid has been blended
+into. Measured at the flights: drops of -0.07, 0.09, 0.72 and 1.25 against one real
+3.03. So the ground decides whether there is a flight, exactly as it already decides
+whether there is a wall. That is the same fault as the walls had, one step later in
+the same pipeline, and the same fix.
