@@ -3171,3 +3171,37 @@ into. Measured at the flights: drops of -0.07, 0.09, 0.72 and 1.25 against one r
 3.03. So the ground decides whether there is a flight, exactly as it already decides
 whether there is a wall. That is the same fault as the walls had, one step later in
 the same pipeline, and the same fix.
+
+## A sawtooth of grass along every wall, and a dam where a wall should be
+
+**Issue.** Two faults in the same pictures. The bottom of every wall was a ragged
+sawtooth against the grass, and in places the wall was a blank grey face several
+storeys tall.
+
+**Solution, the sawtooth.** A wall tile is seated at ONE height and its base is flat;
+the ground under it is not, and where it rises it comes through. The buildings
+already solve this by carrying a footing down to the ground beneath, and it is
+cheaper here because nobody is ever under a retaining wall: the masonry simply
+carries on down three metres, further than the terrain moves under any one tile.
+
+Buried stone costs nothing — but a buried PLINTH does, because it is not always
+buried. A wall is seated from the terrace it holds up, so wherever the ground below
+falls further than one terrace the plinth is on show, and a plain box down there is
+a concrete dam. The courses start lower instead: exposed or buried, it is the same
+wall.
+
+**Solution, the dam.** Ranking blocks by hillside and cutting into equal shares says
+nothing about whether two blocks that TOUCH land on neighbouring terraces. Measured:
+12 walls carrying 7.20 m — two terraces at once — against 47 at the intended 3.6.
+
+The sources are plain that this is the thing terracing is done INSTEAD of: terracing
+breaks a slope into levels each of which is a usable platform, a tier runs to about
+1.8 m, and it is the system that climbs. One face holding the lot is not a terrace.
+The levels are relaxed until every pair of touching blocks is within one step, pulled
+downward so no block ends up on fill. Worst drop 3.60 m, from 7.20.
+
+**Worth knowing.** The first cut of that relaxation changed nothing at all, and the
+measurement said so: still 12 walls at 7.20. The flood fill takes the STREETS out, so
+two blocks never touch cell-to-cell — there is always a road between them, which is
+what a block is. A cell-to-cell adjacency finds no neighbours anywhere in the town.
+It reaches over the street now.

@@ -2492,6 +2492,22 @@ TERRACE_RISE = 3.6
 # How long one run of wall is. Tiled end to end along a terrace edge.
 TERRACE_RUN = 8.0
 
+# How far below its own foot a piece of terrace masonry carries on, in metres.
+#
+# # A flat base on undulating ground saws through it
+#
+# A wall tile is seated at ONE height and its base is flat, and the ground under it
+# is not: it rises and falls by tens of centimetres across eight metres, and where it
+# rises it comes through. What that looks like is a ragged sawtooth of grass along the
+# bottom of every wall in the city, photographed three times over.
+#
+# The buildings already solve this - they carry a footing down from the floor to the
+# ground beneath - and the answer is the same here and cheaper, because nobody is
+# ever under a retaining wall: the masonry simply carries on down, far enough that
+# the ground cannot rise past it. Three metres is more than the terrain moves under
+# any one tile, and buried stone costs nothing.
+TERRACE_BURIED = 3.0
+
 # How thick the wall is, in metres.
 #
 # # The wall's thickness IS the width of the step it holds
@@ -2537,15 +2553,31 @@ def terrace_wall():
     long, thick = TERRACE_RUN, TERRACE_THICK
 
     # The footing, wider than the wall, as a wall on soil has.
-    parts.append(box((long, thick + 0.2, 0.42), (0.0, 0.0, 0.21), "stone"))
+    parts.append(
+        box(
+            (long, thick + 0.2, 0.42),
+            (0.0, 0.0, 0.21 - TERRACE_BURIED),
+            "stone",
+        )
+    )
 
     # THE BATTER: each course sits a little further back than the one below, so
     # the face leans into the hill. That lean is most of why a retaining wall
     # reads as retaining rather than as a fence made of stone.
-    courses = 4
-    deep = (TERRACE_RISE - 0.42) / courses
+    # COURSED ALL THE WAY DOWN, not a plain plinth under a coursed face.
+    #
+    # The masonry carries below the ground for the reason in `TERRACE_BURIED`, and
+    # the first cut of that put a blank box down there - which is invisible while it
+    # is buried and a concrete dam the moment it is not. It is not always buried: a
+    # wall is seated from the terrace it HOLDS UP, so wherever the ground below falls
+    # further than one terrace the whole plinth is on show. Photographed as a grey
+    # slab several storeys tall beside a street.
+    #
+    # So the courses simply start lower. Exposed or buried, it is the same wall.
+    courses = 8
+    deep = (TERRACE_RISE + TERRACE_BURIED) / courses
     for course in range(courses):
-        base = 0.42 + course * deep
+        base = -TERRACE_BURIED + course * deep
         parts.append(
             box(
                 (long, thick, deep),
@@ -2647,7 +2679,16 @@ def terrace_stair():
         middle = -(step + 0.5) * deep
         # Solid to the ground rather than a plate on air: a flight of steps with
         # nothing under it reads as cardboard the moment you see it from the side.
-        parts.append(box((TERRACE_STAIR_WIDE, deep, top), (0.0, middle, top * 0.5), "stone"))
+        # Carried below the ground for the same reason the wall is: a flight is
+        # seated from its landing, so where the ground below falls away faster than
+        # the flight does the bottom steps hang in the air.
+        parts.append(
+            box(
+                (TERRACE_STAIR_WIDE, deep, top + TERRACE_BURIED),
+                (0.0, middle, (top - TERRACE_BURIED) * 0.5),
+                "stone",
+            )
+        )
         # The nosing, a lip standing proud of the riser below it.
         parts.append(
             box(
@@ -2685,8 +2726,8 @@ def terrace_stair():
     # The head has the terrace it breaks; this is the other half.
     parts.append(
         box(
-            (TERRACE_STAIR_WIDE + 1.6, 3.4, 0.34),
-            (0.0, -(TERRACE_FLIGHT + 1.5), 0.17),
+            (TERRACE_STAIR_WIDE + 1.6, 3.4, 0.34 + TERRACE_BURIED),
+            (0.0, -(TERRACE_FLIGHT + 1.5), 0.17 - TERRACE_BURIED * 0.5),
             "stone",
         )
     )

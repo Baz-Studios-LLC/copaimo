@@ -524,6 +524,11 @@ impl Terraces {
     }
 }
 
+/// How wide a street the terrace relaxation reaches over, in metres.
+///
+/// Two blocks with a road between them are neighbours; the search has to cross it.
+const CITY_STREET_ACROSS: f32 = 14.0;
+
 /// How many passes of smoothing a street's own level gets.
 ///
 /// Each pass spreads a step by about a cell either way, so seven of them at a 3 m
@@ -664,6 +669,81 @@ pub fn terrace_the_town(
         so_far += middles[which].1;
     }
     let _ = every;
+
+    // ----------------------------- AND NO BLOCK IS TWO TERRACES ABOVE ITS NEIGHBOUR
+    //
+    // # A terrace system steps; it does not hold the whole slope in one face
+    //
+    // Ranking by hillside and cutting into equal shares says nothing about whether
+    // two blocks that TOUCH end up on neighbouring terraces - and where they did
+    // not, the wall between them carried two terraces at once. Measured: 12 walls
+    // at 7.20 m, against 47 at the intended 3.6. What that builds is a blank grey
+    // face several storeys tall beside a street, photographed and rightly called a
+    // dam rather than a wall.
+    //
+    // The sources are plain about it. Terracing exists to break a slope into
+    // manageable levels, each of which is a usable platform; a tier runs to about
+    // 1.8 m and it is the SYSTEM that climbs, over many of them. One face holding
+    // the lot is the thing terracing is done instead of.
+    //
+    // So the levels are relaxed until every pair of touching blocks is within one
+    // step of each other. Pulled DOWNWARD, because a block dragged up is a block
+    // whose buildings are suddenly on fill.
+    // ACROSS THE STREET BETWEEN THEM, not cell to cell.
+    //
+    // The flood fill takes the streets OUT, so two blocks never touch directly -
+    // there is always a road between them, which is the whole point of a block. A
+    // cell-to-cell adjacency therefore finds nothing at all, and the first cut of
+    // this relaxed nothing and changed nothing: still 12 walls at 7.20 m.
+    //
+    // Two blocks are neighbours if a street is all that separates them, so the
+    // search reaches over one.
+    let over = ((CITY_STREET_ACROSS / step).ceil() as i32).max(2);
+    let mut touching: Vec<(usize, usize)> = Vec::new();
+    for cell in 0..across * across {
+        if !street[cell] {
+            continue;
+        }
+        let (x, y) = (cell % across, cell / across);
+        let mut near: Vec<usize> = Vec::new();
+        for dy in -over..=over {
+            for dx in -over..=over {
+                let (nx, ny) = (x as i32 + dx, y as i32 + dy);
+                if nx < 0 || ny < 0 || nx >= across as i32 || ny >= across as i32 {
+                    continue;
+                }
+                let next = ny as usize * across + nx as usize;
+                if !street[next] && !near.contains(&block[next]) {
+                    near.push(block[next]);
+                }
+            }
+        }
+        for (at, one) in near.iter().enumerate() {
+            for other in &near[at + 1..] {
+                touching.push((*one, *other));
+            }
+        }
+    }
+    // A block edge is many cells long, so the same pair turns up many times.
+    touching.sort_unstable();
+    touching.dedup();
+    for _ in 0..bands as usize + 2 {
+        let mut moved = false;
+        for &(one, other) in &touching {
+            let (high, low) = if levels[one] > levels[other] {
+                (one, other)
+            } else {
+                (other, one)
+            };
+            if levels[high] - levels[low] > 1.0 {
+                levels[high] = levels[low] + 1.0;
+                moved = true;
+            }
+        }
+        if !moved {
+            break;
+        }
+    }
 
     // ---------------------------- 4. and the streets take the higher of their sides
     let mut cells = vec![0.0_f32; across * across];
