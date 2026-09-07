@@ -271,22 +271,12 @@ fn plan_the_routes(terrain: &crate::world::terrain::Terrain) -> Vec<Route> {
     // provable by arithmetic - the wall's collision is a box in a list and the
     // street's climb is a slope on a meshed heightfield, and both have been right
     // on paper while being wrong underfoot.
-    if let Some((up_from, up_to, wall_from, wall_to, step_from, step_to)) = a_terrace(terrain) {
+    if let Some((step_from, step_to, wall_from, wall_to)) = a_terrace(terrain) {
         // UP THE STREET. If this fails the upper half of a city is unreachable.
-        routes.push(Route {
-            name: "terrace street".into(),
-            from: up_from,
-            to: up_to,
-            walking: false,
-            hertz: 60.0,
-            expect: Expect::Arrives,
-            within: 24.0,
-            corridor: 7.0,
-        });
-        // AND UP THE STEPS, which is the way a town is walked rather than carted.
-        // A flight projects out over the terrace below, so this fails if the
-        // warden walks along the ground THROUGH it as readily as if the treads
-        // were too tall to climb.
+        // UP THE STEPS, which is the only way up there is - a street that meets a
+        // terrace edge becomes the steps, because nothing in this world drives. This
+        // fails if the warden walks along the ground THROUGH the flight as readily as
+        // if the treads were too tall to climb.
         routes.push(Route {
             name: "terrace stair".into(),
             from: step_from,
@@ -315,13 +305,12 @@ fn plan_the_routes(terrain: &crate::world::terrain::Terrain) -> Vec<Route> {
 
 /// A way up a terrace by its street, and a way at one of its walls head-on.
 ///
-/// Returns the street pair, the wall pair and the stair pair. The street pair spans
-/// a riser along a street that crosses it; the wall pair runs at the middle of a
-/// wall from the low side, square on, so being stopped means the wall stopped it;
-/// the stair pair runs up the middle of a flight from the terrace below.
+/// Returns the stair pair and the wall pair: the stair pair runs up a flight from
+/// the terrace below, and the wall pair runs at the middle of a wall from the low
+/// side, square on, so being stopped means the wall stopped it.
 fn a_terrace(
     terrain: &crate::world::terrain::Terrain,
-) -> Option<(Vec2, Vec2, Vec2, Vec2, Vec2, Vec2)> {
+) -> Option<(Vec2, Vec2, Vec2, Vec2)> {
     let plan = terrain.plan();
     for (key, site) in plan.sites().iter().enumerate() {
         let (bands, _) = crate::world::settle::terraces_of(site);
@@ -329,12 +318,6 @@ fn a_terrace(
             continue;
         }
         let laid = crate::world::town::lay_the_site_out(plan, key, site);
-        // A flight of steps, walked up the middle from the terrace below.
-        let stair = laid.stairs.first()?;
-        let (step_from, step_to) = (
-            stair.at + stair.faces * (crate::world::town::STAIR_FLIGHT + 5.0),
-            stair.at - stair.faces * 5.0,
-        );
         // The longest wall, which is the one with most room to be square on to.
         let wall = laid
             .walls
@@ -343,33 +326,18 @@ fn a_terrace(
         let mid = (wall.from + wall.to) * 0.5;
         let out = wall.faces;
 
-        // THE WAY UP A CART TAKES, which the town names rather than this working
-        // out a second time.
+        // A FLIGHT, walked up the middle from the terrace below.
         //
-        // It used to look for any street whose two ends stood on different terraces.
-        // That is not the same question: a terrace edge follows the block edges, and
-        // a ring street lies ON one - so its own segments flip from one level to the
-        // next along its length, and the first "crossing" found was a street running
-        // ALONG the wall with the wall beside it. The route it produced could not be
-        // walked, and it was right that it could not.
-        //
-        // `Layout::ramps` is where the generator left a way through on purpose.
-        let up = *laid.ramps.first()?;
-        let down = (up - site.at).normalize_or_zero();
-        let downhill = if crate::world::settle::band_of(site, up + down * 18.0)
-            < crate::world::settle::band_of(site, up - down * 18.0)
-        {
-            down
-        } else {
-            -down
-        };
+        // There is no cart route to test any more and there never should have been:
+        // this world has no carts in it, so a street that meets a terrace edge simply
+        // becomes the steps. The two claims left are the ones that matter - the steps
+        // get you up, and the wall does not.
+        let stair = laid.stairs.first()?;
         return Some((
-            up + downhill * 22.0,
-            up - downhill * 22.0,
+            stair.at + stair.faces * (crate::world::town::STAIR_FLIGHT + 5.0),
+            stair.at - stair.faces * 5.0,
             mid + out * 16.0,
             mid - out * 8.0,
-            step_from,
-            step_to,
         ));
     }
     None

@@ -3252,3 +3252,42 @@ passes at a third of that reach, and the city goes from 302 buildings and 35 yar
 **Worth knowing.** The terraces were not bare because nothing was placed on them.
 They were bare because a guard's setback had outlived the geometry it was written
 for, and it was quietly eating a third of the town's open ground.
+
+## Terraces as rising rings, and a wall with no holes in it
+
+**Issue.** Asked for directly, with a drawing: the city cut into rings that rise
+inward - outer at ordinary ground level, next above it, innermost highest - the walls
+continuous except where stairs break them, and the stairs aligned with the streets.
+And emphatically not perfect circles.
+
+**Solution.** The level is now which ring a point is in, and a ring's radius varies
+with the bearing from a sum of three waves. Waves rather than noise because every
+term is periodic in the angle, so the loop is bound to CLOSE - and a ring that does
+not close is a wall with ends in mid-air.
+
+The wall is the ring's own edge, traced all the way round, broken only where a route
+crosses it. That is what a retaining wall is: one with a hole in it is not retaining
+anything, and the previous three attempts all left holes - traced along a contour
+they ended in fields, along a street they stopped wherever the street did, pruned
+against the ground they came out as fragments.
+
+**No carts.** This world has none, so a street that meets a terrace edge simply
+BECOMES the steps, aligned with the street and as wide as it. The flight used to sit
+beside the street with the street ramping past it, and the ramp existed for a cart
+that does not exist - it was costing the wall its continuity for nothing.
+`Layout::ramps` and `RUNG_CROSSES` went with it, and `--drive` now tests the two
+claims that are left: the steps get you up, and the wall does not.
+
+**Worth knowing.** Two faults, both measured rather than guessed.
+
+The riser used `smoothstep`, whose slope peaks at one and a half times its average -
+so 3.6 m over a 3.6 m riser, a slope of one by design, reached 1.5 in the middle and
+both the road-arrival guard and the walk-in guard refused it. Third time that has
+caught me. A riser's slope IS its rise over its run, and only a straight ramp makes
+that true.
+
+And the wall was emitted as one piece per unbroken stretch, which the spawner lays as
+a straight line - so a hundred-metre stretch became a CHORD cutting four metres
+inside the ring it belonged to. Measured: 1149 m of the 2510 laid was then thrown
+away by the spawner's own ground check, because there was no step where the chord had
+wandered to. A piece per tile follows the arc and costs nothing.

@@ -1204,7 +1204,6 @@ mod tests {
                     lamps: Vec::new(),
                     walls: Vec::new(),
                     stairs: Vec::new(),
-                    ramps: Vec::new(),
                 },
             );
 

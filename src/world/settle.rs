@@ -393,7 +393,7 @@ pub fn band_of(site: &Site, at: Vec2) -> f32 {
     if bands < 2.0 {
         return 0.0;
     }
-    TERRACES.get().map_or(0.0, |found| found.at(at).round())
+    ring_at(site, at)
 }
 
 /// Where a straight run crosses from one terrace to the next, if it does.
@@ -478,361 +478,83 @@ pub const TERRACE_HOLDS: f32 = 40.0;
 /// one a road arrives at and the highest is at the far side - arrival low, civic
 /// high, which is the order the concept has and the order a hill town has for the
 /// reason that you build the important thing where it is seen.
-/// A settlement's terraces, as a grid of levels.
+/// How far a terrace ring wanders off a true circle, as a share of its radius.
 ///
-/// # Blocks, when the streets were grown rather than drawn
+/// # Rings, and emphatically not circles
 ///
-/// A terrace level belongs to a BLOCK - that was settled when the edges stopped
-/// being streaks and started following the fabric. While the plan was rings and
-/// radials a block was a polar cell and could be worked out from four numbers.
-/// A GROWN plan has no such formula: its blocks are the faces of whatever graph the
-/// streets ended up making, and the only thing that knows what they are is the
-/// streets themselves.
+/// The city is cut into rings that rise INWARD - low at the edge where you arrive,
+/// highest at the middle - which is what was asked for and drawn: three rings, the
+/// outer at ordinary ground level, the next above it, the innermost highest.
 ///
-/// So they are found rather than derived. The streets are stamped into a grid, what
-/// is left is flooded into connected regions - those regions ARE the blocks, with no
-/// planar-graph traversal needed - and each one is dealt the terrace its middle
-/// falls on. A street's own cells take the HIGHER of the levels either side, so a
-/// street belongs whole to the terrace above it and the wall stands at its far kerb.
-///
-/// The grid step is the width of the riser, so reading it back with a straight
-/// interpolation gives a step that resolves over exactly one cell - which is the
-/// ramp the retaining wall was built to fill.
-pub struct Terraces {
-    at: Vec2,
-    step: f32,
-    across: usize,
-    cells: Vec<f32>,
-}
+/// A true circle is the one thing they must not be. Three concentric circles is the
+/// wheel this project has been called out for twice, and no amount of anything else
+/// being right survives it. So a ring's radius varies with the bearing, from a sum
+/// of a few waves round the turn - which is bound to CLOSE, because every term is
+/// periodic in the angle, and that is the whole reason for building it this way
+/// rather than from noise. A ring has to be a closed loop or the wall on it has ends
+/// in mid-air.
+const RING_WANDERS: f32 = 0.17;
 
-impl Terraces {
-    /// The level at a point, in terrace steps, interpolated across a cell.
-    pub fn at(&self, at: Vec2) -> f32 {
-        let half = self.across as f32 * 0.5;
-        let on = (at - self.at) / self.step + Vec2::splat(half);
-        let (x, y) = (on.x.floor(), on.y.floor());
-        let (fx, fy) = (on.x - x, on.y - y);
-        let read = |x: f32, y: f32| -> f32 {
-            if x < 0.0 || y < 0.0 || x >= self.across as f32 || y >= self.across as f32 {
-                return 0.0;
-            }
-            self.cells[y as usize * self.across + x as usize]
-        };
-        let top = read(x, y) * (1.0 - fx) + read(x + 1.0, y) * fx;
-        let bottom = read(x, y + 1.0) * (1.0 - fx) + read(x + 1.0, y + 1.0) * fx;
-        top * (1.0 - fy) + bottom * fy
-    }
-}
-
-/// How wide a street the terrace relaxation reaches over, in metres.
+/// How far out the `which`th terrace ring runs, at a bearing.
 ///
-/// Two blocks with a road between them are neighbours; the search has to cross it.
-const CITY_STREET_ACROSS: f32 = 14.0;
-
-/// How many passes of smoothing a street's own level gets.
-///
-/// Each pass spreads a step by about a cell either way, so seven of them at a 3 m
-/// cell carry 3.6 m of rise over something like twenty metres - a slope of about one
-/// in six, which is a steep street and not a wall in the road.
-const STREET_RAMPS: usize = 11;
-
-/// The terraces of the one city that has them.
-///
-/// # Why this is a static
-///
-/// The grid is found from the street network, and the street network is laid in
-/// `world::town::lay_out` - but `terrace_at` is asked by the terrain, by building
-/// placement, by the wall builder and by `--drive`, most of which hold a `Site` and
-/// nothing else. Threading it through every one of those would be a wide change for
-/// a thing there is exactly one of.
-///
-/// There IS exactly one: a world is generated once from a fixed seed, and only the
-/// first city is terraced. The first writer wins and every later world is the same
-/// world, so a second call cannot disagree with the first.
-static TERRACES: std::sync::OnceLock<Terraces> = std::sync::OnceLock::new();
-
-/// Files the terraces found while laying a town out. The first call wins.
-pub fn remember_the_terraces(found: Terraces) {
-    let _ = TERRACES.set(found);
-}
-
-/// Finds a settlement's terraces from the streets it just laid.
-///
-/// Returns nothing for a settlement that is not terraced, which is every one but the
-/// first city - see `terraces_of`.
-pub fn terrace_the_town(
-    site: &Site,
-    streets: &[crate::world::town::Street],
-) -> Option<Terraces> {
-    let (bands, every) = terraces_of(site);
-    if bands < 2.0 || streets.is_empty() {
-        return None;
-    }
-    // A cell the width of the riser, so a step read back off this grid resolves
-    // over the same distance the retaining wall was built to fill.
-    let step = RISER_RUNS;
-    let reach = crate::world::town::town_reaches(site) + TERRACE_HOLDS;
-    let across = ((reach * 2.0 / step).ceil() as usize + 2).max(4);
-    let cell_at = |x: usize, y: usize| {
-        site.at + (Vec2::new(x as f32, y as f32) - Vec2::splat(across as f32 * 0.5)) * step
+/// Ring nought is the innermost boundary, so the ground inside it is the highest
+/// terrace. Closed by construction - see `RING_WANDERS`.
+pub fn ring_edge(site: &Site, which: usize, bearing: f32) -> f32 {
+    let (bands, _) = terraces_of(site);
+    let reach = crate::world::town::town_reaches(site);
+    // Evenly spaced out to the town's edge, with the outermost ring standing off
+    // the boundary so its wall is not on the skirt.
+    let step = (reach - TERRACE_HOLDS) / bands;
+    let round = step * (which as f32 + 1.0);
+    // AND WANDERING. Three waves, at frequencies that do not share a factor, so the
+    // loop has no symmetry you can see; phases from the site's own seed.
+    let turn = |over: f32, salt: u32| {
+        (bearing * over + crate::world::town::unit(site.seed, salt) * std::f32::consts::TAU).sin()
     };
-
-    // ------------------------------------------------------- 1. stamp the streets
-    let mut street = vec![false; across * across];
-    // WHICH WAY EACH STREET CELL RUNS, so its level can be ramped ALONG the road
-    // without being smeared ACROSS it - see the note where this is used.
-    let mut runs = vec![Vec2::ZERO; across * across];
-    for lane in streets {
-        let run = lane.to - lane.from;
-        let length = run.length();
-        if length < 0.1 {
-            continue;
-        }
-        let steps = (length / (step * 0.5)).ceil() as usize;
-        // Half the carriageway, plus the footways, plus a cell of margin.
-        let wide = lane.wide * 0.5 + 2.0;
-        let spread = (wide / step).ceil() as i32;
-        for at in 0..=steps {
-            let on = lane.from + run * (at as f32 / steps as f32);
-            let here = (on - site.at) / step + Vec2::splat(across as f32 * 0.5);
-            for dy in -spread..=spread {
-                for dx in -spread..=spread {
-                    let (x, y) = (here.x as i32 + dx, here.y as i32 + dy);
-                    if x < 0 || y < 0 || x >= across as i32 || y >= across as i32 {
-                        continue;
-                    }
-                    if cell_at(x as usize, y as usize).distance(on) <= wide {
-                        let cell = y as usize * across + x as usize;
-                        street[cell] = true;
-                        runs[cell] = run / length;
-                    }
-                }
-            }
-        }
-    }
-
-    // ------------------------------------------- 2. flood what is left into blocks
-    let mut block = vec![usize::MAX; across * across];
-    let mut middles: Vec<(Vec2, f32)> = Vec::new();
-    let mut edge: Vec<usize> = Vec::new();
-    for start in 0..across * across {
-        if street[start] || block[start] != usize::MAX {
-            continue;
-        }
-        let which = middles.len();
-        let (mut sum, mut many) = (Vec2::ZERO, 0.0_f32);
-        edge.clear();
-        edge.push(start);
-        block[start] = which;
-        while let Some(cell) = edge.pop() {
-            let (x, y) = (cell % across, cell / across);
-            sum += cell_at(x, y);
-            many += 1.0;
-            for (dx, dy) in [(1_i32, 0_i32), (-1, 0), (0, 1), (0, -1)] {
-                let (nx, ny) = (x as i32 + dx, y as i32 + dy);
-                if nx < 0 || ny < 0 || nx >= across as i32 || ny >= across as i32 {
-                    continue;
-                }
-                let next = ny as usize * across + nx as usize;
-                if street[next] || block[next] != usize::MAX {
-                    continue;
-                }
-                block[next] = which;
-                edge.push(next);
-            }
-        }
-        middles.push((sum / many.max(1.0), many));
-    }
-
-    // -------------------------------- 3. the terrace each block is on, by its hill
-    //
-    // # From the HILLSIDE, and cut into equal shares of the town
-    //
-    // The level used to come from how far along the town a block lay. That is a
-    // property of the block, so a terrace edge landed wherever the streets happened
-    // to leave a boundary - across open ground as readily as along a street - and
-    // walls were built holding back fields. See `hill`, which is the slope the
-    // streets are now laid on rather than something cut across them afterwards.
-    //
-    // Equal SHARES, because a town is round and equal widths of hillside across a
-    // diameter hold wildly unequal amounts of it: measured at 12 / 78 / 10 per cent
-    // when this was cut by height, which is one platform and two slivers.
-    let heights: Vec<f32> = middles.iter().map(|(middle, _)| hill(site, *middle)).collect();
-    let mut ranked: Vec<usize> = (0..middles.len()).collect();
-    ranked.sort_by(|&a, &b| heights[a].total_cmp(&heights[b]));
-    let whole: f32 = middles.iter().map(|(_, area)| *area).sum();
-    let mut levels = vec![0.0_f32; middles.len()];
-    let mut so_far = 0.0_f32;
-    for which in ranked {
-        let share = (so_far + middles[which].1 * 0.5) / whole.max(1.0);
-        levels[which] = (share * bands).floor().clamp(0.0, bands - 1.0);
-        so_far += middles[which].1;
-    }
-    let _ = every;
-
-    // ----------------------------- AND NO BLOCK IS TWO TERRACES ABOVE ITS NEIGHBOUR
-    //
-    // # A terrace system steps; it does not hold the whole slope in one face
-    //
-    // Ranking by hillside and cutting into equal shares says nothing about whether
-    // two blocks that TOUCH end up on neighbouring terraces - and where they did
-    // not, the wall between them carried two terraces at once. Measured: 12 walls
-    // at 7.20 m, against 47 at the intended 3.6. What that builds is a blank grey
-    // face several storeys tall beside a street, photographed and rightly called a
-    // dam rather than a wall.
-    //
-    // The sources are plain about it. Terracing exists to break a slope into
-    // manageable levels, each of which is a usable platform; a tier runs to about
-    // 1.8 m and it is the SYSTEM that climbs, over many of them. One face holding
-    // the lot is the thing terracing is done instead of.
-    //
-    // So the levels are relaxed until every pair of touching blocks is within one
-    // step of each other. Pulled DOWNWARD, because a block dragged up is a block
-    // whose buildings are suddenly on fill.
-    // ACROSS THE STREET BETWEEN THEM, not cell to cell.
-    //
-    // The flood fill takes the streets OUT, so two blocks never touch directly -
-    // there is always a road between them, which is the whole point of a block. A
-    // cell-to-cell adjacency therefore finds nothing at all, and the first cut of
-    // this relaxed nothing and changed nothing: still 12 walls at 7.20 m.
-    //
-    // Two blocks are neighbours if a street is all that separates them, so the
-    // search reaches over one.
-    let over = ((CITY_STREET_ACROSS / step).ceil() as i32).max(2);
-    let mut touching: Vec<(usize, usize)> = Vec::new();
-    for cell in 0..across * across {
-        if !street[cell] {
-            continue;
-        }
-        let (x, y) = (cell % across, cell / across);
-        let mut near: Vec<usize> = Vec::new();
-        for dy in -over..=over {
-            for dx in -over..=over {
-                let (nx, ny) = (x as i32 + dx, y as i32 + dy);
-                if nx < 0 || ny < 0 || nx >= across as i32 || ny >= across as i32 {
-                    continue;
-                }
-                let next = ny as usize * across + nx as usize;
-                if !street[next] && !near.contains(&block[next]) {
-                    near.push(block[next]);
-                }
-            }
-        }
-        for (at, one) in near.iter().enumerate() {
-            for other in &near[at + 1..] {
-                touching.push((*one, *other));
-            }
-        }
-    }
-    // A block edge is many cells long, so the same pair turns up many times.
-    touching.sort_unstable();
-    touching.dedup();
-    for _ in 0..bands as usize + 2 {
-        let mut moved = false;
-        for &(one, other) in &touching {
-            let (high, low) = if levels[one] > levels[other] {
-                (one, other)
-            } else {
-                (other, one)
-            };
-            if levels[high] - levels[low] > 1.0 {
-                levels[high] = levels[low] + 1.0;
-                moved = true;
-            }
-        }
-        if !moved {
-            break;
-        }
-    }
-
-    // ---------------------------- 4. and the streets take the higher of their sides
-    let mut cells = vec![0.0_f32; across * across];
-    for cell in 0..across * across {
-        if !street[cell] {
-            cells[cell] = levels[block[cell]];
-        }
-    }
-    // Spread outward from the blocks until every street cell has a level, taking
-    // the highest that reaches it - which puts the whole carriageway on the terrace
-    // above and leaves the wall standing at its far kerb.
-    let mut filled = vec![false; across * across];
-    for _ in 0..((8.0 / step).ceil() as usize + 2) {
-        let was = cells.clone();
-        for cell in 0..across * across {
-            if !street[cell] {
-                continue;
-            }
-            let (x, y) = (cell % across, cell / across);
-            let mut best = cells[cell];
-            for (dx, dy) in [(1_i32, 0_i32), (-1, 0), (0, 1), (0, -1)] {
-                let (nx, ny) = (x as i32 + dx, y as i32 + dy);
-                if nx < 0 || ny < 0 || nx >= across as i32 || ny >= across as i32 {
-                    continue;
-                }
-                best = best.max(was[ny as usize * across + nx as usize]);
-            }
-            cells[cell] = best;
-            filled[cell] = true;
-        }
-    }
-
-    // ------------------------------------ 5. AND A ROAD RAMPS WHERE A WALL STEPS
-    //
-    // A street that runs from one terrace to the next has to change level somewhere
-    // along its length, and until now it did so over the width of the riser - 3.6 m
-    // of ground in 3 m, underneath the carriageway. The paving is a mesh laid over
-    // the terrain and it cannot follow a step that sharp: the ground came through
-    // it, and what that looks like is torn setts with shards of grass in them, all
-    // over the first city and photographed four times.
-    //
-    // So the level is smoothed ALONG THE STREETS and nowhere else. A road climbs
-    // gently over twenty metres or so - which is a road on a hill - while the ground
-    // either side of it keeps the hard step the retaining wall was built to fill.
-    // Roads ramp; walls step.
-    for _ in 0..STREET_RAMPS {
-        let was = cells.clone();
-        for cell in 0..across * across {
-            if !filled[cell] {
-                continue;
-            }
-            let (x, y) = (cell % across, cell / across);
-            let (mut sum, mut many) = (was[cell], 1.0_f32);
-            for (dx, dy) in [(1_i32, 0_i32), (-1, 0), (0, 1), (0, -1)] {
-                // ALONG THE ROAD ONLY.
-                //
-                // Averaging in all four directions ramps the road AND smears the
-                // drop across its width - and the retaining wall stands at that
-                // road's kerb, in the very step being smeared. Measured: a wall's
-                // foot reading 24.52 where the ground it retains is 22.70, so the
-                // step it was built to fill was half gone. That is why the terraces
-                // stopped reading as terraces at all.
-                //
-                // A road climbs along itself and drops away at its kerb, so only
-                // neighbours lying along this cell's own street count.
-                let way = Vec2::new(dx as f32, dy as f32);
-                // Fully along the road; barely across it. A hard edge across the
-                // carriageway leaves the pads either side of it disagreeing by a
-                // finger's width, which `the_ground_between_two_buildings_has_no
-                // _step_in_it` reads as a seam - and a quarter of a share is enough
-                // to take that out while leaving the kerb its drop.
-                let share = if runs[cell].dot(way).abs() < 0.5 { 0.25 } else { 1.0 };
-                let (nx, ny) = (x as i32 + dx, y as i32 + dy);
-                if nx < 0 || ny < 0 || nx >= across as i32 || ny >= across as i32 {
-                    continue;
-                }
-                let next = ny as usize * across + nx as usize;
-                if !filled[next] {
-                    continue;
-                }
-                sum += was[next] * share;
-                many += share;
-            }
-            cells[cell] = sum / many;
-        }
-    }
-
-    Some(Terraces { at: site.at, step, across, cells })
+    let wander = turn(3.0, 41) * 0.5 + turn(5.0, 43) * 0.32 + turn(7.0, 47) * 0.18;
+    round * (1.0 + wander * RING_WANDERS)
 }
+
+/// Which terrace a point stands on: nought at the edge, highest at the middle.
+pub fn ring_at(site: &Site, at: Vec2) -> f32 {
+    let (bands, _) = terraces_of(site);
+    let away = at - site.at;
+    let out = away.length();
+    let bearing = away.y.atan2(away.x);
+    // How many boundaries lie inside this point. Each one crossed on the way out
+    // drops a terrace.
+    let outside = (0..bands as usize)
+        .filter(|which| out >= ring_edge(site, *which, bearing))
+        .count() as f32;
+    (bands - 1.0 - outside).max(0.0)
+}
+
+/// How high a settlement's ground stands at a point, above its own base.
+///
+/// # A city was one plane, and then it was a hill
+///
+/// `Site::height` is one sample of `dry_height` at the middle, and the site
+/// branch of `level` returned it with a pull that `smoothstep` clamps to exactly
+/// 1.0 everywhere inside the shape - so a town was not "mostly flat", it was one
+/// plane across its whole footprint, and every street re-asserted it.
+///
+/// The first fix asked how far INSIDE its own edge a point was, and that is a
+/// dome: the ground rose steadily toward the middle, and on a spine plan it made
+/// a long narrow hill with houses on it. The user, looking at it: "The whole city
+/// just has a hill in the middle."
+///
+/// # A terrace is a band, not a radius
+///
+/// A hill town steps DOWN A SLOPE. The steps are straight lines across the town,
+/// each one a level platform, and the fall runs one way - so a point's terrace is
+/// how far it lies along that slope and nothing to do with how central it is.
+/// That is what makes an edge you can put a wall on, and what makes the ground
+/// between two edges flat rather than curved.
+///
+/// The slope runs along the bearing the town faces, so the lowest terrace is the
+/// one a road arrives at and the highest is at the far side - arrival low, civic
+/// high, which is the order the concept has and the order a hill town has for the
+/// reason that you build the important thing where it is seen.
 
 /// The terrace a BLOCK stands on, counting from the low side of the settlement.
 ///
@@ -873,20 +595,35 @@ pub fn terrace_at(site: &Site, at: Vec2) -> f32 {
     if bands < 2.0 {
         return 0.0;
     }
-    let Some(found) = TERRACES.get() else {
-        // Asked before the town it belongs to has been laid out. That happens once,
-        // inside the first `lay_out`, before the streets exist to be flooded - and
-        // nothing that asks this early is deciding anything that outlives the call.
-        return 0.0;
-    };
+    let away = at - site.at;
+    let out = away.length();
+    let bearing = away.y.atan2(away.x);
 
-    // CENTRED ON THE TOWN'S OWN LEVEL, so the middle band sits at `site.height` and
-    // the town is CUT into the hillside rather than piled on top of it.
+    // THE RING, and how far into its riser this point is.
     //
-    // FADED OUT AT THE TOWN'S EDGE - see `TERRACE_HOLDS`.
-    let off = site.plan.off(at - site.at, site.bearing, site.radius);
+    // A ring's edge is a closed wandering loop - see `ring_edge` - so the level is a
+    // step function of how far out you are along this bearing, and the riser is the
+    // width of the wall that stands in it, centred on the loop.
+    let mut level = 0.0_f32;
+    for which in 0..bands as usize {
+        let edge = ring_edge(site, which, bearing);
+        // Inside this boundary is one terrace higher, rising over the riser.
+        //
+        // STRAIGHT, not eased. `smoothstep`'s slope peaks at one and a half times
+        // its average, so a 3.6 m rise over a 3.6 m riser - a slope of one by design
+        // - reaches 1.5 in the middle, and both the road-arrival guard and the
+        // walk-in guard refused it. This is the third time that has caught me: a
+        // riser's slope IS its rise over its run, and only a straight ramp makes
+        // that true.
+        level += (((edge + RISER_RUNS * 0.5) - out) / RISER_RUNS).clamp(0.0, 1.0);
+    }
+
+    // CENTRED, so the middle band sits at `site.height` and the town is CUT into the
+    // ground rather than piled on it - and FADED at the edge, so a step never rides
+    // out of town on the skirt. See `TERRACE_HOLDS`.
+    let off = site.plan.off(away, site.bearing, site.radius);
     let inside = crate::util::smoothstep(0.0, -TERRACE_HOLDS, off);
-    (found.at(at) - (bands - 1.0) * 0.5) * TERRACE_RISE * inside
+    (level - (bands - 1.0) * 0.5) * TERRACE_RISE * inside
 }
 
 /// How far out a settlement's own ground reaches, as a share of its radius.

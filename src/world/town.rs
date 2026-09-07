@@ -1959,9 +1959,6 @@ pub struct Layout {
     pub walls: Vec<Wall>,
     /// The flights of steps that break them.
     pub stairs: Vec<Stair>,
-    /// Where a street climbs from one terrace to the next WITHOUT steps: the way up
-    /// a cart takes. One per terrace edge, and the widest crossing on it.
-    pub ramps: Vec<Vec2>,
 }
 
 /// The most radials a plan is ever set out on: the road through, plus six.
@@ -2133,6 +2130,15 @@ pub struct Wall {
 /// `the_terrace_wall_is_as_tall_as_the_step_it_retains`.
 pub const WALL_BURIED: f32 = 3.0;
 
+/// One run of ring wall, facing DOWNHILL - which on a ring is outward.
+///
+/// The terraces rise inward, so the ground a ring holds up is always the ground on
+/// its inside, and the face it shows is always the one turned out of town.
+fn a_ring_wall(site: &Site, from: Vec2, to: Vec2) -> Wall {
+    let out = ((from + to) * 0.5 - site.at).normalize_or_zero();
+    Wall { from, to, faces: out }
+}
+
 /// How far apart the planting under a wall stands, in metres.
 ///
 /// Close enough to read as a bed rather than as scattered bushes, loose enough that
@@ -2278,14 +2284,14 @@ const STAIR_STEPS: f32 = 20.0;
 /// `the_terrace_stair_carries_the_step_it_breaks`. The break is wider than the
 /// flight because the parapets stand outside it.
 pub const STAIR_WIDE: f32 = 4.0;
-pub const STAIR_FLIGHT: f32 = 6.0;
 
-/// How square to the contour a street has to run to count as a way UP.
+/// The widest a flight is built, in metres.
 ///
-/// A rail wanders across a terrace edge wherever the edge wanders across it, and
-/// those crossings are the street changing its mind rather than anywhere anybody
-/// climbs. 0.5 is sixty degrees off the contour. See `Role`.
-const RUNG_CROSSES: f32 = 0.5;
+/// A flight is stretched to the street it carries, because it IS that street where
+/// it crosses a terrace edge - and a street is as wide as it is. This is where that
+/// stops, so a stair never becomes a plaza with steps on it.
+const STAIR_WIDEST: f32 = 9.0;
+pub const STAIR_FLIGHT: f32 = 6.0;
 
 /// How far apart two flights of steps have to be to be two flights, in metres.
 const STAIRS_APART: f32 = 55.0;
@@ -2318,180 +2324,126 @@ fn retain_the_terraces(
     site: &Site,
     streets: &[Street],
     crossing: &[Street],
-) -> (Vec<Wall>, Vec<Stair>, Vec<Vec2>) {
+) -> (Vec<Wall>, Vec<Stair>) {
     let (bands, _) = crate::world::settle::terraces_of(site);
     if bands < 2.0 {
-        return (Vec::new(), Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new());
     }
-    let (mut walls, mut stairs, mut ramps) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut walls, mut stairs) = (Vec::new(), Vec::new());
 
-    // A WALL RUNS ALONG THE STREET IT HOLDS UP.
+    // A WALL IS A RING, AND A RING IS CONTINUOUS.
     //
-    // Which is what the concept art shows everywhere it shows a wall, and it is also
-    // the only description that survives the streets being GROWN: there is no
-    // formula for where a block edge is any more, but there is always a street, and
-    // a terrace edge is a street with different ground either side of it.
+    // # What a terrace wall is for, said properly
     //
-    // So every street is asked whether the land differs across it, and where it does
-    // the wall stands at the far kerb - on the lower side, with the whole
-    // carriageway and both footways on the terrace above.
-    for street in streets {
-        // A WALL BELONGS TO A STREET, and only inside the town it holds up.
-        let heart = (street.from + street.to) * 0.5;
-        if site.plan.off(heart - site.at, site.bearing, site.radius)
-            > -crate::world::settle::TERRACE_HOLDS
-        {
-            continue;
-        }
-        let run = street.to - street.from;
-        let length = run.length();
-        if length < WALL_LEAST {
-            continue;
-        }
-        let along = run / length;
-        let side = Vec2::new(-along.y, along.x);
-        // AGAINST THE KERB, with no grass between.
-        //
-        // The wall stood `street.wide * 0.5 + 2` from the middle of the road and
-        // then half its own thickness further out again - three and a half metres
-        // past the kerb, with a strip of grass between the pavement and the wall it
-        // is meant to be holding up. Photographed exactly so. Its FACE belongs on
-        // the kerb line, so its middle sits half a thickness beyond it.
-        let kerb = street.wide * 0.5;
-        let foot = kerb + WALL_THICK * 0.5;
-        // Where the ground is on each side, read just beyond the wall's own back.
-        let ground = |at: Vec2, hand: f32| {
-            crate::world::settle::band_of(site, at + side * hand * (foot + WALL_THICK))
-        };
-
-        // TILE BY TILE, not street by street.
-        //
-        // The step was measured once for the whole street and a wall then run down
-        // all of it. A block edge is rarely a whole street long, so walls appeared
-        // standing in open grass with level ground either side - photographed twice.
-        // Each tile now asks about its own piece of ground.
-        let tiles = (length / WALL_TILE).round().max(1.0);
-        let each = length / tiles;
-        let mut anchor: Option<(Vec2, Vec2)> = None;
-        for tile in 0..=tiles as usize {
-            let on = street.from + along * (tile as f32 * each);
-            let (left, right) = (ground(on, -1.0), ground(on, 1.0));
-            let downhill = if left < right { -side } else { side };
-            let at = on + downhill * foot;
-            let steps = (left - right).abs() >= 0.5;
-            let holds = site.plan.off(at - site.at, site.bearing, site.radius)
-                <= -crate::world::settle::TERRACE_HOLDS;
-            let clear = streets.iter().chain(crossing).all(|other| {
-                let dir = (other.to - other.from).normalize_or_zero();
-                // A street running alongside is the street on top of the wall.
-                if dir.dot(along).abs() > 0.978 {
-                    return true;
-                }
-                other.nearest_point(at).distance(at) >= other.wide * 0.5 + WALL_OFF_A_STREET
-            });
-            match (steps && holds && clear, anchor) {
-                (true, None) => anchor = Some((at, downhill)),
-                (false, Some((had, faces))) => {
-                    if had.distance(at) >= WALL_LEAST {
-                        walls.push(Wall { from: had, to: at, faces });
-                    }
-                    anchor = None;
-                }
-                _ => {}
-            }
-        }
-        if let Some((had, faces)) = anchor {
-            let end = street.to + faces * foot;
-            if had.distance(end) >= WALL_LEAST {
-                walls.push(Wall { from: had, to: end, faces });
-            }
-        }
-    }
-
-    // THE FLIGHTS, WHERE A RUNG CROSSES A TERRACE EDGE.
+    // The walls have been laid three ways and every one of them left holes: along a
+    // traced contour they ended in fields, along a street they stopped wherever the
+    // street did, and pruned against the ground they came out as fragments. A
+    // retaining wall with a hole in it is not retaining anything - the ground would
+    // simply come out of the hole - and that is exactly how they read.
     //
-    // # A stair belongs to the ladder
+    // A terrace is a ring of level ground, so its wall is the ring's own edge, and it
+    // runs all the way round. The only thing that may interrupt it is a route
+    // crossing it, and there the route becomes a flight of steps: this is a world
+    // with no carts in it, so nothing needs a gradient and a street may simply BE
+    // stairs.
     //
-    // These have been in three places and the first two were wrong for the same
-    // reason: nothing about the town said where a way UP was, so a flight had to be
-    // guessed at. Spread along a wall, they came out in open grass leading from
-    // nothing to nothing. Put at any street that changed level, most of what they
-    // found was a street running ALONG a terrace edge and flickering across it, not
-    // a way up at all.
-    //
-    // The ladder answers it. A rung is a street that crosses the contour to join one
-    // level to the next - that is what it is FOR - so a rung meeting a terrace edge
-    // is precisely a place people go up, and it has paving above it and paving below
-    // it because the rung is paved both sides of the step. That pair is what the
-    // concept art has at every flight in it.
-    //
-    // Beside the rung rather than in it. The rung's own ground is smoothed along its
-    // length so a cart can take it - see `settle::STREET_RAMPS`, which is what
-    // stopped the paving tearing - and a flight standing on that ramp fights it. A
-    // pace off the kerb the ground still has its full step, which is the step the
-    // flight was built to fill. A ramped way up with steps beside it is also simply
-    // what a hill town has.
-    let mut climbs: Vec<(f32, Vec2, Vec2, f32)> = Vec::new();
-    for street in streets.iter().chain(crossing) {
-        let Some((at, down)) =
-            crate::world::settle::crosses_a_terrace(site, street.from, street.to)
-        else {
-            continue;
-        };
-        // Inside the town, where the terraces are at their full height.
-        if site.plan.off(at - site.at, site.bearing, site.radius)
-            > -crate::world::settle::TERRACE_HOLDS
-        {
-            continue;
-        }
-        // A RUNG, not a rail. A street running along the contour crosses the edge
-        // wherever the edge wanders across it, and those crossings are not ways up -
-        // they are the same street changing its mind. A rung runs at the contour.
-        let level = crate::world::settle::contour_at(site, at);
-        if down.dot(level).abs() > RUNG_CROSSES {
-            continue;
-        }
-        let band = crate::world::settle::band_of(site, at - down * 6.0);
-        climbs.push((band, at, down, street.wide));
-    }
-
-    for band in 1..(bands as usize) {
-        let mut on_this: Vec<&(f32, Vec2, Vec2, f32)> = climbs
-            .iter()
-            .filter(|(which, ..)| (*which - band as f32).abs() < 0.5)
-            .collect();
-        // Widest first: the widest is the cart's way up and keeps its ramp, so a
-        // terrace is never reachable by steps alone. Recorded, because that is a
-        // claim about the town and `--drive` tests it.
-        on_this.sort_by(|a, b| b.3.total_cmp(&a.3));
-        if let Some(&&(_, at, ..)) = on_this.first() {
-            ramps.push(at);
-        }
-        let mut taken: Vec<Vec2> = Vec::new();
-        for &&(_, at, down, wide) in on_this.iter().skip(1) {
-            if taken.iter().any(|had| had.distance(at) < STAIRS_APART) {
+    // Traced by walking the bearing all the way round, because the ring's radius
+    // varies with it - see `settle::ring_edge`, which is built out of waves so the
+    // loop is bound to close.
+    let steps_round = 240;
+    for which in 0..bands as usize {
+        // Where the street crossings are, so the run can be broken for them.
+        let mut breaks: Vec<(f32, Vec2, Vec2, f32)> = Vec::new();
+        for street in streets.iter().chain(crossing) {
+            let Some((at, down)) =
+                crate::world::settle::crosses_a_terrace(site, street.from, street.to)
+            else {
+                continue;
+            };
+            // On THIS ring, and inside the town.
+            let bearing = (at - site.at).y.atan2((at - site.at).x);
+            if (at - site.at).length()
+                - crate::world::settle::ring_edge(site, which, bearing)
+                > WALL_TILE
+            {
                 continue;
             }
-            taken.push(at);
-            // A pace off the kerb, on whichever hand has room.
-            let side = Vec2::new(-down.y, down.x);
-            let off = wide * 0.5 + STAIR_WIDE * 0.5 + 1.5;
-            let hand = if crate::world::settle::band_of(site, at + side * off)
-                >= crate::world::settle::band_of(site, at - side * off)
+            if site.plan.off(at - site.at, site.bearing, site.radius)
+                > -crate::world::settle::TERRACE_HOLDS
             {
-                1.0
-            } else {
-                -1.0
-            };
+                continue;
+            }
+            breaks.push((bearing, at, down, street.wide));
+        }
+
+        // A FLIGHT AT EVERY CROSSING, in the street and pointing down it.
+        //
+        // Aligned with the street rather than beside it, because the street is the
+        // route: a person walking down it meets the steps in front of them and
+        // carries on. Beside it was the previous answer and it was wrong for the
+        // reason that made the ramp necessary, and the ramp is not necessary.
+        for &(_, at, down, wide) in &breaks {
+            if stairs
+                .iter()
+                .any(|had: &Stair| had.at.distance(at) < STAIRS_APART)
+            {
+                continue;
+            }
             stairs.push(Stair {
-                at: at + side * hand * off,
+                at,
                 faces: down,
-                wide: STAIR_WIDE,
+                wide: wide.clamp(STAIR_WIDE, STAIR_WIDEST),
             });
         }
+
+        // AND THE WALL ROUND THE REST OF IT, A TILE AT A TIME.
+        //
+        // One piece per tile, not one piece per unbroken stretch. A ring curves, and
+        // the spawner lays a piece as a straight line - so a hundred-metre stretch
+        // came out as a CHORD cutting four metres inside the ring it was meant to
+        // be on. Which puts the wall on the wrong ground: measured, 1149 m of the
+        // 2510 laid was then thrown away by the spawner's own check because there
+        // was no step where the chord had wandered to.
+        //
+        // A tile is eight metres and a ring is hundreds, so following the arc costs
+        // nothing and the wall is where the terrace edge is.
+        let mut piece: Vec<Vec2> = Vec::new();
+        let mut close = |piece: &mut Vec<Vec2>, walls: &mut Vec<Wall>| {
+            if piece.len() >= 2 {
+                let (from, to) = (piece[0], *piece.last().expect("a piece has points"));
+                if from.distance(to) >= WALL_LEAST {
+                    walls.push(a_ring_wall(site, from, to));
+                }
+            }
+            piece.clear();
+        };
+        for step in 0..=steps_round {
+            let bearing =
+                std::f32::consts::TAU * step as f32 / steps_round as f32 - std::f32::consts::PI;
+            let at = site.at
+                + Vec2::from_angle(bearing) * crate::world::settle::ring_edge(site, which, bearing);
+            // Clear of the town's edge, and clear of every flight standing in it.
+            let holds = site.plan.off(at - site.at, site.bearing, site.radius)
+                <= -crate::world::settle::TERRACE_HOLDS;
+            let clear = !stairs.iter().any(|had: &Stair| {
+                had.at.distance(at) < had.wide * 0.5 + WALL_OFF_A_STREET
+            });
+            if !holds || !clear {
+                close(&mut piece, &mut walls);
+                continue;
+            }
+            piece.push(at);
+            // A tile's worth of arc, then start the next one FROM this point so the
+            // run has no gap in it.
+            if piece[0].distance(at) >= WALL_TILE {
+                close(&mut piece, &mut walls);
+                piece.push(at);
+            }
+        }
+        close(&mut piece, &mut walls);
     }
 
-    (walls, stairs, ramps)
+    (walls, stairs)
 }
 
 
@@ -4551,16 +4503,6 @@ pub fn lay_out(site: &Site, crossing: &[Street], seed: u32) -> Layout {
     // own piece of work and not one to leave half done.
     let (ways, nodes) = network(ways, &|_| f32::from(u8::from(site.city)));
     let laid: Vec<Street> = ways.iter().flat_map(|way| way.segments()).collect();
-    // THE TERRACES, the moment there are streets to find them from and before
-    // anything is placed on them.
-    //
-    // A block is a face of the street graph now, so the levels cannot be worked out
-    // before this point - and every placement below asks `stands_level`, so they
-    // cannot be worked out after it either. See `settle::terrace_the_town`.
-    if let Some(found) = crate::world::settle::terrace_the_town(site, &laid) {
-        crate::world::settle::remember_the_terraces(found);
-    }
-
     // EVERY ROAD ON THIS GROUND, not only the ones the town laid.
     //
     // # Twenty-nine buildings standing in a road nothing checked
@@ -5576,7 +5518,7 @@ pub fn lay_out(site: &Site, crossing: &[Street], seed: u32) -> Layout {
     // AGAINST THE TOWN'S OWN STREETS, so a wall breaks where a street climbs
     // through it. `laid` is what the town draws; the country roads in `streets`
     // stop at the edge and never cross a riser.
-    let (walls, stairs, ramps) = retain_the_terraces(site, &laid, crossing);
+    let (walls, stairs) = retain_the_terraces(site, &laid, crossing);
     Layout {
         opens,
         ways,
@@ -5588,7 +5530,6 @@ pub fn lay_out(site: &Site, crossing: &[Street], seed: u32) -> Layout {
         lamps,
         walls,
         stairs,
-        ramps,
     }
 }
 
@@ -11060,6 +11001,7 @@ mod tests {
             out - site.plan.reaches(site.radius)
         );
     }
+
 
 
 
