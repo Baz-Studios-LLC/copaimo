@@ -3327,3 +3327,38 @@ town's own ground - where a country road stops being the country's - reaches
 `town_reaches`, 94% of it. That widened every town in the world by 6% and left a road
 arriving 21.4 m short at (1, 127). The failure was identical wherever the first city
 was put, which is what proved it was not the move.
+
+## A quay in the grass, and a forest in the harbour
+
+**Issue.** The harbour was built and read as a row of separate stone blocks sitting
+on the beach, with trees growing in the streets along the approach to it.
+
+**Solution.** Four separate faults, each one a quantity standing in for another.
+
+*Bearings are the wrong way to record a coastline.* The shoreline was 32 radii - how
+far dry ground reached on each bearing. Where a coast runs nearly tangent to a town
+that changes 320 m to 120 m over eleven degrees, and the levelling had to resolve it
+sideways: a 1.23 m lip. Blurring the radii smooths the lip and destroys the thing
+recorded - at the sixteen passes needed to pass the guard, the ground reached 40 m
+PAST the waterline. A square grid holding the DISTANCE to open water, built with a
+two-pass chamfer transform, has a gradient of one everywhere by construction.
+
+*The generated land is not the water's edge.* `dry_height` is the land before
+anything was levelled; the edge a player sees is where the FINISHED terrain crosses
+the tide, which the skirt and the beach ramp both move.
+
+*A bearing sweep is the wrong way to lay a quay.* It steps a different distance at
+every radius and gaps wherever the shore turns. Marching the shore tangent and
+re-finding the water each step lays a continuous run however the bay bends.
+
+*And how built-up is not how much levelling.* The shore gate cuts the levelling
+weight to nothing near the water so a town stops raising the sea. `Ground::levelled`
+was that same weight, and the biome reads it as "is this built-up" - so the
+waterfront classified as open country and the forest planted in it. Thirteen trees
+and logs in city streets. `ground_at` answers the other question and knows nothing
+about water; the two are taken together now.
+
+**Worth knowing.** The town's plateau stands 21.3 m above its own tide, and sloping
+the waterfront down to the water cannot work: a 0.15 fall means no building can stand
+on it - `no_building_stands_on_uneven_ground` refused the lot and the quarter came
+out empty. The harbour goes where a harbour under a bluff goes, at the foot.

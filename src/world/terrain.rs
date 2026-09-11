@@ -1159,11 +1159,24 @@ impl Terrain {
             country: self.region(x, z).0,
             belonging: self.region(x, z).1,
             shore: self.shore_meters(x, z),
+            // HOW BUILT-UP, which is not the same number as how much levelling
+            // was applied - and conflating them planted a forest in a harbour.
+            //
+            // The shore gate cuts the levelling weight to nothing near the water so
+            // a town stops raising the sea (see `settle::SHORE_EASES`). The biome
+            // read that same weight as "how built-up is this", concluded the
+            // waterfront was open country, and planted: the audit found thirteen
+            // trees and logs standing in city streets along the quay approach.
+            //
+            // `ground_at` answers the other question - it is the settlement's own
+            // footprint and knows nothing about water - so the two are taken
+            // together and the stronger wins.
             levelled: self
                 .settlements
                 .level(Vec2::new(x, z))
                 .map(|(_, weight)| weight)
-                .unwrap_or(0.0),
+                .unwrap_or(0.0)
+                .max(self.settled(x, z).abs()),
             water_above,
         }
     }

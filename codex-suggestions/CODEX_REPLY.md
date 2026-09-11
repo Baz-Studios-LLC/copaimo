@@ -2524,3 +2524,89 @@ water stair/landing, waterside frontage and service route rather than another ge
 
 Disposition: waterfront relocation **adapted / active**; current averaging **P0 needs correction before
 commit**. No game file was changed by Codex.
+
+## 2026-09-11 — Preserved disposition after the quay experiment was reverted
+
+The uncommitted quay/jetty experiment and the two detailed Codex review notes written after 8f1a19b were
+removed during branch cleanup. Recording the outcome again so the evidence is not lost:
+
+- 8f1a19b successfully keeps the sea visible and separates the levelling footprint from town ownership,
+  but its 10 m first-wet sampling plus unconstrained angular averaging does not prove the stated 18 m dry
+  setback. The committed live-branch note immediately above remains the P0 reopening gate: bracket and
+  bisect the real shore crossing, preserve a raw conservative maximum, constrain smoothing inward, and
+  test the final interpolated boundary against the unlevelled wet/dry field.
+- The quay/jetty direction was good, but the reverted implementation spawned SceneRoot visuals directly in
+  raise_the_towns. It had no route from a named street, no Layout/Built ownership, and no matching deck/wall
+  collision or stands-on support. The screenshots still showed a broad grass gap and did not visibly frame
+  the jetty. Deferring that attempt was preferable to committing an unwalkable prop.
+- When reopened, author the harbour as one reserved 80–120 m layout room with a street-to-quay-to-jetty
+  route, collision-honest deck/walls, water access, working frontage and an eye-level proof containing the
+  city, quay, jetty and water together. Tile masonry near its native 8 m module length rather than scaling
+  every short shoreline chord, and derive the welded jetty deck offset from the Blender contract.
+
+Disposition: shoreline-aware relocation **accepted**; dry-setback proof **P0 needs review**; quay/jetty
+attempt **deferred with route/collision reopening gate**. No game file was changed by Codex.
+
+### 2026-09-11 live shore-grid review — cache distance, not only height
+
+Replacing angular radii with a Cartesian natural-ground grid directly answers the tangent-coast failure and
+is a stronger representation. Two pre-commit problems remain in the current branch.
+
+**P0: off_the_ground_within now returns vertical height difference where its caller requires horizontal
+signed distance.** The plan branch returns metres outside the footprint and level() feeds the maximum into
+smoothstep(skirt_of(radius), 0, away), whose thresholds are horizontal metres. The shore branch instead
+returns SEA_LEVEL + 2.5 - natural_ground. At the waterline this is only about 2.5, so a roughly 50 m skirt
+still gives the town nearly full levelling influence over the sea. stands_here simultaneously targets at
+least SEA_LEVEL + QUAY_STANDS there. Together these can raise the seabed to quay height and refill the bay.
+Calling the vertical value an underestimate does not make it conservative here: a smaller positive off
+means a stronger settlement claim.
+
+Keep natural height for choosing the target elevation, but derive/store a true world-metre signed distance
+to the dry-above-2.5 m mask for footprint ownership and fade. A 2D Euclidean distance transform on the cached
+grid, multiplied by SHORE_STEP and bilinearly sampled, is the direct fit. Then max(plan_off,
+coast_signed_distance) remains dimensionally valid. Prove at several wet points that pull reaches zero over
+the intended horizontal skirt and that the final drawn ground remains below sea level.
+
+**P1: Shore makes every Site about 36 KiB and Site is Copy.** The 96 x 96 f32 array is embedded even though
+only one site uses it, and the codebase passes/copies Site by value frequently. Keeping Copy by putting a
+large array inside it trades a local ownership convenience for repeated large memcopies and a roughly
+half-megabyte settlement list. Store the harbour field once out-of-line on Settlements (or behind a stable
+handle/index/Arc) and keep only a small optional handle on Site; measure construction and steady-state copy
+cost before accepting an embedded grid.
+
+Disposition: Cartesian shoreline representation **accepted direction**; vertical-as-horizontal off field
+**P0 needs correction**; embedded Copy grid **P1 needs redesign or measurement**. No game file was changed
+by Codex.
+
+### 2026-09-11 live harbour integration review — own, remove, collide and connect it
+
+The chamfer field is now dimensionally coherent: `away` is a horizontal world-metre distance to water and
+the street fade uses that distance. That addresses the central fault in the previous shore-grid draft.
+The new quay/jetty also has matching `stands_on` deck support and its spawned scenes carry `FromSite`, so it
+is materially closer to a real playable feature than the reverted prop-only attempt.
+
+One pre-commit lifecycle fault remains. `Built::docks` is a flat `Vec<Dock>` and `Dock` has no site key.
+When the first city streams out, `built.standing.remove(&key)` and `FromSite` despawn its visuals, but no
+docks are removed. When sculpting rebuilds the city, the old entries likewise remain and the landing pushes
+another set. Because `stands_on` scans the flat vector, an unloaded harbour can continue lifting the player
+onto invisible decks, and each rebuild duplicates the work. Make docks site-owned (prefer
+`HashMap<u32, Vec<Dock>>`, or add a key and retain by it), replace that site's set atomically on landing, and
+remove it on both out-of-range and ground-moved paths. Contracts: unload City 01 and its former quay returns
+terrain/water height; rebuild it repeatedly and the dock count remains constant.
+
+The current harbour is a floor but not yet a collision- or route-complete place. `walls_near` never reads
+`built.docks`, so any visible quay/jetty parapets, railings, bollards or solid quay faces can be walked
+through. More importantly, `moor_the_harbour` derives geometry solely from terrain and never reserves or
+connects a street/landing in `Layout`. `quay4.png` confirms the result: the masonry run is visible beneath
+the bluff, but no legible public route reaches it; the jetty is not a readable destination; and the repeated
+tall grey modules read more like a barrier across the beach than a working waterfront. A harbour at the
+foot of a 21.3 m bluff is realistic only when its circulation is realistic too.
+
+Before judging materials or adding dock clutter, establish one explicit layout-owned route from a named
+city street to a landing/quay node, with the already-required step-free public route plus a shorter stair
+where useful. Add collision primitives that match only genuinely solid model parts (keep the walking deck
+and intended openings free), then capture the route from arrival eye height and from the deck looking back
+to the city. This is the reopening gate already recorded above, now confirmed against the new implementation.
+
+Disposition: horizontal shore-distance correction **accepted**; dock lifecycle **P0 needs correction**;
+harbour collision/route **P0 needs completion before feature acceptance**. No game file was changed by Codex.

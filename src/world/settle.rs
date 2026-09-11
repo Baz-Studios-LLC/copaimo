@@ -45,6 +45,82 @@ pub fn skirt_of(radius: f32) -> f32 {
     radius * (SITE_SKIRT / crate::config::TOWN_RADIUS)
 }
 
+/// The natural ground under a settlement, on a square grid.
+///
+/// # A bearing is the wrong way to record a coastline
+///
+/// This was 32 radii - how far the dry ground reached on each bearing - and it has a
+/// fault that no amount of tuning fixes. Where a coast runs nearly TANGENT to the
+/// town, the distance to water along a bearing changes enormously between one
+/// bearing and the next: 320 m to 120 m over eleven degrees, measured. The town's
+/// claim on the ground then had to resolve 200 m sideways, and
+/// `levelling_never_puts_a_step_in_the_ground` found the 1.23 m lip that made.
+///
+/// Blurring the radii round the circle smooths the lip and destroys the thing being
+/// recorded: at the sixteen passes it took to pass the guard, the town's ground
+/// reached 40 m PAST the waterline on three bearings, so the bay was still being
+/// filled and there was still nowhere to put a quay.
+///
+/// A square grid of the ground's own HEIGHT has neither problem. It is smooth
+/// because the beach is smooth - the land falls to the sea over tens of metres, and
+/// that fall IS the transition - and it says where the water is however the coast
+/// happens to run.
+#[derive(Clone, Copy)]
+pub struct Shore {
+    at: Vec2,
+    step: f32,
+    across: usize,
+    /// How far this cell is from open water, in metres. Nought in the water.
+    ///
+    /// # Distance, because height is the wrong quantity
+    ///
+    /// The first cut recorded the natural GROUND here and clipped the town where it
+    /// fell near the tide. That reads smoothly on a shallow beach and slams shut on
+    /// a steep one: six metres of height is tens of metres of shore in one place and
+    /// three metres in another, so the town's claim vanished over three metres of
+    /// ground and `levelling_never_puts_a_step_in_the_ground` found the 3.17 m lip.
+    ///
+    /// A distance field has a gradient of one everywhere by construction. Easing the
+    /// town out over sixty metres of it eases over sixty metres of it, whatever the
+    /// beach is doing.
+    away: [f32; SHORE_CELLS],
+}
+
+impl Default for Shore {
+    fn default() -> Self {
+        Shore { at: Vec2::ZERO, step: 0.0, across: 0, away: [0.0; SHORE_CELLS] }
+    }
+}
+
+impl Shore {
+    /// How far a point is from open water, or `None` where this holds no shoreline.
+    pub fn away_from_water(&self, at: Vec2) -> Option<f32> {
+        if self.across == 0 {
+            return None;
+        }
+        let last = self.across - 1;
+        let on = (at - self.at) / self.step + Vec2::splat(self.across as f32 * 0.5);
+        // Bilinear, so the clip is as smooth as the beach it reads.
+        let (x, y) = (on.x.clamp(0.0, last as f32), on.y.clamp(0.0, last as f32));
+        let (ix, iy) = (x.floor() as usize, y.floor() as usize);
+        let (fx, fy) = (x.fract(), y.fract());
+        let (nx, ny) = ((ix + 1).min(last), (iy + 1).min(last));
+        let read = |cx: usize, cy: usize| self.away[cy * self.across + cx];
+        let low = read(ix, iy) + (read(nx, iy) - read(ix, iy)) * fx;
+        let high = read(ix, ny) + (read(nx, ny) - read(ix, ny)) * fx;
+        Some(low + (high - low) * fy)
+    }
+}
+
+/// How many cells across the shoreline grid is, and how many it holds.
+///
+/// Square and fixed-size so a `Site` stays `Copy` - it is passed by value all over
+/// this file. 96 cells at 8 m spans 768 m, which covers the largest town's footprint
+/// and its skirt.
+pub const SHORE_ACROSS: usize = 96;
+pub const SHORE_CELLS: usize = SHORE_ACROSS * SHORE_ACROSS;
+const SHORE_STEP: f32 = 8.0;
+
 /// How many bearings a settlement's shoreline is sampled on.
 ///
 /// A shoreline is smooth at this scale - a bay a town could fit in is hundreds of
@@ -54,7 +130,15 @@ pub const SHORE_ROUND: usize = 32;
 /// How far back from the water a settlement's own ground stops, in metres.
 ///
 /// A town wants a bank above its harbour, not a street that walks into the sea.
-const SHORE_STANDS: f32 = 18.0;
+const SHORE_STANDS: f32 = 16.0;
+
+/// How far past that the town eases out of the ground entirely, in metres.
+///
+/// Long, because this is the whole transition from a levelled plateau to a natural
+/// beach and it is in plain view from the water.
+const SHORE_EASES: f32 = 70.0;
+
+
 
 /// A place levelled for people to build on.
 #[derive(Clone, Copy)]
@@ -79,13 +163,14 @@ pub struct Site {
     /// `world::town::PlanShape`. Filled once `bearing` is known, because the
     /// radials are set out from the road that arrives.
     pub shape: crate::world::town::PlanShape,
-    /// How far the settlement's own ground reaches at each bearing, clipped where
-    /// the sea gets in the way. See `reaches_toward`.
+    /// The natural ground under this settlement, sampled on a coarse square grid
+    /// before anything levelled it. Nought-sized for every settlement but the
+    /// harbour city - see `off_the_ground_within`.
     ///
-    /// Filled once the terrain is known, which is why it is a field rather than
-    /// something worked out on demand: nothing downstream of the plan can sample the
-    /// unlevelled ground, because by then the levelling is what it would be sampling.
-    pub water: [f32; SHORE_ROUND],
+    /// A field rather than something worked out on demand, because nothing
+    /// downstream of the plan can sample the unlevelled ground: by then the
+    /// levelling is what it would be sampling.
+    pub water: Shore,
     /// Whether this is the FIRST city out from the ranch: the one a player walks
     /// into before any other, and the one being built to the concept art.
     ///
@@ -606,6 +691,16 @@ pub fn ring_at(site: &Site, at: Vec2) -> f32 {
 /// `street_clears`: the carriageway and both footways stand on the upper terrace,
 /// and the wall stands at the far kerb holding them up. That is what the concept
 /// shows wherever it shows a wall.
+/// Whether a point is far enough from the water to build on.
+///
+/// Nothing stands on the shore ramp - see `SHORE_EASES` - because that ramp is a
+/// slope by design and a building wants level ground.
+pub fn clear_of_the_shore(site: &Site, at: Vec2) -> bool {
+    site.water
+        .away_from_water(at)
+        .is_none_or(|off| off > SHORE_STANDS + SHORE_EASES)
+}
+
 pub fn terrace_at(site: &Site, at: Vec2) -> f32 {
     // Which is nought bands for anything that is not a terraced city - see
     // `terraces_of`, which is the one place that is decided.
@@ -652,7 +747,14 @@ pub fn terrace_at(site: &Site, at: Vec2) -> f32 {
 const SETTLED_REACHES: f32 = 1.12;
 
 /// How much of that is solid before it starts giving way to country.
-const SETTLED_SOLID: f32 = 0.72;
+///
+/// AT LEAST AS FAR AS THE STREETS GO. This was 0.72 - solid to 245 m of a city's
+/// 340 - while the street network reaches `FILLS`, 320 m, so for the last eighty
+/// metres the town had streets on ground the forest still counted as half wild.
+/// It never showed while the first city sat inland; moved to the water, where the
+/// grown network runs right out to the edge, the audit found thirteen trees and
+/// logs standing in city streets.
+const SETTLED_SOLID: f32 = 0.95;
 
 /// How far past its kerb a lane keeps levelling, in metres.
 ///
@@ -784,28 +886,6 @@ pub fn pad_reaches(half: Vec2) -> f32 {
 }
 
 impl Site {
-    /// How far this settlement's ground reaches on a bearing.
-    ///
-    /// # A town that filled its own harbour
-    ///
-    /// A settlement levels the ground inside its own footprint to one height, and
-    /// that footprint is a shape drawn round the middle - it has no idea what is
-    /// underneath it. Put a town beside the sea and it raises the sea floor to dry
-    /// land: measured, the water reached within 220 m of this city's middle and the
-    /// whole bay came out as a field. There was nothing to build a harbour ON.
-    ///
-    /// So the reach is clipped at the water, bearing by bearing, and everything that
-    /// asks where the town's ground ENDS asks this instead of the plan alone - the
-    /// levelling, the street growth, the terrace rings and the walls.
-    pub fn reaches_toward(&self, bearing: f32) -> f32 {
-        let round = std::f32::consts::TAU;
-        let at = (bearing.rem_euclid(round) / round) * SHORE_ROUND as f32;
-        let (one, part) = (at.floor(), at.fract());
-        let low = self.water[one as usize % SHORE_ROUND];
-        let high = self.water[(one as usize + 1) % SHORE_ROUND];
-        low + (high - low) * part
-    }
-
     /// How far outside the settlement's own ground a point lies: negative within it.
     ///
     /// The plan's shape AND the shoreline, whichever bites first.
@@ -837,11 +917,11 @@ impl Site {
         // changes with it - which put a step in the levelling of two other coastal
         // towns and left a road ending 23 m short at a third. Five guards, all of
         // them about settlements nobody asked to change.
-        if !self.first {
+        let Some(away) = self.water.away_from_water(at) else {
             return shape;
-        }
-        let wet = away.length() - self.reaches_toward(away.y.atan2(away.x));
-        shape.max(wet)
+        };
+        // The town's ground stands back from the water by `SHORE_STANDS`.
+        shape.max(SHORE_STANDS - away)
     }
 
     /// The same site, facing a different way.
@@ -1069,7 +1149,7 @@ impl Settlements {
             // The ranch is the origin of the progression, not a step in it.
             era: crate::world::town::Era::Old,
             first: false,
-            water: [f32::MAX; SHORE_ROUND],
+            water: Shore::default(),
             seed: 0,
             shape: Default::default(),
             // A ranch is not a settlement and `world::town` skips it; this is here
@@ -1100,7 +1180,7 @@ impl Settlements {
                 era: crate::world::town::Era::default(),
                 first: false,
                 // Measured once the whole list is placed - see `reaches_toward`.
-                water: [f32::MAX; SHORE_ROUND],
+                water: Shore::default(),
                 seed: 0,
                 shape: Default::default(),
                 city,
@@ -1201,53 +1281,85 @@ impl Settlements {
             settlements.sites[which].first = true;
         }
 
-        // AND WHERE THE WATER STOPS EACH ONE.
+        // AND WHERE THE WATER IS, for the one city built against it.
         //
         // Sampled here because `ground` is the UNLEVELLED land: once the settlements
         // have claimed their footprints, asking the terrain returns their own
-        // levelling and every town looks like it is on dry ground. See
-        // `Site::reaches_toward`.
+        // levelling and every town looks like it is on dry ground. See `Shore`.
+        //
+        // The harbour city alone. Stopping every settlement at the water is
+        // defensible and is not what was asked, and it broke five guards about towns
+        // nobody had asked to change.
         for which in 0..settlements.sites.len() {
-            let site = settlements.sites[which];
-            let want = crate::world::town::town_reaches(&site);
-            let mut water = [want; SHORE_ROUND];
-            for turn in 0..SHORE_ROUND {
-                let bearing =
-                    std::f32::consts::TAU * turn as f32 / SHORE_ROUND as f32;
-                let way = Vec2::from_angle(bearing);
-                // Out to the plan's own reach, stopping at the first wet ground -
-                // and standing back from it, so the town's edge is a bank above the
-                // water rather than a street running into it.
-                let mut step = 10.0;
-                while step < want {
-                    if ground(site.at + way * step) < crate::config::SEA_LEVEL {
-                        water[turn] = (step - SHORE_STANDS).max(0.0);
-                        break;
+            if !settlements.sites[which].first {
+                continue;
+            }
+            let middle = settlements.sites[which].at;
+            let mut shore = Shore {
+                at: middle,
+                step: SHORE_STEP,
+                across: SHORE_ACROSS,
+                away: [f32::MAX; SHORE_CELLS],
+            };
+            let mut wet = false;
+            for cell in 0..SHORE_CELLS {
+                let (x, y) = (cell % SHORE_ACROSS, cell / SHORE_ACROSS);
+                let on = Vec2::new(x as f32, y as f32) - Vec2::splat(SHORE_ACROSS as f32 * 0.5);
+                if ground(middle + on * SHORE_STEP) < crate::config::SEA_LEVEL {
+                    shore.away[cell] = 0.0;
+                    wet = true;
+                }
+            }
+            if !wet {
+                // No sea within reach: leave the shoreline empty rather than
+                // claiming everything is infinitely far from a coast that is not
+                // there, which is the same answer and cheaper to ask.
+                continue;
+            }
+            // A CHAMFER TRANSFORM, two passes, which is how a distance field is
+            // built. Straight neighbours cost one step and diagonals root two.
+            let (one, root) = (SHORE_STEP, SHORE_STEP * std::f32::consts::SQRT_2);
+            let mut carry = |shore: &mut Shore, cell: usize, from: usize, cost: f32| {
+                let had = shore.away[from];
+                if had + cost < shore.away[cell] {
+                    shore.away[cell] = had + cost;
+                }
+            };
+            for y in 0..SHORE_ACROSS {
+                for x in 0..SHORE_ACROSS {
+                    let cell = y * SHORE_ACROSS + x;
+                    if x > 0 {
+                        carry(&mut shore, cell, cell - 1, one);
                     }
-                    step += 10.0;
+                    if y > 0 {
+                        carry(&mut shore, cell, cell - SHORE_ACROSS, one);
+                        if x > 0 {
+                            carry(&mut shore, cell, cell - SHORE_ACROSS - 1, root);
+                        }
+                        if x + 1 < SHORE_ACROSS {
+                            carry(&mut shore, cell, cell - SHORE_ACROSS + 1, root);
+                        }
+                    }
                 }
             }
-            // SMOOTHED ROUND, or the clip is a star rather than a shoreline.
-            //
-            // Thirty-two bearings is fine for a coast and coarse for a BAY: where
-            // one bearing reaches 320 m and the next stops at 120, the town's claim
-            // on the ground changes by 200 m over eleven degrees, and the levelling
-            // has to resolve that sideways. `levelling_never_puts_a_step_in_the
-            // _ground` caught it as a 1.23 m lip in a quarter-metre at (-2553, 2560).
-            //
-            // Sixteen passes of a circular blur - measured: at three and at eight the lip
-            // was still 0.75 m in a quarter-metre, and only at sixteen does the bite become
-            // broad enough for the skirt to sit on. It costs some of the bay and buys
-            // a shoreline the ground can be levelled to.
-            for _ in 0..16 {
-                let was = water;
-                for turn in 0..SHORE_ROUND {
-                    let before = was[(turn + SHORE_ROUND - 1) % SHORE_ROUND];
-                    let after = was[(turn + 1) % SHORE_ROUND];
-                    water[turn] = (before + was[turn] * 2.0 + after) * 0.25;
+            for y in (0..SHORE_ACROSS).rev() {
+                for x in (0..SHORE_ACROSS).rev() {
+                    let cell = y * SHORE_ACROSS + x;
+                    if x + 1 < SHORE_ACROSS {
+                        carry(&mut shore, cell, cell + 1, one);
+                    }
+                    if y + 1 < SHORE_ACROSS {
+                        carry(&mut shore, cell, cell + SHORE_ACROSS, one);
+                        if x + 1 < SHORE_ACROSS {
+                            carry(&mut shore, cell, cell + SHORE_ACROSS + 1, root);
+                        }
+                        if x > 0 {
+                            carry(&mut shore, cell, cell + SHORE_ACROSS - 1, root);
+                        }
+                    }
                 }
             }
-            settlements.sites[which].water = water;
+            settlements.sites[which].water = shore;
         }
 
         // AND THE SHAPE OF EACH PLAN, last, because the radials are set out from
@@ -1503,9 +1615,21 @@ impl Settlements {
                 let lane = &self.lanes[(what - roads) as usize];
                 let away = lane.off(at);
                 let town = &self.sites[lane.site as usize];
+                // A STREET STOPS AT THE WATER TOO.
+                //
+                // Gating the site's claim and not the street's leaves the streets
+                // holding the sea up on their own: each one flattens its strip to
+                // the town's height, so the bay came out crossed by causeways at
+                // 21.3 m and `levelling_never_puts_a_step_in_the_ground` found the
+                // 3.17 m lip where one of them ended. The fault was identical before
+                // and after the shoreline was rebuilt, which is what said it was not
+                // the shoreline.
+                let gate = town.water.away_from_water(at).map_or(1.0, |off| {
+                    smoothstep(SHORE_STANDS, SHORE_STANDS + SHORE_EASES, off)
+                });
                 (
                     town.height + terrace_at(town, at),
-                    smoothstep(lane.wide * 0.5 + LANE_SKIRT, lane.wide * 0.5, away),
+                    smoothstep(lane.wide * 0.5 + LANE_SKIRT, lane.wide * 0.5, away) * gate,
                 )
             } else if what < sites {
                 let site = &self.sites[what as usize];
@@ -1526,9 +1650,23 @@ impl Settlements {
                 let away = site.off_the_ground(at);
                 // Flat out to the edge, then easing back to the land over the
                 // skirt, so a town sits in the ground rather than on a plinth.
+                // AND NOTHING AT ALL OVER WATER.
+                //
+                // Clipping the town's footprint at the shore stops its FULL claim
+                // and not its skirt, which carries on for eighty metres past the
+                // edge at a fading strength - straight over the bay. Measured: the
+                // quay was being moored on ground reading 21.3 m, the plateau's own
+                // height, with the sea under it raised to meet the town.
+                //
+                // So the pull is gated on the natural ground being dry. Over six
+                // metres of height, which on a beach is tens of metres of shore, so
+                // the town still eases into the land everywhere it is land.
+                let gate = site.water.away_from_water(at).map_or(1.0, |away| {
+                    smoothstep(SHORE_STANDS, SHORE_STANDS + SHORE_EASES, away)
+                });
                 (
                     site.height + terrace_at(site, at),
-                    smoothstep(skirt_of(site.radius), 0.0, away),
+                    smoothstep(skirt_of(site.radius), 0.0, away) * gate,
                 )
             } else {
                 let road = &self.roads[(what - sites) as usize];

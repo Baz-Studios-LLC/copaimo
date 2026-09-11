@@ -2865,6 +2865,116 @@ def terrace_stair():
     return parts, TERRACE_RISE + 0.95
 
 
+
+# ----------------------------------------------------------------- the harbour
+
+# How long one run of quay is, and how deep the deck is. Tiled along the water.
+QUAY_RUN = 8.0
+QUAY_DEEP = 6.5
+
+# How far the masonry carries below the deck. The seabed is not flat and nobody
+# sees the bottom of a quay; the same argument as `TERRACE_BURIED`.
+QUAY_SUNK = 7.0
+
+
+def quay():
+    """A run of stone quay along the water, with a sea wall and bollards.
+
+    Built with its DECK at the origin - z nought is what you walk on - because the
+    game places it by the height it wants to stand people at, and the depth of
+    water under it is not the game's business.
+    """
+    parts = []
+    half = QUAY_DEEP * 0.5
+
+    # The mass, from the deck down into the water.
+    parts.append(
+        box((QUAY_RUN, QUAY_DEEP, QUAY_SUNK), (0.0, 0.0, -QUAY_SUNK * 0.5), "stone")
+    )
+    # Coursing on the seaward face, so a quay wall reads as built rather than cast.
+    for course in range(4):
+        top = -0.35 - course * 0.75
+        slide = -QUAY_RUN * 0.5
+        stone = 0
+        while slide < QUAY_RUN * 0.5 - 0.3:
+            wide = 0.6 + masonry.wobble(course * 7 + 3, stone) * 1.2
+            wide = min(wide, QUAY_RUN * 0.5 - slide)
+            if masonry.wobble(course * 7 + 5, stone) > 0.2 and wide > 0.4:
+                parts.append(
+                    box(
+                        (wide - 0.1, 0.18, 0.58),
+                        (slide + wide * 0.5, -half - 0.02, top - 0.29),
+                        "stone",
+                    )
+                )
+            slide += wide
+            stone += 1
+
+    # The deck, and a coping along its seaward edge.
+    parts.append(box((QUAY_RUN, QUAY_DEEP, 0.34), (0.0, 0.0, -0.17), "slate"))
+    parts.append(
+        box((QUAY_RUN, 0.55, 0.28), (0.0, -half + 0.27, 0.14), "stone")
+    )
+
+    # Bollards to tie up to. Two per run, off-centre so a row of them is not a comb.
+    for which, slide in enumerate((-2.3, 1.7)):
+        parts.append(
+            tube(0.19, 0.62, (slide, -half + 1.0, 0.31), "stone", sides=10)
+        )
+        parts.append(
+            box((0.44, 0.44, 0.16), (slide, -half + 1.0, 0.66), "stone")
+        )
+
+    # A landward kerb, so the deck reads as a made thing and not a slab of ground.
+    parts.append(box((QUAY_RUN, 0.4, 0.22), (0.0, half - 0.2, 0.11), "stone"))
+    return parts, 0.82
+
+
+# How long one run of jetty is, and how wide.
+JETTY_RUN = 6.0
+JETTY_WIDE = 3.4
+
+
+def jetty():
+    """A run of timber jetty on posts, walking out over the water.
+
+    Deck at the origin, like the quay it runs off.
+    """
+    parts = []
+    half = JETTY_WIDE * 0.5
+
+    # The deck, laid as separate boards so it reads as timber at any distance.
+    boards = 7
+    each = JETTY_WIDE / boards
+    for board in range(boards):
+        across = -half + (board + 0.5) * each
+        parts.append(
+            box(
+                (JETTY_RUN, each - 0.06, 0.16),
+                (0.0, across, -0.08 - masonry.wobble(board, 2) * 0.02),
+                "timber",
+            )
+        )
+    # The bearers under them, and the posts down into the water.
+    for end in (-1.0, 1.0):
+        along = end * (JETTY_RUN * 0.5 - 0.5)
+        parts.append(box((0.3, JETTY_WIDE, 0.26), (along, 0.0, -0.29), "timber"))
+        for side in (-1.0, 1.0):
+            parts.append(
+                box(
+                    (0.34, 0.34, 5.0),
+                    (along, side * (half - 0.3), -2.9),
+                    "timber",
+                )
+            )
+    # A handrail down one side only, which is what a working jetty has.
+    for post in range(3):
+        along = (post - 1) * (JETTY_RUN * 0.42)
+        parts.append(box((0.16, 0.16, 1.0), (along, half - 0.12, 0.5), "timber"))
+    parts.append(box((JETTY_RUN, 0.12, 0.12), (0.0, half - 0.12, 1.02), "timber"))
+    return parts, 1.1
+
+
 FIGURES = {
     # The old world: villages and towns.
     "cottage": cottage,
@@ -2897,6 +3007,9 @@ FIGURES = {
     # The earthworks a hill city stands on.
     "terrace_wall": terrace_wall,
     "terrace_stair": terrace_stair,
+    # The harbour.
+    "quay": quay,
+    "jetty": jetty,
 }
 
 
@@ -3350,5 +3463,15 @@ with open(NOTE, "w", encoding="utf-8") as note:
         f"{_built.x:.3f} {_built.y:.3f} {_built.z:.3f}",
         file=note,
     )
+    # THE HARBOUR, measured the same way as everything else.
+    for name, builder, run in (("QUAY", quay, QUAY_RUN), ("JETTY", jetty, JETTY_RUN)):
+        masonry.fresh()
+        _parts, _tall = builder()
+        _whole = masonry.weld(_parts, PAINT, _tall, name="prop")
+        _built = _whole.dimensions
+        print(
+            f"{name} {run} {_built.x:.3f} {_built.y:.3f} {_built.z:.3f}",
+            file=note,
+        )
     write_the_plan(note, COTTAGE_PLAN, COTTAGE_DOOR, COTTAGE_CLEAR)
 print(f"WROTE {NOTE}")

@@ -1678,6 +1678,16 @@ const RISER_KEEPS: f32 = 0.35;
 /// building there. The lot loop had it alone at first and a WELL came through
 /// the landmark search onto the same slope.
 fn stands_level(site: &crate::world::settle::Site, at: Vec2, what: Building) -> bool {
+    // CLEAR OF THE SHORE RAMP, first.
+    //
+    // Where the town eases out of the ground down to its beach, the ground is a
+    // slope by design - see `settle::SHORE_EASES`. A building standing on it stands
+    // on a slope: `no_building_stands_on_uneven_ground` found a cottage at
+    // (-2454, 2484) with 1.57 m of fall across its own footprint. The waterfront is
+    // the approach to the harbour, not somewhere to build.
+    if !crate::world::settle::clear_of_the_shore(site, at) {
+        return false;
+    }
     // GROWN BY THE PAD'S OWN REACH, which is the whole difference between a
     // terrace and a slope with grass on it.
     //
@@ -5867,9 +5877,42 @@ impl GroundMoved {
     }
 }
 
+
+/// One tile of the harbour: a run of quay along the water, or of jetty over it.
+///
+/// Worked out when the town is RAISED rather than when it is laid out, because
+/// where the water's edge actually is depends on the finished terrain - the
+/// levelling and its skirt both move it - and `lay_out` has no terrain to ask.
+#[derive(Clone, Copy)]
+pub struct Dock {
+    pub at: Vec2,
+    /// Which way the deck faces: seaward for a quay, along the run for a jetty.
+    pub facing: f32,
+    /// The height a warden stands at on this deck.
+    pub deck: f32,
+    pub jetty: bool,
+}
+
+/// How high the quay deck stands above the tide, and how far the harbour runs.
+///
+/// The contract with `dev/art/town.py` - see `the_harbour_stands_where_it_is_drawn`.
+pub const QUAY_DECK: f32 = 2.2;
+const QUAY_RUN: f32 = 8.0;
+const QUAY_DEEP: f32 = 6.5;
+const JETTY_RUN: f32 = 6.0;
+const JETTY_WIDE: f32 = 3.4;
+
+/// How far along the water the quay reaches either side of the harbour's middle.
+const QUAY_REACHES: f32 = 60.0;
+
+/// How far out over the water the jetty walks.
+const JETTY_REACHES: f32 = 24.0;
+
 #[derive(Resource, Default)]
 pub struct Built {
     pub standing: std::collections::HashMap<u32, Layout>,
+    /// The harbour, for the one city that has one.
+    pub docks: Vec<Dock>,
     /// Where the roads BETWEEN settlements meet, for the stretch that is streamed in.
     ///
     /// # A junction that is drawn has to be a junction that is walked
@@ -5951,6 +5994,138 @@ impl Built {
             }
         }
     }
+}
+
+/// Where the harbour goes: a run of quay at the water, and a jetty off it.
+///
+/// # A town on a bluff still has a harbour, at the bottom
+///
+/// The first city's middle stands 21.3 m above the tide, and the whole point of
+/// terracing it is that the town is a plateau. Sloping the waterfront down to the
+/// water was tried and it cannot work: a 0.15 fall means no building can stand on
+/// it at all - `no_building_stands_on_uneven_ground` refused the lot - and the
+/// quarter came out empty.
+///
+/// So the harbour is where a harbour under a bluff is: at the FOOT, on the beach
+/// below the town, with the town looking down on it. That is a real arrangement and
+/// a better one to walk into than a gentle ramp.
+fn moor_the_harbour(terrain: &crate::world::terrain::Terrain, site: &Site) -> Vec<Dock> {
+    if !site.first {
+        return Vec::new();
+    }
+    let deck = crate::config::SEA_LEVEL + QUAY_DECK;
+    // THE FINISHED GROUND, not the generated land.
+    //
+    // `dry_height` is the land before anything was levelled, and the water's edge a
+    // player SEES is where the finished terrain crosses the tide - the town's skirt
+    // and the beach ramp both move it. Moored on the generated line, the quay came
+    // out standing on the beach well back from the sea, which is what it looked
+    // like: a row of blocks in the grass.
+    let wet = |at: Vec2| terrain.height(at.x, at.y) < crate::config::SEA_LEVEL;
+
+    // Where the waterline is, going out on a bearing from the middle.
+    let waterline = |bearing: f32| -> Option<Vec2> {
+        let way = Vec2::from_angle(bearing);
+        let mut step = 60.0;
+        while step < town_reaches(site) + 500.0 {
+            let at = site.at + way * step;
+            if wet(at) {
+                // Back to the edge itself, to a tenth of a metre.
+                let (mut dry, mut sea) = (step - 4.0, step);
+                for _ in 0..8 {
+                    let mid = (dry + sea) * 0.5;
+                    if wet(site.at + way * mid) { sea = mid } else { dry = mid }
+                }
+                return Some(site.at + way * dry);
+            }
+            step += 4.0;
+        }
+        None
+    };
+
+    // THE COVE: where the water comes closest to the town.
+    let mut cove: Option<(f32, Vec2)> = None;
+    for turn in 0..240 {
+        let bearing = std::f32::consts::TAU * turn as f32 / 240.0;
+        let Some(at) = waterline(bearing) else { continue };
+        let away = at.distance(site.at);
+        if cove.is_none_or(|(had, _)| away < had) {
+            cove = Some((away, at));
+        }
+    }
+    let Some((_, head)) = cove else {
+        return Vec::new();
+    };
+
+    // Which way is seaward here, from the water itself rather than from the town -
+    // on a bay those are different, and it is the water that the quay faces.
+    let seaward = |at: Vec2| -> Vec2 {
+        let mut out = Vec2::ZERO;
+        for turn in 0..16 {
+            let way = Vec2::from_angle(std::f32::consts::TAU * turn as f32 / 16.0);
+            if wet(at + way * 12.0) {
+                out += way;
+            }
+        }
+        out.normalize_or(-(site.at - at).normalize_or_zero())
+    };
+
+    // MARCHED ALONG THE SHORE, not swept by bearing.
+    //
+    // A bearing sweep steps a different distance at every radius and leaves the run
+    // gapped where the shore turns away. Walking the tangent and re-finding the
+    // water each time lays a quay that is continuous however the bay bends.
+    let mut docks = Vec::new();
+    for hand in [-1.0_f32, 1.0] {
+        let mut at = head;
+        let mut along = 0.0;
+        while along < QUAY_REACHES {
+            let out = seaward(at);
+            let tangent = Vec2::new(-out.y, out.x) * hand;
+            let step = at + tangent * QUAY_RUN;
+            // Back onto the waterline: in if it is dry, out if it is wet.
+            let mut on = step;
+            let way = if wet(step) { -out } else { out };
+            for _ in 0..24 {
+                if wet(on) != wet(step) {
+                    break;
+                }
+                on += way * 1.0;
+            }
+            if on.distance(site.at) > town_reaches(site) + 500.0 {
+                break;
+            }
+            let face = seaward(on);
+            // PUSHED OUT, so the quay stands IN the water.
+            //
+            // Set back by half its depth it sat wholly on the beach with sand in
+            // front of it, which is a wall along a shore and not a quay: a boat has
+            // to be able to come alongside. Its seaward face belongs past the
+            // waterline, with the landward edge biting into the bank.
+            docks.push(Dock {
+                at: on + face * (QUAY_DEEP * 0.28),
+                facing: face.y.atan2(face.x),
+                deck,
+                jetty: false,
+            });
+            along += at.distance(on);
+            at = on;
+        }
+    }
+
+    // AND THE JETTY, walking out over the water from the middle of the quay.
+    let out = seaward(head);
+    let mut step = JETTY_RUN * 0.5;
+    while step <= JETTY_REACHES {
+        docks.push(Dock {
+            at: head + out * step,
+            facing: out.y.atan2(out.x),
+            deck,
+            jetty: true,
+        });
+        step += JETTY_RUN;
+    }
+    docks
 }
 
 /// What `dev/art/town.py` measured off the buildings it built.
@@ -6197,6 +6372,27 @@ pub fn stands_on(
             if let Some(tread) = stair.tread_at(terrain, at) {
                 on = on.max(tread);
             }
+        }
+    }
+
+    // AND THE HARBOUR DECKS, which belong to no layout either - see `Dock`.
+    for dock in &built.docks {
+        let away = at - dock.at;
+        let out = Vec2::from_angle(dock.facing);
+        let side = Vec2::new(-out.y, out.x);
+        let (deep, wide) = if dock.jetty {
+            (JETTY_RUN, JETTY_WIDE)
+        } else {
+            (QUAY_DEEP, QUAY_RUN)
+        };
+        // A quay runs ACROSS its facing and a jetty ALONG it.
+        let (along, across) = if dock.jetty {
+            (away.dot(out).abs(), away.dot(side).abs())
+        } else {
+            (away.dot(side).abs(), away.dot(out).abs())
+        };
+        if along <= wide.max(deep) * 0.5 && across <= wide.min(deep) * 0.5 {
+            on = on.max(dock.deck);
         }
     }
 
@@ -9842,6 +10038,24 @@ pub fn raise_the_towns(
             bevy::pbr::NotShadowCaster,
         ));
 
+        // THE HARBOUR, for the one city built against the water.
+        for dock in moor_the_harbour(&terrain.0, site) {
+            commands.spawn((
+                FromSite(key),
+                SceneRoot(assets.load(GltfAssetLabel::Scene(0).from_asset(if dock.jetty {
+                    "models/town_jetty.glb"
+                } else {
+                    "models/town_quay.glb"
+                }))),
+                // Both are built with their DECK at the origin, so the height the
+                // game wants to stand people at is the height it places them at.
+                Transform::from_xyz(dock.at.x, dock.deck, dock.at.y)
+                    .with_rotation(Quat::from_rotation_y(-dock.facing)),
+                Visibility::default(),
+            ));
+            built.docks.push(dock);
+        }
+
         built.standing.insert(key, layout);
     }
 }
@@ -10331,7 +10545,7 @@ mod tests {
             first: false,
             // No water near a fabricated site: it is a shape in the abstract, and a
             // shoreline is a fact about a real place.
-            water: [f32::MAX; crate::world::settle::SHORE_ROUND],
+            water: Default::default(),
             // The fixture's own seed, and the plan shape that follows from it.
             // Filled here because nothing has run `Settlements::plan` over this one
             // - which `PlanShape::of` allows precisely because it is a pure
@@ -11053,6 +11267,8 @@ mod tests {
             out - site.plan.reaches(site.radius)
         );
     }
+
+
 
 
 
