@@ -2404,3 +2404,123 @@ accessible routes, not as a universal inward-distance function.
 Disposition of 7cc7576 under AQ-035: **adapted, needs correction**. City 01 historic kit and the hall fix are
 accepted; City 02 progression remains unmet; back lanes and terraces are explicitly deferred. No game file
 was changed by Codex.
+
+## 2026-09-10 — Resumed review: City 01 terrace pass, one P0, then move on
+
+I reviewed the full terrace sequence through c6f426f and the current ringcity/rings2/ringwall/planted2
+captures. This is substantial structural progress: City 01 alone owns the terrain change, the streets have
+grown topology instead of a perfect wheel, the contours close, wall tiles follow their curve rather than
+cutting chords, stairs use the route direction, wall seating is grounded, and the market/guild landmarks
+survive. Treat the terrace architecture as **adapted**, not rejected.
+
+### P0 — three terraces currently become four rendered elevations, and access cannot see the outer step
+
+There is a count/meaning mismatch between terraces_of, ring_at and terrace_at.
+
+- terraces_of returns bands as the number of terraces. Its odd-count rule and span / bands calculation both
+  rely on that meaning.
+- ring_edge is nevertheless generated for every index in 0..bands, creating bands boundaries instead of
+  bands - 1 boundaries.
+- With bands = 3, terrace_at sums three boundary ramps, then subtracts only (bands - 1) / 2. The four flat
+  elevations are therefore -1, 0, +1 and +2 terrace rises. They are not the intended three centred levels.
+- ring_at clamps the fourth state away: its returned levels are 2, 1, 0, 0. Consequently band_of and
+  crosses_a_terrace do not report the outermost rendered 3.6 m transition. A route can encounter a real
+  height change which the stair/access logic says does not exist.
+- retain_the_terraces repeats the same 0..bands boundary count. Its per-ring association also tests
+  distance - ring_radius > WALL_TILE rather than absolute distance, so a crossing inside a ring can be
+  admitted as a break candidate for every larger ring.
+
+Recommended correction: keep bands meaning terrace count and use exactly bands - 1 boundaries in ring_at,
+terrace_at and retain_the_terraces. With three levels, the two boundaries at one-third and two-thirds of
+the usable radius yield offsets -1, 0 and +1 after the existing centring. Associate a crossing with a ring
+using absolute radial error, or better find every segment/ring intersection explicitly rather than asking
+one whole segment for a single transition.
+
+Required red/green contracts:
+
+1. For bands = 3, a ray away from every riser samples exactly three flat elevations, with total difference
+   2 * TERRACE_RISE and a centre symmetric around the settlement datum.
+2. Every height transition reported by terrace_at changes band_of too; there is no rendered step hidden
+   from movement/collision logic.
+3. Every route/terrace-boundary intersection is represented once, on that same boundary; a segment spanning
+   two boundaries produces two intersections rather than one.
+4. Every occupied level has a connected route to the arrival level. The direct route may be stairs, but the
+   city must also retain at least one step-free public route per the approved brief.
+
+### P1 — no cars does not mean stairs-only circulation
+
+Removing vehicle ramps is correct; removing all gradual routes is not. This city carries pedestrians,
+handcarts, vendors, mobility-limited people, small/large Copaimo and eventually the hoverboard. The approved
+City 01 guide explicitly requires a continuous accessible route, preferably 1:16 and never steeper than
+1:12. A 3.6 m rise therefore needs at least 43.2 m of run at the absolute maximum grade, with landings,
+edge protection and a destination shared with the stair. Use one or two contour-following switchbacks or a
+long sloped high street; do not restore broad car geometry.
+
+### Visual verdict — freeze the topology after the P0 and change task
+
+The latest aerial is a useful generator proof but is not yet close to the approved City 01 composition or
+AAA visual acceptance. The most visible gaps are now content/composition, not another terrace algorithm:
+
+- very large unprogrammed green voids separate streets and buildings;
+- the retaining rings read as the largest objects in the city, while active frontage is thin and scattered;
+- the market is a pale rectangle with stalls in an even grid, rather than 2–4 irregular activity-edge
+  clusters around a clear social centre;
+- one repeated townhouse silhouette/material grammar dominates nearly every district;
+- lamps, shrubs and junction discs repeat at machine-like intervals;
+- there is no visible population story: no humans/Copaimo sharing work, rest, water, shade or play, and no
+  fauna responding to canopy/food/water;
+- road, kerb and wall ink carry nearly equal black weight, flattening the intended hierarchy.
+
+After the terrace-count/access P0 is fixed or explicitly deferred, please stop iterating the same terrain
+system. The terrace problem has occupied many related commits and is now cycling below the user's biggest
+perceptual gaps. Move to one fixed 80–120 m City 01 hero slice and compose it to the approved reference:
+
+1. reserve the market, park, workshop/service court, water/rest node and upper civic garden before lots;
+2. pull buildings into continuous or near-continuous active frontage around those rooms, leaving deliberate
+   alleys and passages rather than leftover lawns;
+3. give the slice at least six clearly different massing/facade combinations, with district-weighted roof,
+   entry, bay, age and material choices rather than equal random colour swaps;
+4. add a small evidence pass of inhabitants and shared-use props at human and Copaimo scales;
+5. capture the same high oblique, arrival eye level, market eye level, terrace side profile and night view.
+
+Do not try to decorate the whole generated city yet. One convincing, collision-honest hero slice is the
+acceptance target and the reusable grammar for the rest.
+
+### Still unresolved: city technology ladder
+
+The September 4 P1 remains present after more than two related commits: the sorter still ranks every
+non-ranch settlement, not cities only; City 02 therefore remains Old; and Turning still selects the old kit
+because is_modern excludes it. This has already been resurfaced once, so this is a disposition request, not
+repeated pressure: please mark it accepted/adapted/deferred/rejected. If deferred, preserve the reopening
+gate before City 02 begins. City 02 cannot meet the approved old-to-modern district brief until this changes.
+
+Disposition: c6f426f terrace architecture **adapted / P0 correction required**; City 01 visual composition
+**needs review / next task**; city-only progression **needs explicit disposition**. No game file was changed
+by Codex.
+
+### 2026-09-10 live-branch note — shoreline smoothing must preserve the water bound
+
+The waterfront relocation is a useful City 01 identity decision, and clipping the settlement claim before
+it fills the bay is the right class of correction. One correctness warning on the current uncommitted
+shoreline array: each raw water sample is a maximum safe radial reach, but the repeated weighted-average
+blur can raise a short sample toward longer neighbours. That makes the smoothed reach extend past the first
+wet point and lets the town reclaim the very water the constraint was introduced to preserve. Linear
+interpolation between 32 safe endpoints can likewise cross an unsampled inlet.
+
+Please preserve the constraint while smoothing: retain the raw bound and permit smoothing to move a reach
+inward only (for example, clamp every filtered value to the raw value, preferably after a conservative
+angular/min-envelope or morphological erosion), then validate points along every interpolated sector
+against the unlevelled wet/dry field. Increase angular resolution only if the measured shoreline demands
+it; do not tune blur passes until a fixed top-down coast overlay shows the actual land/water samples, raw
+bound and final bound together. The comment currently says three blur passes while the loop performs
+sixteen, which is a useful sign that this should be turned into a measured geometric tolerance rather than
+an aesthetic iteration count.
+
+Acceptance: the final City 01 ground polygon remains dry with at least the intended 18 m setback at every
+sampled/interpolated boundary point; no new quarter-metre levelling lip; every arrival still joins the
+network; and one capture proves the waterfront edge, not merely the relocated city. Clipping creates room
+for a harbour but does not create a harbour: once the bound is safe, move to a deliberately programmed quay,
+water stair/landing, waterside frontage and service route rather than another generic shoreline pass.
+
+Disposition: waterfront relocation **adapted / active**; current averaging **P0 needs correction before
+commit**. No game file was changed by Codex.

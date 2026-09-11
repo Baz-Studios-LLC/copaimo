@@ -3291,3 +3291,39 @@ a straight line - so a hundred-metre stretch became a CHORD cutting four metres
 inside the ring it belonged to. Measured: 1149 m of the 2510 laid was then thrown
 away by the spawner's own ground check, because there was no step where the chord had
 wandered to. A piece per tile follows the arc and costs nothing.
+
+## A town that filled its own harbour
+
+**Issue.** The first city was moved to the water and there was still no water in it.
+
+**Solution.** A settlement levels the ground inside its own footprint to one height,
+and that footprint is a shape drawn round the middle - it has no idea what is
+underneath it. Measured from the new position: the sea reaches within 220 m of the
+middle on the north side and 240 m on the west, well inside the town's 320 m reach,
+and the whole bay was being raised to dry land. There was nothing to build a harbour
+ON.
+
+`Site::water` records how far the town's ground reaches on each of 32 bearings,
+sampled while the UNLEVELLED terrain is still askable - after the settlements claim
+their footprints, asking the terrain returns their own levelling and every town looks
+like it is on dry ground. `off_the_ground` is the plan's shape and that shoreline,
+whichever bites first, and everything asking where the town ends asks it.
+
+**Worth knowing, three times over.**
+
+The clip applies to the harbour city alone. Stopping every settlement at the water is
+defensible and is not what was asked, and it broke five guards about towns nobody had
+asked to change.
+
+Thirty-two bearings is fine for a coast and coarse for a BAY: where one bearing
+reaches 320 m and the next stops at 120, the claim changes by 200 m over eleven
+degrees and the levelling has to resolve it sideways. Measured at three passes of
+blur and at eight, the lip was still 0.75 m in a quarter-metre; sixteen passes is
+what makes the bite broad enough for the skirt to sit on.
+
+And folding the clip into one function collapsed TWO footprints that were
+deliberately different sizes: the levelling claims the site's whole radius, while the
+town's own ground - where a country road stops being the country's - reaches
+`town_reaches`, 94% of it. That widened every town in the world by 6% and left a road
+arriving 21.4 m short at (1, 127). The failure was identical wherever the first city
+was put, which is what proved it was not the move.

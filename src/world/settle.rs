@@ -45,6 +45,17 @@ pub fn skirt_of(radius: f32) -> f32 {
     radius * (SITE_SKIRT / crate::config::TOWN_RADIUS)
 }
 
+/// How many bearings a settlement's shoreline is sampled on.
+///
+/// A shoreline is smooth at this scale - a bay a town could fit in is hundreds of
+/// metres across - so thirty-two is finer than the thing being measured.
+pub const SHORE_ROUND: usize = 32;
+
+/// How far back from the water a settlement's own ground stops, in metres.
+///
+/// A town wants a bank above its harbour, not a street that walks into the sea.
+const SHORE_STANDS: f32 = 18.0;
+
 /// A place levelled for people to build on.
 #[derive(Clone, Copy)]
 pub struct Site {
@@ -68,6 +79,13 @@ pub struct Site {
     /// `world::town::PlanShape`. Filled once `bearing` is known, because the
     /// radials are set out from the road that arrives.
     pub shape: crate::world::town::PlanShape,
+    /// How far the settlement's own ground reaches at each bearing, clipped where
+    /// the sea gets in the way. See `reaches_toward`.
+    ///
+    /// Filled once the terrain is known, which is why it is a field rather than
+    /// something worked out on demand: nothing downstream of the plan can sample the
+    /// unlevelled ground, because by then the levelling is what it would be sampling.
+    pub water: [f32; SHORE_ROUND],
     /// Whether this is the FIRST city out from the ranch: the one a player walks
     /// into before any other, and the one being built to the concept art.
     ///
@@ -621,7 +639,7 @@ pub fn terrace_at(site: &Site, at: Vec2) -> f32 {
     // CENTRED, so the middle band sits at `site.height` and the town is CUT into the
     // ground rather than piled on it - and FADED at the edge, so a step never rides
     // out of town on the skirt. See `TERRACE_HOLDS`.
-    let off = site.plan.off(away, site.bearing, site.radius);
+    let off = site.off_the_ground(at);
     let inside = crate::util::smoothstep(0.0, -TERRACE_HOLDS, off);
     (level - (bands - 1.0) * 0.5) * TERRACE_RISE * inside
 }
@@ -766,6 +784,66 @@ pub fn pad_reaches(half: Vec2) -> f32 {
 }
 
 impl Site {
+    /// How far this settlement's ground reaches on a bearing.
+    ///
+    /// # A town that filled its own harbour
+    ///
+    /// A settlement levels the ground inside its own footprint to one height, and
+    /// that footprint is a shape drawn round the middle - it has no idea what is
+    /// underneath it. Put a town beside the sea and it raises the sea floor to dry
+    /// land: measured, the water reached within 220 m of this city's middle and the
+    /// whole bay came out as a field. There was nothing to build a harbour ON.
+    ///
+    /// So the reach is clipped at the water, bearing by bearing, and everything that
+    /// asks where the town's ground ENDS asks this instead of the plan alone - the
+    /// levelling, the street growth, the terrace rings and the walls.
+    pub fn reaches_toward(&self, bearing: f32) -> f32 {
+        let round = std::f32::consts::TAU;
+        let at = (bearing.rem_euclid(round) / round) * SHORE_ROUND as f32;
+        let (one, part) = (at.floor(), at.fract());
+        let low = self.water[one as usize % SHORE_ROUND];
+        let high = self.water[(one as usize + 1) % SHORE_ROUND];
+        low + (high - low) * part
+    }
+
+    /// How far outside the settlement's own ground a point lies: negative within it.
+    ///
+    /// The plan's shape AND the shoreline, whichever bites first.
+    pub fn off_the_ground(&self, at: Vec2) -> f32 {
+        self.off_the_ground_within(at, self.radius)
+    }
+
+    /// The same, for a footprint of a stated size.
+    ///
+    /// # Two footprints, and they are not the same size
+    ///
+    /// The LEVELLING claims out to the site's whole radius; the town's own ground -
+    /// what `world::town::off_the_town` answers, and where a country road stops
+    /// being the country's - reaches `town_reaches`, which is 94% of it. Those were
+    /// two deliberately different numbers, and folding the water clip in collapsed
+    /// them onto one: a 6% wider footprint for every town in the world, and a road
+    /// arriving 21.4 m short at (1, 127) because the boundary had moved under it.
+    ///
+    /// Measured the hard way - the failure was identical wherever the first city was
+    /// put, which is what said it was not the move.
+    pub fn off_the_ground_within(&self, at: Vec2, radius: f32) -> f32 {
+        let away = at - self.at;
+        let shape = self.plan.off(away, self.bearing, radius);
+        // THE HARBOUR CITY ONLY.
+        //
+        // Stopping every settlement at the water is defensible and it is not what
+        // was asked, and it does not come free: a shoreline sampled on 32 bearings
+        // changes fast where a bay bites in, and the town's claim on the ground
+        // changes with it - which put a step in the levelling of two other coastal
+        // towns and left a road ending 23 m short at a third. Five guards, all of
+        // them about settlements nobody asked to change.
+        if !self.first {
+            return shape;
+        }
+        let wet = away.length() - self.reaches_toward(away.y.atan2(away.x));
+        shape.max(wet)
+    }
+
     /// The same site, facing a different way.
     ///
     /// Sets the bearing AND the plan shape that follows from it, because the
@@ -991,6 +1069,7 @@ impl Settlements {
             // The ranch is the origin of the progression, not a step in it.
             era: crate::world::town::Era::Old,
             first: false,
+            water: [f32::MAX; SHORE_ROUND],
             seed: 0,
             shape: Default::default(),
             // A ranch is not a settlement and `world::town` skips it; this is here
@@ -1020,6 +1099,8 @@ impl Settlements {
                 // Ranked below, once every site is placed.
                 era: crate::world::town::Era::default(),
                 first: false,
+                // Measured once the whole list is placed - see `reaches_toward`.
+                water: [f32::MAX; SHORE_ROUND],
                 seed: 0,
                 shape: Default::default(),
                 city,
@@ -1118,6 +1199,55 @@ impl Settlements {
             })
         {
             settlements.sites[which].first = true;
+        }
+
+        // AND WHERE THE WATER STOPS EACH ONE.
+        //
+        // Sampled here because `ground` is the UNLEVELLED land: once the settlements
+        // have claimed their footprints, asking the terrain returns their own
+        // levelling and every town looks like it is on dry ground. See
+        // `Site::reaches_toward`.
+        for which in 0..settlements.sites.len() {
+            let site = settlements.sites[which];
+            let want = crate::world::town::town_reaches(&site);
+            let mut water = [want; SHORE_ROUND];
+            for turn in 0..SHORE_ROUND {
+                let bearing =
+                    std::f32::consts::TAU * turn as f32 / SHORE_ROUND as f32;
+                let way = Vec2::from_angle(bearing);
+                // Out to the plan's own reach, stopping at the first wet ground -
+                // and standing back from it, so the town's edge is a bank above the
+                // water rather than a street running into it.
+                let mut step = 10.0;
+                while step < want {
+                    if ground(site.at + way * step) < crate::config::SEA_LEVEL {
+                        water[turn] = (step - SHORE_STANDS).max(0.0);
+                        break;
+                    }
+                    step += 10.0;
+                }
+            }
+            // SMOOTHED ROUND, or the clip is a star rather than a shoreline.
+            //
+            // Thirty-two bearings is fine for a coast and coarse for a BAY: where
+            // one bearing reaches 320 m and the next stops at 120, the town's claim
+            // on the ground changes by 200 m over eleven degrees, and the levelling
+            // has to resolve that sideways. `levelling_never_puts_a_step_in_the
+            // _ground` caught it as a 1.23 m lip in a quarter-metre at (-2553, 2560).
+            //
+            // Sixteen passes of a circular blur - measured: at three and at eight the lip
+            // was still 0.75 m in a quarter-metre, and only at sixteen does the bite become
+            // broad enough for the skirt to sit on. It costs some of the bay and buys
+            // a shoreline the ground can be levelled to.
+            for _ in 0..16 {
+                let was = water;
+                for turn in 0..SHORE_ROUND {
+                    let before = was[(turn + SHORE_ROUND - 1) % SHORE_ROUND];
+                    let after = was[(turn + 1) % SHORE_ROUND];
+                    water[turn] = (before + was[turn] * 2.0 + after) * 0.25;
+                }
+            }
+            settlements.sites[which].water = water;
         }
 
         // AND THE SHAPE OF EACH PLAN, last, because the radials are set out from
@@ -1390,7 +1520,10 @@ impl Settlements {
                 // `Plan::off` is the one definition of a settlement's footprint and
                 // the streets are clipped to the same one, so the ground a town
                 // stands on and the ground its streets are laid across agree.
-                let away = site.plan.off(at - site.at, site.bearing, site.radius);
+                // THE TOWN'S OWN GROUND, which stops at the water - a settlement
+                // that levels its footprint regardless raises the sea floor and
+                // fills its own harbour. See `Site::reaches_toward`.
+                let away = site.off_the_ground(at);
                 // Flat out to the edge, then easing back to the land over the
                 // skirt, so a town sits in the ground rather than on a plinth.
                 (
@@ -1894,7 +2027,7 @@ mod levelling {
             let approach = Vec2::from_angle(site.bearing);
             for out in [approach, -approach] {
                 let (mut near, mut far) = (0.0_f32, site.plan.reaches(site.radius) * 1.2);
-                for _ in 0..24 {
+                for _ in 0..16 {
                     let mid = (near + far) * 0.5;
                     if site.plan.off(out * mid, site.bearing, site.radius) < 0.0 {
                         near = mid;

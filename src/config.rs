@@ -902,10 +902,20 @@ pub const PLAINS_RELIEF: f32 = 0.12;
 ///
 /// The RANCH is not in this list. It is pinned first and separately, because the
 /// game starts there and nothing may take its ground.
+/// # The first city stands ON the water
+///
+/// It was 480 m inland, and its own reach put its edge 322 m from the shore - so it
+/// nearly touched the sea and never met it: no waterfront, no reason for the town to
+/// be where it is. Moved north to where the shore is 232 m out, which is INSIDE the
+/// outer ring, so the water cuts into the town and there is a quay for it to cut
+/// against.
+///
+/// Still the first city a player reaches: 2401 m from the ranch against the next
+/// city's 4300.
 pub const SETTLEMENTS: [(f32, f32, bool); 13] = [
     (-4641.0, 270.0, false),
     (-2985.0, 559.0, false),
-    (-2553.0, 1771.0, true),
+    (-2553.0, 2251.0, true),
     (-321.0, 1593.0, true),
     (223.0, 385.0, true),
     (233.0, -735.0, false),

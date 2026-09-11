@@ -2368,8 +2368,7 @@ fn retain_the_terraces(
             {
                 continue;
             }
-            if site.plan.off(at - site.at, site.bearing, site.radius)
-                > -crate::world::settle::TERRACE_HOLDS
+            if site.off_the_ground(at) > -crate::world::settle::TERRACE_HOLDS
             {
                 continue;
             }
@@ -2423,8 +2422,7 @@ fn retain_the_terraces(
             let at = site.at
                 + Vec2::from_angle(bearing) * crate::world::settle::ring_edge(site, which, bearing);
             // Clear of the town's edge, and clear of every flight standing in it.
-            let holds = site.plan.off(at - site.at, site.bearing, site.radius)
-                <= -crate::world::settle::TERRACE_HOLDS;
+            let holds = site.off_the_ground(at) <= -crate::world::settle::TERRACE_HOLDS;
             let clear = !stairs.iter().any(|had: &Stair| {
                 had.at.distance(at) < had.wide * 0.5 + WALL_OFF_A_STREET
             });
@@ -3560,6 +3558,51 @@ fn grown_streets(
         }
     }
 
+    // AND EVERY ARRIVAL IS JOINED ON.
+    //
+    // Growth is seeded inward from each arriving road, which is what makes a road
+    // that gets here become a street - but a seed is a PROPOSAL, and it can be
+    // refused like any other: too short, alongside something, out of the town. When
+    // that happens the country road stops just outside the network with nothing to
+    // meet. `every_arriving_road_meets_the_town_it_arrives_at` measured the worst at
+    // 9.9 m after the city moved to the water.
+    //
+    // So an arrival that ends up unattached is stitched to the nearest thing there
+    // is. A short join, and only when there is something within reach to join to.
+    let mut joins: Vec<(Vec2, Vec2, f32)> = Vec::new();
+    for road in arriving {
+        let Some((enters, leaves)) = inside(on, Plan::Rings, road.from, road.to) else {
+            continue;
+        };
+        for end in [enters, leaves] {
+            let near = built
+                .iter()
+                .flat_map(|piece| [piece.0, piece.1])
+                .min_by(|a, b| a.distance(end).total_cmp(&b.distance(end)));
+            let Some(near) = near else { continue };
+            let gap = near.distance(end);
+            if !(1.5..step * 1.6).contains(&gap) {
+                continue;
+            }
+            // NOT AT A SHARP ANGLE, which the growth itself is already refused -
+            // a join is a street like any other and `Node` has to draw its mouth.
+            let mine = (near - end).normalize_or_zero();
+            let sharp = built.iter().any(|other| {
+                let shared = [(other.0, other.1), (other.1, other.0)]
+                    .into_iter()
+                    .find(|(at, _)| at.distance(near) < 1.0);
+                let Some((at, away)) = shared else {
+                    return false;
+                };
+                (away - at).normalize_or_zero().dot(-mine) > GROWN_SHARPEST
+            });
+            if !sharp {
+                joins.push((end, near, on.high_street));
+            }
+        }
+    }
+    built.extend(joins);
+
     for (from, to, wide) in built {
         ways.push(Way {
             points: vec![from, to],
@@ -4094,7 +4137,13 @@ pub fn outside_the_towns(
 /// levelling asks the same question the same way - see `settle`, where `Plan::off`
 /// is called "the one definition of a settlement's footprint".
 pub fn off_the_town(site: &crate::world::settle::Site, at: Vec2) -> f32 {
-    site.plan.off(at - site.at, site.bearing, town_reaches(site))
+    // The plan's shape AND the shoreline: a town's ground stops at the water, and
+    // everything clipped to "inside the town" has to stop there too or it is drawn
+    // over the sea. See `settle::Site::reaches_toward`.
+    //
+    // At `town_reaches`, which is NOT the site's radius - see
+    // `Site::off_the_ground_within`.
+    site.off_the_ground_within(at, town_reaches(site))
 }
 
 /// The parts of a segment outside one settlement's shape.
@@ -10280,6 +10329,9 @@ mod tests {
             // are for what a plan IS; the first city's own shape is measured against
             // the real world, by the step, road and kerb guards and by `--drive`.
             first: false,
+            // No water near a fabricated site: it is a shape in the abstract, and a
+            // shoreline is a fact about a real place.
+            water: [f32::MAX; crate::world::settle::SHORE_ROUND],
             // The fixture's own seed, and the plan shape that follows from it.
             // Filled here because nothing has run `Settlements::plan` over this one
             // - which `PlanShape::of` allows precisely because it is a pure
@@ -11001,6 +11053,8 @@ mod tests {
             out - site.plan.reaches(site.radius)
         );
     }
+
+
 
 
 
