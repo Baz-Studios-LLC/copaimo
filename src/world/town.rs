@@ -517,7 +517,7 @@ impl Character {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum District {
     /// Around the square: trade. Shops, and the guild hall on the square itself.
     Market,
@@ -837,7 +837,7 @@ impl District {
 }
 
 /// What stands on a plot.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Building {
     // # Two ages of the world
     //
@@ -1446,7 +1446,7 @@ impl Building {
 }
 
 /// One building, placed.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Plot {
     /// Where its middle stands.
     pub at: Vec2,
@@ -1867,7 +1867,7 @@ fn door_faces_a_street(streets: &[Street], at: Vec2, facing: f32, what: Building
 /// So a way says what it is, once, where it is built. The rule that places doors
 /// ignores service ways; every clearance rule and the audit keep considering all
 /// of them, because nothing may be built in an alley either.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub enum Carries {
     /// A street a front door may address. Nearly everything.
     #[default]
@@ -1877,7 +1877,7 @@ pub enum Carries {
     Service,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Way {
     pub points: Vec<Vec2>,
     pub wide: f32,
@@ -1939,7 +1939,7 @@ impl Way {
 }
 
 /// A lamp standing at a kerb.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Lamp {
     pub at: Vec2,
     /// Which way it is turned. A city lamp's arm reaches out over the carriageway,
@@ -2647,7 +2647,7 @@ const A_CURVE_STEPS_EVERY: f32 = 6.0;
 /// built and the streets that cut it are already there; what it adds is the
 /// programme. It is also somewhere an NPC can be sent, which is the next thing this
 /// world needs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Open {
     /// The civic room: hard ground, a monument off the middle, seating round the
     /// edge and the ways through left clear.
@@ -2815,7 +2815,7 @@ impl Open {
 /// with no location. Codex caught both before either had been photographed.
 ///
 /// The record is the place; the enum stays the programme.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Place {
     /// Its own index in the layout. This is what a plot points at and what an NPC
     /// will be sent to.
@@ -4074,10 +4074,34 @@ pub fn lay_the_site_out(
     key: usize,
     site: &crate::world::settle::Site,
 ) -> Layout {
-    lay_out(site,
-        &roads_through(plan, site),
-        crate::config::WORLD_SEED.wrapping_add(key as u32 * 7717),
-    )
+    let seed = crate::config::WORLD_SEED.wrapping_add(key as u32 * 7717);
+    // A STORED SETTLEMENT IS READ, NOT MADE.
+    //
+    // The file holds what was placed - the ways, the lots, the lamps, the public
+    // ground - and nothing that is derived from them. So what comes back here is
+    // finished the same way a generated one is: `network` splits the ways into
+    // streets and finds the junctions, and the terraces put the walls and the flights
+    // back. See `world::bake`, which will not write a derived thing to a file.
+    if let Some(stored) = crate::world::bake::stored(key) {
+        return finish(site, stored.laid(), &roads_through(plan, site));
+    }
+    lay_out(site, &roads_through(plan, site), seed)
+}
+
+/// Everything a layout derives from what was placed in it.
+///
+/// Shared by the generator and the store, because a settlement that was read from a
+/// file and one that was just made have to be the same kind of thing by the time
+/// anybody looks at them. One function, so they cannot drift.
+fn finish(
+    site: &crate::world::settle::Site,
+    laid: Layout,
+    crossing: &[Street],
+) -> Layout {
+    let (ways, nodes) = network(laid.ways, &|_| f32::from(u8::from(site.city)));
+    let streets: Vec<Street> = ways.iter().flat_map(|way| way.segments()).collect();
+    let (walls, stairs) = retain_the_terraces(site, &streets, crossing);
+    Layout { ways, streets, nodes, walls, stairs, ..laid }
 }
 
 /// How far out a settlement's own streets reach, in metres.
@@ -11286,6 +11310,7 @@ mod tests {
 
 
 
+
     #[test]
     fn the_ground_between_two_buildings_has_no_step_in_it() {
         let terrain = crate::world::terrain::Terrain::new();
@@ -12383,6 +12408,56 @@ mod tests {
             println!(
                 "  {label}: {biome:?}  levelled {:.2}  height {:.2}  cover {thick:.2}",
                 ground.levelled, ground.height
+            );
+        }
+    }
+
+    /// A settlement read from a file is the settlement that was written to it.
+    ///
+    /// # The store has to be invisible or it is worthless
+    ///
+    /// The whole arrangement rests on one claim: a layout that was baked and read
+    /// back is the same layout. If it is not, then every guard in this file is
+    /// testing a town nobody will ever see, and the first hand edit lands on ground
+    /// that has already moved.
+    ///
+    /// It checks the DERIVED parts too, and that is the point of it. The file holds
+    /// only what was placed; the streets, the junctions, the walls and the flights
+    /// are worked out again on the way in. If `lay_out` ever learns to derive a
+    /// fifth thing and `finish` is not told, this is what says so.
+    #[test]
+    fn a_settlement_read_back_is_the_one_that_was_written() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        let key = plan.sites().iter().position(|site| site.first).expect("a first city");
+        let site = &plan.sites()[key];
+        let made = lay_the_site_out(plan, key, site);
+
+        let seed = crate::config::WORLD_SEED.wrapping_add(key as u32 * 7717);
+        let baked = crate::world::bake::Baked::of(site, seed, &made);
+        // Through the file's own form, not merely through the struct - a field that
+        // does not serialise is exactly the kind of loss this is looking for.
+        let text = serde_json::to_string(&baked).expect("a bake serialises");
+        let read: crate::world::bake::Baked =
+            serde_json::from_str(&text).expect("and reads back");
+        let back = finish(site, read.laid(), &roads_through(plan, site));
+
+        assert_eq!(made.ways.len(), back.ways.len(), "ways");
+        assert_eq!(made.plots.len(), back.plots.len(), "plots");
+        assert_eq!(made.lamps.len(), back.lamps.len(), "lamps");
+        assert_eq!(made.opens.len(), back.opens.len(), "opens");
+        // THE DERIVED ONES.
+        assert_eq!(made.streets.len(), back.streets.len(), "streets");
+        assert_eq!(made.nodes.len(), back.nodes.len(), "nodes");
+        assert_eq!(made.walls.len(), back.walls.len(), "walls");
+        assert_eq!(made.stairs.len(), back.stairs.len(), "stairs");
+
+        // And in the same PLACES, not merely the same number of them.
+        for (one, other) in made.plots.iter().zip(&back.plots) {
+            assert!(
+                one.at.distance(other.at) < 1.0e-3 && one.what == other.what,
+                "a plot moved: {:?} at {:?} became {:?} at {:?}",
+                one.what, one.at, other.what, other.at
             );
         }
     }

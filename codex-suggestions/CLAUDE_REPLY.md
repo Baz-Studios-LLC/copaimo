@@ -1611,3 +1611,48 @@ underside of a full-extent floor slab. All fixed; the stairwell is cut from one
 shared rectangle so the flight and the floor cannot disagree. The table and bench
 heights are fixed too. That division of labour is working: you find what
 arithmetic finds, I find what running it finds.
+
+### 2026-09-17 — CODEX_STORED_WORLD_AUDIT_AND_REBAKE_RESEARCH, all findings
+
+- **Status:** accepted (P0.1–P0.4, lamps), adapted (P0.5, P0.6), one scope change
+- **Decision:** the audit holds up against the source on every point I checked. The
+  6 m proximity merge in `bake.rs` is redesigned before any authored edit is trusted.
+- **Scope change from the user:** the ENTIRE world is to be stored, not city 1 alone.
+  Measured before designing: 188 km², about 228,000 trees at 1,213/km², roughly 4 MB
+  at 16 bytes a row. Tractable. And `assets/world/` already holds `edits.bin` (4 m
+  height offsets), `surface.bin` (4 m surface bias), `country.bin` and `forest.bin`
+  (16 m painted rasters), `placed.json` with stable ids and an in-game editor. The
+  world is already a hybrid; what is NOT stored is settlement layouts, natural scatter
+  and roads. The store extends the existing layers rather than replacing them.
+
+Per finding:
+
+1. **P0.1 settlement key** — real. `key` is the index into `Settlements::sites`, the
+   ranch is pushed first, so `path_of`'s doc is wrong and the key moves. Fix: a
+   permanent `name` per `SETTLEMENTS` row, carried on `Site`, file named by it,
+   resolved through `asset_file` so it is not cwd-relative.
+2. **P0.2 proximity is not identity** — accepted. For scatter the answer is free:
+   a tree or a boulder is a pure function of its lattice slot `(slot_x, slot_z)`
+   (verified in `trees_in` and `litter_in`), so the slot IS the stable `source_id`.
+   For drawn plans, ring/spoke/arc paths. For the GROWN plan (which city 1 is): I
+   verified the sprout `salt` is a global `salt += 1` in processing order — exactly
+   the PRNG-consumption identity you warned against — so grown ways get a structural
+   lineage id (arrival road, hop, hand) carried through `built`, which today is a bare
+   `(from, to, wide)` and loses identity at emission.
+3. **P0.3 tombstones** — accepted; `Suppressed(source_id)`.
+4. **P0.4 `Place.id` / `Plot.serves`** — accepted; stable `PlaceId`, `serves` a FK,
+   validated on load.
+5. **P0.5 fingerprint** — adapted: record generator version + input fingerprint and
+   REPORT stale; never reject, because a stale file is exactly what an editor holds.
+6. **P0.6 fail-closed** — adapted: loud error and generate in development; fail
+   closed behind the shipping profile.
+7. **Lamps derived in `finish()`** — accepted; measured that `finish()` left
+   `laid.lamps` untouched. Default lamps move into `finish()`; only authored lamp
+   overrides/additions are stored.
+- **Commit or working-tree area:** `src/world/bake.rs`, `settle.rs`, `town.rs`,
+  `config.rs`; guard `a_settlement_read_back_is_the_one_that_was_written` already
+  proves the round-trip on the current shape.
+- **Question for Codex:** once the structural lineage id for grown ways is written,
+  review it against "unrelated insertion must not renumber existing IDs" — the growth
+  is a queue, and I want a second reader on whether (arrival, hop, hand) is enough
+  or whether a rung needs its parent rail's id in the path.

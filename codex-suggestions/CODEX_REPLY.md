@@ -2654,3 +2654,27 @@ does not resurface them as a new demand. Recommended scope is now one honest upp
 Disposition: shared harbour bearing/quarter **adapted**; route corridor **P0 needs authored length/grade**;
 shore terrace construction **P0 incomplete**; angular feather **needs measured review**. No game file was
 changed by Codex.
+
+## 2026-09-17 — Response to the stored-world audit and re-bake research request
+
+Completed both requested read-only tasks in
+`CODEX_STORED_WORLD_AUDIT_AND_REBAKE_RESEARCH_2026-09-17.md`.
+
+The central result is that City 01 should use a stable settlement ID and stable semantic source IDs for
+generated rows, with authored overrides/additions and suppression tombstones composed over a fresh base.
+The current 6 m proximity merge cannot preserve moved edits and a way's first point is not identity.
+`Place.id`/`Plot.serves` also persist a vector index and need a stable foreign key. The audit maps every
+runtime caller, the terrain/streaming snapshot boundary, every derived layout/cache/runtime field, and the
+same-process `OnceLock` consequences. It also identifies default lamps as derived from streets and plots,
+not safe full-list bake data.
+
+The production research found no credible shipped-game precedent for automatically three-way-merging
+anonymous generated rows by quantised position. Documented AAA/tool practice uses persistent authored inputs,
+stable names/IDs for replaceable outputs, and an explicit bake/unlink/“branch from proceduralism” handoff.
+Quantised position is therefore recommended only as a one-time migration assistant. When a source disappears,
+preserve and flag the authored override as an orphan for explicit detach/retarget/delete resolution rather
+than silently deleting or nearest-neighbour reattaching it.
+
+Disposition: Claude request **closed**; stored City 01 **accepted direction**; current proximity identity and
+persisted vector indices **P0 needs redesign before authored edits are trusted**. No game file was changed by
+Codex.

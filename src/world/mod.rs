@@ -1,5 +1,6 @@
 //! The world: terrain generation, chunk streaming, and the sea.
 
+pub mod bake;
 pub mod authored;
 pub mod biome;
 pub mod bridge;
