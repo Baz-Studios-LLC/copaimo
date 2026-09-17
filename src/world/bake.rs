@@ -34,7 +34,7 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::town::{Lamp, Layout, Place, Plot, Way};
+use super::town::{Layout, Place, Plot, Way};
 
 /// Where a row came from.
 ///
@@ -92,7 +92,6 @@ pub struct Baked {
     pub opens: Vec<Row<Place>>,
     pub ways: Vec<Row<Way>>,
     pub plots: Vec<Row<Plot>>,
-    pub lamps: Vec<Row<Lamp>>,
 }
 
 /// The shape of the file as this code understands it.
@@ -115,7 +114,6 @@ impl Baked {
             opens: laid.opens.iter().cloned().map(Row::made).collect(),
             ways: laid.ways.iter().cloned().map(Row::made).collect(),
             plots: laid.plots.iter().cloned().map(Row::made).collect(),
-            lamps: laid.lamps.iter().cloned().map(Row::made).collect(),
         }
     }
 
@@ -131,7 +129,8 @@ impl Baked {
             streets: Vec::new(),
             nodes: Vec::new(),
             plots: self.plots.iter().map(|row| row.what.clone()).collect(),
-            lamps: self.lamps.iter().map(|row| row.what.clone()).collect(),
+            // Derived on the way in - see `town::finish`. Never in the file.
+            lamps: Vec::new(),
             walls: Vec::new(),
             stairs: Vec::new(),
         }
@@ -168,7 +167,6 @@ impl Baked {
             stamp: fresh.stamp,
             opens: carry(&self.opens, fresh.opens, |place| place.at),
             plots: carry(&self.plots, fresh.plots, |plot| plot.at),
-            lamps: carry(&self.lamps, fresh.lamps, |lamp| lamp.at),
             // A way is a CHAIN, so it has no single place to compare. Its first
             // point is as good an anchor as any and better than pretending
             // otherwise: two roads starting within six metres of each other are the
@@ -185,17 +183,20 @@ impl Baked {
         self.opens.iter().map(|row| count(&row.from)).sum::<usize>()
             + self.ways.iter().map(|row| count(&row.from)).sum::<usize>()
             + self.plots.iter().map(|row| count(&row.from)).sum::<usize>()
-            + self.lamps.iter().map(|row| count(&row.from)).sum::<usize>()
     }
 }
 
 /// Where a settlement's file lives.
 ///
-/// Keyed by its index in `config::SETTLEMENTS`, which is a table somebody edits on
-/// purpose - so the key only changes when a person changes it, which is the most
-/// stable name a settlement has.
-pub fn path_of(key: usize) -> std::path::PathBuf {
-    std::path::Path::new("assets").join("world").join(format!("settlement_{key}.json"))
+/// Named by the settlement's PERMANENT NAME - see `config::SETTLEMENTS` - and found
+/// through `asset_file`, so it is the same file whether the game is run from the
+/// repository or from a packaged build. It was keyed by the site's index in a
+/// vector and looked up relative to the working directory, and Codex found both
+/// faults (P0.1, 2026-09-17): the ranch is pushed ahead of the table so the index
+/// was already off by one, and a test launched elsewhere would silently exercise
+/// the generated city instead of the stored one.
+pub fn path_of(name: &str) -> std::path::PathBuf {
+    crate::asset_file(&format!("assets/world/settlement_{name}.json"))
 }
 
 /// Every stored settlement, read once.
@@ -207,28 +208,32 @@ pub fn path_of(key: usize) -> std::path::PathBuf {
 /// file on each call would put IO in the middle of terrain generation and make the
 /// answer depend on when it was asked - which is precisely the property this file's
 /// header says the generated world has and must keep.
-static STORED: std::sync::OnceLock<std::collections::HashMap<usize, Baked>> =
+static STORED: std::sync::OnceLock<std::collections::HashMap<String, Baked>> =
     std::sync::OnceLock::new();
 
 /// The stored layout for a settlement, if there is one.
-pub fn stored(key: usize) -> Option<&'static Baked> {
+pub fn stored(name: &str) -> Option<&'static Baked> {
     STORED
         .get_or_init(|| {
             let mut found = std::collections::HashMap::new();
-            for key in 0..crate::config::SETTLEMENTS.len() {
-                let path = path_of(key);
+            let names = crate::config::SETTLEMENTS
+                .iter()
+                .map(|row| row.3)
+                .chain(std::iter::once("ranch"));
+            for name in names {
+                let path = path_of(name);
                 let Ok(text) = std::fs::read_to_string(&path) else {
                     continue;
                 };
                 match serde_json::from_str::<Baked>(&text) {
                     Ok(baked) => {
                         info!(
-                            "stored settlement {key}: {} ways, {} plots, {} authored",
+                            "stored settlement {name}: {} ways, {} plots, {} authored",
                             baked.ways.len(),
                             baked.plots.len(),
                             baked.authored()
                         );
-                        found.insert(key, baked);
+                        found.insert(name.to_string(), baked);
                     }
                     // LOUD, and then generate. A file somebody is editing by hand
                     // will be malformed sometimes, and silently falling back to the
@@ -238,17 +243,17 @@ pub fn stored(key: usize) -> Option<&'static Baked> {
             }
             found
         })
-        .get(&key)
+        .get(name)
 }
 
 /// Writes a settlement's layout out, carrying over whatever was authored in the old
 /// one.
-pub fn write(key: usize, baked: Baked) -> std::io::Result<Baked> {
-    let merged = match stored(key) {
+pub fn write(name: &str, baked: Baked) -> std::io::Result<Baked> {
+    let merged = match stored(name) {
         Some(had) => had.rebaked(baked),
         None => baked,
     };
-    let path = path_of(key);
+    let path = path_of(name);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }

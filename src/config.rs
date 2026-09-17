@@ -912,20 +912,26 @@ pub const PLAINS_RELIEF: f32 = 0.12;
 ///
 /// Still the first city a player reaches: 2401 m from the ranch against the next
 /// city's 4300.
-pub const SETTLEMENTS: [(f32, f32, bool); 13] = [
-    (-4641.0, 270.0, false),
-    (-2985.0, 559.0, false),
-    (-2553.0, 2251.0, true),
-    (-321.0, 1593.0, true),
-    (223.0, 385.0, true),
-    (233.0, -735.0, false),
-    (1595.0, -1447.0, false),
-    (1341.0, -63.0, true),
-    (3401.0, -1370.0, true),
-    (5340.0, -310.0, false),
-    (-46.0, 3763.0, false),
-    (408.0, 4388.0, true),
-    (-708.0, 6211.0, true),
+/// Each row carries a PERMANENT NAME, and that name is the settlement's identity
+/// everywhere it is stored: the file a stored layout lives in is named by it. Not
+/// its index - the ranch is pushed ahead of this table, so indices were already off
+/// by one, and inserting a row would hand another settlement an existing file. A
+/// name changes only when a person changes it, which is the most stable thing a
+/// settlement has. Codex found this (P0.1, 2026-09-17).
+pub const SETTLEMENTS: [(f32, f32, bool, &str); 13] = [
+    (-4641.0, 270.0, false, "village_1"),
+    (-2985.0, 559.0, false, "village_2"),
+    (-2553.0, 2251.0, true, "harbour_city"),
+    (-321.0, 1593.0, true, "city_2"),
+    (223.0, 385.0, true, "city_3"),
+    (233.0, -735.0, false, "village_3"),
+    (1595.0, -1447.0, false, "village_4"),
+    (1341.0, -63.0, true, "city_4"),
+    (3401.0, -1370.0, true, "city_5"),
+    (5340.0, -310.0, false, "village_5"),
+    (-46.0, 3763.0, false, "village_6"),
+    (408.0, 4388.0, true, "city_6"),
+    (-708.0, 6211.0, true, "city_7"),
 ];
 
 #[cfg(test)] // exported in world.json for Opificium; the game itself no longer reads it

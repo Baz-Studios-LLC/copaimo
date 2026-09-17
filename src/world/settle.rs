@@ -152,6 +152,9 @@ const SHORE_EASES: f32 = 70.0;
 /// A place levelled for people to build on.
 #[derive(Clone, Copy)]
 pub struct Site {
+    /// Its permanent name - see `config::SETTLEMENTS`. The one durable identity a
+    /// settlement has, and what a stored layout's file is named by.
+    pub name: &'static str,
     pub at: Vec2,
     /// The height its ground was levelled to.
     pub height: f32,
@@ -1287,6 +1290,7 @@ impl Settlements {
             character: crate::world::town::Character::of(0),
             plan: crate::world::town::Plan::Rings,
             bearing: 0.0,
+            name: "ranch",
             ranch: true,
         });
 
@@ -1298,11 +1302,12 @@ impl Settlements {
         // with no green city in it at all, which is the one a player would have gone
         // to for its own sake.
         let mut cities = 0;
-        for (x, z, city) in SETTLEMENTS.iter().copied() {
+        for (x, z, city, name) in SETTLEMENTS.iter().copied() {
             let which = cities;
             cities += usize::from(city);
             let at = Vec2::new(x, z);
             sites.push(Site {
+                name,
                 at,
                 height: ground(at),
                 radius: if city { CITY_RADIUS } else { TOWN_RADIUS },

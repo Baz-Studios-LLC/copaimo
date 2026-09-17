@@ -4082,7 +4082,7 @@ pub fn lay_the_site_out(
     // finished the same way a generated one is: `network` splits the ways into
     // streets and finds the junctions, and the terraces put the walls and the flights
     // back. See `world::bake`, which will not write a derived thing to a file.
-    if let Some(stored) = crate::world::bake::stored(key) {
+    if let Some(stored) = crate::world::bake::stored(site.name) {
         return finish(site, stored.laid(), &roads_through(plan, site));
     }
     lay_out(site, &roads_through(plan, site), seed)
@@ -4101,7 +4101,12 @@ fn finish(
     let (ways, nodes) = network(laid.ways, &|_| f32::from(u8::from(site.city)));
     let streets: Vec<Street> = ways.iter().flat_map(|way| way.segments()).collect();
     let (walls, stairs) = retain_the_terraces(site, &streets, crossing);
-    Layout { ways, streets, nodes, walls, stairs, ..laid }
+    // THE LAMPS TOO. They are derived - `light_the_streets` places them from the
+    // streets and the plots - and the first cut of this left `laid.lamps` alone, so
+    // a stored way could be moved by hand while its lamps stayed on the old kerb.
+    // Codex measured it (2026-09-17). The file does not hold lamps at all now.
+    let lamps = light_the_streets(&streets, &laid.plots, site.city);
+    Layout { ways, streets, nodes, walls, stairs, lamps, ..laid }
 }
 
 /// How far out a settlement's own streets reach, in metres.
@@ -10570,6 +10575,7 @@ mod tests {
             // No water near a fabricated site: it is a shape in the abstract, and a
             // shoreline is a fact about a real place.
             // No shoreline on a fabricated site, so no harbour bearing either.
+            name: "fixture",
             harbour: f32::NAN,
             water: Default::default(),
             // The fixture's own seed, and the plan shape that follows from it.
