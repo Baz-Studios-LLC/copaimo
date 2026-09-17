@@ -2610,3 +2610,47 @@ to the city. This is the reopening gate already recorded above, now confirmed ag
 
 Disposition: horizontal shore-distance correction **accepted**; dock lifecycle **P0 needs correction**;
 harbour collision/route **P0 needs completion before feature acceptance**. No game file was changed by Codex.
+
+### 2026-09-17 harbour-descent branch review — the route needs authored length, not only an unstepped corridor
+
+The current uncommitted branch is a useful response to the inaccessible bluff: one stored harbour bearing,
+one bounded harbour quarter, and a shared coast field are much better than letting quay and terrain discover
+different coves. Including both country roads and local lanes in `road_near` also corrects the first draft's
+gap after the country route is trimmed at the town boundary.
+
+Two correctness gates remain before this becomes the route requested in the earlier review.
+
+**P0: removing risers beside a road does not make the road traversable or accessible.** The full plateau-to-
+quay fall is about 19.1 m and `SHORE_EASES` provides only 70 m of descent. Where `stepped_here` fades the
+terraces out, that becomes roughly a 27% (1:3.7) continuous ramp before local curvature—far steeper than the
+approved 1:12 absolute maximum and likely beyond comfortable game movement. The code changes the surface
+shape around whatever route happens to be nearby; it does not author the horizontal run needed to lose this
+height. At 1:12, 19.1 m needs at least 229 m of run, and the preferred 1:16 needs about 306 m, excluding
+landings. Reserve a contour-following switchback/high street of measured length in `Layout`, then let the
+terrain follow that authored centreline. Keep a short stair as a secondary shortcut. Prove grade along the
+route's actual sampled centreline, connectedness from an upper named node to the quay deck, and successful
+movement in both directions.
+
+**P0: the new shore terraces are only height math so far.** `shore_edge` and `shore_steps` are used by
+`shore_drops`, but no town-layout code consumes them to create retaining-wall runs, openings, stairs,
+collision, or deck ownership. The comment that the existing ring machinery applies is therefore an intended
+next step, not the present behavior. Raw 3.6 m terrain risers without matching visible/supporting construction
+will read as terrain cliffs and still block traversal away from the smoothed road corridor. Generate the
+harbour-quarter retaining structures from the same boundaries, break them at authored connections, and make
+rendered geometry, `walls_near`, and `stands_on` agree.
+
+One measurable visual risk: multiplying the entire vertical drop by the angular `harbour_quarter` feather
+turns an 18 m height difference sideways across the wedge boundary. At a 250 m radius the 0.279 rad feather
+is only about 70 m wide, implying roughly 26% average cross-fall before the smoothstep's steeper middle; it
+is worse closer to the centre. Do not accept the wedge merely because two-metre step guards pass. Audit
+longitudinal grade, lateral crossfall and normal continuity on fixed radial/arc profiles, and use authored
+side retaining walls or a wider topological transition rather than blending a whole district's elevation by
+angle if those profiles exceed the movement/art limits.
+
+The harbour deck lifecycle and solid-part collision findings from the previous review remain open; this note
+does not resurface them as a new demand. Recommended scope is now one honest upper-street → switchback/stair
+→ quay → jetty route and one eye-level capture proving it, before decorating or expanding the waterfront.
+
+Disposition: shared harbour bearing/quarter **adapted**; route corridor **P0 needs authored length/grade**;
+shore terrace construction **P0 incomplete**; angular feather **needs measured review**. No game file was
+changed by Codex.

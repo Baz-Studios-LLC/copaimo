@@ -5593,7 +5593,7 @@ pub fn lay_out(site: &Site, crossing: &[Street], seed: u32) -> Layout {
 }
 
 /// The smaller angle between two bearings.
-fn angle_between(one: f32, two: f32) -> f32 {
+pub fn angle_between(one: f32, two: f32) -> f32 {
     let mut gap = (one - two).abs() % std::f32::consts::TAU;
     if gap > std::f32::consts::PI {
         gap = std::f32::consts::TAU - gap;
@@ -10545,6 +10545,8 @@ mod tests {
             first: false,
             // No water near a fabricated site: it is a shape in the abstract, and a
             // shoreline is a fact about a real place.
+            // No shoreline on a fabricated site, so no harbour bearing either.
+            harbour: f32::NAN,
             water: Default::default(),
             // The fixture's own seed, and the plan shape that follows from it.
             // Filled here because nothing has run `Settlements::plan` over this one
@@ -11267,6 +11269,7 @@ mod tests {
             out - site.plan.reaches(site.radius)
         );
     }
+
 
 
 

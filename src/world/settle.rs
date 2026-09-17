@@ -132,6 +132,15 @@ pub const SHORE_ROUND: usize = 32;
 /// A town wants a bank above its harbour, not a street that walks into the sea.
 const SHORE_STANDS: f32 = 16.0;
 
+/// How near a road the harbour's terraces stop being steps, in metres.
+const ROAD_UNSTEPS: f32 = 13.0;
+
+/// How wide the harbour quarter is, as an angle either side of the cove.
+///
+/// Wide enough to hold a quay and the terraces behind it; narrow enough that the
+/// rest of the town's edge is left alone.
+const HARBOUR_SPANS: f32 = 0.62;
+
 /// How far past that the town eases out of the ground entirely, in metres.
 ///
 /// Long, because this is the whole transition from a levelled plateau to a natural
@@ -163,6 +172,12 @@ pub struct Site {
     /// `world::town::PlanShape`. Filled once `bearing` is known, because the
     /// radials are set out from the road that arrives.
     pub shape: crate::world::town::PlanShape,
+    /// Which way the harbour lies: the bearing on which the water comes closest.
+    ///
+    /// `f32::NAN` for a settlement with no shoreline. Found once, here, and used
+    /// both to terrace the approach and to moor the quay - see
+    /// `world::town::moor_the_harbour`, which takes it rather than looking again.
+    pub harbour: f32,
     /// The natural ground under this settlement, sampled on a coarse square grid
     /// before anything levelled it. Nought-sized for every settlement but the
     /// harbour city - see `off_the_ground_within`.
@@ -691,6 +706,120 @@ pub fn ring_at(site: &Site, at: Vec2) -> f32 {
 /// `street_clears`: the carriageway and both footways stand on the upper terrace,
 /// and the wall stands at the far kerb holding them up. That is what the concept
 /// shows wherever it shows a wall.
+/// How much of the harbour quarter this point is in: one at the cove, nought away
+/// from it.
+///
+/// Asked by the descent AND by the levelling's fade at the water, because the two
+/// have to agree: the fade may only be short where the ground has already stepped
+/// down to meet it.
+pub fn harbour_quarter(site: &Site, at: Vec2) -> f32 {
+    if site.harbour.is_nan() {
+        return 0.0;
+    }
+    let turned = crate::world::town::angle_between(
+        (at - site.at).y.atan2((at - site.at).x),
+        site.harbour,
+    );
+    crate::util::smoothstep(HARBOUR_SPANS, HARBOUR_SPANS * 0.55, turned)
+}
+
+/// How many terraces the ground has stepped DOWN by here, on the way to the harbour.
+///
+/// # A bank you can look at is not a bank you can walk down
+///
+/// The town's plateau stands 21.3 m above its own tide and the quay is at 2.2, and
+/// what bridged them was a FADE: the settlement's claim on the ground weakened
+/// toward the water, so the ground between was whatever the blend happened to make.
+/// That is fine to look at and impossible to build on - a smooth 0.22 bank takes no
+/// stair, because a flight of steps laid on a ramp meets it at two points and floats
+/// between them. The harbour was somewhere a player could see and not reach.
+///
+/// So the descent is TERRACED, in the same 3.6 m steps and with the same risers as
+/// the rings the rest of the town is cut into. That is what a harbour town under a
+/// bluff actually is, and it means the machinery already built for the rings - the
+/// retaining wall along an edge, the flight of steps that breaks it - applies here
+/// with nothing new invented.
+pub fn shore_drops_at(site: &Site, at: Vec2) -> f32 { shore_drops(site, at, 1.0) }
+
+fn shore_drops(site: &Site, at: Vec2, stepped_here: f32) -> f32 {
+    let Some(away) = site.water.away_from_water(at) else {
+        return 0.0;
+    };
+    let fall = site.height - (crate::config::SEA_LEVEL + crate::world::town::QUAY_DECK);
+    if fall <= TERRACE_RISE {
+        return 0.0;
+    }
+    // AND ONLY INSIDE THE TOWN.
+    //
+    // `away_from_water` is a fact about the coast, not about the settlement: it
+    // answers just as readily 700 m up the beach. Without this the descent terraced
+    // the whole shoreline the grid covers, and `a_towns_terraces_stop_at_its_own
+    // _edge` found a 1.66 m step 160 m outside the city.
+    //
+    // The PLAN's shape, not `off_the_ground` - the bank runs from the town's edge
+    // down to the water, so clipping it at the water's own standoff would stop it
+    // before it got there.
+    let steps = (fall / TERRACE_RISE).round().max(1.0);
+
+    // THE DESCENT ITSELF reaches as far as the town's ground does, skirt and all.
+    //
+    // Confining it to the plan's footprint left the target on the plateau outside
+    // that footprint, with only the pull to bring it down - and once the pull's fade
+    // was shortened that is a cliff: measured, the skirt climbing 21 m over 16 m of
+    // ground, a 3.00 m step in 2 m, 160 m outside the city.
+    let smooth = crate::util::smoothstep(SHORE_STANDS + SHORE_EASES, SHORE_STANDS, away)
+        * steps;
+
+    // A HARBOUR QUARTER, not a terraced ring round the whole seaward side.
+    //
+    // Terracing every bearing that faces water put risers across the road coming in
+    // from the west, and `a_road_arriving_at_a_town_takes_the_towns_level` found the
+    // 1.41 m jump. It is also wrong: the concept has ONE harbour and a quarter built
+    // around it, with the rest of the town's edge meeting the shore as land does.
+    let quarter = harbour_quarter(site, at);
+    if quarter <= 0.0 {
+        return 0.0;
+    }
+
+    // AND IT IS TERRACED ONLY WHERE THE TOWN BUILT IT.
+    //
+    // Open country climbs; it does not step. A riser is a made thing, so the steps
+    // appear inside the town's own ground and the same descent outside it is the
+    // plain bank the land would have anyway - which is what
+    // `a_towns_terraces_stop_at_its_own_edge` is there to insist on.
+    let off = site.plan.off(at - site.at, site.bearing, site.radius);
+    let inside = crate::util::smoothstep(0.0, -TERRACE_HOLDS, off) * stepped_here;
+    if inside <= 0.0 {
+        return smooth * quarter;
+    }
+    let mut stepped = 0.0;
+    for step in 0..steps as usize {
+        stepped += crate::util::smoothstep(
+            shore_edge(site, step) + RISER_RUNS * 0.5,
+            shore_edge(site, step) - RISER_RUNS * 0.5,
+            away,
+        );
+    }
+    (smooth + (stepped - smooth) * inside) * quarter
+}
+
+/// How far from the water the `step`th riser of the harbour descent stands.
+///
+/// Counted from the top: step nought is the highest, nearest the town.
+pub fn shore_edge(site: &Site, step: usize) -> f32 {
+    let steps = shore_steps(site);
+    SHORE_STANDS + SHORE_EASES * (steps - step as f32 - 0.5) / steps.max(1.0)
+}
+
+/// How many terraces the harbour descent is cut into.
+pub fn shore_steps(site: &Site) -> f32 {
+    let fall = site.height - (crate::config::SEA_LEVEL + crate::world::town::QUAY_DECK);
+    if fall <= TERRACE_RISE || site.water.away_from_water(site.at).is_none() {
+        return 0.0;
+    }
+    (fall / TERRACE_RISE).round().max(1.0)
+}
+
 /// Whether a point is far enough from the water to build on.
 ///
 /// Nothing stands on the shore ramp - see `SHORE_EASES` - because that ramp is a
@@ -1149,6 +1278,7 @@ impl Settlements {
             // The ranch is the origin of the progression, not a step in it.
             era: crate::world::town::Era::Old,
             first: false,
+            harbour: f32::NAN,
             water: Shore::default(),
             seed: 0,
             shape: Default::default(),
@@ -1180,7 +1310,8 @@ impl Settlements {
                 era: crate::world::town::Era::default(),
                 first: false,
                 // Measured once the whole list is placed - see `reaches_toward`.
-                water: Shore::default(),
+                harbour: f32::NAN,
+            water: Shore::default(),
                 seed: 0,
                 shape: Default::default(),
                 city,
@@ -1359,6 +1490,25 @@ impl Settlements {
                     }
                 }
             }
+            // AND WHICH WAY THE HARBOUR LIES: the bearing on which the water
+            // comes closest to the middle. Found from the same grid, so the quay
+            // and the terraced approach to it agree by construction.
+            let mut cove: Option<(f32, f32)> = None;
+            for turn in 0..240 {
+                let bearing = std::f32::consts::TAU * turn as f32 / 240.0;
+                let way = Vec2::from_angle(bearing);
+                let mut step = 40.0;
+                while step < SHORE_ACROSS as f32 * SHORE_STEP * 0.5 {
+                    if shore.away_from_water(middle + way * step) == Some(0.0) {
+                        if cove.is_none_or(|(had, _)| step < had) {
+                            cove = Some((step, bearing));
+                        }
+                        break;
+                    }
+                    step += 4.0;
+                }
+            }
+            settlements.sites[which].harbour = cove.map_or(f32::NAN, |(_, bearing)| bearing);
             settlements.sites[which].water = shore;
         }
 
@@ -1599,6 +1749,32 @@ impl Settlements {
         let roads = sites + self.roads.len() as u16;
         let pads = roads + self.lanes.len() as u16;
 
+        // HOW NEAR A ROAD IS, before anything reads the cell.
+        //
+        // A road arriving at the harbour comes in through the quarter - measured, 18
+        // degrees off the cove - and crosses every terrace on the way down, which is
+        // a 1.41 m jump in its own surface. A terraced bank gives way for a route
+        // through it: the steps fade out along the road's corridor and the descent
+        // there is the plain ramp it was, which is what a road down to a harbour
+        // does. The walls break for it in the same place, for the same reason.
+        let mut road_near = f32::MAX;
+        for &what in cell {
+            if (sites..roads).contains(&what) {
+                let (away, _) = self.roads[(what - sites) as usize].nearest(at);
+                road_near = road_near.min(away);
+            } else if (roads..pads).contains(&what) {
+                // AND THE TOWN'S OWN STREETS, which is where this actually bit.
+                //
+                // A country road's claim is trimmed at the town's boundary - the
+                // town draws its own continuation - so inside the town there is no
+                // road to be near, and the corridor never opened. The guard walks
+                // the approach INTO the town, which is exactly the stretch the
+                // trimming removes. What carries the route there is a street.
+                road_near = road_near.min(self.lanes[(what - roads) as usize].off(at));
+            }
+        }
+        let stepped_here = smoothstep(ROAD_UNSTEPS, ROAD_UNSTEPS * 2.2, road_near);
+
         for &what in cell {
             let (height, pull) = if what >= pads {
                 // NOT HERE. A building's pad has the last word instead - see
@@ -1625,10 +1801,13 @@ impl Settlements {
                 // and after the shoreline was rebuilt, which is what said it was not
                 // the shoreline.
                 let gate = town.water.away_from_water(at).map_or(1.0, |off| {
-                    smoothstep(SHORE_STANDS, SHORE_STANDS + SHORE_EASES, off)
+                    let quarter = harbour_quarter(town, at);
+                    let fade = SHORE_STANDS + SHORE_EASES * (1.0 - quarter);
+                    smoothstep(0.0, fade, off)
                 });
                 (
-                    town.height + terrace_at(town, at),
+                    town.height + terrace_at(town, at)
+                        - shore_drops(town, at, stepped_here) * TERRACE_RISE,
                     smoothstep(lane.wide * 0.5 + LANE_SKIRT, lane.wide * 0.5, away) * gate,
                 )
             } else if what < sites {
@@ -1661,11 +1840,23 @@ impl Settlements {
                 // So the pull is gated on the natural ground being dry. Over six
                 // metres of height, which on a beach is tens of metres of shore, so
                 // the town still eases into the land everywhere it is land.
-                let gate = site.water.away_from_water(at).map_or(1.0, |away| {
-                    smoothstep(SHORE_STANDS, SHORE_STANDS + SHORE_EASES, away)
+                // A SHORT FADE WHERE THE GROUND HAS COME DOWN TO MEET IT, and the
+                // long one everywhere else.
+                //
+                // In the harbour quarter the town's ground descends to the quay - see
+                // `shore_drops` - so by the waterline it wants 3.3 m where the sea
+                // floor is nought, and sixteen metres settles that. Everywhere else
+                // the target is still the plateau, twenty-one metres up, and the same
+                // short fade is a cliff: measured at 3.00 m in 2 m where the skirt
+                // ran out over the bay.
+                let gate = site.water.away_from_water(at).map_or(1.0, |off| {
+                    let quarter = harbour_quarter(site, at);
+                    let fade = SHORE_STANDS + SHORE_EASES * (1.0 - quarter);
+                    smoothstep(0.0, fade, off)
                 });
                 (
-                    site.height + terrace_at(site, at),
+                    site.height + terrace_at(site, at)
+                        - shore_drops(site, at, stepped_here) * TERRACE_RISE,
                     smoothstep(skirt_of(site.radius), 0.0, away) * gate,
                 )
             } else {
@@ -2106,7 +2297,7 @@ mod levelling {
     fn what_claims() {
         let terrain = crate::world::terrain::Terrain::new();
         let plan = terrain.plan();
-        for spot in [Vec2::new(2288.0, -352.0), Vec2::new(2290.0, -352.0), Vec2::new(2292.0, -352.0)] {
+        for spot in [Vec2::new(-2856.0, 2238.0), Vec2::new(-2855.0, 2238.0), Vec2::new(-2854.0, 2238.0)] {
             let dry = terrain.dry_height(spot.x, spot.y);
             let level = plan.level(spot);
             println!(
