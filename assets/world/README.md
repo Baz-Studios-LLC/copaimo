@@ -30,11 +30,11 @@ Any PNG works; brightness is elevation.
 One number, in `src/config.rs`:
 
 ```rust
-pub const WORLD_WIDTH: f32 = 8192.0;
+pub const WORLD_WIDTH: f32 = 12_288.0;
 ```
 
 Everything else — chunk counts, world bounds, the coastline — is derived from it.
-At the warden's 7 m/s jog, 8192 m is about 20 minutes east to west.
+At the warden's 7 m/s jog, 12 288 m is about half an hour east to west.
 
 ## Later
 
@@ -42,3 +42,48 @@ The same pipeline can take a second image for *regions*: a map where each
 political area is a flat unique color becomes a lookup for "which nation is this
 point in", which is how cities, guild territory and region-specific monsters get
 placed without hand-entering coordinates.
+
+## What else is stored here
+
+The world is a hybrid: generated ground with stored layers over it, and the
+generator reads every one of these. Nothing here is a baked scene — it is data the
+generator consumes, which is what lets `--audit` and the tests check hand edits the
+same way they check generated content.
+
+| file | what | edited by |
+|---|---|---|
+| `heightmap.png` | base elevation (above) | an image editor |
+| `edits.bin` | authored height **offsets** on a 4 m grid, over the generated ground | the in-game sculpt brushes (`src/editor`) |
+| `surface.bin` | signed surface bias on a 4 m grid — worn earth and paving paint | in-game paint |
+| `country.bin`, `forest.bin` | painted region and woods-density rasters, 16 m | in-game paint |
+| `placed.json` | hand-placed buildings and props, each with a stable `u32` id | the in-game place/carry/turn/remove editor |
+| `settlement_<name>.json` | **one town per file**: its ways, lots and public places | any text editor, or `--bake` |
+| `world.json` | generator parameters | by hand |
+
+### Settlements
+
+Every settlement has a permanent name (`harbour_city`, `village_1`, `city_2` …)
+and a file. The game reads the file **instead of generating** — so editing
+`settlement_harbour_city.json` and relaunching is how you move a building or
+reroute a street by hand.
+
+Rules the files hold to, and why:
+
+* **Only what was placed is in the file.** Ways, plots (buildings and yards),
+  places (squares, parks, markets). The streets between junctions, the junctions
+  themselves, the lamps, the retaining walls and the flights of steps are all
+  *derived* from those on the way in and never written down. A derived thing in a
+  file is one fact with two derivations, and the file's copy wins forever.
+* **Every row says where it came from** — `"from": "Generated"` or
+  `"from": "Authored"`. Mark a row `Authored` when you edit it. A re-bake
+  (`copaimo --bake`) regenerates every `Generated` row from the current generator
+  and keeps every `Authored` row untouched, dropping any regenerated row that
+  lands within 6 m of one you authored. A row with no `from` counts as
+  `Generated`.
+* **`--bake` always starts from fresh generation**, never from the file, so
+  generator improvements reach stored towns. The file's `stamp` records the site
+  position, radius and seed the rows were made from, so a stale file can be seen
+  for what it is.
+
+Coming: stable per-row ids (so an edit follows *its* building through a re-bake
+rather than whatever lands nearest), and tombstones so a deleted row stays deleted.

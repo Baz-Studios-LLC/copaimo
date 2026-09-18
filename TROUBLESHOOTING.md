@@ -3362,3 +3362,23 @@ about water; the two are taken together now.
 the waterfront down to the water cannot work: a 0.15 fall means no building can stand
 on it - `no_building_stands_on_uneven_ground` refused the lot and the quarter came
 out empty. The harbour goes where a harbour under a bluff goes, at the foot.
+
+
+## A re-bake that could never import an improvement
+
+**Issue.** `--bake` re-run on a settlement that already had a file produced the same
+rows every time, whatever the generator did. Found by Codex reading the uncommitted
+command.
+
+**Solution.** The baker obtained its "fresh" layout through `lay_the_site_out`, which
+is the stored-first entry point: the moment a file exists it hands the file back. So
+the second bake re-baked the first file's generated rows, relabelled them generated,
+and merged the authored rows over them. Nothing new could enter.
+
+Fixed by construction, not by a flag: `town::generate_the_site` is a second door that
+does not know the store exists, and the baker only ever goes through it. Runtime reads
+the snapshot; the baker compares it with genuinely fresh generation.
+
+**Worth knowing.** Whenever a function grows a "read the cache first" branch, ask who
+else calls it and whether any of them are the thing that fills the cache. A writer
+that reads its own last output through the cached path is a loop with no input.
