@@ -1,93 +1,70 @@
 ## Copaimo: The Wardens Guild
 
-The last release put towns on the map. This one **connects them, and turns the
-lights on**.
+The last release connected the towns and turned the lights on. This one **rebuilds
+the first city you will ever walk into** — and hands you the keys to the world.
 
-### Thirteen places, and the roads between them
+### A city on a hillside, not a wheel
 
-The settlements are no longer scattered by a generator. There are thirteen, each
-one placed by hand where it belongs, and the roads are routed **over land** —
-around the lakes rather than through them, and the long way round when the long way
-round is the way. A road that takes a while to walk is doing its job.
+The city nearest the ranch used to be a wheel: a ring road, spokes off it, and
+everything arranged around the hub. It read as drawn, because it was.
 
-Where a road has to cross water it crosses on a **stone bridge**, built arch by arch
-to the length of the gap. The longest is over a kilometre, and you can walk every
-metre of it.
+Its streets are **grown** now. They start at the market and at the roads coming in,
+and they feel their way outward — and on a hillside they do what streets on a
+hillside do. The long ones run **along** the slope, holding their level. The short
+ones cut **across** it, and where one of those meets a drop it becomes a **flight of
+steps**. Nothing was placed to make that happen; it falls out of the ground the town
+is standing on.
 
-### A map you can pull up
+### Terraces you can see holding the hill up
 
-Press **M** for the world: coastlines, mountains, the canyon, every town and city,
-the roads between them and the bridges that carry them. Your warden is on it, facing
-the way you are facing. The minimap shows the same country in the corner.
+The city is cut into level platforms that rise toward the middle, and the edge of
+every one is a **retaining wall** — coursed stone, battered back into the bank,
+coped along the top, with plants growing out of it. Streets run along the top of
+them. Where a street needs to get from one level to the next, there is a break in
+the wall with a stair in it, and the stair is on the route rather than beside it.
 
-### Night
+The rings are not circles. That was the first attempt and it looked exactly like
+what it was.
 
-Cities have **street lamps** on posts with the light thrown down over the
-carriageway; villages have modest lanterns. All of them come on at dusk and go out
-at dawn, and the glass is lit on every fitting you can see, not just the near ones.
+### A harbour
 
-Buildings light up too. Some windows are on and most are not — which is what says
-*people live here* from a distance far better than the street lighting does — and
-**a different set is lit every night**, so a place you pass through twice is not
-wearing the same face.
+The city stands **on the water** now, and there is a **stone quay** along the shore
+with bollards to tie up to and a **timber jetty** on posts walking out over the bay.
+The town's ground stops at the tide instead of levelling the sea into a field —
+which sounds like a technicality and is the difference between a harbour and a
+meadow with boats drawn on it.
 
-### The ground you walk on
+The bank between the town and the water is terraced down to it, so the harbour is
+somewhere you walk to.
 
-Country roads read as **walked paths** now: the width wanders, the surface wears
-where the traffic goes, and the edges blend into the grass instead of stopping at a
-line. City streets are **cobbled**, and a dirt road coming in becomes a street over
-the last thirty metres of the approach rather than at a step.
+### The world is yours to edit
 
-Settlements sit on ground of their own, and every junction is paved through.
+Every settlement is now **a file you can open**. `assets/world/settlement_*.json`
+holds one town each: its streets, its buildings, its squares and markets. Change a
+line, relaunch, and the town is different. Move a building, reroute a street, delete
+something you never liked.
 
-### Somewhere to walk into
+Two things make that safe rather than fragile:
 
-Every building's **entrance faces the street**, and the doorway is the size the game
-says it is — you walk in from the front, at a stride, without hunting round the
-back. Empty lots are gardens, work yards, pens, stores and stalls, laid out for the
-kind of place they are, with a second set built for the cities so a modern block
-does not stand in front of a rustic vegetable patch.
+* **Nothing derived is in the file.** The junctions, the lamps, the walls and the
+  stairs are worked out fresh every time from what you placed — so moving a street
+  moves its lamps and its walls with it, automatically.
+* **Every row remembers whether it is yours.** Mark a row `"from": "Authored"` and
+  the generator will never touch it again. Run `copaimo --bake` and every row you
+  did *not* claim is rebuilt from the current generator, while everything you
+  authored survives untouched.
 
-Cottages have a **floor plan**: a common room with the fire at its end, the way in
-from the door to the hearth kept clear, and a sleeping alcove behind a partition
-with a window of its own.
+So the world improves underneath your edits instead of overwriting them. There is a
+guide in `assets/world/README.md`.
 
-### The canyon
+### Also
 
-The gash through the eastern massif is a real gate now — narrow enough on the floor
-that the walls close over you, and solid enough that going round is going round.
+* Buildings no longer stand on ground that slopes away under them near the shore.
+* A settlement beside the sea no longer raises the sea floor to meet itself.
+* The forest stopped planting trees in city streets along the waterfront.
+* Roads arriving at a town always meet a street, whichever plan drew the town.
 
-### Doors, floors and the ground under your feet
+---
 
-Almost nothing you walk on in this game *is* the terrain — a road is laid a crown's
-height over it, a building's floor sits on a plinth over the highest of its four
-corners. The warden stood at terrain height through all of it, so the feet sank into
-every path and most of a shin into every floor. They stand on **what is actually
-built there** now, and the doorstep is read as the ramp it is, so you walk up into a
-house rather than stepping through its threshold.
-
-Doors swing **inward**, where a real one goes. Swung outward against the wall, an
-open door parked itself on the window next to it.
-
-The jog is a little quicker.
-
-### Also in this release
-
-- Every solid thing in the world wears an **ink outline**, so the game reads as one
-  drawn picture rather than a lit one.
-- Dirt roads are the colour of dirt. They were being drawn twice as bright as their
-  own number said, everywhere, for months.
-- Each village is known by its **guild hall**, standing at the meeting of the roads
-  where you can see it on the way in.
-- Windows on the taller buildings are framed in ink and squared off, which is what
-  keeps a facade from reading as a spreadsheet.
-- Props sit on the ground rather than in it.
-- Rooms are lit from the inside after dark, so a doorway is a room somebody is in
-  rather than a black rectangle.
-- The windows that light up at night are the windows the building actually has. They
-  were being placed from the *lot* the building stands on, which is bigger than the
-  building — so lit panes glowed on blank plaster and two of them hung in the air
-  beside a chimney.
-- Outlines no longer double up where two wall panels meet.
-- A road gives out into the ground over twice the distance, so its edge reads as
-  ground that has been walked less rather than as a line.
+373 tests, 4,435 streets audited with nothing standing in any of them, and 35 of 35
+playtest routes driven by the real game with real collision.
