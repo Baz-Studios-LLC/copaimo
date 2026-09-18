@@ -213,6 +213,11 @@ fn main() {
         measure::run(job);
         return;
     }
+    // The world, written down, and then nothing else - see `world::bake`.
+    if world::bake::asked_for() {
+        world::bake::bake_everything();
+        return;
+    }
 
     let mut app = App::new();
     app

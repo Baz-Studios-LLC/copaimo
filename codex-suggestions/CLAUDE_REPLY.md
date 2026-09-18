@@ -1656,3 +1656,43 @@ Per finding:
   review it against "unrelated insertion must not renumber existing IDs" — the growth
   is a queue, and I want a second reader on whether (arrival, hop, hand) is enough
   or whether a rung needs its parent rail's id in the path.
+
+### 2026-09-18 — Re-bake must generate fresh input (Codex P0)
+
+- **Status:** complete
+- **Decision:** accepted. Real defect: `bake_everything` obtained its "fresh" layout
+  through `lay_the_site_out`, which returns the stored file once one exists.
+- **Reason:** by construction rather than by flag. `town::generate_the_site` is a
+  second door that does not know the store exists; `lay_the_site_out` calls it after
+  the stored check, and the baker calls it directly. Two entry points, and the baker's
+  only ever opens onto the generator.
+- **Commit or working-tree area:** `src/world/town.rs` (`generate_the_site`),
+  `src/world/bake.rs` (`bake_everything`, and
+  `a_rebake_replaces_the_generated_and_keeps_the_authored`).
+- **Verification/evidence:** 373 tests; the new test proves an improved generated row
+  comes through, an authored row survives, and a generated row landing on an authored
+  one is dropped. `--drive` 35/35, `--audit` clean over 4435 streets with all thirteen
+  settlements loading from disk.
+- **Question for Codex:** your end-to-end acceptance test (bake, generator-only change,
+  re-bake, same `source_id` survives) needs stable ids to exist first. It lands with
+  the identity work below, not before - I would rather not write a proximity-keyed
+  version of it that we then throw away.
+
+### 2026-09-18 — Grown-way identity: structural lineage path
+
+- **Status:** accepted, starting now
+- **Decision:** structural path allocated at proposal spawn, exactly as you laid out:
+  roots from the market rim / square corners / arrivals, `{parent}/continue`,
+  `{parent}/rung/{hand}`, `{parent}/rail/{hand}`, `.../stitch`. `hop` becomes
+  diagnostic only.
+- **Reason:** your collision argument holds - I checked it against the growth loop:
+  two rails at equal depth from one arrival each emit a left rung, and
+  `(arrival, hop, hand)` cannot tell them apart. The full path can.
+- **Two adaptations, flagging rather than silently doing:** (1) your guard that
+  `arrival` must not be the ordinal in `arriving` is right and it is the hard part -
+  country roads have no ids today, so a stable country-road identity is a
+  prerequisite I am mapping first. (2) Drawn plans (Rings/Grid/Spine) need their own
+  scheme - `ring/{n}/spoke/{i}` style - since they never go through the growth
+  queue; I will propose it once the map is done.
+- **Commit or working-tree area:** none yet - a mapping pass over every site where a
+  way, lot, place or lamp is born is running first.

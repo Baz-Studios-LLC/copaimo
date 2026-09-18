@@ -1,0 +1,10749 @@
+{
+  "version": 1,
+  "stamp": {
+    "at": [
+      -708.0,
+      6211.0
+    ],
+    "radius": 340.0,
+    "seed": 20361134
+  },
+  "opens": [
+    {
+      "from": "Generated",
+      "id": 0,
+      "what": "Square",
+      "at": [
+        -736.5913,
+        6230.514
+      ],
+      "half": [
+        19.430399,
+        16.51584
+      ],
+      "facing": -2.992183
+    },
+    {
+      "from": "Generated",
+      "id": 1,
+      "what": "Market",
+      "at": [
+        -861.4099,
+        6225.785
+      ],
+      "half": [
+        12.789866,
+        8.275796
+      ],
+      "facing": -1.4213954
+    },
+    {
+      "from": "Generated",
+      "id": 2,
+      "what": "Market",
+      "at": [
+        -633.8279,
+        5980.933
+      ],
+      "half": [
+        12.789866,
+        8.275796
+      ],
+      "facing": -1.4213938
+    }
+  ],
+  "ways": [
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -979.794,
+          6170.087
+        ],
+        [
+          -926.34015,
+          6178.1333
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -926.34015,
+          6178.1333
+        ],
+        [
+          -871.75507,
+          6186.35
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -871.75507,
+          6186.35
+        ],
+        [
+          -817.17004,
+          6194.5664
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -817.17004,
+          6194.5664
+        ],
+        [
+          -762.5851,
+          6202.783
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -762.5851,
+          6202.783
+        ],
+        [
+          -707.99994,
+          6211.0
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -707.99994,
+          6211.0
+        ],
+        [
+          -653.4149,
+          6219.217
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -653.4149,
+          6219.217
+        ],
+        [
+          -598.82996,
+          6227.4336
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -598.82996,
+          6227.4336
+        ],
+        [
+          -544.2449,
+          6235.6504
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -544.2449,
+          6235.6504
+        ],
+        [
+          -489.6599,
+          6243.8667
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -489.6599,
+          6243.8667
+        ],
+        [
+          -436.20618,
+          6251.913
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -667.0871,
+          5939.2065
+        ],
+        [
+          -675.13336,
+          5992.659
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -675.13336,
+          5992.659
+        ],
+        [
+          -683.35004,
+          6047.245
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -683.35004,
+          6047.245
+        ],
+        [
+          -691.56665,
+          6101.83
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -691.56665,
+          6101.83
+        ],
+        [
+          -699.7833,
+          6156.415
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -699.7833,
+          6156.415
+        ],
+        [
+          -708.0,
+          6211.0
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -708.0,
+          6211.0
+        ],
+        [
+          -716.2166,
+          6265.585
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -716.2166,
+          6265.585
+        ],
+        [
+          -717.6185,
+          6274.8984
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -717.6185,
+          6274.8984
+        ],
+        [
+          -724.4333,
+          6320.17
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -724.4333,
+          6320.17
+        ],
+        [
+          -732.6499,
+          6374.755
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -732.6499,
+          6374.755
+        ],
+        [
+          -740.8666,
+          6429.341
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -740.8666,
+          6429.341
+        ],
+        [
+          -748.91284,
+          6482.7935
+        ]
+      ],
+      "wide": 10.0,
+      "carries": "Doors",
+      "joins": 10.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -945.88306,
+          5951.904
+        ],
+        [
+          -893.4736,
+          5959.793
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -893.4736,
+          5959.793
+        ],
+        [
+          -838.8885,
+          5968.01
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -838.8885,
+          5968.01
+        ],
+        [
+          -784.30347,
+          5976.226
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -784.30347,
+          5976.226
+        ],
+        [
+          -729.71844,
+          5984.443
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -729.71844,
+          5984.443
+        ],
+        [
+          -675.13336,
+          5992.6597
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -675.13336,
+          5992.6597
+        ],
+        [
+          -620.54834,
+          6000.876
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -620.54834,
+          6000.876
+        ],
+        [
+          -565.96326,
+          6009.093
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -565.96326,
+          6009.093
+        ],
+        [
+          -536.6247,
+          6013.5093
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -536.6247,
+          6013.5093
+        ],
+        [
+          -511.37836,
+          6017.3096
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -511.37836,
+          6017.3096
+        ],
+        [
+          -456.79327,
+          6025.5264
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -456.79327,
+          6025.5264
+        ],
+        [
+          -403.2992,
+          6033.5786
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -955.1139,
+          6006.3364
+        ],
+        [
+          -901.6902,
+          6014.378
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -901.6902,
+          6014.378
+        ],
+        [
+          -847.1051,
+          6022.5947
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -847.1051,
+          6022.5947
+        ],
+        [
+          -792.5202,
+          6030.8115
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -792.5202,
+          6030.8115
+        ],
+        [
+          -737.9352,
+          6039.0283
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -737.9352,
+          6039.0283
+        ],
+        [
+          -683.35,
+          6047.245
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -683.35,
+          6047.245
+        ],
+        [
+          -628.7651,
+          6055.462
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -628.7651,
+          6055.462
+        ],
+        [
+          -574.18,
+          6063.678
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -574.18,
+          6063.678
+        ],
+        [
+          -519.595,
+          6071.8955
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -519.595,
+          6071.8955
+        ],
+        [
+          -465.01,
+          6080.1113
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -465.01,
+          6080.1113
+        ],
+        [
+          -411.526,
+          6088.1626
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -963.3407,
+          6060.92
+        ],
+        [
+          -909.9069,
+          6068.964
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -909.9069,
+          6068.964
+        ],
+        [
+          -855.3218,
+          6077.18
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -855.3218,
+          6077.18
+        ],
+        [
+          -800.7368,
+          6085.3965
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -800.7368,
+          6085.3965
+        ],
+        [
+          -746.15186,
+          6093.6133
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -746.15186,
+          6093.6133
+        ],
+        [
+          -696.405,
+          6101.102
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -696.405,
+          6101.102
+        ],
+        [
+          -691.56665,
+          6101.83
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -691.56665,
+          6101.83
+        ],
+        [
+          -636.9817,
+          6110.047
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -636.9817,
+          6110.047
+        ],
+        [
+          -582.3966,
+          6118.263
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -582.3966,
+          6118.263
+        ],
+        [
+          -527.81165,
+          6126.4795
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -527.81165,
+          6126.4795
+        ],
+        [
+          -473.22662,
+          6134.697
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -473.22662,
+          6134.697
+        ],
+        [
+          -419.75275,
+          6142.746
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -971.56726,
+          6115.5034
+        ],
+        [
+          -918.12354,
+          6123.5483
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -918.12354,
+          6123.5483
+        ],
+        [
+          -863.53845,
+          6131.765
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -863.53845,
+          6131.765
+        ],
+        [
+          -808.9534,
+          6139.9814
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -808.9534,
+          6139.9814
+        ],
+        [
+          -754.36847,
+          6148.198
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -754.36847,
+          6148.198
+        ],
+        [
+          -699.7833,
+          6156.415
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -699.7833,
+          6156.415
+        ],
+        [
+          -645.19836,
+          6164.632
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -645.19836,
+          6164.632
+        ],
+        [
+          -590.6133,
+          6172.848
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -590.6133,
+          6172.848
+        ],
+        [
+          -536.02826,
+          6181.065
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -536.02826,
+          6181.065
+        ],
+        [
+          -481.44327,
+          6189.2812
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -481.44327,
+          6189.2812
+        ],
+        [
+          -427.97937,
+          6197.3296
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -988.0207,
+          6224.6704
+        ],
+        [
+          -934.55676,
+          6232.7183
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -934.55676,
+          6232.7183
+        ],
+        [
+          -879.9717,
+          6240.935
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -879.9717,
+          6240.935
+        ],
+        [
+          -825.3867,
+          6249.1514
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -825.3867,
+          6249.1514
+        ],
+        [
+          -770.80176,
+          6257.368
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -770.80176,
+          6257.368
+        ],
+        [
+          -716.2167,
+          6265.585
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -716.2167,
+          6265.585
+        ],
+        [
+          -661.6316,
+          6273.802
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -661.6316,
+          6273.802
+        ],
+        [
+          -607.0465,
+          6282.0186
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -607.0465,
+          6282.0186
+        ],
+        [
+          -552.4614,
+          6290.2354
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -552.4614,
+          6290.2354
+        ],
+        [
+          -497.87653,
+          6298.4517
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -497.87653,
+          6298.4517
+        ],
+        [
+          -444.43274,
+          6306.4966
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -996.2473,
+          6279.254
+        ],
+        [
+          -942.77344,
+          6287.3037
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -942.77344,
+          6287.3037
+        ],
+        [
+          -888.18835,
+          6295.5205
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -888.18835,
+          6295.5205
+        ],
+        [
+          -833.6033,
+          6303.7363
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -833.6033,
+          6303.7363
+        ],
+        [
+          -779.01843,
+          6311.953
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -779.01843,
+          6311.953
+        ],
+        [
+          -724.4332,
+          6320.17
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -724.4332,
+          6320.17
+        ],
+        [
+          -669.84827,
+          6328.3867
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -669.84827,
+          6328.3867
+        ],
+        [
+          -615.2632,
+          6336.6035
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -615.2632,
+          6336.6035
+        ],
+        [
+          -598.3657,
+          6339.147
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -598.3657,
+          6339.147
+        ],
+        [
+          -560.67816,
+          6344.8203
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -560.67816,
+          6344.8203
+        ],
+        [
+          -506.0932,
+          6353.037
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -506.0932,
+          6353.037
+        ],
+        [
+          -452.65942,
+          6361.08
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -1004.474,
+          6333.8374
+        ],
+        [
+          -950.99005,
+          6341.8877
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -950.99005,
+          6341.8877
+        ],
+        [
+          -896.40497,
+          6350.105
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -896.40497,
+          6350.105
+        ],
+        [
+          -841.81995,
+          6358.322
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -841.81995,
+          6358.322
+        ],
+        [
+          -811.6747,
+          6362.8594
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -811.6747,
+          6362.8594
+        ],
+        [
+          -787.23505,
+          6366.5386
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -787.23505,
+          6366.5386
+        ],
+        [
+          -732.6499,
+          6374.755
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -732.6499,
+          6374.755
+        ],
+        [
+          -678.0648,
+          6382.9717
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -678.0648,
+          6382.9717
+        ],
+        [
+          -623.4798,
+          6391.188
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -623.4798,
+          6391.188
+        ],
+        [
+          -568.8948,
+          6399.4053
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -568.8948,
+          6399.4053
+        ],
+        [
+          -514.3099,
+          6407.622
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -514.3099,
+          6407.622
+        ],
+        [
+          -460.88617,
+          6415.6636
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -1012.70074,
+          6388.4214
+        ],
+        [
+          -959.2067,
+          6396.4736
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -959.2067,
+          6396.4736
+        ],
+        [
+          -904.62164,
+          6404.6904
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -904.62164,
+          6404.6904
+        ],
+        [
+          -850.0366,
+          6412.907
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -850.0366,
+          6412.907
+        ],
+        [
+          -795.4517,
+          6421.124
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -795.4517,
+          6421.124
+        ],
+        [
+          -740.8666,
+          6429.3403
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -740.8666,
+          6429.3403
+        ],
+        [
+          -687.30176,
+          6437.4033
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -687.30176,
+          6437.4033
+        ],
+        [
+          -631.6965,
+          6445.774
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -631.6965,
+          6445.774
+        ],
+        [
+          -577.11145,
+          6453.99
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -577.11145,
+          6453.99
+        ],
+        [
+          -522.5265,
+          6462.207
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -522.5265,
+          6462.207
+        ],
+        [
+          -470.11694,
+          6470.096
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -885.42114,
+          5906.299
+        ],
+        [
+          -893.4735,
+          5959.793
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -893.4735,
+          5959.793
+        ],
+        [
+          -901.69025,
+          6014.378
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -901.69025,
+          6014.378
+        ],
+        [
+          -909.90686,
+          6068.963
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -909.90686,
+          6068.963
+        ],
+        [
+          -918.1235,
+          6123.548
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -918.1235,
+          6123.548
+        ],
+        [
+          -926.3401,
+          6178.1333
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -926.3401,
+          6178.1333
+        ],
+        [
+          -934.55676,
+          6232.7183
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -934.55676,
+          6232.7183
+        ],
+        [
+          -942.77344,
+          6287.303
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -942.77344,
+          6287.303
+        ],
+        [
+          -950.99,
+          6341.888
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -950.99,
+          6341.888
+        ],
+        [
+          -959.2068,
+          6396.4736
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -959.2068,
+          6396.4736
+        ],
+        [
+          -967.0959,
+          6448.8833
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -830.8376,
+          5914.526
+        ],
+        [
+          -838.8885,
+          5968.01
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -838.8885,
+          5968.01
+        ],
+        [
+          -847.1051,
+          6022.5947
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -847.1051,
+          6022.5947
+        ],
+        [
+          -855.3218,
+          6077.18
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -855.3218,
+          6077.18
+        ],
+        [
+          -863.53845,
+          6131.765
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -863.53845,
+          6131.765
+        ],
+        [
+          -871.75507,
+          6186.35
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -871.75507,
+          6186.35
+        ],
+        [
+          -879.9717,
+          6240.935
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -879.9717,
+          6240.935
+        ],
+        [
+          -888.18835,
+          6295.52
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -888.18835,
+          6295.52
+        ],
+        [
+          -896.40497,
+          6350.105
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -896.40497,
+          6350.105
+        ],
+        [
+          -904.62164,
+          6404.6904
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -904.62164,
+          6404.6904
+        ],
+        [
+          -912.6635,
+          6458.1143
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -776.25415,
+          5922.7524
+        ],
+        [
+          -784.30347,
+          5976.2266
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -784.30347,
+          5976.2266
+        ],
+        [
+          -792.52014,
+          6030.8115
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -792.52014,
+          6030.8115
+        ],
+        [
+          -800.7368,
+          6085.397
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -800.7368,
+          6085.397
+        ],
+        [
+          -808.9534,
+          6139.9814
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -808.9534,
+          6139.9814
+        ],
+        [
+          -817.17004,
+          6194.5664
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -817.17004,
+          6194.5664
+        ],
+        [
+          -825.38666,
+          6249.1514
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -825.38666,
+          6249.1514
+        ],
+        [
+          -833.60333,
+          6303.737
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -833.60333,
+          6303.737
+        ],
+        [
+          -841.81995,
+          6358.322
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -841.81995,
+          6358.322
+        ],
+        [
+          -850.0366,
+          6412.907
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -850.0366,
+          6412.907
+        ],
+        [
+          -858.07996,
+          6466.341
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -721.6706,
+          5930.979
+        ],
+        [
+          -729.7185,
+          5984.443
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -729.7185,
+          5984.443
+        ],
+        [
+          -737.9352,
+          6039.0283
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -737.9352,
+          6039.0283
+        ],
+        [
+          -746.1518,
+          6093.6133
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -746.1518,
+          6093.6133
+        ],
+        [
+          -752.30237,
+          6134.4727
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -752.30237,
+          6134.4727
+        ],
+        [
+          -754.3684,
+          6148.198
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -754.3684,
+          6148.198
+        ],
+        [
+          -762.5851,
+          6202.783
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -762.5851,
+          6202.783
+        ],
+        [
+          -770.80176,
+          6257.368
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -770.80176,
+          6257.368
+        ],
+        [
+          -779.0184,
+          6311.953
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -779.0184,
+          6311.953
+        ],
+        [
+          -787.235,
+          6366.5386
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -787.235,
+          6366.5386
+        ],
+        [
+          -795.45166,
+          6421.1235
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -795.45166,
+          6421.1235
+        ],
+        [
+          -803.4965,
+          6474.5674
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -612.50354,
+          5947.4326
+        ],
+        [
+          -620.54834,
+          6000.8765
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -620.54834,
+          6000.8765
+        ],
+        [
+          -628.765,
+          6055.4614
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -628.765,
+          6055.4614
+        ],
+        [
+          -636.9817,
+          6110.047
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -636.9817,
+          6110.047
+        ],
+        [
+          -645.19836,
+          6164.632
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -645.19836,
+          6164.632
+        ],
+        [
+          -653.4149,
+          6219.217
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -653.4149,
+          6219.217
+        ],
+        [
+          -659.7427,
+          6261.254
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -659.7427,
+          6261.254
+        ],
+        [
+          -661.6316,
+          6273.802
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -661.6316,
+          6273.802
+        ],
+        [
+          -669.8482,
+          6328.3867
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -669.8482,
+          6328.3867
+        ],
+        [
+          -678.0648,
+          6382.9717
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -678.0648,
+          6382.9717
+        ],
+        [
+          -686.28156,
+          6437.557
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -686.28156,
+          6437.557
+        ],
+        [
+          -688.8845,
+          6454.8496
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -688.8845,
+          6454.8496
+        ],
+        [
+          -689.9374,
+          6461.844
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -689.9374,
+          6461.844
+        ],
+        [
+          -694.3294,
+          6491.021
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -557.92004,
+          5955.6597
+        ],
+        [
+          -565.96326,
+          6009.093
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -565.96326,
+          6009.093
+        ],
+        [
+          -574.18,
+          6063.678
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -574.18,
+          6063.678
+        ],
+        [
+          -582.3966,
+          6118.2637
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -582.3966,
+          6118.2637
+        ],
+        [
+          -590.6133,
+          6172.848
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -590.6133,
+          6172.848
+        ],
+        [
+          -598.8299,
+          6227.4336
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -598.8299,
+          6227.4336
+        ],
+        [
+          -604.01917,
+          6261.9067
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -604.01917,
+          6261.9067
+        ],
+        [
+          -607.0465,
+          6282.0186
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -607.0465,
+          6282.0186
+        ],
+        [
+          -615.2632,
+          6336.6035
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -615.2632,
+          6336.6035
+        ],
+        [
+          -623.47986,
+          6391.1885
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -623.47986,
+          6391.1885
+        ],
+        [
+          -631.6965,
+          6445.774
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -631.6965,
+          6445.774
+        ],
+        [
+          -639.74585,
+          6499.2476
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -503.33646,
+          5963.8857
+        ],
+        [
+          -511.37827,
+          6017.3096
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -511.37827,
+          6017.3096
+        ],
+        [
+          -519.595,
+          6071.895
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -519.595,
+          6071.895
+        ],
+        [
+          -527.81165,
+          6126.48
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -527.81165,
+          6126.48
+        ],
+        [
+          -536.02826,
+          6181.065
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -536.02826,
+          6181.065
+        ],
+        [
+          -544.2449,
+          6235.65
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -544.2449,
+          6235.65
+        ],
+        [
+          -552.46155,
+          6290.2354
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -552.46155,
+          6290.2354
+        ],
+        [
+          -560.67816,
+          6344.82
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -560.67816,
+          6344.82
+        ],
+        [
+          -568.89484,
+          6399.4053
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -568.89484,
+          6399.4053
+        ],
+        [
+          -577.1115,
+          6453.99
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -577.1115,
+          6453.99
+        ],
+        [
+          -585.1624,
+          6507.4746
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -448.9041,
+          5973.1167
+        ],
+        [
+          -456.79327,
+          6025.5264
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -456.79327,
+          6025.5264
+        ],
+        [
+          -465.00998,
+          6080.112
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -465.00998,
+          6080.112
+        ],
+        [
+          -473.2266,
+          6134.697
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -473.2266,
+          6134.697
+        ],
+        [
+          -481.44327,
+          6189.2817
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -481.44327,
+          6189.2817
+        ],
+        [
+          -489.6599,
+          6243.8667
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -489.6599,
+          6243.8667
+        ],
+        [
+          -497.87656,
+          6298.4517
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -497.87656,
+          6298.4517
+        ],
+        [
+          -506.09317,
+          6353.037
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -506.09317,
+          6353.037
+        ],
+        [
+          -514.3098,
+          6407.6216
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -514.3098,
+          6407.6216
+        ],
+        [
+          -522.5265,
+          6462.207
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -522.5265,
+          6462.207
+        ],
+        [
+          -530.57886,
+          6515.7007
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -536.6247,
+          6013.5093
+        ],
+        [
+          -539.1719,
+          6030.4307
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -539.1719,
+          6030.4307
+        ],
+        [
+          -536.8648,
+          6031.6865
+        ],
+        [
+          -535.90466,
+          6034.1313
+        ],
+        [
+          -536.7408,
+          6036.6216
+        ],
+        [
+          -538.9819,
+          6037.9917
+        ],
+        [
+          -541.57935,
+          6037.6006
+        ],
+        [
+          -543.31775,
+          6035.632
+        ],
+        [
+          -543.3837,
+          6033.006
+        ],
+        [
+          -541.7464,
+          6030.9517
+        ],
+        [
+          -539.1719,
+          6030.4307
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -696.40497,
+          6101.1016
+        ],
+        [
+          -698.95215,
+          6118.023
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -698.95215,
+          6118.023
+        ],
+        [
+          -696.6451,
+          6119.279
+        ],
+        [
+          -695.68494,
+          6121.7236
+        ],
+        [
+          -696.52106,
+          6124.214
+        ],
+        [
+          -698.76215,
+          6125.584
+        ],
+        [
+          -701.3596,
+          6125.193
+        ],
+        [
+          -703.098,
+          6123.224
+        ],
+        [
+          -703.164,
+          6120.598
+        ],
+        [
+          -701.5267,
+          6118.544
+        ],
+        [
+          -698.95215,
+          6118.023
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -598.3658,
+          6339.147
+        ],
+        [
+          -600.91296,
+          6356.0684
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -600.91296,
+          6356.0684
+        ],
+        [
+          -598.6059,
+          6357.324
+        ],
+        [
+          -597.64575,
+          6359.769
+        ],
+        [
+          -598.4819,
+          6362.2593
+        ],
+        [
+          -600.72296,
+          6363.6294
+        ],
+        [
+          -603.32043,
+          6363.2383
+        ],
+        [
+          -605.05884,
+          6361.2695
+        ],
+        [
+          -605.1248,
+          6358.6436
+        ],
+        [
+          -603.4875,
+          6356.5894
+        ],
+        [
+          -600.91296,
+          6356.0684
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -811.6747,
+          6362.8594
+        ],
+        [
+          -814.22186,
+          6379.781
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -814.22186,
+          6379.781
+        ],
+        [
+          -811.9148,
+          6381.0366
+        ],
+        [
+          -810.95465,
+          6383.4814
+        ],
+        [
+          -811.7908,
+          6385.9717
+        ],
+        [
+          -814.03186,
+          6387.342
+        ],
+        [
+          -816.62933,
+          6386.9507
+        ],
+        [
+          -818.36774,
+          6384.982
+        ],
+        [
+          -818.4337,
+          6382.356
+        ],
+        [
+          -816.7964,
+          6380.302
+        ],
+        [
+          -814.22186,
+          6379.781
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -687.3017,
+          6437.4033
+        ],
+        [
+          -689.8489,
+          6454.3247
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -689.8489,
+          6454.3247
+        ],
+        [
+          -687.5418,
+          6455.5806
+        ],
+        [
+          -686.58167,
+          6458.0254
+        ],
+        [
+          -687.4178,
+          6460.5156
+        ],
+        [
+          -689.6589,
+          6461.8857
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -689.6589,
+          6461.8857
+        ],
+        [
+          -692.25635,
+          6461.4946
+        ],
+        [
+          -693.99475,
+          6459.526
+        ],
+        [
+          -694.0607,
+          6456.9
+        ],
+        [
+          -692.4234,
+          6454.8457
+        ],
+        [
+          -689.8489,
+          6454.3247
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -752.30237,
+          6134.473
+        ],
+        [
+          -735.381,
+          6137.0205
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -735.381,
+          6137.0205
+        ],
+        [
+          -734.1252,
+          6134.7134
+        ],
+        [
+          -731.68024,
+          6133.7534
+        ],
+        [
+          -729.1901,
+          6134.5894
+        ],
+        [
+          -727.82,
+          6136.8306
+        ],
+        [
+          -728.211,
+          6139.428
+        ],
+        [
+          -730.1801,
+          6141.1665
+        ],
+        [
+          -732.806,
+          6141.2324
+        ],
+        [
+          -734.86,
+          6139.595
+        ],
+        [
+          -735.381,
+          6137.0205
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -717.6186,
+          6274.8984
+        ],
+        [
+          -700.6972,
+          6277.446
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -700.6972,
+          6277.446
+        ],
+        [
+          -699.4414,
+          6275.1387
+        ],
+        [
+          -696.99646,
+          6274.1787
+        ],
+        [
+          -694.50635,
+          6275.0146
+        ],
+        [
+          -693.1362,
+          6277.256
+        ],
+        [
+          -693.5272,
+          6279.8535
+        ],
+        [
+          -695.49634,
+          6281.592
+        ],
+        [
+          -698.12225,
+          6281.6577
+        ],
+        [
+          -700.1762,
+          6280.0205
+        ],
+        [
+          -700.6972,
+          6277.446
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -659.74274,
+          6261.2534
+        ],
+        [
+          -642.82135,
+          6263.801
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -642.82135,
+          6263.801
+        ],
+        [
+          -641.56555,
+          6261.4937
+        ],
+        [
+          -639.1206,
+          6260.5337
+        ],
+        [
+          -636.6305,
+          6261.3696
+        ],
+        [
+          -635.2604,
+          6263.611
+        ],
+        [
+          -635.65137,
+          6266.2085
+        ],
+        [
+          -637.6205,
+          6267.947
+        ],
+        [
+          -640.2464,
+          6268.0127
+        ],
+        [
+          -642.30035,
+          6266.3755
+        ],
+        [
+          -642.82135,
+          6263.801
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -604.01917,
+          6261.9067
+        ],
+        [
+          -587.0978,
+          6264.454
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -587.0978,
+          6264.454
+        ],
+        [
+          -585.842,
+          6262.147
+        ],
+        [
+          -583.39703,
+          6261.187
+        ],
+        [
+          -580.9069,
+          6262.023
+        ],
+        [
+          -579.5368,
+          6264.264
+        ],
+        [
+          -579.9278,
+          6266.862
+        ],
+        [
+          -581.8969,
+          6268.6
+        ],
+        [
+          -584.5228,
+          6268.666
+        ],
+        [
+          -586.5768,
+          6267.029
+        ],
+        [
+          -587.0978,
+          6264.454
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -430.03973,
+          6211.0
+        ],
+        [
+          -436.2061,
+          6251.913
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -436.2061,
+          6251.913
+        ],
+        [
+          -436.52032,
+          6253.998
+        ],
+        [
+          -443.0163,
+          6297.0986
+        ],
+        [
+          -444.43274,
+          6306.4966
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -444.43274,
+          6306.4966
+        ],
+        [
+          -449.86322,
+          6342.5273
+        ],
+        [
+          -452.65942,
+          6361.08
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -452.65942,
+          6361.08
+        ],
+        [
+          -457.47308,
+          6393.0186
+        ],
+        [
+          -460.8861,
+          6415.6636
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -460.8861,
+          6415.6636
+        ],
+        [
+          -466.44614,
+          6452.5537
+        ],
+        [
+          -470.11694,
+          6470.096
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -470.11694,
+          6470.096
+        ],
+        [
+          -481.2167,
+          6523.1406
+        ],
+        [
+          -530.57886,
+          6515.701
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -530.57886,
+          6515.701
+        ],
+        [
+          -554.5913,
+          6512.0815
+        ],
+        [
+          -585.16235,
+          6507.474
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -585.16235,
+          6507.474
+        ],
+        [
+          -613.03467,
+          6503.2734
+        ],
+        [
+          -639.74585,
+          6499.2476
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -639.74585,
+          6499.2476
+        ],
+        [
+          -662.8988,
+          6495.758
+        ],
+        [
+          -694.32935,
+          6491.0205
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -694.32935,
+          6491.0205
+        ],
+        [
+          -708.0,
+          6488.9604
+        ],
+        [
+          -748.91284,
+          6482.794
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -748.91284,
+          6482.794
+        ],
+        [
+          -750.99817,
+          6482.4795
+        ],
+        [
+          -794.09845,
+          6475.984
+        ],
+        [
+          -803.49646,
+          6474.567
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -803.49646,
+          6474.567
+        ],
+        [
+          -839.52734,
+          6469.1367
+        ],
+        [
+          -858.0799,
+          6466.3403
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -858.0799,
+          6466.3403
+        ],
+        [
+          -890.0185,
+          6461.527
+        ],
+        [
+          -912.6634,
+          6458.1133
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -912.6634,
+          6458.1133
+        ],
+        [
+          -949.55383,
+          6452.5537
+        ],
+        [
+          -967.0958,
+          6448.883
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -967.0958,
+          6448.883
+        ],
+        [
+          -1020.14044,
+          6437.783
+        ],
+        [
+          -1012.7007,
+          6388.4214
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -1012.7007,
+          6388.4214
+        ],
+        [
+          -1009.0816,
+          6364.4087
+        ],
+        [
+          -1004.474,
+          6333.8374
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -1004.474,
+          6333.8374
+        ],
+        [
+          -1000.2732,
+          6305.9653
+        ],
+        [
+          -996.2473,
+          6279.254
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -996.2473,
+          6279.254
+        ],
+        [
+          -992.75775,
+          6256.101
+        ],
+        [
+          -988.0206,
+          6224.6704
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -988.0206,
+          6224.6704
+        ],
+        [
+          -985.96027,
+          6211.0
+        ],
+        [
+          -979.79395,
+          6170.087
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -979.79395,
+          6170.087
+        ],
+        [
+          -979.4797,
+          6168.002
+        ],
+        [
+          -972.98364,
+          6124.9014
+        ],
+        [
+          -971.56726,
+          6115.5034
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -971.56726,
+          6115.5034
+        ],
+        [
+          -966.1368,
+          6079.4727
+        ],
+        [
+          -963.3406,
+          6060.92
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -963.3406,
+          6060.92
+        ],
+        [
+          -958.52686,
+          6028.9814
+        ],
+        [
+          -955.1139,
+          6006.3364
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -955.1139,
+          6006.3364
+        ],
+        [
+          -949.5539,
+          5969.4463
+        ],
+        [
+          -945.88306,
+          5951.904
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -945.88306,
+          5951.904
+        ],
+        [
+          -934.7832,
+          5898.8594
+        ],
+        [
+          -885.42126,
+          5906.299
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -885.42126,
+          5906.299
+        ],
+        [
+          -861.4086,
+          5909.9185
+        ],
+        [
+          -830.83765,
+          5914.5254
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -830.83765,
+          5914.5254
+        ],
+        [
+          -802.9652,
+          5918.7266
+        ],
+        [
+          -776.2541,
+          5922.753
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -776.2541,
+          5922.753
+        ],
+        [
+          -753.1012,
+          5926.242
+        ],
+        [
+          -721.67065,
+          5930.9795
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -721.67065,
+          5930.9795
+        ],
+        [
+          -708.0,
+          5933.0396
+        ],
+        [
+          -667.08704,
+          5939.2065
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -667.08704,
+          5939.2065
+        ],
+        [
+          -665.00183,
+          5939.5205
+        ],
+        [
+          -621.90155,
+          5946.016
+        ],
+        [
+          -612.50354,
+          5947.4326
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -612.50354,
+          5947.4326
+        ],
+        [
+          -576.47266,
+          5952.8633
+        ],
+        [
+          -557.92,
+          5955.659
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -557.92,
+          5955.659
+        ],
+        [
+          -525.98145,
+          5960.473
+        ],
+        [
+          -503.33655,
+          5963.8857
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -503.33655,
+          5963.8857
+        ],
+        [
+          -466.44598,
+          5969.4463
+        ],
+        [
+          -448.90417,
+          5973.1167
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -448.90417,
+          5973.1167
+        ],
+        [
+          -395.85956,
+          5984.217
+        ],
+        [
+          -403.29926,
+          6033.5786
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -403.29926,
+          6033.5786
+        ],
+        [
+          -406.91837,
+          6057.5913
+        ],
+        [
+          -411.526,
+          6088.1626
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -411.526,
+          6088.1626
+        ],
+        [
+          -415.7268,
+          6116.0347
+        ],
+        [
+          -419.7527,
+          6142.746
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -419.7527,
+          6142.746
+        ],
+        [
+          -423.24225,
+          6165.899
+        ],
+        [
+          -427.97937,
+          6197.3296
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    },
+    {
+      "from": "Generated",
+      "points": [
+        [
+          -427.97937,
+          6197.3296
+        ],
+        [
+          -430.03973,
+          6211.0
+        ]
+      ],
+      "wide": 8.0,
+      "carries": "Doors",
+      "joins": 8.0
+    }
+  ],
+  "plots": [
+    {
+      "from": "Generated",
+      "at": [
+        -684.46674,
+        6229.767
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14941196,
+      "what": "GuildHall"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -676.0038,
+        6171.219
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CitySpire"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -743.4507,
+        6229.4814
+      ],
+      "serves": 0,
+      "district": "Market",
+      "facing": -2.992183,
+      "what": "Monument"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -728.6648,
+        6243.606
+      ],
+      "serves": 0,
+      "district": "Market",
+      "facing": -2.1152184,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -738.3427,
+        6242.149
+      ],
+      "serves": 0,
+      "district": "Market",
+      "facing": -1.4213862,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -748.0206,
+        6240.692
+      ],
+      "serves": 0,
+      "district": "Market",
+      "facing": -0.7275379,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -750.2325,
+        6222.5117
+      ],
+      "serves": 0,
+      "district": "Market",
+      "facing": 0.5305371,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -734.8399,
+        6218.8794
+      ],
+      "serves": 0,
+      "district": "Market",
+      "facing": 1.7202065,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -725.162,
+        6220.3364
+      ],
+      "serves": 0,
+      "district": "Market",
+      "facing": 2.4140549,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -721.1988,
+        6226.882
+      ],
+      "serves": 0,
+      "district": "Market",
+      "facing": 2.9098523,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -860.8926,
+        6222.348
+      ],
+      "serves": 1,
+      "district": "Market",
+      "facing": -1.4213954,
+      "what": "Well"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -862.6066,
+        6233.7354
+      ],
+      "serves": 1,
+      "district": "Market",
+      "facing": -1.4213914,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -633.3105,
+        5977.496
+      ],
+      "serves": 2,
+      "district": "Crafts",
+      "facing": -1.4213938,
+      "what": "Well"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -635.0246,
+        5988.8833
+      ],
+      "serves": 2,
+      "district": "Crafts",
+      "facing": -1.4213914,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -716.9931,
+        6198.622
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14959152,
+      "what": "Monument"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -891.5205,
+        5898.0283
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.1011415,
+      "what": "Monument"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -393.89505,
+        6029.704
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -0.523473,
+      "what": "Monument"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -694.0103,
+        6201.122
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921854,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -731.66583,
+        6195.454
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921854,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -674.9115,
+        6203.997
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921854,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -750.1756,
+        6193.236
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -660.4366,
+        6191.291
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202036,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -669.0027,
+        6249.878
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202036,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -746.8524,
+        6171.159
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -641.6684,
+        6209.0015
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921854,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -709.58734,
+        6141.9355
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202033,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -642.0611,
+        6232.9097
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940733,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -730.0151,
+        6277.6426
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202033,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -776.0419,
+        6219.2886
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -673.86694,
+        6282.1924
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202036,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -672.7749,
+        6149.256
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -638.2703,
+        6191.4985
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -654.01605,
+        6150.3174
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202036,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -779.39795,
+        6241.5845
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -793.5587,
+        6185.8843
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921854,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -733.0606,
+        6297.8745
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202033,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -632.995,
+        6156.453
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -763.8433,
+        6136.5713
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -809.52435,
+        6216.666
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213891,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -613.23444,
+        6250.235
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -719.65717,
+        6108.826
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940803,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -624.78253,
+        6268.3765
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -801.6158,
+        6165.806
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213891,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -765.58765,
+        6295.622
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -646.2669,
+        6287.087
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940803,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -799.43005,
+        6151.2856
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213891,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -654.6906,
+        6300.582
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -736.8999,
+        6105.0425
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -630.116,
+        6139.007
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.421389,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -796.5209,
+        6131.96
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213891,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -628.8926,
+        6289.955
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940803,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -625.7611,
+        6122.708
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940803,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -766.3643,
+        6101.5435
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940803,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -737.8656,
+        6328.115
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202033,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -802.2993,
+        6297.2236
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -733.936,
+        6085.352
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -831.918,
+        6204.33
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940733,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -583.38635,
+        6217.522
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921854,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -590.3863,
+        6244.2314
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -606.29236,
+        6125.6387
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940803,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -718.97205,
+        6086.733
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -682.6623,
+        6340.6226
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202036,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -823.2606,
+        6160.457
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202035,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -759.9407,
+        6325.797
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -575.6638,
+        6186.071
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -771.99066,
+        6338.1587
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -599.12823,
+        6294.435
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940803,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -660.59955,
+        6339.8374
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -754.5256,
+        6081.381
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -577.9693,
+        6161.7427
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -698.5438,
+        6066.891
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202033,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -563.26227,
+        6220.8037
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921854,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -647.2421,
+        6342.7617
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -685.8773,
+        6360.3
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202036,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -673.6631,
+        6059.6753
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -769.59204,
+        6078.8604
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -564.81744,
+        6165.7593
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -607.6785,
+        6103.233
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -558.95703,
+        6258.815
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -703.9262,
+        6368.107
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -656.4881,
+        6062.2607
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -719.2924,
+        6052.807
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -852.5156,
+        6256.0396
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940803,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -824.6435,
+        6317.106
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213891,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -574.4979,
+        6140.362
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.421389,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -815.09155,
+        6094.4604
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940803,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -599.3184,
+        6328.0317
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -632.87024,
+        6345.1772
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -752.2094,
+        6060.965
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -560.50836,
+        6277.7983
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -618.1808,
+        6068.2803
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -661.5396,
+        6374.4873
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -565.83527,
+        6306.188
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -546.96045,
+        6168.195
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -543.0372,
+        6153.056
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -813.0829,
+        6351.676
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -579.4116,
+        6331.0283
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -693.8654,
+        6035.812
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202033,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -536.4388,
+        6249.061
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940742,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -874.9856,
+        6280.703
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -849.67786,
+        6312.5415
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -874.9296,
+        6141.2754
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -529.7421,
+        6225.8486
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.992185,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -725.7128,
+        6030.7236
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -884.34515,
+        6195.419
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -756.9193,
+        6382.074
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940806,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -886.60876,
+        6212.136
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -710.3329,
+        6032.2114
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -528.63086,
+        6206.493
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.421389,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -877.9771,
+        6154.794
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -893.6107,
+        6227.657
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -637.01227,
+        6037.3574
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202036,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -526.7835,
+        6192.5415
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -871.94446,
+        6119.5273
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -667.9175,
+        6024.3315
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213893,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -526.6058,
+        6283.155
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -843.09607,
+        6068.854
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -537.03613,
+        6114.8696
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -806.4576,
+        6050.5103
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202035,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -746.67883,
+        6024.223
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -609.9778,
+        6382.249
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -665.9648,
+        6395.765
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940806,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -890.0042,
+        6138.7534
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940804,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -870.6011,
+        6105.7925
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -583.424,
+        6052.1978
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -521.63525,
+        6158.3394
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -725.7809,
+        6408.7314
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213893,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -509.79993,
+        6228.598
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.992185,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -518.43494,
+        6138.864
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940803,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -909.7818,
+        6225.4756
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -840.6371,
+        6054.197
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213889,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -534.702,
+        6099.3633
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -649.80664,
+        6398.1973
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940806,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -634.3405,
+        6019.608
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202036,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -868.4234,
+        6091.3257
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -502.10208,
+        6253.632
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -691.333,
+        6001.193
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940763,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -918.19025,
+        6196.883
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -576.08685,
+        6374.292
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -705.1996,
+        5999.1055
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940763,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -694.38837,
+        6418.521
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202036,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -613.7402,
+        6028.539
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -827.346,
+        6036.5415
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940804,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -646.7655,
+        6007.902
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940763,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -802.4686,
+        6394.8477
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -672.0573,
+        6415.953
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -743.7627,
+        6004.851
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -908.0449,
+        6136.037
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940804,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -803.6508,
+        6408.9175
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.992185,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -863.64655,
+        6064.955
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -551.4523,
+        6356.4214
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -926.2006,
+        6250.0967
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -835.5095,
+        6389.2915
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213891,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -638.73157,
+        6419.618
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -601.61566,
+        6014.698
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940763,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -488.5768,
+        6163.7803
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -611.5703,
+        6403.953
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940806,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -561.26465,
+        6050.7695
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -760.84937,
+        5990.729
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940763,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -776.4448,
+        5996.9106
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213891,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -902.03253,
+        6089.5435
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -584.0543,
+        6017.342
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940763,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -867.7834,
+        6365.3857
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940806,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -513.3333,
+        6103.1875
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -861.9017,
+        6048.001
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -881.07117,
+        6062.332
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -595.12946,
+        6406.4277
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940806,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -559.0246,
+        6035.8887
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -494.7125,
+        6120.4907
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -863.8186,
+        6031.0513
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940804,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -529.7623,
+        6360.446
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940804,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -510.96005,
+        6087.4214
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -731.4506,
+        6441.7295
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940764,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -938.7286,
+        6187.541
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202036,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -483.20218,
+        6289.6885
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -476.26627,
+        6227.7803
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -481.91086,
+        6265.28
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -694.4382,
+        5978.7817
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.992185,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -547.2415,
+        6391.6924
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -941.34735,
+        6204.938
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202036,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -772.30133,
+        6435.5806
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940764,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -708.9259,
+        5976.6006
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.992185,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -677.03406,
+        6449.015
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -858.43585,
+        6395.814
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202035,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -930.3565,
+        6131.923
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202036,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -927.76245,
+        6111.1255
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -921.2855,
+        6078.475
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940803,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -488.6343,
+        6309.9453
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -469.0323,
+        6179.7236
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -925.14264,
+        6334.807
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -738.0207,
+        5966.706
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -814.98,
+        5982.833
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940763,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -894.65125,
+        6040.508
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -881.5726,
+        6028.3794
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940804,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -490.848,
+        6324.651
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -592.0093,
+        5994.1997
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.992185,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -788.7717,
+        6449.6387
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -574.8505,
+        5995.2417
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -856.3332,
+        6011.0073
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -886.5637,
+        6396.184
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.992185,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -937.9355,
+        6328.055
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -559.92267,
+        6412.6924
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -909.3359,
+        6363.117
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -942.63916,
+        6108.8857
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -830.53125,
+        5980.2393
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940763,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -960.7948,
+        6273.6187
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -970.72125,
+        6182.6924
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421204,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -679.4707,
+        5948.566
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14960024,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -656.66394,
+        5951.75
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14958338,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -966.8945,
+        6157.3022
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4212043,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -842.9952,
+        6439.0205
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213891,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -442.64008,
+        6221.8
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7203887,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -973.47797,
+        6200.983
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421204,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -698.86346,
+        5945.3896
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14960024,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -451.91492,
+        6283.3384
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.720387,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -963.6465,
+        6135.752
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4212043,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -605.17126,
+        5971.6133
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -935.73114,
+        6076.048
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940803,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -493.98523,
+        6365.8315
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940804,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -537.9175,
+        6415.04
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940806,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -503.79227,
+        6039.805
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -911.68005,
+        6378.6895
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -456.75888,
+        6315.4775
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7203884,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -769.4395,
+        5950.373
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4213891,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -913.49225,
+        6392.3833
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.992185,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -975.77216,
+        6215.542
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -435.83047,
+        6176.6187
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7203871,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -742.66895,
+        5938.787
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14958777,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -889.46326,
+        6006.043
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -792.3932,
+        5957.0776
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202035,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -957.173,
+        6092.8013
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4212055,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -588.66516,
+        5961.998
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14959674,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -502.50052,
+        6398.4277
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -877.65405,
+        6419.722
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14940764,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -473.318,
+        6062.4116
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -960.0971,
+        6106.258
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -458.21683,
+        6107.874
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -851.74884,
+        5980.5527
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -983.19434,
+        6265.45
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4212042,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -958.1597,
+        6316.6265
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202036,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -624.78455,
+        6472.7476
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -895.8927,
+        6419.5938
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -846.04596,
+        6457.1816
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9920018,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -887.307,
+        5991.7188
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -594.9982,
+        6462.2695
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14940764,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -477.62994,
+        6368.293
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14940804,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -939.9725,
+        6053.466
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -648.992,
+        6487.7803
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -789.94763,
+        5940.8306
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202035,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -443.55026,
+        6094.3145
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14940804,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -869.83405,
+        6453.5967
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9920018,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -987.8635,
+        6296.43
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4212042,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -591.6072,
+        6477.397
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -486.31482,
+        6400.864
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -540.0738,
+        5969.322
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14959072,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -898.15796,
+        6434.6426
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -424.1092,
+        6244.4536
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.421204,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -675.53156,
+        5926.961
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9919925,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -427.36667,
+        6266.0664
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4212056,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -823.8193,
+        5940.793
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -910.9341,
+        6002.896
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202036,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -720.2633,
+        6498.0845
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14960024,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -995.25244,
+        6199.851
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7203887,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -697.03064,
+        5923.72
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9919925,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -430.61465,
+        6287.6167
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4212056,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -985.3007,
+        6133.822
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7203884,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -499.13754,
+        6008.8823
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -417.8014,
+        6202.601
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4212055,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -698.769,
+        6501.3247
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14958777,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -937.373,
+        6019.9795
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14940804,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -610.16113,
+        5936.8125
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9919958,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -805.9249,
+        6485.1743
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14959674,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -982.1462,
+        6112.8916
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7203871,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -501.30386,
+        6420.552
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14940806,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -469.35754,
+        6399.069
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.720389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -414.40265,
+        6180.051
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4212055,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -676.2184,
+        6504.723
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14958777,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -587.4467,
+        5940.2363
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9919958,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -437.25446,
+        6331.6714
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4212043,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -978.7227,
+        6090.1772
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7203871,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -569.6291,
+        6477.174
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -965.3905,
+        6364.662
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202036,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -438.6014,
+        6073.115
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9921846,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -450.26242,
+        6055.0312
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -657.83405,
+        6507.494
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14959604,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -881.163,
+        5950.903
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -934.8267,
+        6411.1157
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14940764,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -975.78107,
+        6070.66
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7203882,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -853.27875,
+        6478.037
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14959088,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -562.37134,
+        5944.0156
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.992002,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -643.6067,
+        6509.6387
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14959604,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -907.03064,
+        5976.964
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202036,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -483.82715,
+        6423.182
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14940806,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -950.7317,
+        6413.0625
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.421389,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -535.59247,
+        6476.116
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202038,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -408.2563,
+        6139.2705
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4212042,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -492.3428,
+        5976.5156
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14959337,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -925.1963,
+        6445.252
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.991999,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -443.95987,
+        6376.1616
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4212056,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -1009.36536,
+        6293.489
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7203884,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -510.29208,
+        6453.8223
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4213889,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -406.09576,
+        6124.9355
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4212042,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -993.7792,
+        6346.4194
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14940806,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -714.81476,
+        6187.7476
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202047,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -693.24774,
+        6181.5225
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213879,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -712.0611,
+        6163.87
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -692.51984,
+        6259.8486
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -727.9236,
+        6161.4824
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -691.1437,
+        6167.5444
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213879,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -657.7749,
+        6172.0415
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -687.8174,
+        6145.4463
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213893,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -773.878,
+        6190.768
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921854,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -636.49347,
+        6175.245
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -765.9307,
+        6155.761
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -767.7751,
+        6175.4556
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -648.28973,
+        6246.975
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -709.41846,
+        6288.9478
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213893,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -751.4434,
+        6269.586
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940803,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -684.9706,
+        6126.5337
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213893,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -741.39624,
+        6123.828
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213889,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -784.1386,
+        6153.0205
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -609.5186,
+        6236.6343
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -605.9421,
+        6212.8745
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -649.29486,
+        6130.038
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202036,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -712.2761,
+        6307.9326
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213893,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -804.068,
+        6243.0576
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -694.5368,
+        6315.367
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -610.3586,
+        6177.7134
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -602.0738,
+        6196.9175
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -790.53735,
+        6262.235
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940803,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -678.7508,
+        6317.743
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -759.392,
+        6119.7646
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -787.7179,
+        6301.3403
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -658.74335,
+        6320.7554
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -609.2217,
+        6160.7437
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -818.7781,
+        6267.056
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213891,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -825.624,
+        6182.979
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921854,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -796.3315,
+        6117.938
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213891,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -681.0694,
+        6090.877
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213893,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -642.9005,
+        6323.14
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -716.3274,
+        6334.8457
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213893,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -699.58307,
+        6086.5596
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202033,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -585.8286,
+        6202.869
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.421389,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -700.32996,
+        6333.101
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -830.81647,
+        6223.4165
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202035,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -821.5089,
+        6285.1978
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213891,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -782.75244,
+        6097.407
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940803,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -650.74194,
+        6098.6714
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -622.0432,
+        6319.838
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -789.5908,
+        6320.383
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -625.6661,
+        6102.447
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -732.9526,
+        6067.735
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213889,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -719.327,
+        6354.7725
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213893,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -815.5572,
+        6122.046
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202035,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -837.1288,
+        6265.3506
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202035,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -559.5496,
+        6186.8276
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -555.02734,
+        6245.473
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -601.66626,
+        6308.0825
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.421389,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -640.8996,
+        6074.2666
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202036,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -859.7263,
+        6168.248
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213889,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -845.5856,
+        6142.305
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -756.278,
+        6361.895
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -664.30084,
+        6353.341
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -548.8455,
+        6204.4067
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -740.8198,
+        6360.5054
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202033,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -791.98596,
+        6336.294
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -581.9114,
+        6295.1055
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940803,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -774.6054,
+        6359.136
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -838.7201,
+        6285.663
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202035,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -837.72473,
+        6126.347
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -788.8584,
+        6068.2925
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213891,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -588.15186,
+        6094.6904
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202038,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -852.2727,
+        6118.732
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213889,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -873.44324,
+        6259.372
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213889,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -763.4622,
+        6044.4893
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -829.16284,
+        6336.0444
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213891,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -833.6087,
+        6089.7515
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940803,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -550.32654,
+        6132.3945
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940803,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -644.2685,
+        6378.756
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -786.16254,
+        6050.383
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213891,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -779.61523,
+        6377.725
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213889,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -807.75073,
+        6070.185
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.7202035,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -572.54895,
+        6104.9087
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.421389,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -724.47034,
+        6388.941
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.4213893,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -586.61206,
+        6071.111
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -883.49744,
+        6174.268
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921854,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -657.5031,
+        6041.833
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -706.5174,
+        6387.9917
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940806,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -824.1299,
+        6072.5723
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -539.81476,
+        6268.0264
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -587.65344,
+        6350.063
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -618.1515,
+        6046.76
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -543.96246,
+        6300.818
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940803,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -689.83405,
+        6390.5034
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940806,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -865.96326,
+        6308.1685
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.14940804,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -746.38556,
+        6397.48
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202033,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -522.1129,
+        6249.296
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940742,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -565.46124,
+        6074.2944
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940804,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -850.6413,
+        6349.1567
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -798.5095,
+        6374.1445
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940806,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -525.394,
+        6172.225
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -890.6807,
+        6250.271
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -571.90576,
+        6357.6006
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -724.874,
+        6014.067
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213889,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -782.4267,
+        6396.403
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213889,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -761.0563,
+        6026.2446
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -547.2333,
+        6317.309
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -834.2802,
+        6370.0405
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213891,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -864.07477,
+        6345.6685
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -634.42035,
+        6402.0625
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -899.6234,
+        6284.4956
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -510.4881,
+        6175.6064
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -549.2946,
+        6076.728
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940804,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -528.254,
+        6303.182
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940803,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -750.6154,
+        6418.57
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.992185,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -907.83185,
+        6246.044
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940803,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -660.6952,
+        6004.136
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940763,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -913.9817,
+        6157.8394
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -541.6008,
+        6338.3887
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -709.78094,
+        6424.717
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.992185,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -780.6407,
+        6013.7
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213891,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -503.6189,
+        6274.793
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -498.97308,
+        6194.4805
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940804,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -891.7467,
+        6118.216
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -885.9747,
+        6332.8804
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213889,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -881.2618,
+        6082.578
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940803,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -530.5524,
+        6082.8813
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -897.37036,
+        6304.453
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -578.98944,
+        6033.8223
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -915.92896,
+        6282.041
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -517.27246,
+        6118.272
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -906.5585,
+        6108.5264
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -498.70465,
+        6140.165
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940803,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -817.7258,
+        6408.468
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.992185,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -659.8911,
+        6432.226
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.992185,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -526.4191,
+        6340.674
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -511.4344,
+        6305.714
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940803,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -799.1165,
+        6012.8267
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202035,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -853.6467,
+        6375.083
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202035,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -931.0405,
+        6271.164
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -832.6985,
+        6406.214
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.992185,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -555.30164,
+        6370.9087
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -899.6181,
+        6319.3853
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -836.5197,
+        6014.08
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213889,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -579.56415,
+        6408.477
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -538.29724,
+        6059.7764
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -787.8577,
+        6432.4814
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213889,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -557.32196,
+        6019.697
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940763,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -883.45215,
+        6361.3584
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940806,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -923.5002,
+        6298.041
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940804,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -933.7777,
+        6165.7354
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202036,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -753.09845,
+        6436.8022
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940764,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -658.54956,
+        5985.8525
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.992185,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -796.3296,
+        5994.3125
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202035,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -469.2296,
+        6200.424
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940804,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -496.97598,
+        6084.6035
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940804,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -714.5078,
+        6442.611
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940764,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -930.9147,
+        6146.716
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202036,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -898.8541,
+        6057.3438
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -620.0283,
+        6430.0664
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -890.9711,
+        6375.814
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213889,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -942.15326,
+        6221.3765
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202036,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -806.0626,
+        6429.809
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -833.904,
+        5996.703
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213889,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -945.1514,
+        6241.294
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202036,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -524.2694,
+        6041.1416
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -609.16595,
+        5987.0664
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -582.7692,
+        6429.7695
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -519.71173,
+        6381.7017
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -464.38074,
+        6143.8647
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940803,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -944.8176,
+        6128.833
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940804,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -493.8927,
+        6345.5703
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -755.77545,
+        5971.2173
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.992185,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -773.40576,
+        5965.6367
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213891,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -476.9975,
+        6097.9404
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -467.61554,
+        6293.703
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -528.6222,
+        6396.1646
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -652.28265,
+        6451.9775
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940764,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -455.7863,
+        6183.8403
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -839.404,
+        6423.8105
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940764,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -522.56433,
+        6024.9287
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940763,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -507.9491,
+        6056.335
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -715.431,
+        5951.335
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213889,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -736.48596,
+        6475.3623
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9919925,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -447.03534,
+        6262.034
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.720387,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -760.38885,
+        6471.7593
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9920092,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -624.1674,
+        6457.564
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -808.83,
+        6448.1934
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -718.22437,
+        6478.1147
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9919925,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -860.6326,
+        6421.4927
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202035,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -781.939,
+        6468.511
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9920092,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -870.1417,
+        6009.8237
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -555.39026,
+        6000.66
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -462.6258,
+        6126.079
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.4213889,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -953.8307,
+        6298.952
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202036,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -930.8769,
+        6354.2188
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.14940806,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -564.8816,
+        6434.551
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -916.10443,
+        6048.3276
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.7202036,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -477.43353,
+        6348.048
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -440.20102,
+        6204.7935
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14940804,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -570.58966,
+        5978.02
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -701.7599,
+        6478.576
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202036,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -623.20593,
+        5956.723
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202036,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -981.84625,
+        6245.435
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4212055,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -673.2953,
+        6484.8867
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9920049,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -825.60077,
+        6461.9316
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9919958,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -457.4649,
+        6331.2334
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7203884,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -912.86896,
+        6021.9985
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14940804,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -447.6654,
+        6129.241
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -537.56195,
+        6005.531
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.992185,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -501.17902,
+        6382.1973
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4213889,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -828.2953,
+        5959.443
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4213889,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -553.2962,
+        5986.7495
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -518.8101,
+        6004.8745
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -765.1817,
+        5933.7256
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14959641,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -862.9532,
+        6436.908
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202035,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -955.76843,
+        6072.4106
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4212044,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -433.20392,
+        6150.0244
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14940803,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -488.04324,
+        6030.125
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14940763,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -928.6191,
+        6391.775
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.992185,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -461.46753,
+        6350.451
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -946.6562,
+        6374.9043
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -469.1482,
+        6045.796
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -874.94324,
+        5971.8857
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14940763,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -973.79236,
+        6329.1523
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -622.7181,
+        6492.51
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9919965,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -426.44702,
+        6125.4316
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7203884,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -529.2272,
+        6444.9146
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -465.40738,
+        6383.931
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.720387,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -741.5165,
+        6493.213
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14960024,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -990.38055,
+        6178.598
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7203887,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -761.45026,
+        6490.2085
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14958338,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -652.9776,
+        5932.029
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9920092,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -986.9172,
+        6155.618
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7203884,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -516.02026,
+        5986.3413
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202038,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -422.5005,
+        6222.7085
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.421204,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -783.00037,
+        6486.9604
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14958338,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -631.4274,
+        5935.276
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9920092,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -916.0855,
+        6412.268
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14940764,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -454.3698,
+        6071.233
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4213889,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -996.5887,
+        6219.788
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7203871,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -717.9378,
+        5922.2373
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9920049,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -811.0942,
+        5926.8057
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14958589,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -423.8031,
+        6107.8896
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7203879,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -435.4626,
+        6308.711
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4212043,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -603.97906,
+        6495.334
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9920065,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -993.0888,
+        6320.029
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4212052,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -897.0058,
+        6451.1694
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.991999,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -999.9874,
+        6242.3384
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7203871,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -740.4884,
+        5918.8384
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9920049,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -828.39343,
+        6480.1196
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14959674,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -917.38605,
+        6427.6807
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -974.05023,
+        6347.72
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14940806,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -509.0312,
+        6434.361
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4213889,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -484.2271,
+        6012.0933
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.992185,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -498.61636,
+        5994.335
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.421389,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -1002.9703,
+        6262.1294
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7203884,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -549.9322,
+        6467.3853
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14940764,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -412.54785,
+        6156.673
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4212042,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -867.93787,
+        5954.334
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.992185,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -442.62335,
+        6356.222
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4212056,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -772.0986,
+        5915.5405
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9919963,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -445.25854,
+        6036.566
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14940763,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -419.10956,
+        6076.7485
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7203879,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -843.1364,
+        5934.4233
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202038,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -933.4318,
+        6000.297
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9921846,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -974.11066,
+        6384.927
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.992185,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -461.7964,
+        6006.6978
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7202038,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -872.4743,
+        6473.476
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14959088,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -790.46796,
+        5912.772
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.9919963,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -625.1106,
+        6510.758
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.14959604,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -537.37164,
+        5949.4517
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.992002,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -969.3751,
+        6039.2285
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.7203882,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -574.5293,
+        6498.6426
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.421389,
+      "what": "CityService"
+    }
+  ]
+}

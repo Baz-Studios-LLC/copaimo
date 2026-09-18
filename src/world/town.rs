@@ -4074,7 +4074,6 @@ pub fn lay_the_site_out(
     key: usize,
     site: &crate::world::settle::Site,
 ) -> Layout {
-    let seed = crate::config::WORLD_SEED.wrapping_add(key as u32 * 7717);
     // A STORED SETTLEMENT IS READ, NOT MADE.
     //
     // The file holds what was placed - the ways, the lots, the lamps, the public
@@ -4085,7 +4084,36 @@ pub fn lay_the_site_out(
     if let Some(stored) = crate::world::bake::stored(site.name) {
         return finish(site, stored.laid(), &roads_through(plan, site));
     }
-    lay_out(site, &roads_through(plan, site), seed)
+    generate_the_site(plan, key, site)
+}
+
+/// The generator's own layout for a settlement, whatever is stored.
+///
+/// # A re-bake has to start from fresh generation, or it is not a re-bake
+///
+/// `--bake` obtained its "fresh" layout through `lay_the_site_out`, which returns the
+/// STORED layout the moment a file exists. So the second bake of any settlement
+/// re-baked the first file's generated rows, labelled them generated again, and
+/// merged the authored rows back over them - and no generator improvement could ever
+/// enter the merge. Found by Codex reading the uncommitted `--bake` path.
+///
+/// This is the entry point that cannot consult the store: it does not know the store
+/// exists. Runtime reads the snapshot through `lay_the_site_out`; the baker compares
+/// that snapshot with what this returns. Two doors, and the baker's one only ever
+/// opens onto the generator.
+pub fn generate_the_site(
+    plan: &crate::world::settle::Settlements,
+    key: usize,
+    site: &crate::world::settle::Site,
+) -> Layout {
+    lay_out(site, &roads_through(plan, site), seed_of(key))
+}
+
+/// The seed a settlement is laid out from. One statement, because the bake writes
+/// it into the file's stamp and the generator draws from it, and two copies of the
+/// arithmetic is how a stamp comes to describe a town that was never generated.
+pub fn seed_of(key: usize) -> u32 {
+    crate::config::WORLD_SEED.wrapping_add(key as u32 * 7717)
 }
 
 /// Everything a layout derives from what was placed in it.

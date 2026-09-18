@@ -262,3 +262,105 @@ pub fn write(name: &str, baked: Baked) -> std::io::Result<Baked> {
     std::fs::write(&path, text)?;
     Ok(merged)
 }
+
+/// Whether the run was asked to bake the world and stop.
+pub fn asked_for() -> bool {
+    std::env::args().any(|arg| arg == "--bake")
+}
+
+/// Lays every settlement out and writes it to its file.
+///
+/// A one-shot process, before the app and without it - the same reasoning as
+/// `measure`: the generation this writes down is pure and thread-safe by design, and
+/// standing a window up round it would put the thing being recorded inside something
+/// far larger than itself. It is also what makes the same-process staleness of
+/// `stored()` harmless here: this process reads once, writes, and ends.
+///
+/// The ranch is not a settlement and `world::town` skips it, so it is skipped here.
+pub fn bake_everything() {
+    let terrain = crate::world::terrain::Terrain::new();
+    let plan = terrain.plan();
+    let mut wrote = 0;
+    for (key, site) in plan.sites().iter().enumerate() {
+        if site.ranch {
+            continue;
+        }
+        // FRESH, from the generator - never from the store. `lay_the_site_out` would
+        // hand back the file that is already there, and a bake that starts from its
+        // own last output can never import an improvement. See `generate_the_site`.
+        let laid = crate::world::town::generate_the_site(plan, key, site);
+        let baked = Baked::of(site, crate::world::town::seed_of(key), &laid);
+        match write(site.name, baked) {
+            Ok(merged) => {
+                println!(
+                    "baked {:<14} {:>4} ways {:>4} plots {:>3} places {:>3} authored -> {}",
+                    site.name,
+                    merged.ways.len(),
+                    merged.plots.len(),
+                    merged.opens.len(),
+                    merged.authored(),
+                    path_of(site.name).display()
+                );
+                wrote += 1;
+            }
+            Err(why) => eprintln!("{} could not be written: {why}", site.name),
+        }
+    }
+    println!("{wrote} settlements written");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::world::town::{Building, District};
+
+    fn plot(at: Vec2, what: Building) -> Plot {
+        Plot { at, serves: None, district: District::Market, facing: 0.0, what }
+    }
+
+    /// A re-bake takes the generator's new rows and keeps the person's.
+    ///
+    /// # The one rule that makes the store survivable
+    ///
+    /// Three things have to be true at once, and each is a way the arrangement dies
+    /// if it is not. A generated row the generator now makes DIFFERENTLY has to come
+    /// through changed - or no improvement ever reaches a stored town, which is the
+    /// fault Codex found in the first `--bake`. An authored row has to survive
+    /// untouched - or the first re-bake after the first edit throws the edit away.
+    /// And a generated row that lands on top of an authored one has to go - or the
+    /// building somebody moved comes back beside itself.
+    #[test]
+    fn a_rebake_replaces_the_generated_and_keeps_the_authored() {
+        let mut had = Baked::default();
+        had.plots.push(Row::made(plot(Vec2::ZERO, Building::Cottage)));
+        had.plots.push(Row {
+            from: Made::Authored,
+            what: plot(Vec2::new(50.0, 50.0), Building::Cottage),
+        });
+
+        let mut fresh = Baked::default();
+        // The generator improved: the same lot is a shop now.
+        fresh.plots.push(Row::made(plot(Vec2::ZERO, Building::Shop)));
+        // And it put something down two metres from the authored building.
+        fresh.plots.push(Row::made(plot(Vec2::new(52.0, 50.0), Building::Cottage)));
+
+        let merged = had.rebaked(fresh);
+        let kinds: Vec<(Made, Building, Vec2)> =
+            merged.plots.iter().map(|row| (row.from, row.what.what, row.what.at)).collect();
+
+        assert!(
+            kinds.contains(&(Made::Generated, Building::Shop, Vec2::ZERO)),
+            "the improved generated row did not come through: {kinds:?}"
+        );
+        assert!(
+            kinds.contains(&(Made::Authored, Building::Cottage, Vec2::new(50.0, 50.0))),
+            "the authored row was lost: {kinds:?}"
+        );
+        assert_eq!(
+            merged.plots.len(),
+            2,
+            "a generated row landed on the authored one and was kept: {kinds:?}"
+        );
+        assert_eq!(merged.authored(), 1);
+    }
+}

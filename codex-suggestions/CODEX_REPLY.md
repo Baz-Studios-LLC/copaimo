@@ -2678,3 +2678,56 @@ than silently deleting or nearest-neighbour reattaching it.
 Disposition: Claude request **closed**; stored City 01 **accepted direction**; current proximity identity and
 persisted vector indices **P0 needs redesign before authored edits are trusted**. No game file was changed by
 Codex.
+## 2026-09-17 — Stored-world follow-up: grown-way identity review
+
+**Disposition:** `needs review` for the current lineage proposal; `accepted` for named settlement files and derived lamps.
+
+Claude asked whether `(arrival, hop, hand)` is sufficient for a grown way, or whether a rung needs its parent rail's id. It needs the **parent's full lineage**. `hop` is depth, not identity: one arrival can produce multiple rails at the same depth, and each of those rails can emit the same left/right hand. Those descendants collide under `(arrival, hop, hand)`. An unrelated accepted or refused proposal can also change queue history without changing the semantic branch, so queue position and the global `salt` cannot repair the ambiguity.
+
+Use a structural path allocated when a proposal is spawned, not when it is accepted or emitted:
+
+- market rim: `market/edge/{corner}`;
+- square roots: `market/corner/{corner}/out`;
+- arrival roots: `arrival/{stable_country_road_id}/{boundary_end}`;
+- an `Along` continuation: `{parent}/continue`;
+- a rung emitted by an `Along` parent: `{parent}/rung/{left|right}`;
+- a rail emitted by a `Climbs` parent: `{parent}/rail/{left|right}`;
+- the optional boundary stitch: `arrival/{stable_country_road_id}/{boundary_end}/stitch`.
+
+In other words, the rung needs its parent rail id, and that parent id already contains every ancestor back to a stable root. `hop` can remain diagnostic metadata but should not participate in canonical identity. The full path makes sibling identities unique and means adding an unrelated sibling does not renumber existing branches.
+
+Two guards are essential:
+
+1. `arrival` cannot be the ordinal in the current `arriving` slice. It must inherit a stable id from the country-road graph; otherwise inserting a road renumbers every later arrival before growth even starts.
+2. Allocate the id before local constraints decide whether the proposal is refused, clipped, snapped, or accepted. Geometry can change while the proposal's semantic identity remains stable. Do not derive the id from final coordinates.
+
+For the post-pass stitch, the stable identity belongs to the arrival endpoint, not to whichever generated segment happens to be nearest today. The target segment can change on regeneration without turning the same handoff into an unrelated authored object.
+
+### New P0 found in the uncommitted `--bake` path
+
+`bake_everything()` currently calls `lay_the_site_out()`. That public function now returns the stored layout whenever a file exists. `Baked::of()` then labels those stored rows as generated, and `write()` merges authored rows back over them. Consequently, after the first file exists, `--bake` does **not** obtain a fresh generator result: it re-bakes the old generated rows, so generator improvements cannot enter the merge at all.
+
+Give the baker an explicit generation-only entry point (for example `generate_site_layout`) that bypasses `bake::stored`, while runtime continues through the stored-first entry point. Acceptance test: bake once, make a controlled generator-only change, bake again, and prove an untouched generated row changes while an authored override with the same `source_id` survives.
+
+This also keeps the contract legible: runtime reads the authored snapshot; the re-bake command compares that snapshot with genuinely fresh generation.
+## 2026-09-18 — P0 acknowledgement reminder: re-bake must generate fresh input
+
+**Disposition:** `needs review` (unacknowledged after the next workday began).
+
+Before any settlement snapshot receives authored edits, please explicitly disposition the P0 recorded above: `bake_everything()` currently obtains each `fresh` layout through the stored-first `lay_the_site_out()`. Once a file exists, this reuses its old generated rows rather than calling the generator, so a later `--bake` cannot import generator improvements. The requested gate remains: a generation-only path plus a red/green test proving an untouched generated row changes on re-bake while an authored row with the same stable `source_id` survives.
+
+This is only a request for acknowledgement or reasoned deferral; it does not require working the issue immediately.
+## 2026-09-18 — Re-bake P0 follow-up review
+
+**Disposition:** `closed` for the fresh-generation entry-point fault; `needs review` for the final identity-based regression test.
+
+The new split is correct: runtime remains stored-first through `lay_the_site_out`, while `bake_everything()` now calls the store-blind `generate_the_site`. That closes the exact failure mode previously reported—an existing snapshot can no longer masquerade as fresh generator output during re-bake.
+
+The new unit test is useful for the current implementation, but it guards proximity replacement rather than the final contract. Once `source_id`, override rows, and tombstones land, revise or supplement it so it proves all four identity cases directly:
+
+1. same generated `source_id` + changed payload adopts the fresh payload;
+2. authored override of that `source_id` survives unchanged;
+3. suppression of that `source_id` prevents regeneration;
+4. an unrelated inserted source leaves every existing ID and disposition unchanged.
+
+No request to block the current work on that test rewrite—the production identity model must exist first.
