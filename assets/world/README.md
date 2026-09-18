@@ -85,5 +85,25 @@ Rules the files hold to, and why:
   position, radius and seed the rows were made from, so a stale file can be seen
   for what it is.
 
-Coming: stable per-row ids (so an edit follows *its* building through a re-bake
-rather than whatever lands nearest), and tombstones so a deleted row stays deleted.
+### Deleting something
+
+Don't delete the row — a re-bake would put it straight back, because a generated row
+has no name for anything to remember it by. Add a **veto** instead: a place the
+generator may not build on.
+
+```json
+"vetoes": [
+  { "at": [-2553.0, 2251.0], "within": 30.0, "kind": "Plots" }
+]
+```
+
+`kind` is `All`, `Plots`, `Ways` or `Opens`. That example empties the market square
+of its stalls and leaves the paving. A veto says *where*, not *which*, so it keeps
+working when the generator moves the building a few metres, and it goes quiet by
+itself if the generator stops putting anything there. It is indiscriminate by design:
+everything of that kind inside the circle goes.
+
+Vetoes survive every re-bake. Nothing else does, unless you marked it `Authored`.
+
+Coming: ids on authored rows, allocated when you author one, so two authored things
+can sit on top of each other without the 6 m rule confusing them.

@@ -83,6 +83,51 @@ pub struct Stamp {
     pub seed: u32,
 }
 
+/// A place where the generator is not to put anything, and what kind.
+///
+/// # A deletion cannot be a reference, because generated rows have no names
+///
+/// The obvious way to record "I deleted this building" is to name the row. It cannot
+/// be done: a generated row has no durable name, and every scheme for inventing one
+/// turns out to be a hash of the generator's current behaviour. Codex proposed a
+/// lineage path through the growth queue; two skeptics took it apart against the
+/// source, and the deepest reason is that the row we STORE is a post-planarise piece
+/// rather than anything the generator emitted, so an id minted at emission still
+/// needs an ordinal that renumbers when a neighbour changes.
+///
+/// So a deletion says WHERE rather than WHICH. It keeps working when the generator
+/// moves the building three metres, and it goes quiet of its own accord when the
+/// generator stops putting anything there. Nothing has to be named for it to work,
+/// which is exactly the property a name was supposed to provide.
+///
+/// The cost is honest and worth stating: a veto is indiscriminate. Two things the
+/// generator legitimately puts within `within` of each other both go.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug)]
+pub struct Veto {
+    pub at: Vec2,
+    /// How far the veto reaches, in metres.
+    pub within: f32,
+    /// Which kind it silences. `All` for "nothing here at all".
+    #[serde(default)]
+    pub kind: Vetoed,
+}
+
+/// What a veto silences.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Vetoed {
+    #[default]
+    All,
+    Plots,
+    Ways,
+    Opens,
+}
+
+impl Veto {
+    fn stops(&self, kind: Vetoed, at: Vec2) -> bool {
+        (self.kind == Vetoed::All || self.kind == kind) && self.at.distance(at) <= self.within
+    }
+}
+
 /// A settlement's layout, as a file.
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Baked {
@@ -92,6 +137,10 @@ pub struct Baked {
     pub opens: Vec<Row<Place>>,
     pub ways: Vec<Row<Way>>,
     pub plots: Vec<Row<Plot>>,
+    /// Where the generator is not to put anything. Survives every re-bake - see
+    /// `Veto`, which is the whole of how a deletion is recorded.
+    #[serde(default)]
+    pub vetoes: Vec<Veto>,
 }
 
 /// The shape of the file as this code understands it.
@@ -114,6 +163,8 @@ impl Baked {
             opens: laid.opens.iter().cloned().map(Row::made).collect(),
             ways: laid.ways.iter().cloned().map(Row::made).collect(),
             plots: laid.plots.iter().cloned().map(Row::made).collect(),
+            // A fresh bake vetoes nothing. `rebaked` carries the old file's across.
+            vetoes: Vec::new(),
         }
     }
 
@@ -123,12 +174,39 @@ impl Baked {
     /// terraces for the walls and the stairs - because those are derived and the
     /// file does not hold them.
     pub fn laid(&self) -> Layout {
+        // VETOED ROWS ARE DROPPED HERE, not at spawn time.
+        //
+        // The layout this returns is consumed by the LEVELLING as well as by the
+        // renderer - `settle::lay_the_town_out` turns every plot into a pad and
+        // every street into a lane while the world is being planned. A deleted
+        // building filtered only where it is drawn would leave its flattened pad
+        // in the ground: a rectangle of level earth with nothing standing on it.
+        let alive = |kind: Vetoed, at: Vec2| !self.vetoes.iter().any(|veto| veto.stops(kind, at));
         Layout {
-            opens: self.opens.iter().map(|row| row.what.clone()).collect(),
-            ways: self.ways.iter().map(|row| row.what.clone()).collect(),
+            opens: self
+                .opens
+                .iter()
+                .filter(|row| alive(Vetoed::Opens, row.what.at))
+                .map(|row| row.what.clone())
+                .collect(),
+            ways: self
+                .ways
+                .iter()
+                .filter(|row| {
+                    // A way is a chain; it is vetoed only if EVERY point is.
+                    // Half a street left standing is worse than either answer.
+                    !row.what.points.iter().all(|at| !alive(Vetoed::Ways, *at))
+                })
+                .map(|row| row.what.clone())
+                .collect(),
             streets: Vec::new(),
             nodes: Vec::new(),
-            plots: self.plots.iter().map(|row| row.what.clone()).collect(),
+            plots: self
+                .plots
+                .iter()
+                .filter(|row| alive(Vetoed::Plots, row.what.at))
+                .map(|row| row.what.clone())
+                .collect(),
             // Derived on the way in - see `town::finish`. Never in the file.
             lamps: Vec::new(),
             walls: Vec::new(),
@@ -165,6 +243,9 @@ impl Baked {
         Baked {
             version: VERSION,
             stamp: fresh.stamp,
+            // Carried, always. A veto that expired with the file it was written in
+            // would let the deleted building back the first time anybody re-baked.
+            vetoes: self.vetoes.clone(),
             opens: carry(&self.opens, fresh.opens, |place| place.at),
             plots: carry(&self.plots, fresh.plots, |plot| plot.at),
             // A way is a CHAIN, so it has no single place to compare. Its first
@@ -226,12 +307,25 @@ pub fn stored(name: &str) -> Option<&'static Baked> {
                     continue;
                 };
                 match serde_json::from_str::<Baked>(&text) {
+                    // A FILE FROM A LATER BUILD IS NOT READ.
+                    //
+                    // `VERSION` was written into every file and never looked at,
+                    // which makes it decoration. A file whose shape this build does
+                    // not know would be read with `#[serde(default)]` filling in
+                    // whatever it lacked - silently, and as a town somebody would
+                    // then edit. Older is fine and is the normal case; newer is not.
+                    Ok(baked) if baked.version > VERSION => error!(
+                        "{} is version {} and this build knows {VERSION} - generating                          instead. Re-bake with a newer build, or delete the file.",
+                        path.display(),
+                        baked.version
+                    ),
                     Ok(baked) => {
                         info!(
-                            "stored settlement {name}: {} ways, {} plots, {} authored",
+                            "stored settlement {name}: {} ways, {} plots, {} authored,                              {} vetoed",
                             baked.ways.len(),
                             baked.plots.len(),
-                            baked.authored()
+                            baked.authored(),
+                            baked.vetoes.len()
                         );
                         found.insert(name.to_string(), baked);
                     }
@@ -316,6 +410,44 @@ mod tests {
 
     fn plot(at: Vec2, what: Building) -> Plot {
         Plot { at, serves: None, district: District::Market, facing: 0.0, what }
+    }
+
+    /// A veto keeps a deleted thing deleted, through a re-bake and a move.
+    ///
+    /// # The three ways a deletion comes undone
+    ///
+    /// It comes back on the next re-bake, because the veto lived in the file that
+    /// was replaced. It comes back when the generator moves it a metre, because the
+    /// deletion named a row rather than a place. Or it half comes back: gone from
+    /// the drawing and still there in the ground, because the filter ran where the
+    /// layout is rendered rather than where it is returned - and the levelling
+    /// consumes the same layout to flatten a pad under every plot.
+    ///
+    /// This holds all three shut.
+    #[test]
+    fn a_veto_outlives_the_file_it_was_written_in() {
+        let mut had = Baked::default();
+        had.plots.push(Row::made(plot(Vec2::ZERO, Building::Cottage)));
+        had.vetoes.push(Veto { at: Vec2::ZERO, within: 8.0, kind: Vetoed::All });
+
+        // Gone from the layout the moment the file is read - which is the layout
+        // the levelling sees, not merely the one the renderer sees.
+        assert!(had.laid().plots.is_empty(), "the vetoed plot was laid out anyway");
+
+        // The generator puts it back, three metres over, and rebuilds the town.
+        let mut fresh = Baked::default();
+        fresh.plots.push(Row::made(plot(Vec2::new(3.0, 0.0), Building::Cottage)));
+        fresh.plots.push(Row::made(plot(Vec2::new(90.0, 0.0), Building::Shop)));
+
+        let merged = had.rebaked(fresh);
+        assert_eq!(merged.vetoes.len(), 1, "the veto did not survive the re-bake");
+        assert!(
+            merged.laid().plots.iter().all(|plot| plot.what != Building::Cottage),
+            "the deleted cottage came back: {:?}",
+            merged.laid().plots.iter().map(|p| (p.what, p.at)).collect::<Vec<_>>()
+        );
+        // And it silenced only what it was pointed at.
+        assert_eq!(merged.laid().plots.len(), 1, "the veto took something else with it");
     }
 
     /// A re-bake takes the generator's new rows and keeps the person's.

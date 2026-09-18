@@ -2731,3 +2731,53 @@ The new unit test is useful for the current implementation, but it guards proxim
 4. an unrelated inserted source leaves every existing ID and disposition unchanged.
 
 No request to block the current work on that test rewrite—the production identity model must exist first.
+## 2026-09-18 — Geometric veto review
+
+**Disposition:** `adapted`. I accept the rejection of generated-row lineage against the actual source. I accept a geometric veto as an honest **spatial exclusion rule**, but not as a perfect synonym for “delete this generated object.” That distinction should be explicit in the file format and editor.
+
+Claude’s counter-evidence is decisive: current roads lose their Prim endpoints, arrivals are 64 m pieces with duplicated joints, planarisation changes stored row boundaries, terrain-relative `hand` is not structural, and plot/building decisions consume unstable ranks. Assigning durable identity after those facts would create comforting names, not durable identities. Generated snapshot rows should remain anonymous unless the generator is later redesigned around identity from the start.
+
+### P0 in the current working veto implementation
+
+`Baked::laid()` applies vetoes to **every** row, including `Made::Authored`. That makes the main editing workflow fail: delete a generated cottage, place an authored replacement or prop in the cleared area, and the old veto silently deletes the authored replacement too. A generated-content veto must filter only `Made::Generated`; authored rows already have durable `rid`s and are deleted by removing that authored row.
+
+Required guard: a veto near an authored row suppresses the generated row but the authored row remains in `laid()`.
+
+### A point/radius is sufficient only for point-like generated content
+
+For plots and opens, a scoped exclusion volume is reasonable, provided it records at least:
+
+- generated layer (`Plots`, `Opens`, etc.); avoid `All` as an editor default;
+- optional semantic subtype where density makes the layer ambiguous (building/prop category);
+- finite positive radius with a conservative maximum and load-time validation;
+- future-compatible stratum/elevation scope, because two same-layer objects can eventually share XZ on different terraces, bridges, floors, or stacked streets.
+
+The multi-level case Claude named is real. `Plots` versus `Opens` happens to separate a stall and a doorway today, but it does not separate two ways, two props, or two plots at different elevations. The format should permit an optional elevation band or named stratum even if current single-heightfield content leaves it absent.
+
+### The current way predicate does not implement useful spatial deletion
+
+The code drops a way only when **every stored point** is inside a veto:
+
+`!points.iter().all(|at| !alive(Ways, *at))`
+
+A two-point street crossing directly through the veto with both endpoints outside survives. Conversely, expanding the radius until both endpoints fit can erase nearby streets too. Vertex containment is not polyline intersection.
+
+Treat way exclusion as geometry, not a point anchor: use segment-to-volume intersection (or a corridor/polygon mask), with an explicit rule for whether intersecting a junction-to-junction piece is removed whole or clipped and re-planarised. Add guards for a segment crossing a circle with both endpoints outside, a tangent/non-intersecting segment, and two vertically separated ways once strata exist.
+
+### What the veto can and cannot promise
+
+A veto means “keep generated content of this scope out of this place.” It deliberately persists and can suppress a *new, unrelated* generated object that occupies the area years later. It does not truly “go quiet” forever when the old generator row disappears; it becomes dormant and reactivates if matching content returns. That is acceptable if the editor calls it a keep-clear/exclusion zone and exposes it for review/removal. It is surprising if presented as object deletion.
+
+If the user must delete one of two indistinguishable, co-located generated objects while allowing the other to regenerate freely, no anonymous geometric scheme can express that intent. The choices are to refine the mask by subtype/height/shape, promote the kept or removed object into authored data, or redesign that generator family to own stable identity. Do not fake a row reference where none exists.
+
+### Acceptance gates for the veto model
+
+1. generated object inside the scoped veto is absent from both levelling/collision and rendering;
+2. authored replacement inside the same veto survives;
+3. same-layer object outside the volume survives;
+4. different-layer/subtype object at the same XZ survives;
+5. way geometry crossing the volume is handled according to the documented whole-piece/clip rule even when no vertex is inside;
+6. re-bake carries the veto unchanged and the same gates still pass;
+7. invalid/huge/non-finite veto data fails validation loudly rather than erasing a district.
+
+With those adaptations, veto-instead-of-reference is the right honest model for the current generator.
