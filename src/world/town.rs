@@ -2240,13 +2240,33 @@ impl Stair {
         //
         // So the head is read where the pavement is, and the flight hangs its own
         // rise below it.
+        // AND BY THE FLIGHT'S OWN RISE, not by one terrace.
+        //
+        // This subtracted `TERRACE_RISE` flat, which is right only while every
+        // flight climbs exactly that. Once a flight is cut to the drop it actually
+        // covers - see `Stair::rise` - a 2.99 m flight hung from a 3.6 m drop puts
+        // its landing 0.61 m BELOW the pavement it is supposed to meet, and the join
+        // that has to be exact is the one that stopped being exact.
+        //
+        // The whole figure scales, buried plinth and all, so the model's landing sits
+        // `(TERRACE_RISE + WALL_BURIED) * lift` above its origin. Hang the origin
+        // that far below the pavement and the landing is flush at any rise.
         stands_at(
             terrain,
             self.at - self.faces * 2.0,
             Vec2::splat(1.0),
             0.0,
-        ) - crate::world::settle::TERRACE_RISE
-            - WALL_BURIED
+        ) - (crate::world::settle::TERRACE_RISE + WALL_BURIED) * self.lift()
+    }
+
+    /// How much the figure is stretched to reach the drop it covers.
+    ///
+    /// One statement of it: the spawner scales the model by it, `foot` hangs the
+    /// model by it, and `tread_at` walks the surface it makes. Three readings of one
+    /// number, which is the only way the thing underfoot and the thing on screen can
+    /// be the same thing.
+    pub fn lift(&self) -> f32 {
+        self.rise / crate::world::settle::TERRACE_RISE
     }
 
     /// The height of the tread under `at`, if the flight has one there.
@@ -2273,7 +2293,7 @@ impl Stair {
         let foot = self.foot(terrain);
         // The model's own surface is `WALL_BURIED` above its origin plus the rise
         // it climbs - see `WALL_BURIED`, which is why `foot` is that far down.
-        let head = foot + WALL_BURIED + self.rise;
+        let head = foot + (crate::world::settle::TERRACE_RISE + WALL_BURIED) * self.lift();
         if down <= 0.0 {
             // The landing at the head, flush with the terrace above.
             return Some(head);
@@ -10020,30 +10040,40 @@ pub fn raise_the_towns(
             // here decides whether a flight belongs, and IS the rise the flight has
             // to climb. Taking only the first answer is what left flights standing
             // proud of the ground they start from - see `Stair::rise`.
-            layout.stairs.retain(|stair| {
+            layout.stairs.retain_mut(|stair| {
                 let head = stands_at(
                     terrain,
                     stair.at - stair.faces * 2.0,
                     Vec2::splat(1.0),
                     0.0,
                 );
+                // ACROSS THE RISER, not along the flight.
+                //
+                // Measured over the flight's own length this picks up the terrace
+                // beyond the riser as well - and a terrace is not perfectly flat, it
+                // falls a few tens of centimetres across itself. Down the harbour
+                // bank that made every rise read about 0.7 m too tall, the flights
+                // were stretched to match, and their landings stood proud again: the
+                // route got WORSE, 38 m short to 52. The riser is `RISER_RUNS` wide
+                // by construction - it is the same fact as the wall's thickness - so
+                // that plus a pace either side is what brackets it.
                 let foot = stands_at(
                     terrain,
-                    stair.at + stair.faces * (STAIR_FLIGHT + 3.0),
+                    stair.at + stair.faces * (crate::world::settle::RISER_RUNS + 2.5),
                     Vec2::splat(1.0),
                     0.0,
                 );
-                // NOT `stair.rise = head - foot` YET.
+                // AND THE FLIGHT IS CUT TO IT.
                 //
-                // Fitting the flight to the measured drop is the right idea and it
-                // is not enough on its own: tried, it opened a way through a wall
-                // that is meant to stop you - `--drive`'s "terrace wall" route
-                // arrived instead of being blocked - and left the bank as unwalkable
-                // as before. The reason is underneath both: outside the town's
-                // footprint the harbour descent is not stepped at all, it is a plain
-                // ramp with walls standing on it, and no amount of fitting furniture
-                // to a ramp makes a stair. See the note on `Stair::rise`.
-                head - foot >= WALL_SHOWS
+                // The same measurement answers both questions: how far the ground
+                // falls decides whether a flight belongs, and IS the rise it has to
+                // carry. Measured down the harbour bank the risers fall 2.99, 3.44,
+                // 3.81, 2.24 - near a terrace and never exactly one - and a flight
+                // built for 3.6 stands proud of the ground wherever the drop is less
+                // than that. `--drive` found the warden stopped 0.4 m from a flight,
+                // blocked by its own landing.
+                stair.rise = head - foot;
+                stair.rise >= WALL_SHOWS
             });
         }
 
@@ -10199,7 +10229,11 @@ pub fn raise_the_towns(
                     // and a flight that climbs the wrong amount is a lip at one end
                     // or a hole at the other. `tread_at` walks the same number, so
                     // the surface underfoot and the surface on screen are one thing.
-                    .with_scale(Vec3::new(stair.wide / STAIR_WIDE, 1.0, 1.0)),
+                    // Widened to the street it carries, and STRETCHED to the drop
+                    // it actually covers - see `Stair::rise`, measured off the
+                    // finished ground. `tread_at` walks the same number, so what is
+                    // underfoot and what is on screen are one thing.
+                    .with_scale(Vec3::new(stair.wide / STAIR_WIDE, stair.lift(), 1.0)),
                 Visibility::default(),
             ));
         }
@@ -11461,6 +11495,10 @@ mod tests {
             out - site.plan.reaches(site.radius)
         );
     }
+
+
+
+
 
 
 

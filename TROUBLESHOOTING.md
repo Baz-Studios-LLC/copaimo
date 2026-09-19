@@ -3385,33 +3385,42 @@ that reads its own last output through the cached path is a loop with no input.
 
 ## Walls on a ramp, and a flight of steps that blocks the way down
 
-**Issue.** The harbour bank was given retaining walls and flights of steps on every
-terrace edge. It looked right, and `--drive` found the warden could not get down it:
-stopped 1.5 m from a flight, blocked by the flight.
+**Issue.** The harbour bank was given retaining walls and flights on every terrace
+edge. It looked right, and `--drive` found the warden could not get down it: stopped
+1.5 m from a flight, blocked by the flight.
 
-**Solution.** Not fixed yet - diagnosed. `shore_drops` steps the descent only where
-`smoothstep(0, -TERRACE_HOLDS, off)` says the point is inside the town's PLAN
-footprint, and the harbour bank runs from the town's edge down to the water, so most
-of it lies outside. Outside, it returns `smooth` - a plain ramp.
+**Solution.** Four faults in a row, each one hiding the next.
 
-So the bank had no steps in it at all. The walls survived the spawner's "is there a
-step here" test because a ramp falling five metres over the eleven that test spans
-clears its 1.6 m bar, and a flight carries one fixed `TERRACE_RISE`, so on a ramp its
-landing stands proud of the ground it starts from: measured at 1.1 m against
-`player::STEP_UP` of 0.26.
+*The bank was not terraced at all.* `shore_drops` stepped the descent only inside the
+town's PLAN footprint, and the bank runs from the town's edge down to the water, so
+most of it lay outside - where it returned a plain ramp. The walls survived the
+spawner's "is there a step here" test because a ramp falling five metres over the
+eleven that test spans clears its 1.6 m bar.
 
-Two fixes were tried and both were wrong on their own. Making the whole harbour
-quarter count as built ground put risers across a road arriving through it
-(`a_road_arriving_at_a_town_takes_the_towns_level`, 1.64 m in 1.13 m), and widening
-the un-stepping corridor to hide that broke a second guard. Fitting the flight to the
-measured drop opened a way through a wall that is meant to stop you.
+*Letting the quarter step put risers across an arriving road.* The fix is not to hide
+that with a wider un-stepping corridor - it is to put the harbour somewhere else. The
+cove search now strikes out the town's approach axis before taking the nearest water,
+and the harbour moved from 3.482 rad to 1.466. Note that the guard which catches this
+walks `site.bearing`, NOT the roads: a first attempt struck out road polylines, passed
+its own filter, and failed the guard 0.298 rad away.
 
-The real order is: site the harbour where no road arrives, THEN let the quarter step,
-THEN fit the flights. Left as a red `--drive` route, "down to the harbour", which is
-the specification of the missing piece.
+*The corridor un-stepped the whole bank anyway.* `stepped_here` measures distance to
+the town's own streets as well as to roads, and in a city the streets are everywhere.
+Measured down the bank: -0.14, -0.75, -1.13, -1.15, -1.31 - a smooth accelerating ramp
+with no flat on it. The harbour quarter is now exempt, which it can be because no road
+arrives there any more.
+
+*And a flight carries one fixed rise.* The risers fall 2.99, 3.44, 3.81 - near a
+terrace, never exactly one - so a flight built for 3.6 m stood proud wherever the drop
+was less. Each flight is now cut to the drop it covers. Two things had to follow it:
+the rise is measured ACROSS THE RISER rather than along the flight (over the flight's
+length it picks up the terrace beyond, read 0.7 m too tall, and the route got worse),
+and `Stair::foot` hung the model by a hardcoded `TERRACE_RISE` - so a 2.99 m flight
+landed 0.61 m below the pavement it was supposed to meet. `Stair::lift` is that scale,
+stated once and read by the spawner, the hanging and the treads.
 
 **Worth knowing.** A test aimed at the wrong object reads as a failure of the right
-one. "terrace wall" began failing here, and the wall was fine: the route picked the
+one. "terrace wall" began failing here and the wall was fine: the route picked the
 longest wall in the LAYOUT, and the spawner discards every wall the ground does not
-step under, so it was aimed at a wall that never existed. Both now ask
-`town::wall_stands`.
+step under, so it was aimed at a wall that never existed. Both ask `town::wall_stands`
+now.

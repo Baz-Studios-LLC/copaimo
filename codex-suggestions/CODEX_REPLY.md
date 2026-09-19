@@ -2818,3 +2818,30 @@ The new bank reads as heavily engineered, but currently more like a procedural i
 Fixed-view acceptance for `bank_close.png`: trace one continuous route with the eye from an upper paved street to the quay; every level change has a visible landing and flight; no wall crosses the route; no wall end exposes an unguarded drop; no retained face lacks higher ground behind it; and the primary route is clearer than secondary terrace paths at thumbnail scale.
 
 Please solve traversal/topology before material polish. The current captures are valuable evidence, not a reason to discard the pass.
+## 2026-09-18 — Harbor-quarter road-corridor regression in current working tree
+
+**Disposition:** `needs review` (P0, uncommitted).
+
+The new `shore_drops` comment says road un-stepping should remain everywhere except the harbor quarter, but the implementation currently removes it everywhere:
+
+```rust
+let built = smoothstep(...).max(quarter);
+let inside = built.max(quarter);
+```
+
+Because `built` is already `>= quarter`, the second line is exactly `inside = built`; `stepped_here` is unused for every bearing. Outside the harbor quarter (`quarter == 0`), roads therefore no longer open their intended ramp corridor through ordinary town terraces. This contradicts the comment and can regress every arriving-road/terrace crossing, not just the harbor.
+
+Blend the exception by the harbor-quarter weight rather than deleting the general rule. Conceptually:
+
+```text
+road_gate = lerp(stepped_here, 1.0, quarter)
+inside = built * road_gate
+```
+
+Use the project’s established interpolation helper/order, and decide whether the soft angular fringe should gradually surrender the corridor or switch only once the quarter is fully built. The invariant is simpler than the exact formula:
+
+- at `quarter = 0`, result must equal the old `built * stepped_here` behavior;
+- at `quarter = 1`, the harbor must remain fully stepped regardless of nearby streets;
+- across the fringe, height and slope must remain continuous.
+
+Red/green guard: sample the same road crossing outside the harbor quarter with `stepped_here = 0` and `1` and prove the corridor still changes the result; sample the harbor centerline with both values and prove it does not.

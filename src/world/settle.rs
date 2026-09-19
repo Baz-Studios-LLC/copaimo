@@ -141,6 +141,17 @@ const ROAD_UNSTEPS: f32 = 13.0;
 /// rest of the town's edge is left alone.
 const HARBOUR_SPANS: f32 = 0.62;
 
+/// How near the town a road has to pass to count as arriving at it, in metres.
+///
+/// Past the town's own reach by more than the harbour descent runs - the bank
+/// carries on `SHORE_STANDS + SHORE_EASES` beyond the footprint, and a road crossing
+/// it out there crosses the risers just the same.
+const ROAD_ARRIVES_WITHIN: f32 = 160.0;
+
+/// How much clear air the harbour quarter wants beyond its own span, either side,
+/// before a road counts as out of its way.
+const HARBOUR_CLEARS_A_ROAD: f32 = 0.30;
+
 /// How far past that the town eases out of the ground entirely, in metres.
 ///
 /// Long, because this is the whole transition from a levelled plateau to a natural
@@ -724,11 +735,25 @@ pub fn harbour_quarter(site: &Site, at: Vec2) -> f32 {
     if site.harbour.is_nan() {
         return 0.0;
     }
-    let turned = crate::world::town::angle_between(
-        (at - site.at).y.atan2((at - site.at).x),
-        site.harbour,
+    let away = at - site.at;
+    let turned = crate::world::town::angle_between(away.y.atan2(away.x), site.harbour);
+    // AND IT ENDS WITH THE TOWN.
+    //
+    // This was an angle and nothing else - a wedge running to the horizon. While the
+    // descent only stepped inside the plan's footprint that cost nothing, because
+    // the footprint bounded it. The moment the quarter itself was allowed to say
+    // "this is built ground", the wedge terraced every piece of coast it crossed:
+    // `a_towns_terraces_stop_at_its_own_edge` found a 1.66 m step 160 m outside the
+    // city and 500 m from its middle, on a shore the town has never seen.
+    //
+    // A harbour quarter is a quarter OF A TOWN. It reaches as far as the town's own
+    // ground and the bank below it, and no further.
+    let out = crate::util::smoothstep(
+        crate::world::town::town_reaches(site) + SHORE_EASES,
+        crate::world::town::town_reaches(site) + SHORE_STANDS,
+        away.length(),
     );
-    crate::util::smoothstep(HARBOUR_SPANS, HARBOUR_SPANS * 0.55, turned)
+    crate::util::smoothstep(HARBOUR_SPANS, HARBOUR_SPANS * 0.55, turned) * out
 }
 
 /// How many terraces the ground has stepped DOWN by here, on the way to the harbour.
@@ -795,8 +820,40 @@ fn shore_drops(site: &Site, at: Vec2, stepped_here: f32) -> f32 {
     // appear inside the town's own ground and the same descent outside it is the
     // plain bank the land would have anyway - which is what
     // `a_towns_terraces_stop_at_its_own_edge` is there to insist on.
+    // THE HARBOUR QUARTER IS THE TOWN'S OWN WORK, wherever it lies.
+    //
+    // It runs from the town's edge DOWN TO THE WATER, so most of it is outside the
+    // footprint - and gated on the footprint alone the whole bank came back as
+    // `smooth`, a plain ramp. Which LOOKED terraced, because walls were being stood
+    // along it and a ramp falling five metres over eleven clears the "is there a
+    // step here" test that keeps a wall. It had no steps in it at all.
+    //
+    // `--drive` is what found it: the warden set off down the bank for the harbour
+    // and stopped 1.5 m from a flight of steps, blocked by the flight. A flight
+    // carries one fixed rise, so on a ramp its landing sits proud of the ground it
+    // starts from - 1.1 m, against `player::STEP_UP` of 0.26.
+    //
+    // This was tried once before and put risers across a road arriving through the
+    // quarter. The harbour is now sited clear of the roads - see the cove search in
+    // `plan` - so there is no road to cross.
     let off = site.plan.off(at - site.at, site.bearing, site.radius);
-    let inside = crate::util::smoothstep(0.0, -TERRACE_HOLDS, off) * stepped_here;
+    let built = crate::util::smoothstep(0.0, -TERRACE_HOLDS, off).max(quarter);
+    // AND NOT UN-STEPPED BY EVERY STREET IT PASSES.
+    //
+    // `stepped_here` opens a corridor of plain ramp wherever a route runs, so a road
+    // need not climb a riser. It was written for the road ARRIVING at the town, and
+    // it takes its distance from the town's own streets as well - because a country
+    // road's claim is trimmed at the boundary and a street is what carries the route
+    // inside. In a city the streets are everywhere, so the corridor was open
+    // everywhere: measured down the bank, the ground fell -0.14, -0.75, -1.13,
+    // -1.15, -1.31, -1.43, -1.52, -1.71, -1.90 - a smooth accelerating ramp with no
+    // flat anywhere on it, which is exactly what `stepped_here` asks for.
+    //
+    // The harbour is now sited clear of the approach axis, so there is no arriving
+    // road to protect here, and a street that meets a riser simply becomes the steps
+    // - this world has no carts in it. The corridor keeps its job everywhere else;
+    // the harbour quarter is the one place it has nothing to do.
+    let inside = built.max(quarter);
     if inside <= 0.0 {
         return smooth * quarter;
     }
@@ -1562,14 +1619,79 @@ impl Settlements {
             // AND WHICH WAY THE HARBOUR LIES: the bearing on which the water
             // comes closest to the middle. Found from the same grid, so the quay
             // and the terraced approach to it agree by construction.
-            let mut cove: Option<(f32, f32)> = None;
+            //
+            // # But not where a road comes in
+            //
+            // The nearest water is the obvious answer and it was the wrong one. A
+            // harbour is a quarter of the town cut into terraces from its edge down
+            // to the quay, and a road arriving through that quarter has to cross
+            // every riser. It cannot: `a_road_arriving_at_a_town_takes_the_towns
+            // _level` measured 1.64 m in 1.13 m where one did, and the corridor that
+            // un-steps the ground around a route only trades that seam for another.
+            //
+            // A harbour town does not put its quay across its own high road, so this
+            // does not either. Bearings where a road arrives are struck out first,
+            // and the nearest water on what is left is the cove. If a road arrives on
+            // every side the old answer stands, because a harbour on a road beats no
+            // harbour at all.
+            let reach = crate::world::town::town_reaches(&settlements.sites[which]);
+            let mut taken: Vec<f32> = Vec::new();
+            for road in &settlements.roads {
+                // WALKED, not asked about its ends.
+                //
+                // A country road is many 64 m pieces and it was enough, apparently,
+                // to take each piece's endpoints - it is not. The piece that cut the
+                // harbour quarter crossed it at 0.298 rad from the cove while its
+                // nearest endpoint sat 1.007 away and 417 m out, just past the cut,
+                // so the road was invisible to this and the harbour was sited on top
+                // of it anyway. Measured after the fact, which is the only reason it
+                // was found.
+                let run = road.to - road.from;
+                let long = run.length().max(1.0);
+                let mut along = 0.0;
+                while along <= long {
+                    let away = road.from + run * (along / long) - middle;
+                    if away.length() < reach + ROAD_ARRIVES_WITHIN {
+                        taken.push(away.y.atan2(away.x));
+                    }
+                    along += 8.0;
+                }
+            }
+            // AND THE APPROACH AXIS ITSELF, which is the one that actually bit.
+            //
+            // `a_road_arriving_at_a_town_takes_the_towns_level` does not walk the
+            // roads. It walks `site.bearing` and its opposite - the axis the town
+            // faces, which is where a road is taken to arrive - and asks the ground
+            // never to jump along it. So the bearing to keep a harbour off is that
+            // axis, and striking out road polylines missed it entirely: the filter
+            // reported the cove clear while the guard failed 0.298 rad away from it.
+            //
+            // The town's radials are set out from the same axis, so this keeps the
+            // harbour off the high street as well as off the road that becomes it.
+            let facing = settlements.sites[which].bearing;
+            taken.push(facing);
+            taken.push(facing + std::f32::consts::PI);
+
+            let clear_of_roads = |bearing: f32| {
+                taken.iter().all(|road| {
+                    crate::world::town::angle_between(bearing, *road)
+                        > HARBOUR_SPANS + HARBOUR_CLEARS_A_ROAD
+                })
+            };
+            let (mut cove, mut anywhere): (Option<(f32, f32)>, Option<(f32, f32)>) =
+                (None, None);
             for turn in 0..240 {
                 let bearing = std::f32::consts::TAU * turn as f32 / 240.0;
                 let way = Vec2::from_angle(bearing);
                 let mut step = 40.0;
                 while step < SHORE_ACROSS as f32 * SHORE_STEP * 0.5 {
                     if shore.away_from_water(middle + way * step) == Some(0.0) {
-                        if cove.is_none_or(|(had, _)| step < had) {
+                        if anywhere.is_none_or(|(had, _)| step < had) {
+                            anywhere = Some((step, bearing));
+                        }
+                        if clear_of_roads(bearing)
+                            && cove.is_none_or(|(had, _)| step < had)
+                        {
                             cove = Some((step, bearing));
                         }
                         break;
@@ -1577,7 +1699,8 @@ impl Settlements {
                     step += 4.0;
                 }
             }
-            settlements.sites[which].harbour = cove.map_or(f32::NAN, |(_, bearing)| bearing);
+            settlements.sites[which].harbour =
+                cove.or(anywhere).map_or(f32::NAN, |(_, bearing)| bearing);
             settlements.sites[which].water = shore;
         }
 
