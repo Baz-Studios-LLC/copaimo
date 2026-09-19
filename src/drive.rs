@@ -478,6 +478,19 @@ pub fn start_the_route(
 
     if !driving.resolved {
         driving.routes = plan_the_routes(&terrain.0);
+        // NARROWED, if a name was asked for.
+        //
+        // `--drive` walks thirty-six routes and takes three minutes, which is the
+        // right thing when the question is "is anything broken" and the wrong tool
+        // entirely when the question is "why does THIS one fail one run in five".
+        // A substring, because the names carry their frame rate and gait.
+        if let Some(only) = std::env::args()
+            .skip_while(|arg| arg != "--only")
+            .nth(1)
+        {
+            driving.routes.retain(|route| route.name.contains(&only));
+            info!("only the {} routes whose name holds {only:?}", driving.routes.len());
+        }
         driving.resolved = true;
         info!("driving {} routes", driving.routes.len());
     }
@@ -644,8 +657,15 @@ pub fn watch(
         Some((
             route.expect == Expect::Blocked,
             format!(
-                "stopped {:.2} m short after {:.1} s without progress",
-                driving.best, driving.since_progress
+                // WHERE, not only how far. A distance says a route failed and a
+                // position says what it failed against - and for an intermittent
+                // one it is the only way to tell whether it is the same obstacle
+                // every time or a different one.
+                "stopped {:.2} m short at ({:.0}, {:.0}) after {:.1} s without progress",
+                left,
+                here.x,
+                here.y,
+                driving.since_progress,
             ),
         ))
     } else if driving.seconds > route.within {

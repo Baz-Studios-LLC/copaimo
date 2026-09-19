@@ -2277,9 +2277,23 @@ impl Stair {
         // The whole figure scales, buried plinth and all, so the model's landing sits
         // `(TERRACE_RISE + WALL_BURIED) * lift` above its origin. Hang the origin
         // that far below the pavement and the landing is flush at any rise.
+        // AT THE LANDING'S OWN BACK EDGE, which is where it is met.
+        //
+        // This read two metres behind the flight's middle while the landing only
+        // reaches `STAIR_LANDS` - 1.4 m - so the landing was hung flush with ground
+        // the warden never stands on, and met flush with ground six hundred
+        // millimetres further down the bank. On a bank falling a quarter of a metre
+        // per metre that is a lip, and measured along the harbour descent it came to
+        // 0.246 m against a `player::STEP_UP` of 0.26.
+        //
+        // Which is why the route was flaky rather than broken: at 94% of the step
+        // allowance it passed, until a camera forward differing in the sixth decimal
+        // moved the warden far enough sideways for the lip to be the other side of
+        // the limit. A test that fails one run in five is usually a margin this
+        // thin.
         stands_at(
             terrain,
-            self.at - self.faces * 2.0,
+            self.at - self.faces * STAIR_LANDS,
             Vec2::splat(1.0),
             0.0,
         ) - (crate::world::settle::TERRACE_RISE + WALL_BURIED) * self.lift()
@@ -10101,7 +10115,7 @@ pub fn raise_the_towns(
             layout.stairs.retain_mut(|stair| {
                 let head = stands_at(
                     terrain,
-                    stair.at - stair.faces * 2.0,
+                    stair.at - stair.faces * STAIR_LANDS,
                     Vec2::splat(1.0),
                     0.0,
                 );
@@ -11582,6 +11596,7 @@ mod tests {
 
 
 
+
     #[test]
     fn the_ground_between_two_buildings_has_no_step_in_it() {
         let terrain = crate::world::terrain::Terrain::new();
@@ -12731,6 +12746,82 @@ mod tests {
                 one.what, one.at, other.what, other.at
             );
         }
+    }
+
+    /// The way down to the harbour has room in it, not just enough.
+    ///
+    /// # A test that fails one run in five is a margin this thin
+    ///
+    /// `--drive` walked this descent and arrived - four times in five. The fifth it
+    /// stopped 37.8 m short at the same spot every time, and the start states of a
+    /// passing run and a failing one differed only in the sixth decimal of the
+    /// camera's forward. Nothing was random: the route simply passed through one
+    /// flight with almost no margin, and a lateral nudge of a few millimetres put
+    /// the lip there on the other side of `player::STEP_UP`.
+    ///
+    /// Measured, it was 0.246 m against an allowance of 0.26 - 94% of it. So this
+    /// walks the surface a warden actually stands on, the whole way down, and asks
+    /// for real room rather than for a pass. Half the allowance is the bar: at that
+    /// the route is decided by the descent rather than by floating point.
+    #[test]
+    fn the_way_down_to_the_harbour_has_room_in_it() {
+        let terrain = crate::world::terrain::Terrain::new();
+        let plan = terrain.plan();
+        let Some(key) = plan.sites().iter().position(|site| site.first) else {
+            return;
+        };
+        let site = &plan.sites()[key];
+        if site.harbour.is_nan() {
+            return;
+        }
+        let mut laid = lay_the_site_out(plan, key, site);
+        // AS THE SPAWNER LEAVES IT. A flight is cut to the drop the finished ground
+        // has, and measuring the layout's own untouched `rise` would test a set of
+        // stairs the game never builds.
+        laid.stairs.retain_mut(|stair| {
+            let head = stands_at(
+                &terrain,
+                stair.at - stair.faces * STAIR_LANDS,
+                Vec2::splat(1.0),
+                0.0,
+            );
+            let foot = stands_at(
+                &terrain,
+                stair.at + stair.faces * (crate::world::settle::RISER_RUNS + 2.5),
+                Vec2::splat(1.0),
+                0.0,
+            );
+            stair.rise = head - foot;
+            stair.rise >= WALL_SHOWS
+        });
+
+        let down = Vec2::from_angle(site.harbour);
+        let top = crate::world::settle::shore_ring(site, 0, site.harbour).unwrap_or(120.0);
+        let mut last = f32::NAN;
+        let mut worst = (0.0_f32, 0.0_f32);
+        // Five centimetres at a time, which is finer than any stride.
+        for step in 0..1600 {
+            let along = top - 20.0 + step as f32 * 0.05;
+            let at = site.at + down * along;
+            let ground = terrain.walk_height(at.x, at.y);
+            let on = laid
+                .stairs
+                .iter()
+                .filter_map(|stair| stair.tread_at(&terrain, at))
+                .fold(ground, f32::max);
+            if last.is_finite() && on - last > worst.0 {
+                worst = (on - last, along);
+            }
+            last = on;
+        }
+        assert!(
+            worst.0 < crate::player::STEP_UP * 0.5,
+            "the way down steps up {:.3} m at {:.0} m out, and a warden may take              {:.2} - that is {:.0}% of the allowance, which is how the route came to              fail one run in five",
+            worst.0,
+            worst.1,
+            crate::player::STEP_UP,
+            worst.0 / crate::player::STEP_UP * 100.0
+        );
     }
 
     /// The stair carries the same step the wall it breaks holds up.

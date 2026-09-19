@@ -3424,3 +3424,35 @@ one. "terrace wall" began failing here and the wall was fine: the route picked t
 longest wall in the LAYOUT, and the spawner discards every wall the ground does not
 step under, so it was aimed at a wall that never existed. Both ask `town::wall_stands`
 now.
+
+## A playtest route that failed one run in five
+
+**Issue.** `--drive`'s "down to the harbour" arrived four times in five and the fifth
+stopped 37.8 m short — at the same spot every time.
+
+**Solution.** Nothing was random. Logged at the moment each run begins, a passing run
+and a failing one differed only in the sixth decimal of the camera's forward: the
+settling phase runs on real time while the run itself is a fixed step, and the
+camera's exponential smoothing converges to within float noise rather than exactly.
+
+That noise decided it because the route passed through one flight with almost no
+margin. Measured along the surface a warden actually stands on, the worst step up was
+**0.246 m against a `player::STEP_UP` of 0.26** — 94% of the allowance. A few
+millimetres sideways put it over.
+
+The lip itself: `Stair::foot` hung the flight so its landing was flush with the ground
+**two metres** behind the flight's middle, while the landing only reaches
+`STAIR_LANDS`, 1.4 m. So it was hung flush with ground nobody stands on and met flush
+with ground 600 mm further down a bank falling a quarter-metre per metre. Reading the
+head at the landing's own back edge takes the worst step to 0.071 m, 27% of the
+allowance.
+
+**Worth knowing.** A test that fails one run in five is usually a margin this thin,
+not a race. The fix is not to make the harness deterministic - it is to find what has
+no room in it. `the_way_down_to_the_harbour_has_room_in_it` now asserts half the step
+allowance along the whole descent, so the next time this gets close it fails every
+run instead of one in five.
+
+Two tools this needed and did not have: `--drive --only <name>`, which takes a single
+route from three minutes to twenty seconds, and a stopped-position in the failure
+message - a distance says a route failed, a position says what it failed against.
