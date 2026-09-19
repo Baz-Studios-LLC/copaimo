@@ -129,6 +129,11 @@ so that is all `wild.json` holds:
 `kind` is `All`, `Trees` or `Props` — props being boulders, logs, stumps and brush.
 That example clears a 110 m circle of woodland and leaves the boulders standing in it.
 
+**In the editor**, point the brush at a tree and press `Delete`. If nothing of yours
+is under the ring it writes a veto covering the ring instead, and says how many trees
+it took — so the usual way to clear a wood is to look at it rather than to work out
+its coordinates.
+
 Like a settlement's vetoes this says *where*, not *which*, because a generated tree
 has no name. It keeps working when the generator jitters the tree a metre, and it
 costs nothing in a world nobody has edited — the file is empty, and the check is one

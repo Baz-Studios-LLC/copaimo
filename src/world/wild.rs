@@ -87,6 +87,7 @@ fn said() -> &'static Wild {
                 if !wild.vetoes.is_empty() {
                     info!("the wild: {} vetoes", wild.vetoes.len());
                 }
+                *LIVE.write().expect("the wild is not poisoned") = wild.vetoes.clone();
                 wild
             }
             // LOUD, and then plant anyway. A file somebody is editing by hand will be
@@ -100,15 +101,54 @@ fn said() -> &'static Wild {
     })
 }
 
+/// Says the generator may not put `kind` within `within` of `at`, and writes it down.
+///
+/// Returns false if the file could not be written, which the caller should say out
+/// loud - a veto that was not saved looks exactly like one that was until the game is
+/// next started.
+///
+/// The read is a `OnceLock` and cannot be refilled, so the new veto is pushed into
+/// the live copy as well. That is the whole of the cache invalidation here, and it is
+/// sound because the file only ever grows from this one door.
+pub fn forbid(kind: Wilding, at: Vec2, within: f32) -> bool {
+    // SAFETY of a sort: `said()` fills the lock before this takes a lock of its own,
+    // so the initialiser cannot run while the write lock is held.
+    let _ = said();
+    let mut live = LIVE.write().expect("the wild is not poisoned");
+    live.push(Veto { at, within, kind });
+    let wild = Wild { version: VERSION, vetoes: live.clone() };
+    let Ok(text) = serde_json::to_string_pretty(&wild) else {
+        return false;
+    };
+    let path = path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(&path, text).is_ok()
+}
+
 /// Whether the generator may put a thing of this kind here.
 ///
 /// The common case is a world with nothing said about it, and that costs one slice
 /// length - worth caring about, because this is asked once per lattice slot per chunk
 /// and a chunk holds thousands.
 pub fn may_stand(kind: Wilding, at: Vec2) -> bool {
-    let vetoes = &said().vetoes;
-    vetoes.is_empty() || !vetoes.iter().any(|veto| veto.stops(kind, at))
+    // THE FILE FIRST, or the first question is answered before it is read. After the
+    // first call this is a load and nothing else.
+    let _ = said();
+    let live = LIVE.read().expect("the wild is not poisoned");
+    if live.is_empty() {
+        return true;
+    }
+    !live.iter().any(|veto| veto.stops(kind, at))
 }
+
+/// The vetoes as they stand, file plus anything said since.
+///
+/// A `OnceLock` cannot be refilled, and the editor adds vetoes while the game is
+/// running - so the lock holds what was READ and this holds what is TRUE. `said()`
+/// fills both, once.
+static LIVE: std::sync::RwLock<Vec<Veto<Wilding>>> = std::sync::RwLock::new(Vec::new());
 
 #[cfg(test)]
 mod tests {
@@ -147,5 +187,29 @@ mod tests {
     fn an_unedited_world_is_never_vetoed() {
         assert!(may_stand(Wilding::Trees, Vec2::new(1234.0, -567.0)));
         assert!(may_stand(Wilding::Props, Vec2::ZERO));
+    }
+
+    /// A veto said in the editor is remembered before the file is next read.
+    ///
+    /// # The cache that cannot be refilled
+    ///
+    /// The file is read into a `OnceLock`, because `trees_in` runs on every
+    /// streaming thread and must not do IO. A `OnceLock` cannot be refilled - so a
+    /// veto written while the game is running would be in the file and NOT in the
+    /// answer, and the tree a maker just deleted would stay standing until restart.
+    /// `LIVE` is what is true; the lock is only what was read.
+    #[test]
+    fn a_veto_said_now_is_obeyed_now() {
+        let here = Vec2::new(-77_000.0, 41_000.0);
+        assert!(may_stand(Wilding::Trees, here), "nothing should be vetoed out here");
+        LIVE.write()
+            .expect("the wild is not poisoned")
+            .push(Veto { at: here, within: 20.0, kind: Wilding::Trees });
+        assert!(!may_stand(Wilding::Trees, here), "the veto was not obeyed");
+        assert!(
+            may_stand(Wilding::Props, here),
+            "it silenced a kind it did not name"
+        );
+        LIVE.write().expect("the wild is not poisoned").clear();
     }
 }

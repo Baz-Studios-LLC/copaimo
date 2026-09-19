@@ -1303,11 +1303,51 @@ fn keep_the_work(
 /// It is deliberately not the workbench. There is no gizmo, no snapping and no
 /// picking a piece from a shelf — that is the next job, and it can be built on
 /// this without any of this changing.
+/// Takes away whatever the generator put under the brush, by forbidding it.
+///
+/// # A tree has no name, so it is taken away by place
+///
+/// Everything a maker can already delete is something they placed, and it goes by
+/// its id. Everything else in the world - every tree, every boulder - is a pure
+/// function of its lattice slot and has no id at all. Deleting one means saying the
+/// generator may not plant there, which is what `world::wild` is for.
+///
+/// The radius is the BRUSH's, so the ring a maker can see is the ring that goes -
+/// the same rule every other tool here keeps. Trees are asked about before props
+/// because a wood is what a maker is usually looking at.
+fn take_away_the_wild(
+    terrain: &crate::world::terrain::Terrain,
+    at: Vec2,
+    radius: f32,
+) -> Option<String> {
+    use crate::world::wild::{forbid, Wilding};
+    let half = Vec2::splat(radius);
+    let trees = terrain.trees_in(at - half, at + half);
+    let many = trees
+        .iter()
+        .filter(|tree| Vec2::new(tree.at.x, tree.at.z).distance(at) <= radius)
+        .count();
+    if many == 0 {
+        return None;
+    }
+    if !forbid(Wilding::Trees, at, radius) {
+        return Some("Could not write the veto - see the log".into());
+    }
+    Some(match many {
+        1 => "Took away the tree".into(),
+        many => format!("Took away {many} trees"),
+    })
+}
+
 fn place_things(
     keys: Res<ButtonInput<KeyCode>>,
     catalogue: Res<crate::build::Catalogue>,
     brush: Res<Brush>,
     free: Res<CursorFree>,
+    // OPTIONAL, because placing and carrying need no terrain and the editor's own
+    // tests stand up an app without one. Only taking away a GENERATED thing needs to
+    // ask the world what is there.
+    terrain: Option<Res<TerrainSource>>,
     mut placed: ResMut<crate::world::placed::Standing>,
     mut carrying: ResMut<Carrying>,
     mut asked: EventReader<Asked>,
@@ -1371,7 +1411,20 @@ fn place_things(
                 placed.remove(id);
                 toast.show(format!("Took away the {what}"));
             }
-            None => toast.show("Nothing of yours under the brush"),
+            // AND IF IT IS NOT YOURS, IT CAN STILL GO.
+            //
+            // This said "nothing of yours under the brush" and stopped, which was
+            // true and useless: nearly everything under the brush belongs to the
+            // generator. A tree has no id to delete it by, so what gets written is a
+            // veto - a place the generator may not plant - and the wood comes up
+            // without it from here on. See `world::wild`.
+            None => match terrain
+                .as_ref()
+                .and_then(|terrain| take_away_the_wild(&terrain.0, at, brush.radius))
+            {
+                Some(said) => toast.show(said),
+                None => toast.show("Nothing under the brush"),
+            },
         }
         return;
     }
