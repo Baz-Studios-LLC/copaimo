@@ -2193,6 +2193,25 @@ pub struct Stair {
     pub faces: Vec2,
     /// How wide the flight is, which is the width of the street it carries.
     pub wide: f32,
+    /// How far the flight climbs, in metres.
+    ///
+    /// # A flight fits its ground, or it is a wall with treads on it
+    ///
+    /// This was `TERRACE_RISE` everywhere, because a ring's riser is exactly that by
+    /// construction. The harbour descent is not: its steps are the ground blended
+    /// between a quantised drop and a plain ramp, so they fall by whatever they fall
+    /// by - measured at 2.22, 4.10, 5.55, 4.99 and 1.60 m down one bank.
+    ///
+    /// Where the ground drops LESS than the flight climbs, the flight's landing
+    /// stands proud of the terrace it starts from, and that lip is a step up: 1.1 m
+    /// against `player::STEP_UP` of 0.26. `--drive` found it exactly - the warden
+    /// walked down the bank for the harbour and stopped 1.5 m from a flight of
+    /// steps, blocked by the steps.
+    ///
+    /// So the rise is measured off the finished terrain when the town is raised, and
+    /// the model is stretched to it. `TERRACE_RISE` is the default because that is
+    /// what the figure was built for and what a ring always wants.
+    pub rise: f32,
 }
 
 impl Stair {
@@ -2254,7 +2273,7 @@ impl Stair {
         let foot = self.foot(terrain);
         // The model's own surface is `WALL_BURIED` above its origin plus the rise
         // it climbs - see `WALL_BURIED`, which is why `foot` is that far down.
-        let head = foot + WALL_BURIED + crate::world::settle::TERRACE_RISE;
+        let head = foot + WALL_BURIED + self.rise;
         if down <= 0.0 {
             // The landing at the head, flush with the terrace above.
             return Some(head);
@@ -2275,7 +2294,7 @@ impl Stair {
         // the cost is that a foot sits up to half a riser - nine centimetres - into
         // the tread behind it. Nine centimetres of shoe against a flight nobody can
         // climb is not a close call.
-        Some(head - crate::world::settle::TERRACE_RISE * (down / STAIR_FLIGHT))
+        Some(head - self.rise * (down / STAIR_FLIGHT))
     }
 }
 
@@ -2361,7 +2380,33 @@ fn retain_the_terraces(
     // varies with it - see `settle::ring_edge`, which is built out of waves so the
     // loop is bound to close.
     let steps_round = 240;
-    for which in 0..bands as usize {
+    // THE RINGS AND THE HARBOUR DESCENT, walked the same way.
+    //
+    // A terrace edge is a terrace edge: the rings are one family of them and the
+    // steps down to the quay are another, and both want a wall along them with a
+    // flight where a route crosses. The only thing that differs is where the edge
+    // is on a given bearing - a formula for a ring, a search through the
+    // distance-to-water field for a shore step - so that is the only thing the two
+    // hand over separately. Everything after it is one piece of code.
+    enum Edge {
+        Ring(usize),
+        Shore(usize),
+    }
+    let edges: Vec<Edge> = (0..bands as usize)
+        .map(Edge::Ring)
+        .chain((0..crate::world::settle::shore_steps(site) as usize).map(Edge::Shore))
+        .collect();
+    for edge in &edges {
+        // How far out this edge lies on a bearing, if it lies there at all. A shore
+        // step exists only across the harbour quarter; a ring runs all the way round.
+        let reaches = |bearing: f32| -> Option<f32> {
+            match edge {
+                Edge::Ring(which) => {
+                    Some(crate::world::settle::ring_edge(site, *which, bearing))
+                }
+                Edge::Shore(step) => crate::world::settle::shore_ring(site, *step, bearing),
+            }
+        };
         // Where the street crossings are, so the run can be broken for them.
         let mut breaks: Vec<(f32, Vec2, Vec2, f32)> = Vec::new();
         for street in streets.iter().chain(crossing) {
@@ -2370,12 +2415,10 @@ fn retain_the_terraces(
             else {
                 continue;
             };
-            // On THIS ring, and inside the town.
+            // On THIS edge, and inside the town.
             let bearing = (at - site.at).y.atan2((at - site.at).x);
-            if (at - site.at).length()
-                - crate::world::settle::ring_edge(site, which, bearing)
-                > WALL_TILE
-            {
+            let Some(out) = reaches(bearing) else { continue };
+            if ((at - site.at).length() - out).abs() > WALL_TILE {
                 continue;
             }
             if site.off_the_ground(at) > -crate::world::settle::TERRACE_HOLDS
@@ -2402,7 +2445,51 @@ fn retain_the_terraces(
                 at,
                 faces: down,
                 wide: wide.clamp(STAIR_WIDE, STAIR_WIDEST),
+                // Measured off the finished ground when the town is raised - see
+                // `Stair::rise`. A ring's riser is `TERRACE_RISE` by construction,
+                // so that is what it will come back as here.
+                rise: crate::world::settle::TERRACE_RISE,
             });
+        }
+
+        // A GRAND STAIR DOWN THE HARBOUR'S OWN BEARING.
+        //
+        // The descent is five terraces with a retaining wall on every edge, and a
+        // flight only appears where a STREET crosses one. Buildings are kept off the
+        // bank and so are most streets, so the bank got three flights across five
+        // edges - and `--drive` found what that means: the warden set off from the
+        // market for the water and stopped 95 m short, against a wall, with no way
+        // down. Five walls and no stairs is not a terraced bank, it is a rampart.
+        //
+        // So the descent carries one flight per step, all on the settlement's own
+        // harbour bearing, which lines them into a single stair from the town to the
+        // quay. That is what the concept art has and it is what a hill town does: the
+        // way down to the water is a made thing, and it is the same way every time.
+        if let Edge::Shore(step) = edge {
+            if let Some(out) = crate::world::settle::shore_ring(site, *step, site.harbour) {
+                let down = Vec2::from_angle(site.harbour);
+                let at = site.at + down * out;
+                // NOT `STAIRS_APART`, which is the rule for a ring.
+                //
+                // That rule keeps a ring from becoming all stairs, and it is 55 m.
+                // The risers of the descent are THIRTEEN metres apart - five 3.6 m
+                // steps over a sixty-metre bank - so the first flight placed refused
+                // all four of the others, and the bank came out with one flight at
+                // the bottom and a wall above it. Measured: nearest flight to each
+                // edge 21.4, 24.4, 25.9, 13.0 m, and only the last had one on it.
+                //
+                // A grand stair is consecutive flights by definition. The only thing
+                // worth refusing here is a second flight in the same place, so the
+                // test is one flight's length rather than a ring's spacing.
+                if !stairs.iter().any(|had: &Stair| had.at.distance(at) < STAIR_FLIGHT) {
+                    stairs.push(Stair {
+                        at,
+                        faces: down,
+                        wide: STAIR_WIDEST,
+                        rise: crate::world::settle::TERRACE_RISE,
+                    });
+                }
+            }
         }
 
         // AND THE WALL ROUND THE REST OF IT, A TILE AT A TIME.
@@ -2429,10 +2516,23 @@ fn retain_the_terraces(
         for step in 0..=steps_round {
             let bearing =
                 std::f32::consts::TAU * step as f32 / steps_round as f32 - std::f32::consts::PI;
-            let at = site.at
-                + Vec2::from_angle(bearing) * crate::world::settle::ring_edge(site, which, bearing);
+            let Some(out) = reaches(bearing) else {
+                close(&mut piece, &mut walls);
+                continue;
+            };
+            let at = site.at + Vec2::from_angle(bearing) * out;
             // Clear of the town's edge, and clear of every flight standing in it.
-            let holds = site.off_the_ground(at) <= -crate::world::settle::TERRACE_HOLDS;
+            //
+            // The harbour descent is the exception: it runs from the town's edge
+            // DOWN TO THE WATER, so most of it lies outside the footprint the rings
+            // are held inside, and holding it to the same line would leave the bank
+            // with a wall on its top step and nothing below.
+            let holds = match edge {
+                Edge::Ring(_) => {
+                    site.off_the_ground(at) <= -crate::world::settle::TERRACE_HOLDS
+                }
+                Edge::Shore(_) => crate::world::settle::harbour_quarter(site, at) > 0.0,
+            };
             let clear = !stairs.iter().any(|had: &Stair| {
                 had.at.distance(at) < had.wide * 0.5 + WALL_OFF_A_STREET
             });
@@ -2454,6 +2554,29 @@ fn retain_the_terraces(
     (walls, stairs)
 }
 
+
+/// Whether the finished ground actually steps under a wall, so the wall belongs.
+///
+/// # The layout says where a wall WOULD go; the ground says whether it does
+///
+/// A wall is worked out from the terrace field - which block is a step above which -
+/// and the terrain is that field put through the site's claim, the skirt, the streets
+/// and the pads. The two are not the same thing, so the spawner asks the ground and
+/// throws away every wall the ground does not step under.
+///
+/// Public because `--drive` has to ask it too. Aiming a route at a wall taken
+/// straight from the layout picks, sometimes, a wall the spawner then discarded - and
+/// the warden walks through the gap where it never was, which reads as a wall that
+/// does not stop anybody. One question, asked in both places.
+pub fn wall_stands(
+    terrain: &crate::world::terrain::Terrain,
+    wall: &Wall,
+) -> bool {
+    let at = (wall.from + wall.to) * 0.5;
+    let over = stands_at(terrain, at - wall.faces * WALL_STANDS, Vec2::splat(1.0), 0.0);
+    let under = stands_at(terrain, at + wall.faces * WALL_STANDS, Vec2::splat(1.0), 0.0);
+    over - under >= WALL_SHOWS
+}
 
 /// How far apart lamps stand along a street, in metres.
 ///
@@ -9879,16 +10002,7 @@ pub fn raise_the_towns(
         let mut layout = layout;
         {
             let terrain = &terrain.0;
-            let seat = |wall: &Wall, at: Vec2| {
-                let over = stands_at(terrain, at - wall.faces * WALL_STANDS, Vec2::splat(1.0), 0.0);
-                let under = stands_at(terrain, at + wall.faces * WALL_STANDS, Vec2::splat(1.0), 0.0);
-                (over, under)
-            };
-            layout.walls.retain(|wall| {
-                let mid = (wall.from + wall.to) * 0.5;
-                let (over, under) = seat(wall, mid);
-                over - under >= WALL_SHOWS
-            });
+            layout.walls.retain(|wall| wall_stands(terrain, wall));
             // AND THE FLIGHTS, for the same reason and by the same measure.
             //
             // A flight is placed where a rung crosses a terrace edge, which is read
@@ -9900,6 +10014,12 @@ pub fn raise_the_towns(
             // So the ground says whether there is a flight, exactly as it says
             // whether there is a wall. Head to foot, because that is the span a
             // flight has to cover.
+            // AND THE FLIGHTS ARE FITTED TO IT AS WELL AS JUDGED BY IT.
+            //
+            // The same measurement answers both questions: how far the ground falls
+            // here decides whether a flight belongs, and IS the rise the flight has
+            // to climb. Taking only the first answer is what left flights standing
+            // proud of the ground they start from - see `Stair::rise`.
             layout.stairs.retain(|stair| {
                 let head = stands_at(
                     terrain,
@@ -9913,6 +10033,16 @@ pub fn raise_the_towns(
                     Vec2::splat(1.0),
                     0.0,
                 );
+                // NOT `stair.rise = head - foot` YET.
+                //
+                // Fitting the flight to the measured drop is the right idea and it
+                // is not enough on its own: tried, it opened a way through a wall
+                // that is meant to stop you - `--drive`'s "terrace wall" route
+                // arrived instead of being blocked - and left the bank as unwalkable
+                // as before. The reason is underneath both: outside the town's
+                // footprint the harbour descent is not stepped at all, it is a plain
+                // ramp with walls standing on it, and no amount of fitting furniture
+                // to a ramp makes a stair. See the note on `Stair::rise`.
                 head - foot >= WALL_SHOWS
             });
         }
@@ -10062,9 +10192,13 @@ pub fn raise_the_towns(
                     .with_rotation(Quat::from_rotation_y(
                         stair.faces.x.atan2(stair.faces.y),
                     ))
-                    // Widened to the street it carries. The treads keep their own
-                    // rise and run - only the flight gets broader - so the climb a
-                    // warden walks is the one `tread_at` works out.
+                    // Widened to the street it carries, and STRETCHED to the drop it
+                    // actually has to cover - see `Stair::rise`, measured off the
+                    // finished ground a few lines above. The figure is built for one
+                    // terrace; the harbour bank falls by anything from 1.6 m to 5.5,
+                    // and a flight that climbs the wrong amount is a lip at one end
+                    // or a hole at the other. `tread_at` walks the same number, so
+                    // the surface underfoot and the surface on screen are one thing.
                     .with_scale(Vec3::new(stair.wide / STAIR_WIDE, 1.0, 1.0)),
                 Visibility::default(),
             ));
@@ -11327,6 +11461,11 @@ mod tests {
             out - site.plan.reaches(site.radius)
         );
     }
+
+
+
+
+
 
 
 

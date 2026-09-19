@@ -514,7 +514,12 @@ pub fn band_of(site: &Site, at: Vec2) -> f32 {
     if bands < 2.0 {
         return 0.0;
     }
-    ring_at(site, at)
+    // THE RINGS AND THE HARBOUR DESCENT, not the rings alone.
+    //
+    // This counted ring levels only, so `crosses_a_terrace` could not see a shore
+    // riser - and since that decides where a flight of steps goes, the whole harbour
+    // bank came out as terraced ground with no way down it built.
+    ring_at(site, at) - shore_drops_at(site, at)
 }
 
 /// Where a straight run crosses from one terrace to the next, if it does.
@@ -804,6 +809,65 @@ fn shore_drops(site: &Site, at: Vec2, stepped_here: f32) -> f32 {
         );
     }
     (smooth + (stepped - smooth) * inside) * quarter
+}
+
+/// How high a settlement's own ground stands at a point, above its base.
+///
+/// # A town's level, said once
+///
+/// The rings and the harbour descent together. It was written out twice - in the
+/// lane branch of `level` and again in the site branch - and the wall placer wanted
+/// it a third time, which is when a thing written twice becomes a thing written
+/// three ways. Both callers already computed `stepped_here` once and handed it to
+/// both halves, so there was never a second fact here to keep: only a second copy.
+pub fn ground_of(site: &Site, at: Vec2, stepped_here: f32) -> f32 {
+    terrace_at(site, at) - shore_drops(site, at, stepped_here) * TERRACE_RISE
+}
+
+/// Where the `step`th riser of the harbour descent crosses a bearing, as a distance
+/// from the settlement's middle. `None` where that bearing has no harbour on it.
+///
+/// The ring edges are a formula - `ring_edge` builds them out of waves - and this one
+/// cannot be, because it is an iso-line of the distance-to-water field the coast
+/// happens to have. So it is searched for: out along the bearing until the field
+/// crosses the riser's own distance, then bisected.
+pub fn shore_ring(site: &Site, step: usize, bearing: f32) -> Option<f32> {
+    let steps = shore_steps(site);
+    if step as f32 >= steps {
+        return None;
+    }
+    let want = shore_edge(site, step);
+    let way = Vec2::from_angle(bearing);
+    let far = crate::world::town::town_reaches(site) + SHORE_STANDS + SHORE_EASES;
+    let away_at = |out: f32| site.water.away_from_water(site.at + way * out);
+    let mut had: Option<(f32, f32)> = None;
+    let mut out = 20.0;
+    while out <= far {
+        let Some(away) = away_at(out) else { return None };
+        if let Some((was_out, was_away)) = had {
+            if (was_away - want) * (away - want) <= 0.0 {
+                let (mut near, mut long) = (was_out, out);
+                for _ in 0..12 {
+                    let mid = (near + long) * 0.5;
+                    let Some(away) = away_at(mid) else { return None };
+                    if (was_away - want) * (away - want) <= 0.0 {
+                        long = mid;
+                    } else {
+                        near = mid;
+                    }
+                }
+                let found = (near + long) * 0.5;
+                // ONLY WHERE THERE IS A HARBOUR - outside the quarter the descent is
+                // not terraced at all, so an edge traced there would be a wall across
+                // a hillside nobody cut.
+                let on = site.at + way * found;
+                return (harbour_quarter(site, on) > 0.0).then_some(found);
+            }
+        }
+        had = Some((out, away));
+        out += 6.0;
+    }
+    None
 }
 
 /// How far from the water the `step`th riser of the harbour descent stands.
@@ -1811,8 +1875,7 @@ impl Settlements {
                     smoothstep(0.0, fade, off)
                 });
                 (
-                    town.height + terrace_at(town, at)
-                        - shore_drops(town, at, stepped_here) * TERRACE_RISE,
+                    town.height + ground_of(town, at, stepped_here),
                     smoothstep(lane.wide * 0.5 + LANE_SKIRT, lane.wide * 0.5, away) * gate,
                 )
             } else if what < sites {
@@ -1860,8 +1923,7 @@ impl Settlements {
                     smoothstep(0.0, fade, off)
                 });
                 (
-                    site.height + terrace_at(site, at)
-                        - shore_drops(site, at, stepped_here) * TERRACE_RISE,
+                    site.height + ground_of(site, at, stepped_here),
                     smoothstep(skirt_of(site.radius), 0.0, away) * gate,
                 )
             } else {

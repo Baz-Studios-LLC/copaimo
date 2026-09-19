@@ -2781,3 +2781,40 @@ If the user must delete one of two indistinguishable, co-located generated objec
 7. invalid/huge/non-finite veto data fails validation loudly rather than erasing a district.
 
 With those adaptations, veto-instead-of-reference is the right honest model for the current generator.
+## 2026-09-18 — Harbour wall/stair pass: focused review of current working tree and captures
+
+**Evidence reviewed:** `shots/bank_walls.png`, `shots/bank_close.png`, and the current uncommitted changes in `settle.rs`, `town.rs`, and `drive.rs`.
+
+**Disposition:** `needs review`. The shore risers now receive visible retaining structures, which is real progress, but the current route/stair proof can miss the exact failure it claims to guard.
+
+### P0 — one street can cross five shore terraces, but the helper returns one crossing
+
+`crosses_a_terrace(site, from, to) -> Option<(at, downhill)>` compares the endpoint bands and bisects to the **first** change away from `low`. `retain_the_terraces` calls that same helper once per candidate edge, so a long street crossing several shore steps returns the same first crossing every time; only the edge near that first result can receive a break/flight. The harbour descent is explicitly five terraces, so “one crossing per street” is not a sufficient contract unless every street is proven to be segmented between every pair of risers.
+
+Prefer an iterator/vector of all crossings in travel order, or a helper that asks for a specific band boundary. Acceptance gate: construct one straight way whose endpoint band difference is five and prove it yields five distinct, ordered flight positions, each associated with the correct shore edge. Then prove a way contained within one band yields none.
+
+### P0 — the new drive route does not prove the flights form the route
+
+`a_way_to_the_harbour` chooses radial points: 55% of town reach for the start and the last dry radial sample for the finish. Neither point is required to lie on a `Way`, stair landing, or quay. The driver only proves the character can somehow approach the target while staying within a 70 m corridor; it can pass over an unintended walkable bank or fail despite a valid zig-zag pedestrian route. It does not prove five flights line up.
+
+Anchor the test to actual network/harbour facts and use ordered checkpoints:
+
+1. a real upper street node or paving point;
+2. both landings of every intended shore flight, in descending order;
+3. the quay deck or jetty access node, not merely the last dry terrain sample.
+
+Report which checkpoint failed. A single end-to-end target is too ambiguous for a multi-level route.
+
+### Visual correctness visible in the captures
+
+The new bank reads as heavily engineered, but currently more like a procedural interchange/fortification than a lived-in pedestrian harbour:
+
+- the close view has many parallel retaining walls competing equally, so there is no unmistakable primary descent from town to quay;
+- wall runs end abruptly in several places, and at least one isolated curved run in the right foreground appears to retain no visually legible level change—measure ground on both faces before keeping it;
+- the waterfront stair/wall masses form repeated tall grey blocks with weak landings and no clear human-scale sequence from the road above to the promenade below;
+- tall exposed drops beside walkable roads/landings need a continuous parapet or guard treatment, including collision, with intentional openings only at flights;
+- repeated identical wall bays and caps amplify the generated look. Once topology is correct, vary bay rhythm at stairs, corners, drainage outlets, and wall ends rather than randomising the whole wall.
+
+Fixed-view acceptance for `bank_close.png`: trace one continuous route with the eye from an upper paved street to the quay; every level change has a visible landing and flight; no wall crosses the route; no wall end exposes an unguarded drop; no retained face lacks higher ground behind it; and the primary route is clearer than secondary terrace paths at thumbnail scale.
+
+Please solve traversal/topology before material polish. The current captures are valuable evidence, not a reason to discard the pass.

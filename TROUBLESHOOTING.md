@@ -3382,3 +3382,36 @@ the snapshot; the baker compares it with genuinely fresh generation.
 **Worth knowing.** Whenever a function grows a "read the cache first" branch, ask who
 else calls it and whether any of them are the thing that fills the cache. A writer
 that reads its own last output through the cached path is a loop with no input.
+
+## Walls on a ramp, and a flight of steps that blocks the way down
+
+**Issue.** The harbour bank was given retaining walls and flights of steps on every
+terrace edge. It looked right, and `--drive` found the warden could not get down it:
+stopped 1.5 m from a flight, blocked by the flight.
+
+**Solution.** Not fixed yet - diagnosed. `shore_drops` steps the descent only where
+`smoothstep(0, -TERRACE_HOLDS, off)` says the point is inside the town's PLAN
+footprint, and the harbour bank runs from the town's edge down to the water, so most
+of it lies outside. Outside, it returns `smooth` - a plain ramp.
+
+So the bank had no steps in it at all. The walls survived the spawner's "is there a
+step here" test because a ramp falling five metres over the eleven that test spans
+clears its 1.6 m bar, and a flight carries one fixed `TERRACE_RISE`, so on a ramp its
+landing stands proud of the ground it starts from: measured at 1.1 m against
+`player::STEP_UP` of 0.26.
+
+Two fixes were tried and both were wrong on their own. Making the whole harbour
+quarter count as built ground put risers across a road arriving through it
+(`a_road_arriving_at_a_town_takes_the_towns_level`, 1.64 m in 1.13 m), and widening
+the un-stepping corridor to hide that broke a second guard. Fitting the flight to the
+measured drop opened a way through a wall that is meant to stop you.
+
+The real order is: site the harbour where no road arrives, THEN let the quarter step,
+THEN fit the flights. Left as a red `--drive` route, "down to the harbour", which is
+the specification of the missing piece.
+
+**Worth knowing.** A test aimed at the wrong object reads as a failure of the right
+one. "terrace wall" began failing here, and the wall was fine: the route picked the
+longest wall in the LAYOUT, and the spawner discards every wall the ground does not
+step under, so it was aimed at a wall that never existed. Both now ask
+`town::wall_stands`.

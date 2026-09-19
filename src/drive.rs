@@ -300,8 +300,77 @@ fn plan_the_routes(terrain: &crate::world::terrain::Terrain) -> Vec<Route> {
         });
     }
 
+    // AND DOWN TO THE HARBOUR, which is the claim the whole bank exists to make.
+    //
+    // The quay is twenty metres below the town and the bank between them is cut into
+    // five terraces with a retaining wall on every edge. A wall a player cannot get
+    // past is the correct behaviour for four of those and a dead end for all five,
+    // and the difference is whether the flights of steps line up into a route.
+    //
+    // Nothing else tests it. The terrace routes above take ONE flight; the audit
+    // asks what is standing in streets; the tests ask whether walls are where the
+    // ground steps. Whether a person can actually walk from the market to the water
+    // is a question only the game can answer, and it is the question the harbour is
+    // for.
+    if let Some((from, to)) = a_way_to_the_harbour(terrain) {
+        routes.push(Route {
+            name: "down to the harbour".into(),
+            from,
+            to,
+            walking: false,
+            hertz: 60.0,
+            expect: Expect::Arrives,
+            // Generous: the way down is five flights and the driver steers straight
+            // at the target, so it needs room to find them.
+            within: 30.0,
+            corridor: 70.0,
+        });
+    }
+
     routes
 }
+
+/// A start on the town's own ground and a finish on the quay, if there is a harbour.
+fn a_way_to_the_harbour(
+    terrain: &crate::world::terrain::Terrain,
+) -> Option<(Vec2, Vec2)> {
+    let plan = terrain.plan();
+    let site = plan.sites().iter().find(|site| site.first)?;
+    if site.harbour.is_nan() {
+        return None;
+    }
+    let out = Vec2::from_angle(site.harbour);
+    // FROM THE TOP OF THE DESCENT, not from the middle of the town.
+    //
+    // This is a test of the BANK: its five walls and the stair that breaks them. Set
+    // to run from the market instead, it failed 95 m short against a ring wall a
+    // hundred metres from the middle - which is the rings working as designed, since
+    // a player crosses those by their streets and the driver steers straight. A test
+    // that cannot pass while the thing it names is perfect is testing something else.
+    //
+    // So it starts a little above the topmost shore riser and finishes at the water.
+    let top = crate::world::settle::shore_ring(site, 0, site.harbour)?;
+    let reach = crate::world::town::town_reaches(site);
+    let from = site.at + out * (top - 14.0);
+    let mut to = from;
+    let mut step = top;
+    while step < reach + 420.0 {
+        let at = site.at + out * step;
+        if terrain.dry_height(at.x, at.y) < crate::config::SEA_LEVEL {
+            break;
+        }
+        to = at;
+        step += 6.0;
+    }
+    (to.distance(from) > 60.0).then_some((from, to))
+}
+
+/// How far from a flight a wall has to be to be worth testing as a wall, in metres.
+///
+/// A flight breaks the wall around itself and a warden may walk through that break -
+/// which is the point of it. Testing "a wall stops you" against a piece of wall with
+/// a doorway beside it tests the doorway.
+const STAIR_CLEARS_A_WALL: f32 = 30.0;
 
 /// A way up a terrace by its street, and a way at one of its walls head-on.
 ///
@@ -318,10 +387,30 @@ fn a_terrace(
             continue;
         }
         let laid = crate::world::town::lay_the_site_out(plan, key, site);
-        // The longest wall, which is the one with most room to be square on to.
+        // The longest wall CLEAR OF EVERY FLIGHT, which is the one with most room to
+        // be square on to and the only kind that tests what this route claims.
+        //
+        // It was simply the longest, and that held while flights were rare. The
+        // harbour bank put five more on one hillside, the longest wall turned out to
+        // have one beside it, and the warden walked through the break and arrived -
+        // reported as the wall failing to stop anyone. The wall was fine; the route
+        // was aimed at a doorway.
         let wall = laid
             .walls
             .iter()
+            .filter(|wall| {
+                let mid = (wall.from + wall.to) * 0.5;
+                // A wall the SPAWNER will keep - see `town::wall_stands`. Taken from
+                // the layout alone this picked, once the harbour bank was walled, a
+                // wall the ground does not step under and the spawner discards; the
+                // warden walked through where it never was and the route reported
+                // the wall as failing to stop anyone.
+                crate::world::town::wall_stands(terrain, wall)
+                    && laid
+                        .stairs
+                        .iter()
+                        .all(|stair| stair.at.distance(mid) > STAIR_CLEARS_A_WALL)
+            })
             .max_by(|a, b| a.from.distance(a.to).total_cmp(&b.from.distance(b.to)))?;
         let mid = (wall.from + wall.to) * 0.5;
         let out = wall.faces;
