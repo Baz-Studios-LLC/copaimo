@@ -106,8 +106,20 @@ PALETTE = {
     # The city, which is a different age of the world - see `tower`.
     "concrete": (0.72, 0.71, 0.68),
     "concrete2": (0.62, 0.62, 0.60),
-    "curtain": (0.30, 0.42, 0.50),
-    "curtain2": (0.24, 0.34, 0.42),
+    # GLASS THAT READS AS GLASS.
+    #
+    # These were (0.30, 0.42, 0.50) and (0.24, 0.34, 0.42) - a dark blue-grey a
+    # shade off the concrete beside it, so a curtain wall built correctly came out
+    # as a grey slab with faint banding and the second city read as an office park.
+    # The concept for it is pale aqua glass catching the sky, with the frames paler
+    # still.
+    #
+    # Light enough to sit ABOVE the concrete rather than below it, which is what
+    # makes the eye read a surface as glazed: glass is brighter than its frame
+    # because it is showing the sky, and stone is darker than its neighbours because
+    # it is showing itself.
+    "curtain": (0.55, 0.74, 0.76),
+    "curtain2": (0.44, 0.63, 0.68),
     "mullion": (0.46, 0.48, 0.50),
     # The same ink the outline shell is painted in. For AUTHORED interior lines -
     # the frames round a tower's windows - which an inverted hull cannot draw,

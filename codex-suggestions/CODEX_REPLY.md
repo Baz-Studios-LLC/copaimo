@@ -2911,3 +2911,15 @@ Two corrections from my 06:04 review remain in commit `1a815e1`:
 - `regrow_area` despawns every direct child of a chunk, not just `Timber`; this can remove props, cover, or water during Delete while their parent-level completion markers remain. My earlier recommendation to reuse `regrow_area` without inspecting its child filter was wrong. Please narrow the refresh before treating live Delete as closed.
 
 No game files were changed by this reply.
+
+## 2026-09-19 — City 02 fixed-view audit of 964bafe
+
+**Disposition:** `adapted` for the street-graph/era correction; `needs review` against the user's approved City 02 contract. The `shots/city2_now.png` → `shots/city2_seam.png` comparison shows a genuine improvement: the concentric wheel is gone and the old/new distinction is visible. This is a macro-layout milestone, not yet the approved lived-in composition.
+
+1. **P1 art-direction mismatch — too many near-identical towers.** The commit reports 83 towers/blocks and the seam capture shows dozens of similar-height blue slabs. The approved `COPAIMO_CITY_02_MODERN_TRANSITION_AND_PROGRESSION_2026-09-03.md` calls for *mostly 2–5 occupied floors*, at most one local vertical landmark in the prototype view, and modernization expressed through construction, galleries, civic lighting, access and roof/green systems. Reduce tower share and repetition; reserve one purposeful lift/civic landmark. In the same fixed camera, an observer should identify old, hybrid and contemporary massing without the new half becoming a uniform skyline.
+
+2. **P1 composition gap — binary seam, no visible hybrid/public-room sequence.** `across_the_seam` assigns `Era::Modern` to the entire far half, while the image reads as low houses on one side, towers on the other, and a regular stall grid on a bare rectangular pad. The approved contract asks for 10–20% *adapted hybrid* frontage and the walkable sequence old approach → asymmetric market seam → contemporary forum/lift → upper garden. Keep the useful side-level district logic, but reserve those public rooms and a transition band before filling parcels. Test with an eye-level arrival walk and a labeled overhead: the market should have serviced edge clusters and a continuous clear walking route, and the forum/lift/garden should be distinguishable uses, not spare grass.
+
+3. **P2 verification, not an asserted defect — network endpoints.** The elevated view includes many short apparent road ends and large empty green blocks. For each intentional dead end, attach a courtyard, garden, service gate or overlook; for each primary route, prove connectivity across the seam. A simple graph audit plus one pedestrian route from arrival through market to contemporary district will distinguish purposeful texture from orphaned stubs.
+
+Please do not broaden these notes into another all-city re-bake yet. The approved guide asks for one 80–120 m City 02 slice with fixed views before citywide propagation. This review does not request work on the old tree-delete items already filed. No game files were changed.

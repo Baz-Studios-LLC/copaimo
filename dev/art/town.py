@@ -2127,7 +2127,35 @@ def tower(floors, wide=9.0, deep=9.0, crown="flat", lobby_open=True):
         top += FLOOR_TALL * 2.0
     # Rooftop plant, so the skyline is not a row of flat lids.
     parts.append(box((wide * 0.3, deep * 0.3, 0.9), (-wide * 0.18, deep * 0.16, top + 0.5), "steel"))
-    return parts, top + 1.0
+
+    # A GARDEN ON THE ROOF, which is what the second city is FOR.
+    #
+    # Its concept is a transitional city - old tile and timber on one side, glass and
+    # green roofs on the other - and the green roof is the half of that a player
+    # sees most, because a city is looked down on far more often than it is looked
+    # along. A tower whose top is a grey lid reads as an office block from every
+    # height; one with a bed of planting on it reads as somewhere people go.
+    #
+    # Laid on the parapet the crown already has, inside it by a pace so the parapet
+    # still shows - a bed sitting flush to the edge looks like a coloured lid rather
+    # than something planted.
+    bed = (wide * 0.72, deep * 0.72)
+    parts.append(box((bed[0], bed[1], 0.22), (0.0, 0.0, top + 0.61), "leafy"))
+    # And clumps standing out of it, so it has depth from an angle rather than
+    # being a flat green rectangle.
+    for clump in range(4):
+        slide = (clump % 2 * 2.0 - 1.0) * bed[0] * 0.26
+        across = (clump // 2 * 2.0 - 1.0) * bed[1] * 0.26
+        parts.append(
+            masonry.lump(
+                0.9 + masonry.wobble(clump, 5) * 0.5,
+                (slide, across, top + 0.9),
+                "leafy",
+                squash=0.6,
+                seed=clump * 11 + 2,
+            )
+        )
+    return parts, top + 1.6
 
 
 def _street_storey(parts, wide, deep, tall, walls, hole=None):
