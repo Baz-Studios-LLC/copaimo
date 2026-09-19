@@ -102,14 +102,17 @@ pub struct Stamp {
 ///
 /// The cost is honest and worth stating: a veto is indiscriminate. Two things the
 /// generator legitimately puts within `within` of each other both go.
+/// Generic in what it silences, because the world has more than one kind of thing
+/// a person wants gone and they all want saying the same way. A settlement vetoes
+/// plots and ways; the wild vetoes trees and boulders - see `world::wild`.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug)]
-pub struct Veto {
+pub struct Veto<Kind = Vetoed> {
     pub at: Vec2,
     /// How far the veto reaches, in metres.
     pub within: f32,
     /// Which kind it silences. `All` for "nothing here at all".
     #[serde(default)]
-    pub kind: Vetoed,
+    pub kind: Kind,
 }
 
 /// What a veto silences.
@@ -122,9 +125,12 @@ pub enum Vetoed {
     Opens,
 }
 
-impl Veto {
-    fn stops(&self, kind: Vetoed, at: Vec2) -> bool {
-        (self.kind == Vetoed::All || self.kind == kind) && self.at.distance(at) <= self.within
+impl<Kind: PartialEq + Default + Copy> Veto<Kind> {
+    /// Whether this silences `kind` at `at`. The default variant of a kind means
+    /// "everything", which is why every kind has one and why it is the default.
+    pub fn stops(&self, kind: Kind, at: Vec2) -> bool {
+        (self.kind == Kind::default() || self.kind == kind)
+            && self.at.distance(at) <= self.within
     }
 }
 

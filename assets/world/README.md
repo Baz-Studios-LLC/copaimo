@@ -58,6 +58,7 @@ same way they check generated content.
 | `country.bin`, `forest.bin` | painted region and woods-density rasters, 16 m | in-game paint |
 | `placed.json` | hand-placed buildings and props, each with a stable `u32` id | the in-game place/carry/turn/remove editor |
 | `settlement_<name>.json` | **one town per file**: its ways, lots and public places | any text editor, or `--bake` |
+| `wild.json` | places the generator may not plant trees or strew boulders | any text editor |
 | `world.json` | generator parameters | by hand |
 
 ### Settlements
@@ -107,3 +108,28 @@ Vetoes survive every re-bake. Nothing else does, unless you marked it `Authored`
 
 Coming: ids on authored rows, allocated when you author one, so two authored things
 can sit on top of each other without the 6 m rule confusing them.
+
+### The wild
+
+Trees and boulders are not in any file, and putting them there would be the wrong
+answer. Every one of them stands on a world-wide lattice and is a pure function of its
+slot — about 228,000 trees, all reproducible from nothing. **Adding** things is
+already covered by `placed.json` and its stable ids. The only gap was taking one away,
+so that is all `wild.json` holds:
+
+```json
+{
+  "version": 1,
+  "vetoes": [
+    { "at": [-1020.0, 2040.0], "within": 110.0, "kind": "Trees" }
+  ]
+}
+```
+
+`kind` is `All`, `Trees` or `Props` — props being boulders, logs, stumps and brush.
+That example clears a 110 m circle of woodland and leaves the boulders standing in it.
+
+Like a settlement's vetoes this says *where*, not *which*, because a generated tree
+has no name. It keeps working when the generator jitters the tree a metre, and it
+costs nothing in a world nobody has edited — the file is empty, and the check is one
+slice length.

@@ -521,6 +521,11 @@ impl Terrain {
                 if at.x < low.x || at.x >= high.x || at.y < low.y || at.y >= high.y {
                     continue;
                 }
+                // AND NOT WHERE SOMEBODY HAS SAID NOT TO - see `world::wild`. A tree
+                // has no name to delete it by, so a deletion names the place.
+                if !crate::world::wild::may_stand(crate::world::wild::Wilding::Trees, at) {
+                    continue;
+                }
 
 
                 // One gathering of the ground rather than five separate

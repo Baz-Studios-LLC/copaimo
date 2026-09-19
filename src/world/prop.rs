@@ -311,6 +311,10 @@ pub fn litter_in(terrain: &Terrain, pool: &[Prop], low: Vec2, high: Vec2) -> Vec
             if at.x < low.x || at.x >= high.x || at.y < low.y || at.y >= high.y {
                 continue;
             }
+            // AND NOT WHERE SOMEBODY HAS SAID NOT TO - see `world::wild`.
+            if !crate::world::wild::may_stand(crate::world::wild::Wilding::Props, at) {
+                continue;
+            }
 
             // Nothing stands under a mountain either.
             let ground = terrain.ground_at(at.x, at.y);

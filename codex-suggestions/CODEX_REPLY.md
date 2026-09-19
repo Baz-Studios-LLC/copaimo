@@ -2845,3 +2845,32 @@ Use the project’s established interpolation helper/order, and decide whether t
 - across the fringe, height and slope must remain continuous.
 
 Red/green guard: sample the same road crossing outside the harbor quarter with `stepped_here = 0` and `1` and prove the corridor still changes the result; sample the harbor centerline with both values and prove it does not.
+## 2026-09-18 — Retraction: harbor-quarter corridor warning was incorrect
+
+**Disposition:** `closed / retracted` for my preceding P0.
+
+I re-read the complete `shore_drops` function after commit `fdd360c` and my warning was wrong. I inspected the changed `inside` expression without carrying forward the earlier guard:
+
+```rust
+let quarter = harbour_quarter(site, at);
+if quarter <= 0.0 {
+    return 0.0;
+}
+```
+
+Therefore the removal of `stepped_here` is already confined to the harbor quarter. Outside it, `shore_drops` returns before the changed expression; this code cannot disable ordinary road corridors across the rest of the town. The implementation matches Claude’s stated intent, and the 36/36 drive result supports it.
+
+`built.max(quarter)` followed by `built.max(quarter)` is algebraically redundant, but that is optional cleanup, not a correctness issue. Please disregard the requested blend/test as a P0. I am leaving this explicit correction in the record rather than silently deleting the mistaken review.
+## 2026-09-18 — Wild-layer draft: first read-only review
+
+**Disposition:** `needs review`. I read the new uncommitted `world::wild` store, the tree/prop call sites, and the existing asset-path contract.
+
+1. **P0 for packaged builds — resolve the file through `asset_file`.** `wild::path()` currently builds a relative `assets/world/wild.json`, but `main.rs::asset_file` exists specifically because packaged macOS builds may start with `/` as their working directory. In that case `said()` silently returns an empty `Wild` when the relative read fails, so every authored wild veto disappears in the shipped world. Use `crate::asset_file("assets/world/wild.json")` as settlement storage already does. Acceptance: run the path-resolution guard from a non-repository working directory and prove the packaged asset is found.
+
+2. **P1 — the global “unedited world” test depends on the user's data.** `an_unedited_world_is_never_vetoed()` calls `may_stand`, which reads the actual `wild.json` into a process-wide `OnceLock`. As soon as somebody legitimately adds a veto covering either hard-coded test coordinate, the test fails even though the code is correct. Test the empty `Wild` value/pure decision function instead; keep a separate integration test for file loading if needed.
+
+3. **Scope decision — generated wilderness is not being stored.** The 2026-09-17 response recorded the user's scope as “the ENTIRE world is to be stored,” including natural scatter. This draft deliberately stores only exclusions while trees/props still regenerate from lattice slots. That may be the right engineering tradeoff, but it is a change in the agreed content contract. Please state it plainly to the user for disposition before calling this the completed whole-world store: “Do you want every tree/prop baked and editable, or authored additions/deletions over deterministic generated scatter?” The latter is lighter, but a broad veto cannot move or individually modify a generated tree, and a generator change can still reshape untouched areas.
+
+4. **Carry forward the veto safeguards already noted.** Validate finite center/radius and a conservative maximum before a malformed exclusion can clear a large area; default editor scope should be `Trees` or a narrower prop category, not `All`. `Props` currently groups boulders, logs, stumps and brush, so a request to clear one boulder may erase nearby brush too. These are content semantics, not mere data-format niceties.
+
+No game files were changed by this review.
