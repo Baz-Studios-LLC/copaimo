@@ -58,7 +58,13 @@ pub const VERSION: u32 = 1;
 
 /// Where the file lives.
 pub fn path() -> std::path::PathBuf {
-    std::path::Path::new("assets").join("world").join("wild.json")
+    // THROUGH `asset_file`, like every other world store.
+    //
+    // A bare relative "assets/world" resolves against the working directory, which
+    // is the repository when a developer runs it and anywhere at all when somebody
+    // launches a packaged build. Authored vetoes would quietly fail to load, and a
+    // Delete would write a file nothing ever reads. Found by Codex, twice.
+    crate::asset_file("world/wild.json")
 }
 
 /// Read once.
@@ -111,20 +117,45 @@ fn said() -> &'static Wild {
 /// the live copy as well. That is the whole of the cache invalidation here, and it is
 /// sound because the file only ever grows from this one door.
 pub fn forbid(kind: Wilding, at: Vec2, within: f32) -> bool {
+    forbid_at(&path(), kind, at, within)
+}
+
+/// The same, told where to write. Split out so a test can aim it at somewhere that
+/// cannot be written and check that nothing is published when the write fails.
+fn forbid_at(path: &std::path::Path, kind: Wilding, at: Vec2, within: f32) -> bool {
     // SAFETY of a sort: `said()` fills the lock before this takes a lock of its own,
     // so the initialiser cannot run while the write lock is held.
     let _ = said();
     let mut live = LIVE.write().expect("the wild is not poisoned");
-    live.push(Veto { at, within, kind });
-    let wild = Wild { version: VERSION, vetoes: live.clone() };
-    let Ok(text) = serde_json::to_string_pretty(&wild) else {
+
+    // WRITTEN FIRST, PUBLISHED AFTER.
+    //
+    // This pushed the veto into `LIVE` and then tried to save it, so a failed write
+    // returned false - and left the exclusion live anyway. The toast said the veto
+    // could not be written while the wood it covers was already gone, and the trees
+    // came back at the next start. A state nobody asked for and nobody could see.
+    // Found by Codex.
+    let said = Wild {
+        version: VERSION,
+        vetoes: live.iter().copied().chain([Veto { at, within, kind }]).collect(),
+    };
+    let Ok(text) = serde_json::to_string_pretty(&said) else {
         return false;
     };
-    let path = path();
+    if !keep(path, &text) {
+        return false;
+    }
+    *live = said.vetoes;
+    true
+}
+
+/// Writes the file, making its folder if it has to. Split out so a test can aim it
+/// somewhere that cannot be written and watch what `forbid` does about it.
+fn keep(path: &std::path::Path, text: &str) -> bool {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    std::fs::write(&path, text).is_ok()
+    std::fs::write(path, text).is_ok()
 }
 
 /// Whether the generator may put a thing of this kind here.
@@ -211,5 +242,39 @@ mod tests {
             "it silenced a kind it did not name"
         );
         LIVE.write().expect("the wild is not poisoned").clear();
+    }
+
+    /// A veto that could not be saved is not obeyed either.
+    ///
+    /// # The state nobody asked for
+    ///
+    /// `forbid` pushed the veto into the live answer and THEN tried to write it, so
+    /// a failed write returned false and left the exclusion live anyway: the toast
+    /// said it could not be written while the wood it covered was already gone, and
+    /// the trees came back at the next start. The file and the world disagreeing is
+    /// worse than either answer on its own, because nothing shows which one is real.
+    #[test]
+    fn a_veto_that_cannot_be_saved_changes_nothing() {
+        // Somewhere that cannot be written: a directory, which every platform
+        // refuses as a file.
+        let folder = std::env::temp_dir();
+        let here = Vec2::new(-81_000.0, 17_000.0);
+
+        assert!(may_stand(Wilding::Trees, here), "nothing is vetoed out here yet");
+        let before = LIVE.read().expect("the wild is not poisoned").len();
+
+        assert!(
+            !forbid_at(&folder, Wilding::Trees, here, 30.0),
+            "writing a veto over a directory should have failed"
+        );
+        assert!(
+            may_stand(Wilding::Trees, here),
+            "the veto was obeyed even though it could not be saved"
+        );
+        assert_eq!(
+            LIVE.read().expect("the wild is not poisoned").len(),
+            before,
+            "a veto that failed to save was published anyway"
+        );
     }
 }

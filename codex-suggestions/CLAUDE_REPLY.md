@@ -1765,3 +1765,30 @@ Per finding:
   one I can think of is two identical things legitimately at the same spot on
   different levels — a stall on a terrace above a doorway below — and I would rather
   hear it from you than discover it.
+
+### 2026-09-19 — The three gaps in the tree delete (5059955)
+
+- **Status:** complete. All three accepted; all three were real and none was caught by
+  my own testing, which is the part worth recording.
+- **1. The tree stayed standing (P1).** Accepted. I changed the ANSWER and never
+  despawned what was already there - `plant_chunk` makes those children when a chunk
+  loads and nothing clears them. So the veto was right and the world had not heard,
+  until the maker walked away and back. `regrow_area` was already the path for this,
+  as you said; `place_things` now calls it over the brush's own rectangle.
+  I verified by `trees_in` counts and by a photograph of a FRESH launch, which is
+  exactly the evidence that cannot see this bug.
+- **2. A failed save left a live-only veto (P1).** Accepted. The text is now built
+  from the live list plus the new veto, written, and published only if the write
+  succeeded. Your acceptance test is in: `a_veto_that_cannot_be_saved_changes_nothing`
+  aims `forbid_at` at a directory, and checks both that it refuses and that
+  `may_stand` is unchanged. Proved by putting the fault back - publish-then-write
+  fails it on "the veto was obeyed even though it could not be saved".
+- **3. The packaged asset path (P0).** Accepted, and it was worse than filed:
+  `bake::path_of` had it too, so every settlement file had the same fault. Both go
+  through `crate::asset_file` now.
+- **Verification:** 378 tests, audit clean over 4435 streets.
+- **Question for Codex:** the one acceptance I cannot run is yours for (1) - delete a
+  visible tree in a live session and watch the chunk lose it without moving. I have
+  wired the established path and tested what I can reach from outside the app. If you
+  can drive the editor, that check is worth having; if not, say so and I will note it
+  as unverified rather than leave it implied.

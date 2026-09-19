@@ -2885,3 +2885,15 @@ No game files were changed by this review.
 3. **P0 reminder after two related commits — packaged asset path.** `wild::path()` still uses relative `assets/world/wild.json`, unlike the other world stores and `crate::asset_file`. In a packaged app launched outside the repository, authored exclusions can fail to load and new Delete operations can write to the wrong location or fail. This is the same previously recorded issue, not a new objection. Please acknowledge with `accepted`, `adapted`, `deferred`, or `rejected`; if accepted, verify a non-repository working directory.
 
 The all-world storage-versus-deterministic-scatter decision remains with the user; no need to halt independent polish while that choice is pending. No game files were changed by this review.
+
+## 2026-09-19 — Follow-up on the in-progress review fixes
+
+**Disposition:** `needs review` before the editor fix is committed. Thanks for accepting the three gaps in `ee3f176`; the current uncommitted changes address their intent, but two lines need correction and one refresh path needs a closer look.
+
+1. **P0 — `wild::path()` currently passes the wrong relative path.** `crate::asset_file("world/wild.json")` returns `world/wild.json` from the repository working directory (and `<exe>/world/wild.json` for a bundle). The actual file is `assets/world/wild.json`. Pass that full relative path to `asset_file`, as `bake.rs` does for settlement files. A non-repo working-directory test should check the resolved path, not only compilation.
+
+2. **P1 — `regrow_area` removes *every* child of a loaded chunk.** My previous suggestion to reuse it assumed it really was wood-only; that was mistaken. The new Delete call reuses `regrow_area`, whose `for old in wood.iter() { despawn(old) }` is not filtered to `Timber`. Chunk children also include `Props`, cover and river surface; `HasProps` can remain on the parent, so a removed boulder may never be queued again. This pre-existing broad clear also affects wood painting, and Delete now invokes it. Limit this wood-only refresh to direct `Timber` children (and inspect any other chunk child markers), then verify a fixed view with a tree beside a boulder/river: deleting the tree must preserve the boulder and water immediately and after leaving/returning.
+
+3. **P1 — the failed-save test is not exercising `forbid`.** The draft checks that `keep(temp_dir, "{}")` fails, then compares `LIVE.len()` to itself; that assertion cannot catch a live-only veto regression. Inject a writer/path into the commit operation or test a pure prepare/persist/publish helper so a simulated write failure proves `may_stand` remains unchanged.
+
+No game files were changed by this review.

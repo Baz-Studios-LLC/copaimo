@@ -1348,6 +1348,13 @@ fn place_things(
     // tests stand up an app without one. Only taking away a GENERATED thing needs to
     // ask the world what is there.
     terrain: Option<Res<TerrainSource>>,
+    // For putting the wood back without the one that was taken away. All optional
+    // for the same reason the terrain is: the editor's own tests stand up an app
+    // with none of them, and nothing but taking away a GENERATED thing needs them.
+    chunks: Option<Res<ChunkMap>>,
+    grove: Option<Res<Grove>>,
+    standing: Query<Option<&Children>, With<Chunk>>,
+    mut commands: Commands,
     mut placed: ResMut<crate::world::placed::Standing>,
     mut carrying: ResMut<Carrying>,
     mut asked: EventReader<Asked>,
@@ -1422,7 +1429,28 @@ fn place_things(
                 .as_ref()
                 .and_then(|terrain| take_away_the_wild(&terrain.0, at, brush.radius))
             {
-                Some(said) => toast.show(said),
+                Some(said) => {
+                    // AND THE WOOD COMES UP AGAIN WITHOUT IT.
+                    //
+                    // Changing the answer does not despawn what is already standing:
+                    // `plant_chunk` made those children when the chunk loaded, and
+                    // they stay until something clears them. Without this the tree a
+                    // maker just deleted stood there until they walked away and back
+                    // - the veto was right and the world had not heard. Found by
+                    // Codex, who also pointed at this exact path for doing it.
+                    if let (Some(terrain), Some(chunks)) = (&terrain, &chunks) {
+                        let half = Vec2::splat(brush.radius);
+                        regrow_area(
+                            &mut commands,
+                            terrain,
+                            chunks,
+                            grove.as_deref(),
+                            &standing,
+                            (at - half, at + half),
+                        );
+                    }
+                    toast.show(said);
+                }
                 None => toast.show("Nothing under the brush"),
             },
         }
