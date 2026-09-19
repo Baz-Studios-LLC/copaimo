@@ -3633,6 +3633,17 @@
     {
       "from": "Generated",
       "at": [
+        278.60428,
+        400.56058
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.9475186,
+      "what": "CitySpire"
+    },
+    {
+      "from": "Generated",
+      "at": [
         211.24167,
         359.669
       ],
@@ -4062,46 +4073,35 @@
     {
       "from": "Generated",
       "at": [
-        375.34973,
-        166.02557
+        378.12985,
+        166.29623
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -0.9629338,
+      "facing": -0.953846,
       "what": "Well"
     },
     {
       "from": "Generated",
       "at": [
-        310.72516,
-        630.3429
+        309.87537,
+        627.7275
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.2274011,
+      "facing": 1.2270894,
       "what": "Well"
     },
     {
       "from": "Generated",
       "at": [
-        279.67365,
-        400.98364
+        164.55121,
+        368.15753
       ],
       "serves": null,
       "district": "Market",
-      "facing": 1.9475186,
+      "facing": -1.2486184,
       "what": "Shop"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        193.9065,
-        430.5476
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -0.8172142,
-      "what": "TownhouseMoss"
     },
     {
       "from": "Generated",
@@ -4117,79 +4117,90 @@
     {
       "from": "Generated",
       "at": [
-        280.01547,
-        357.79053
+        166.70999,
+        412.5543
       ],
       "serves": null,
       "district": "Market",
-      "facing": 1.2204618,
+      "facing": -1.985618,
       "what": "Shop"
     },
     {
       "from": "Generated",
       "at": [
-        272.80365,
-        343.7908
+        221.63792,
+        329.04483
       ],
       "serves": null,
       "district": "Market",
-      "facing": 0.9782398,
-      "what": "Shop"
+      "facing": -1.7738523,
+      "what": "Townhouse"
     },
     {
       "from": "Generated",
       "at": [
-        239.22849,
-        459.86902
+        243.62462,
+        331.01068
       ],
       "serves": null,
       "district": "Market",
-      "facing": 1.2270895,
-      "what": "TownhouseOchre"
+      "facing": 2.1087244,
+      "what": "Townhouse"
     },
     {
       "from": "Generated",
       "at": [
-        285.37814,
-        430.80502
+        285.67142,
+        432.26633
       ],
       "serves": null,
       "district": "Market",
       "facing": 0.49141678,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        297.77496,
+        411.29626
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.6501758,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        147.46779,
+        356.9941
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.49141702,
+      "what": "TownhouseMoss"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        158.76587,
+        438.91592
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 2.3243785,
       "what": "TownhouseSlate"
     },
     {
       "from": "Generated",
       "at": [
-        258.49646,
-        454.64917
+        223.29236,
+        464.03152
       ],
       "serves": null,
       "district": "Market",
-      "facing": -1.9145032,
-      "what": "Townhouse"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        157.62462,
-        337.5908
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -2.6501756,
-      "what": "Townhouse"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        215.68352,
-        300.1251
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -1.7738522,
-      "what": "TownhouseSlate"
+      "facing": -0.07212415,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -4205,24 +4216,35 @@
     {
       "from": "Generated",
       "at": [
-        142.68967,
-        401.28403
+        304.22705,
+        387.39832
       ],
       "serves": null,
       "district": "Market",
-      "facing": 1.4016362,
-      "what": "TownhouseOchre"
+      "facing": -1.4364954,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        298.70663,
-        350.96057
+        304.19943,
+        368.5127
       ],
       "serves": null,
       "district": "Market",
-      "facing": -1.9211308,
-      "what": "TownhouseOchre"
+      "facing": -1.6788445,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        277.11115,
+        315.47998
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.032868,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -4238,178 +4260,189 @@
     {
       "from": "Generated",
       "at": [
-        298.6507,
-        437.90863
+        298.10803,
+        438.92255
       ],
       "serves": null,
       "district": "Market",
       "facing": 0.49141678,
-      "what": "Shop"
+      "what": "CityTower"
     },
     {
       "from": "Generated",
       "at": [
-        245.17021,
-        476.47006
+        135.47769,
+        350.5769
       ],
       "serves": null,
       "district": "Market",
-      "facing": 1.2270895,
-      "what": "Shop"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        193.92755,
-        293.1382
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": 1.3677405,
-      "what": "TownhouseMoss"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        264.70624,
-        471.99908
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -1.9145032,
-      "what": "Townhouse"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        142.04979,
-        329.25497
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -2.6501756,
-      "what": "Shop"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        160.16507,
-        466.50742
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -0.8172142,
-      "what": "Shop"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        299.8231,
-        303.4396
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": 0.64236975,
-      "what": "TownhouseSlate"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        267.18793,
-        281.89752
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": 0.6065653,
-      "what": "Shop"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        253.4088,
-        273.75278
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": 0.46306565,
-      "what": "Shop"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        313.5055,
-        445.85907
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": 0.49141678,
+      "facing": 0.49141702,
       "what": "TownhouseOchre"
     },
     {
       "from": "Generated",
       "at": [
-        331.031,
-        339.2768
+        312.81845,
+        419.6312
       ],
       "serves": null,
       "district": "Market",
-      "facing": 1.0623387,
-      "what": "Shop"
+      "facing": -2.6501758,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        269.72623,
-        486.02487
+        265.5536,
+        471.6958
       ],
       "serves": null,
       "district": "Market",
       "facing": -1.9145032,
-      "what": "Townhouse"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        190.84329,
-        278.1584
+        148.87288,
+        449.45932
       ],
       "serves": null,
       "district": "Market",
-      "facing": 1.3677405,
+      "facing": 2.3243785,
       "what": "TownhouseSlate"
     },
     {
       "from": "Generated",
       "at": [
-        337.99878,
-        354.15503
+        212.4351,
+        284.34787
       ],
       "serves": null,
       "district": "Market",
-      "facing": 1.2022529,
-      "what": "Shop"
+      "facing": -1.7738522,
+      "what": "Townhouse"
     },
     {
       "from": "Generated",
       "at": [
-        327.57693,
-        428.5509
+        287.25964,
+        296.60672
       ],
       "serves": null,
       "district": "Market",
-      "facing": -2.6501758,
+      "facing": 0.50229806,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        299.5699,
+        304.3742
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.64236975,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        310.8901,
+        314.52505
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.7823996,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        321.4713,
+        326.2623
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.9223893,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        121.48357,
+        343.08713
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.49141702,
       "what": "TownhouseMoss"
     },
     {
       "from": "Generated",
       "at": [
-        221.8434,
-        263.36343
+        330.0265,
+        339.83667
       ],
       "serves": null,
       "district": "Market",
-      "facing": 0.17670685,
-      "what": "Shop"
+      "facing": 1.0623387,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        250.18063,
+        493.13983
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.2270895,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        238.2055,
+        267.49484
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.3197851,
+      "what": "Townhouse"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        337.1592,
+        354.47925
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.2022529,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        342.01862,
+        370.29517
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.3421304,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        344.6641,
+        386.87347
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.4819719,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -4425,35 +4458,35 @@
     {
       "from": "Generated",
       "at": [
-        345.87662,
-        403.947
+        344.97778,
+        403.90112
       ],
       "serves": null,
       "district": "Market",
       "facing": 1.6217849,
-      "what": "Shop"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        343.77017,
-        421.21774
+        178.87723,
+        266.60773
       ],
       "serves": null,
       "district": "Market",
-      "facing": 1.7615604,
-      "what": "Shop"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        163.7074,
-        273.3505
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -0.48396438,
+      "facing": -0.35251576,
       "what": "Townhouse"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        149.54443,
+        282.02826
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -0.6154179,
+      "what": "Shop"
     },
     {
       "from": "Generated",
@@ -4480,13 +4513,13 @@
     {
       "from": "Generated",
       "at": [
-        105.174706,
-        337.38852
+        255.93896,
+        507.2576
       ],
       "serves": null,
       "district": "Market",
-      "facing": -1.162412,
-      "what": "Shop"
+      "facing": 2.8376908,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -4502,35 +4535,24 @@
     {
       "from": "Generated",
       "at": [
-        297.89877,
-        488.5508
+        297.23962,
+        487.60846
       ],
       "serves": null,
       "district": "Market",
       "facing": 2.5311947,
-      "what": "Shop"
+      "what": "CityTower"
     },
     {
       "from": "Generated",
       "at": [
-        242.34357,
-        511.3911
+        96.22816,
+        368.32806
       ],
       "serves": null,
       "district": "Market",
-      "facing": 2.9643707,
-      "what": "Shop"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        340.25018,
-        435.24637
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": 1.9013106,
-      "what": "TownhouseMoss"
+      "facing": -1.4158232,
+      "what": "TownhouseOchre"
     },
     {
       "from": "Generated",
@@ -4546,13 +4568,13 @@
     {
       "from": "Generated",
       "at": [
-        322.3781,
-        466.1818
+        226.1954,
+        512.3324
       ],
       "serves": null,
       "district": "Market",
-      "facing": 2.2714899,
-      "what": "TownhouseSlate"
+      "facing": 3.0910525,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -4579,101 +4601,90 @@
     {
       "from": "Generated",
       "at": [
-        102.60283,
-        432.4979
+        194.01178,
+        509.87067
       ],
       "serves": null,
       "district": "Market",
-      "facing": -1.9226397,
-      "what": "Townhouse"
+      "facing": -2.9387734,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        109.22276,
-        447.51126
+        178.33533,
+        505.59525
       ],
       "serves": null,
       "district": "Market",
-      "facing": -2.0493443,
-      "what": "TownhouseOchre"
+      "facing": -2.8120987,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        162.88042,
-        500.16162
+        163.27689,
+        499.35367
       ],
       "serves": null,
       "district": "Market",
       "facing": -2.6854181,
-      "what": "TownhouseSlate"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        330.21698,
-        454.80322
+        117.71233,
+        461.61014
       ],
       "serves": null,
       "district": "Market",
-      "facing": 0.49141678,
+      "facing": -2.1760478,
       "what": "Shop"
     },
     {
       "from": "Generated",
       "at": [
-        297.264,
-        278.08548
+        298.94418,
+        277.98154
       ],
       "serves": null,
       "district": "Market",
       "facing": -2.6392946,
-      "what": "TownhouseSlate"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        276.37054,
-        264.04788
+        312.28427,
+        286.78546
       ],
       "serves": null,
       "district": "Market",
-      "facing": -2.5350273,
+      "facing": -2.499223,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        259.7506,
+        254.67665
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.678527,
       "what": "Shop"
     },
     {
       "from": "Generated",
       "at": [
-        325.72995,
-        299.59586
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -2.359193,
-      "what": "Townhouse"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        336.3892,
-        311.509
+        338.9665,
+        313.0063
       ],
       "serves": null,
       "district": "Market",
       "facing": -2.2192032,
-      "what": "Shop"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        82.01457,
-        337.42178
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -1.2091156,
-      "what": "Shop"
+      "what": "CityTower"
     },
     {
       "from": "Generated",
@@ -4700,24 +4711,24 @@
     {
       "from": "Generated",
       "at": [
-        241.91623,
-        247.76088
+        73.89377,
+        368.92447
       ],
       "serves": null,
       "district": "Market",
-      "facing": -2.8218076,
+      "facing": -1.4274696,
       "what": "Shop"
     },
     {
       "from": "Generated",
       "at": [
-        357.5058,
-        349.4285
+        72.44331,
+        385.24652
       ],
       "serves": null,
       "district": "Market",
-      "facing": -1.9393399,
-      "what": "Shop"
+      "facing": -1.5366454,
+      "what": "Townhouse"
     },
     {
       "from": "Generated",
@@ -4733,46 +4744,35 @@
     {
       "from": "Generated",
       "at": [
-        74.91735,
-        418.0689
+        103.335335,
+        292.55988
       ],
       "serves": null,
       "district": "Market",
-      "facing": -1.7549936,
+      "facing": -1.0468191,
       "what": "Shop"
     },
     {
       "from": "Generated",
       "at": [
-        281.8676,
-        519.94763
+        78.84013,
+        434.17624
       ],
       "serves": null,
       "district": "Market",
-      "facing": -1.9145042,
-      "what": "TownhouseSlate"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        362.2772,
-        365.58023
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -1.7994622,
+      "facing": -1.8641659,
       "what": "Townhouse"
     },
     {
       "from": "Generated",
       "at": [
-        84.51632,
-        449.8204
+        362.8593,
+        364.1111
       ],
       "serves": null,
       "district": "Market",
-      "facing": -1.9733365,
-      "what": "Shop"
+      "facing": -1.7994622,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -4788,13 +4788,13 @@
     {
       "from": "Generated",
       "at": [
-        91.891426,
-        464.81033
+        222.9192,
+        243.34074
       ],
       "serves": null,
       "district": "Market",
-      "facing": -2.0825093,
-      "what": "TownhouseOchre"
+      "facing": -2.9648857,
+      "what": "Shop"
     },
     {
       "from": "Generated",
@@ -4810,35 +4810,35 @@
     {
       "from": "Generated",
       "at": [
-        358.27167,
-        444.97897
+        359.69434,
+        444.43604
       ],
       "serves": null,
       "district": "Market",
       "facing": -2.6501758,
-      "what": "TownhouseMoss"
+      "what": "CityTower"
     },
     {
       "from": "Generated",
       "at": [
-        87.75508,
-        325.03534
+        366.15927,
+        383.6094
       ],
       "serves": null,
       "district": "Market",
-      "facing": 0.4914182,
-      "what": "Shop"
+      "facing": -1.6596208,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        127.3418,
-        507.43115
+        202.91731,
+        238.1211
       ],
       "serves": null,
       "district": "Market",
-      "facing": -2.4490097,
-      "what": "Shop"
+      "facing": -1.7738522,
+      "what": "TownhouseOchre"
     },
     {
       "from": "Generated",
@@ -4854,68 +4854,68 @@
     {
       "from": "Generated",
       "at": [
-        365.7507,
-        404.9612
+        140.6002,
+        517.28955
       ],
       "serves": null,
       "district": "Market",
-      "facing": -1.5198077,
-      "what": "TownhouseSlate"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        169.56679,
-        248.829
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": 2.7890768,
+      "facing": -2.5552773,
       "what": "Shop"
     },
     {
       "from": "Generated",
       "at": [
-        292.9379,
-        514.7918
+        366.72037,
+        403.61896
       ],
       "serves": null,
       "district": "Market",
-      "facing": -0.48054627,
+      "facing": -1.5198077,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        364.43835,
+        425.20905
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.3800322,
+      "what": "CityTower"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        154.44809,
+        255.73586
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 2.6576283,
       "what": "TownhouseMoss"
     },
     {
       "from": "Generated",
       "at": [
-        110.99388,
-        489.82867
+        263.5435,
+        527.8769
       ],
       "serves": null,
       "district": "Market",
-      "facing": 2.3243783,
-      "what": "TownhouseSlate"
+      "facing": -0.3039018,
+      "what": "CityTower"
     },
     {
       "from": "Generated",
       "at": [
-        154.8736,
-        525.7121
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": -2.6615484,
-      "what": "TownhouseSlate"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        185.83281,
-        537.849
+        186.0707,
+        536.981
       ],
       "serves": null,
       "district": "Crafts",
       "facing": -2.8740823,
-      "what": "Shop"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -4931,68 +4931,57 @@
     {
       "from": "Generated",
       "at": [
-        202.17717,
-        541.40607
+        347.59933,
+        479.86713
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -2.9803524,
-      "what": "Shop"
+      "facing": 2.1970754,
+      "what": "CityTower"
     },
     {
       "from": "Generated",
       "at": [
-        218.85765,
-        543.2151
+        337.43948,
+        492.8563
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -3.0866177,
-      "what": "Shop"
+      "facing": 2.3022258,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        235.68713,
-        543.2447
+        325.75656,
+        504.5702
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 2.4073763,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        235.64099,
+        542.3459
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 3.0903018,
-      "what": "TownhouseOchre"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        372.95978,
-        437.1925
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 1.971851,
-      "what": "Shop"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        252.47585,
-        541.4838
+        252.33463,
+        540.595
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 2.9840336,
-      "what": "TownhouseSlate"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        266.48215,
-        538.6304
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 2.87777,
-      "what": "Shop"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -5003,17 +4992,6 @@
       "serves": null,
       "district": "Crafts",
       "facing": -0.61994594,
-      "what": "Shop"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        378.51617,
-        421.96518
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 1.8698429,
       "what": "Shop"
     },
     {
@@ -5030,57 +5008,68 @@
     {
       "from": "Generated",
       "at": [
-        385.6325,
-        373.37704
+        384.01123,
+        389.80966
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.5638496,
-      "what": "TownhouseMoss"
+      "facing": 1.6658423,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        176.85782,
-        226.84964
+        312.562,
+        256.06006
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -0.40673566,
-      "what": "Cottage"
+      "facing": -1.032868,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        385.4116,
-        356.68155
+        383.77136,
+        356.86093
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 1.4618583,
-      "what": "Cottage"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        198.45421,
-        220.54428
+        381.1158,
+        340.4155
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -0.2115929,
-      "what": "TownhouseMoss"
+      "facing": 1.3598744,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        213.87833,
-        218.0329
+        376.77176,
+        324.22134
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -0.11463238,
-      "what": "Shop"
+      "facing": 1.2578937,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        370.7632,
+        308.45242
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.1559196,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -5096,68 +5085,68 @@
     {
       "from": "Generated",
       "at": [
-        363.91455,
-        292.8358
+        246.43726,
+        216.71985
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.0539461,
-      "what": "Townhouse"
+      "facing": 0.07928009,
+      "what": "Cottage"
     },
     {
       "from": "Generated",
       "at": [
-        354.6711,
-        278.35083
+        262.65555,
+        219.56073
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 0.95198184,
-      "what": "Shop"
+      "facing": 0.17623037,
+      "what": "TownhouseSlate"
     },
     {
       "from": "Generated",
       "at": [
-        343.9342,
-        264.7973
+        343.25806,
+        265.39127
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 0.8500153,
-      "what": "Shop"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        331.798,
-        252.32942
+        331.1858,
+        252.98912
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 0.748057,
-      "what": "TownhouseOchre"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        294.49234,
-        228.49022
+        320.01666,
+        243.45879
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 0.37012312,
-      "what": "TownhouseMoss"
+      "facing": 0.64610237,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        70.35761,
-        314.50348
+        78.92797,
+        296.41037
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 2.0416534,
-      "what": "Townhouse"
+      "facing": 1.9879532,
+      "what": "TownhouseSlate"
     },
     {
       "from": "Generated",
@@ -5184,13 +5173,13 @@
     {
       "from": "Generated",
       "at": [
-        55.353992,
-        421.71368
+        385.5588,
+        458.56253
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.3865991,
-      "what": "TownhouseMoss"
+      "facing": -2.6501763,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -5217,13 +5206,13 @@
     {
       "from": "Generated",
       "at": [
-        374.9807,
-        478.76117
+        374.55603,
+        479.5547
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 0.49141634,
-      "what": "TownhouseOchre"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -5261,211 +5250,222 @@
     {
       "from": "Generated",
       "at": [
-        58.39671,
-        309.32248
+        108.29,
+        253.52866
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 0.4914167,
-      "what": "TownhouseOchre"
+      "facing": 2.30829,
+      "what": "Cottage"
     },
     {
       "from": "Generated",
       "at": [
-        293.38574,
-        552.12885
+        294.2331,
+        551.82556
       ],
       "serves": null,
       "district": "Crafts",
       "facing": -1.9145029,
-      "what": "Shop"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        145.68341,
-        543.36285
+        145.26778,
+        544.16113
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 0.48004416,
-      "what": "Townhouse"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        180.57259,
-        557.04114
+        180.3347,
+        557.9091
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 0.26751024,
-      "what": "Townhouse"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        364.65433,
-        492.20526
+        119.13798,
+        241.56416
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -0.9445172,
-      "what": "Townhouse"
+      "facing": 2.4149876,
+      "what": "Shop"
     },
     {
       "from": "Generated",
       "at": [
-        201.50192,
-        561.4578
+        198.83788,
+        561.93634
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 0.1612403,
-      "what": "Shop"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        220.3354,
-        563.22644
+        217.71472,
+        563.98364
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 0.054975025,
-      "what": "Shop"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        195.31009,
-        201.17378
+        340.2957,
+        520.6793
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -1.7738519,
-      "what": "TownhouseSlate"
+      "facing": -0.7342164,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        236.7074,
-        563.1186
+        392.10928,
+        445.31265
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -0.051290795,
-      "what": "Townhouse"
+      "facing": -1.1697417,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        325.11444,
-        531.83826
+        325.64398,
+        532.566
       ],
       "serves": null,
       "district": "Crafts",
       "facing": -0.6290677,
-      "what": "Townhouse"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        255.59831,
-        561.13727
+        176.0526,
+        206.32167
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -0.15755916,
-      "what": "Townhouse"
+      "facing": 1.3677408,
+      "what": "TownhouseMoss"
     },
     {
       "from": "Generated",
       "at": [
-        135.8026,
-        228.10835
+        309.79022,
+        542.87225
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 2.5216467,
-      "what": "TownhouseSlate"
+      "facing": -0.52391464,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        402.03452,
-        410.04214
+        398.39297,
+        428.09305
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.2717497,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        403.16226,
+        410.26727
       ],
       "serves": null,
       "district": "Crafts",
       "facing": -1.3737538,
-      "what": "Townhouse"
+      "what": "CityTower"
     },
     {
       "from": "Generated",
       "at": [
-        152.31076,
-        218.50006
+        405.61334,
+        391.869
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 2.6282692,
-      "what": "Cottage"
+      "facing": -1.4757503,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        404.78207,
-        373.24402
+        405.3427,
+        354.50168
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -1.577743,
-      "what": "Cottage"
+      "facing": -1.6797345,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        400.91974,
-        333.5616
+        402.33487,
+        335.87234
       ],
       "serves": null,
       "district": "Crafts",
       "facing": -1.7817183,
-      "what": "Shop"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        395.87494,
-        315.69574
+        313.1372,
+        214.49948
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -1.8836989,
-      "what": "Shop"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        211.60214,
-        198.2635
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 3.0269604,
+      "facing": 2.1087246,
       "what": "Townhouse"
     },
     {
       "from": "Generated",
       "at": [
-        394.5268,
-        488.9505
+        390.62228,
+        299.70566
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.8204434,
-      "what": "Cottage"
+      "facing": -1.9856732,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        406.9141,
+        461.1823
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 2.1199393,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -5481,24 +5481,24 @@
     {
       "from": "Generated",
       "at": [
-        380.0725,
-        280.99188
+        56.781815,
+        283.61877
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -2.0876465,
-      "what": "Shop"
+      "facing": -2.650176,
+      "what": "Townhouse"
     },
     {
       "from": "Generated",
       "at": [
-        247.95387,
-        197.62999
+        371.6141,
+        266.28543
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -3.0623126,
-      "what": "Townhouse"
+      "facing": -2.1896107,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -5525,24 +5525,24 @@
     {
       "from": "Generated",
       "at": [
-        279.95508,
-        573.65796
+        301.41946,
+        210.63701
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.2270898,
-      "what": "TownhouseOchre"
+      "facing": -2.7714696,
+      "what": "Cottage"
     },
     {
       "from": "Generated",
       "at": [
-        389.3505,
-        503.5548
+        388.3853,
+        503.59366
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 1.9022392,
-      "what": "Townhouse"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -5569,13 +5569,13 @@
     {
       "from": "Generated",
       "at": [
-        421.99896,
-        433.43243
+        420.93567,
+        432.99435
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 1.9616227,
-      "what": "TownhouseOchre"
+      "what": "CityTower"
     },
     {
       "from": "Generated",
@@ -5646,12 +5646,12 @@
     {
       "from": "Generated",
       "at": [
-        428.25415,
-        418.53113
+        173.59239,
+        190.65364
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.882519,
+      "facing": 1.3677408,
       "what": "Cottage"
     },
     {
@@ -5668,35 +5668,35 @@
     {
       "from": "Generated",
       "at": [
-        383.4322,
-        518.69434
+        382.60785,
+        518.33307
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 1.9838164,
-      "what": "TownhouseSlate"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        432.6488,
-        402.77255
+        103.73554,
+        557.1595
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.803449,
-      "what": "Cottage"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        301.06293,
-        573.57874
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": -1.9145029,
+      "facing": -2.3772938,
       "what": "TownhouseMoss"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        61.036514,
+        249.94843
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -0.97874975,
+      "what": "Cottage"
     },
     {
       "from": "Generated",
@@ -5712,35 +5712,35 @@
     {
       "from": "Generated",
       "at": [
-        435.82104,
-        386.53302
+        115.93133,
+        567.96277
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.7244151,
-      "what": "Cottage"
+      "facing": -2.4555676,
+      "what": "Shop"
     },
     {
       "from": "Generated",
       "at": [
-        376.81348,
-        533.9617
+        82.76407,
+        223.88036
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 2.0651824,
-      "what": "Cottage"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        129.08911,
-        577.89667
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": -2.5337944,
+      "facing": -0.817899,
       "what": "TownhouseOchre"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        436.07733,
+        369.78534
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 1.6454093,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -5756,24 +5756,35 @@
     {
       "from": "Generated",
       "at": [
-        437.56335,
-        353.00223
+        321.7714,
+        200.02753
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.5664387,
-      "what": "TownhouseMoss"
+      "facing": 2.1087246,
+      "what": "Shop"
     },
     {
       "from": "Generated",
       "at": [
-        142.76721,
-        587.52374
+        108.24525,
+        200.74553
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -2.6119945,
-      "what": "Cottage"
+      "facing": -0.65709275,
+      "what": "TownhouseOchre"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        366.76044,
+        547.6784
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 2.1463494,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -5789,35 +5800,35 @@
     {
       "from": "Generated",
       "at": [
-        436.81274,
-        335.9716
+        158.42526,
+        594.01263
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.4874994,
-      "what": "TownhouseSlate"
+      "facing": -2.6901507,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        189.68573,
-        173.85687
+        137.20526,
+        181.02907
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -1.7738519,
-      "what": "TownhouseMoss"
+      "facing": -0.4963341,
+      "what": "Cottage"
     },
     {
       "from": "Generated",
       "at": [
-        434.69885,
-        318.86786
+        433.81067,
+        319.01318
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 1.4085846,
-      "what": "TownhouseOchre"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -5833,17 +5844,6 @@
     {
       "from": "Generated",
       "at": [
-        420.35306,
-        478.20557
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": -2.650176,
-      "what": "TownhouseSlate"
-    },
-    {
-      "from": "Generated",
-      "at": [
         168.65987,
         167.03941
       ],
@@ -5855,57 +5855,57 @@
     {
       "from": "Generated",
       "at": [
-        189.97989,
-        607.3197
+        430.33215,
+        302.0159
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -2.8463664,
-      "what": "TownhouseOchre"
+      "facing": 1.3297026,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        186.55292,
-        162.07104
+        286.4146,
+        594.3766
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -0.28074014,
-      "what": "Townhouse"
+      "facing": 1.2270898,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        426.32788,
-        284.88293
+        425.47357,
+        285.166
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 1.2508482,
-      "what": "TownhouseOchre"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        206.86751,
-        611.73956
+        207.06142,
+        610.8607
       ],
       "serves": null,
       "district": "Crafts",
       "facing": -2.9244273,
-      "what": "TownhouseSlate"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        420.06668,
-        268.2268
+        202.4259,
+        158.11464
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.1720197,
-      "what": "TownhouseOchre"
+      "facing": -0.20811713,
+      "what": "TownhouseSlate"
     },
     {
       "from": "Generated",
@@ -5932,46 +5932,57 @@
     {
       "from": "Generated",
       "at": [
-        235.23181,
-        153.65163
+        411.63492,
+        252.35986
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -0.06291857,
-      "what": "Townhouse"
+      "facing": 1.093216,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        241.99495,
-        616.644
+        333.00974,
+        587.88605
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 2.3887737,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        242.04994,
+        615.74567
       ],
       "serves": null,
       "district": "Crafts",
       "facing": -3.0804498,
-      "what": "Townhouse"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        308.52145,
-        594.4176
+        309.3688,
+        594.1143
       ],
       "serves": null,
       "district": "Crafts",
       "facing": -1.9145029,
-      "what": "Shop"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        404.08856,
-        235.75832
+        402.6874,
+        236.62967
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 1.0144411,
-      "what": "Cottage"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -5987,57 +5998,46 @@
     {
       "from": "Generated",
       "at": [
-        17.090506,
-        287.21497
+        433.9018,
+        457.32834
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 0.49141628,
-      "what": "TownhouseOchre"
+      "facing": -1.1008304,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        260.02942,
-        617.04
+        260.01428,
+        616.1401
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 3.1247702,
-      "what": "Shop"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        408.1674,
-        510.0304
+        409.0184,
+        510.32327
       ],
       "serves": null,
       "district": "Crafts",
       "facing": -1.2393534,
-      "what": "TownhouseSlate"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        323.29883,
-        597.69495
+        441.23056,
+        441.35623
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 2.4692519,
-      "what": "TownhouseOchre"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        421.004,
-        502.54257
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 0.4914166,
-      "what": "Cottage"
+      "facing": -1.1799699,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -6075,13 +6075,13 @@
     {
       "from": "Generated",
       "at": [
-        2.7825847,
-        427.5578
+        6.4496717,
+        445.96915
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.3760257,
-      "what": "Cottage"
+      "facing": 1.2924948,
+      "what": "TownhouseSlate"
     },
     {
       "from": "Generated",
@@ -6108,24 +6108,24 @@
     {
       "from": "Generated",
       "at": [
-        278.23373,
-        616.0194
+        -1.1094294,
+        371.60718
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 3.046829,
-      "what": "TownhouseSlate"
+      "facing": 1.6266183,
+      "what": "Cottage"
     },
     {
       "from": "Generated",
       "at": [
-        3.3649998,
-        334.32962
+        -0.025085926,
+        352.8413
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.7936798,
-      "what": "TownhouseMoss"
+      "facing": 1.7101489,
+      "what": "Townhouse"
     },
     {
       "from": "Generated",
@@ -6141,24 +6141,35 @@
     {
       "from": "Generated",
       "at": [
-        446.48126,
-        424.4044
+        14.28608,
+        299.5005
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -1.2590736,
+      "facing": 1.9607433,
+      "what": "TownhouseMoss"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        302.68573,
+        159.26996
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.22731835,
       "what": "TownhouseSlate"
     },
     {
       "from": "Generated",
       "at": [
-        401.6588,
-        526.68164
+        292.8874,
+        613.2747
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -1.1577762,
-      "what": "TownhouseMoss"
+      "facing": 2.9689193,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -6174,35 +6185,35 @@
     {
       "from": "Generated",
       "at": [
-        89.96412,
-        571.5246
+        319.40848,
+        163.78531
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 0.7642989,
+      "facing": 0.29984406,
       "what": "Townhouse"
     },
     {
       "from": "Generated",
       "at": [
-        451.28284,
-        407.18774
+        45.76819,
+        239.68011
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -1.3381436,
-      "what": "TownhouseSlate"
+      "facing": 2.162843,
+      "what": "Cottage"
     },
     {
       "from": "Generated",
       "at": [
-        335.89,
-        169.54593
+        356.63214,
+        182.83054
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 0.37236056,
-      "what": "TownhouseSlate"
+      "facing": 0.6995722,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -6218,24 +6229,24 @@
     {
       "from": "Generated",
       "at": [
-        56.068375,
-        224.35669
+        455.63495,
+        389.60095
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 2.2432752,
-      "what": "TownhouseMoss"
+      "facing": -1.4171776,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        393.67044,
-        543.0481
+        68.7901,
+        210.78642
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -1.0764102,
-      "what": "TownhouseMoss"
+      "facing": 2.3236938,
+      "what": "Cottage"
     },
     {
       "from": "Generated",
@@ -6251,57 +6262,46 @@
     {
       "from": "Generated",
       "at": [
-        456.07156,
-        371.27997
+        457.71698,
+        371.40295
       ],
       "serves": null,
       "district": "Crafts",
       "facing": -1.4961834,
-      "what": "Cottage"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        79.93151,
-        198.6398
+        458.36313,
+        352.9116
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 2.404102,
-      "what": "Shop"
+      "facing": -1.5751541,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        133.09291,
-        604.0504
+        132.63824,
+        604.8271
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 0.5295981,
-      "what": "TownhouseOchre"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        383.58023,
-        558.5915
+        384.96442,
+        559.48956
       ],
       "serves": null,
       "district": "Crafts",
       "facing": -0.9952432,
-      "what": "Cottage"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        112.02111,
-        174.61243
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 2.5648842,
-      "what": "Cottage"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -6317,35 +6317,35 @@
     {
       "from": "Generated",
       "at": [
-        149.35101,
-        612.7288
+        457.54068,
+        334.24103
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 0.45144182,
-      "what": "TownhouseMoss"
+      "facing": -1.6540933,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        445.06967,
-        491.43408
+        128.44308,
+        164.84929
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -2.650176,
-      "what": "TownhouseMoss"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        372.6999,
-        573.94836
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": -0.91425896,
+      "facing": 2.6452587,
       "what": "Cottage"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        455.22583,
+        315.50867
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.733008,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -6361,46 +6361,46 @@
     {
       "from": "Generated",
       "at": [
-        145.71921,
-        156.37561
+        166.08582,
+        621.02716
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 2.725624,
-      "what": "Cottage"
+      "facing": 0.37331787,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        184.18985,
-        626.35876
+        451.40454,
+        296.8347
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 0.2952262,
-      "what": "TownhouseMoss"
+      "facing": -1.81189,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        445.21802,
-        278.62402
+        361.62027,
+        589.74255
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -0.83345693,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        446.07233,
+        278.34097
       ],
       "serves": null,
       "district": "Crafts",
       "facing": -1.8907444,
-      "what": "TownhouseOchre"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        202.7414,
-        630.4398
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 0.21716546,
-      "what": "Cottage"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -6427,35 +6427,46 @@
     {
       "from": "Generated",
       "at": [
-        437.71408,
-        260.79105
+        202.38588,
+        632.051
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -1.9695729,
+      "facing": 0.21716546,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        216.09254,
+        136.3223
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 3.0060818,
       "what": "Cottage"
     },
     {
       "from": "Generated",
       "at": [
-        221.5834,
-        633.8287
+        54.747498,
+        577.7597
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 0.13914135,
+      "facing": -0.81721425,
       "what": "Cottage"
     },
     {
       "from": "Generated",
       "at": [
-        346.71786,
-        602.5178
+        347.84598,
+        603.722
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": -0.752819,
-      "what": "Cottage"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -6471,13 +6482,13 @@
     {
       "from": "Generated",
       "at": [
-        445.34378,
-        515.56946
+        240.72398,
+        637.4052
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 0.4914166,
-      "what": "Cottage"
+      "facing": 0.061142787,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -6493,35 +6504,35 @@
     {
       "from": "Generated",
       "at": [
-        260.35153,
-        636.1872
+        260.37927,
+        637.837
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": -0.016822373,
-      "what": "Cottage"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        331.70932,
-        615.47656
+        332.73697,
+        616.76746
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": -0.67234075,
-      "what": "Cottage"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        408.56552,
-        209.60263
+        280.20187,
+        636.72614
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -2.2059047,
-      "what": "Cottage"
+      "facing": -0.094763756,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -6537,13 +6548,13 @@
     {
       "from": "Generated",
       "at": [
-        396.60938,
-        193.45511
+        397.28964,
+        192.86584
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": -2.2846327,
-      "what": "Townhouse"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -6559,35 +6570,35 @@
     {
       "from": "Generated",
       "at": [
-        318.31543,
-        625.5559
+        351.0538,
+        152.41057
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -0.605456,
+      "facing": 2.108724,
       "what": "Cottage"
     },
     {
       "from": "Generated",
       "at": [
-        299.915,
-        633.163
+        462.57574,
+        499.78265
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -0.1726734,
-      "what": "TownhouseSlate"
+      "facing": -2.650176,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        366.90747,
-        161.75034
+        383.35794,
+        178.01186
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -1.0328685,
-      "what": "Cottage"
+      "facing": -2.3633387,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -6603,56 +6614,56 @@
     {
       "from": "Generated",
       "at": [
-        177.87225,
-        120.199265
+        339.08292,
+        150.23413
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -1.7738522,
+      "facing": -2.769232,
       "what": "Cottage"
     },
     {
       "from": "Generated",
       "at": [
-        476.1844,
-        508.9376
+        23.124508,
+        584.57117
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -2.650176,
+      "facing": 2.3243785,
       "what": "Cottage"
     },
     {
       "from": "Generated",
       "at": [
-        375.58023,
-        147.21375
+        376.9972,
+        148.05914
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": -1.0328685,
-      "what": "Cottage"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        359.981,
-        137.44756
+        467.85117,
+        529.4871
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 2.108724,
-      "what": "Cottage"
+      "facing": 0.4914166,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        34.78121,
-        599.0387
+        155.8195,
+        104.33291
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -0.81721425,
+      "facing": 1.3677404,
       "what": "Cottage"
     },
     {
@@ -6669,24 +6680,24 @@
     {
       "from": "Generated",
       "at": [
-        481.47638,
-        535.75867
+        481.0517,
+        536.5522
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": 0.4914166,
-      "what": "Townhouse"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        367.90912,
-        122.695244
+        385.91507,
+        133.11174
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 2.108724,
-      "what": "TownhouseMoss"
+      "facing": -1.0328685,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -6702,35 +6713,35 @@
     {
       "from": "Generated",
       "at": [
-        506.86804,
-        506.2617
+        506.03653,
+        505.91727
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": 1.9634959,
-      "what": "TownhouseOchre"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        154.47516,
-        686.7555
+        154.86035,
+        685.15106
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": -2.9059732,
-      "what": "Cottage"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        524.0932,
-        316.92938
+        380.2663,
+        649.5821
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 1.3351773,
-      "what": "TownhouseOchre"
+      "facing": 2.5918128,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -6757,13 +6768,13 @@
     {
       "from": "Generated",
       "at": [
-        299.77454,
-        684.7749
+        299.38934,
+        683.1705
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": 2.9059732,
-      "what": "Cottage"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -6790,145 +6801,145 @@
     {
       "from": "Generated",
       "at": [
-        428.05173,
-        616.7766
+        426.98013,
+        615.522
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": 2.4347353,
-      "what": "Cottage"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        109.68289,
-        672.97064
+        57.11087,
+        124.646416
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -2.748893,
-      "what": "Cottage"
+      "facing": -0.54977846,
+      "what": "TownhouseSlate"
     },
     {
       "from": "Generated",
       "at": [
-        506.00928,
-        261.66498
+        505.17776,
+        262.0094
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": 1.1780971,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        192.62332,
+        691.3257
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -3.0630527,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        115.80314,
+        94.49429
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -0.39269853,
+      "what": "Cottage"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        464.93442,
+        194.38216
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.86393815,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        525.1073,
+        444.99127
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.8064156,
+      "what": "CityBlock"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -86.423965,
+        372.96014
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.4922564,
+      "what": "Cottage"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -33.736595,
+        213.20848
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.0210177,
       "what": "Townhouse"
     },
     {
       "from": "Generated",
       "at": [
-        192.49387,
-        692.97064
+        528.8398,
+        421.55075
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -3.0630527,
-      "what": "Cottage"
+      "facing": 1.6493363,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        493.16776,
-        233.69077
+        478.8877,
+        556.4542
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 1.0210177,
-      "what": "Cottage"
+      "facing": 2.1205752,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        466.1891,
-        193.31056
+        352.38437,
+        664.5294
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 0.86393815,
-      "what": "Cottage"
+      "facing": 2.748894,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        526.71173,
-        445.37646
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": 1.8064156,
-      "what": "Cottage"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        307.00226,
-        87.73165
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": 0.2356198,
-      "what": "TownhouseOchre"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        186.38583,
-        77.510086
+        211.38406,
+        75.54268
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": -0.07853997,
       "what": "Cottage"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        530.48474,
-        421.6802
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": 1.6493363,
-      "what": "Cottage"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        329.84906,
-        675.64984
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": 2.748894,
-      "what": "Cottage"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        532.45215,
-        396.68198
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": 1.6493363,
-      "what": "Cottage"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        -46.838528,
-        234.5889
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": -1.0210177,
-      "what": "TownhouseOchre"
     },
     {
       "from": "Generated",
@@ -6944,24 +6955,35 @@
     {
       "from": "Generated",
       "at": [
-        520.12866,
-        469.58408
+        -84.45656,
+        347.9619
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 1.8064156,
-      "what": "TownhouseOchre"
+      "facing": -1.4922564,
+      "what": "Cottage"
     },
     {
       "from": "Generated",
       "at": [
-        449.3336,
-        174.73013
+        -20.656353,
+        576.14233
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 0.86393815,
-      "what": "TownhouseSlate"
+      "facing": -2.2776546,
+      "what": "Cottage"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        478.65897,
+        213.17247
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 1.0210177,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -6977,35 +6999,35 @@
     {
       "from": "Generated",
       "at": [
-        31.89671,
-        628.68964
+        -3.8081663,
+        174.13097
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -2.4347346,
+      "facing": -0.8639377,
       "what": "Cottage"
     },
     {
       "from": "Generated",
       "at": [
-        50.132645,
-        641.9569
+        512.364,
+        279.35846
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -2.591814,
-      "what": "Cottage"
+      "facing": 1.1780971,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        92.420334,
-        665.82025
+        93.05176,
+        664.29584
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": -2.748893,
-      "what": "Cottage"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -7021,12 +7043,12 @@
     {
       "from": "Generated",
       "at": [
-        169.9018,
-        79.540924
+        328.99136,
+        93.99496
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -0.23561922,
+      "facing": 0.39269906,
       "what": "Cottage"
     },
     {
@@ -7054,35 +7076,35 @@
     {
       "from": "Generated",
       "at": [
-        -83.64577,
-        422.78104
+        433.39468,
+        159.95659
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -1.6493363,
-      "what": "TownhouseMoss"
+      "facing": 0.70685804,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        449.28134,
-        596.48584
+        448.02667,
+        595.41425
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": 2.2776542,
-      "what": "Cottage"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        233.33646,
-        694.55804
+        233.207,
+        692.9131
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": 3.0630527,
-      "what": "Cottage"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -7120,56 +7142,56 @@
     {
       "from": "Generated",
       "at": [
-        520.4975,
-        298.73935
+        518.89307,
+        299.12454
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": 1.3351773,
-      "what": "Cottage"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        531.848,
-        375.20087
+        530.95074,
+        375.27148
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": 1.4922563,
-      "what": "TownhouseSlate"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        513.7243,
-        489.7093
+        512.8928,
+        489.36487
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": 1.9634959,
-      "what": "TownhouseSlate"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        530.1187,
-        343.66867
+        528.47375,
+        343.79813
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": 1.4922563,
-      "what": "Cottage"
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
       "at": [
-        399.52213,
-        130.28273
+        35.43814,
+        138.28561
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 0.5497793,
+      "facing": -0.7068582,
       "what": "Cottage"
     },
     {
@@ -7186,24 +7208,24 @@
     {
       "from": "Generated",
       "at": [
-        -31.589155,
-        561.7312
+        -56.039215,
+        250.1205
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -2.1205752,
+      "facing": -1.1780971,
       "what": "Cottage"
     },
     {
       "from": "Generated",
       "at": [
-        -82.09377,
-        439.6198
+        168.89056,
+        688.5194
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -1.8064154,
-      "what": "Cottage"
+      "facing": -2.9059732,
+      "what": "CityBlock"
     },
     {
       "from": "Generated",
@@ -7219,266 +7241,244 @@
     {
       "from": "Generated",
       "at": [
-        368.89252,
-        658.48706
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": 2.5918128,
-      "what": "Cottage"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        528.1906,
-        330.78354
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": 1.3351773,
-      "what": "Cottage"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        163.8398,
-        367.92004
+        192.30217,
+        429.04224
       ],
       "serves": null,
       "district": "Market",
-      "facing": -1.2486184,
+      "facing": -0.8172142,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        282.08182,
+        357.03546
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.2204618,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        274.8408,
+        342.8773
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.9782398,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        240.25069,
+        460.4994
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.2270895,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        257.7903,
+        454.9019
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.9145032,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        157.2707,
+        338.252
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.6501756,
       "what": "CityForecourt"
     },
     {
       "from": "Generated",
       "at": [
-        164.69658,
-        413.44095
+        214.94893,
+        300.27634
       ],
       "serves": null,
       "district": "Market",
-      "facing": -1.985618,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        219.48312,
-        329.4885
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -1.7738523,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        244.26869,
-        331.39493
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": 2.1087244,
-      "what": "CityForecourt"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        296.6981,
-        414.51953
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -2.6501758,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        147.82169,
-        356.3329
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": 0.49141702,
+      "facing": -1.7738522,
       "what": "CityGreen"
     },
     {
       "from": "Generated",
       "at": [
-        160.3702,
-        440.4213
+        199.46356,
+        460.8173
       ],
       "serves": null,
       "district": "Market",
-      "facing": 2.3243785,
+      "facing": 0.18399136,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        144.85826,
+        400.91364
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.4016362,
       "what": "CityKiosk"
     },
     {
       "from": "Generated",
       "at": [
-        300.81854,
-        389.47327
+        297.17416,
+        348.95197
       ],
       "serves": null,
       "district": "Market",
-      "facing": -1.4364954,
-      "what": "CityKiosk"
+      "facing": -1.9211308,
+      "what": "CityForecourt"
     },
     {
       "from": "Generated",
       "at": [
-        274.2525,
-        314.22098
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -1.032868,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        287.69827,
-        334.2208
+        287.48138,
+        331.3023
       ],
       "serves": null,
       "district": "Market",
       "facing": -2.163353,
-      "what": "CityKiosk"
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        136.51582,
-        348.63727
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": 0.49141702,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        312.03986,
-        421.08594
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -2.6501758,
-      "what": "CityForecourt"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        149.4198,
-        449.9725
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": 2.3243785,
-      "what": "CityForecourt"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        210.2803,
-        284.79153
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -1.7738522,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        289.45953,
-        293.99298
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": 0.50229806,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        312.22955,
-        313.17752
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": 0.7823996,
-      "what": "CityForecourt"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        323.94214,
-        324.39014
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": 0.9223893,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        122.52169,
-        341.1475
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": 0.49141702,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        253.09932,
-        492.0952
+        245.87634,
+        476.21735
       ],
       "serves": null,
       "district": "Market",
       "facing": 1.2270895,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        194.66214,
+        292.98697
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.3677405,
+      "what": "CityGreen"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        141.01166,
+        331.1946
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.6501756,
       "what": "CityKiosk"
     },
     {
       "from": "Generated",
       "at": [
-        238.89711,
-        265.40637
+        159.61815,
+        465.99423
       ],
       "serves": null,
       "district": "Market",
-      "facing": 0.3197851,
+      "facing": -0.8172142,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        268.44205,
+        280.09
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.6065653,
       "what": "CityKiosk"
     },
     {
       "from": "Generated",
       "at": [
-        345.0379,
-        369.59247
+        253.74382,
+        273.08176
       ],
       "serves": null,
       "district": "Market",
-      "facing": 1.3421304,
-      "what": "CityKiosk"
+      "facing": 0.46306565,
+      "what": "CityGreen"
     },
     {
       "from": "Generated",
       "at": [
-        347.75186,
-        386.59848
+        313.8594,
+        445.19785
       ],
       "serves": null,
       "district": "Market",
-      "facing": 1.4819719,
-      "what": "CityKiosk"
+      "facing": 0.49141678,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        269.02008,
+        486.2776
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.9145032,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        191.57788,
+        278.00714
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 1.3677405,
+      "what": "CityGreen"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        327.22302,
+        429.21213
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -2.6501758,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        221.97523,
+        262.62512
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": 0.17670685,
+      "what": "CityGreen"
     },
     {
       "from": "Generated",
@@ -7494,23 +7494,23 @@
     {
       "from": "Generated",
       "at": [
-        178.61829,
-        265.90384
+        344.9898,
+        418.8575
       ],
       "serves": null,
       "district": "Market",
-      "facing": -0.35251576,
-      "what": "CityGreen"
+      "facing": 1.7615604,
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        149.11147,
-        281.41586
+        163.35843,
+        272.68665
       ],
       "serves": null,
       "district": "Market",
-      "facing": -0.6154179,
+      "facing": -0.48396438,
       "what": "CityGreen"
     },
     {
@@ -7527,100 +7527,89 @@
     {
       "from": "Generated",
       "at": [
-        257.68802,
-        509.95795
+        104.48638,
+        337.0907
       ],
       "serves": null,
       "district": "Market",
-      "facing": 2.8376908,
-      "what": "CityKiosk"
+      "facing": -1.162412,
+      "what": "CityForecourt"
     },
     {
       "from": "Generated",
       "at": [
-        284.75583,
-        499.09653
+        284.08554,
+        497.81073
       ],
       "serves": null,
       "district": "Market",
       "facing": 2.6610463,
-      "what": "CityKiosk"
+      "what": "CityForecourt"
     },
     {
       "from": "Generated",
       "at": [
-        94.05452,
-        367.98846
+        242.09583,
+        512.19745
       ],
       "serves": null,
       "district": "Market",
-      "facing": -1.4158232,
-      "what": "CityKiosk"
+      "facing": 2.9643707,
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        312.33694,
-        479.7978
+        311.35895,
+        478.72723
       ],
       "serves": null,
       "district": "Market",
       "facing": 2.4013412,
-      "what": "CityKiosk"
+      "what": "CityForecourt"
     },
     {
       "from": "Generated",
       "at": [
-        226.352,
-        515.42847
+        322.9514,
+        466.66534
       ],
       "serves": null,
       "district": "Market",
-      "facing": 3.0910525,
-      "what": "CityKiosk"
+      "facing": 2.2714899,
+      "what": "CityForecourt"
     },
     {
       "from": "Generated",
       "at": [
-        209.81557,
-        515.2152
+        209.92586,
+        513.7694
       ],
       "serves": null,
       "district": "Market",
       "facing": -3.0654545,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        100.5376,
+        433.25607
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.9226397,
       "what": "CityKiosk"
     },
     {
       "from": "Generated",
       "at": [
-        193.38734,
-        512.9071
+        107.2699,
+        448.52432
       ],
       "serves": null,
       "district": "Market",
-      "facing": -2.9387734,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        177.33229,
-        508.52847
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -2.8120987,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        115.903145,
-        462.86185
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -2.1760478,
+      "facing": -2.0493443,
       "what": "CityKiosk"
     },
     {
@@ -7637,122 +7626,111 @@
     {
       "from": "Generated",
       "at": [
-        310.42706,
-        289.26758
+        275.11642,
+        265.8554
       ],
       "serves": null,
       "district": "Market",
-      "facing": -2.499223,
+      "facing": -2.5350273,
       "what": "CityKiosk"
     },
     {
       "from": "Generated",
       "at": [
-        258.76788,
-        256.64496
+        325.20123,
+        300.12778
       ],
       "serves": null,
       "district": "Market",
-      "facing": -2.678527,
+      "facing": -2.359193,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        79.9569,
+        336.6433
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.2091156,
       "what": "CityKiosk"
     },
     {
       "from": "Generated",
       "at": [
-        302.24963,
-        267.2944
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -1.032868,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        347.71494,
-        332.85437
+        347.75845,
+        329.95398
       ],
       "serves": null,
       "district": "Market",
       "facing": -2.079254,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        71.716324,
-        368.61023
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -1.4274696,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        71.693756,
-        385.22092
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -1.5366454,
-      "what": "CityGreen"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        102.68596,
-        292.18463
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -1.0468191,
       "what": "CityForecourt"
     },
     {
       "from": "Generated",
       "at": [
-        76.73413,
-        434.81244
+        241.22462,
+        249.84935
       ],
       "serves": null,
       "district": "Market",
-      "facing": -1.8641659,
+      "facing": -2.8218076,
       "what": "CityKiosk"
     },
     {
       "from": "Generated",
       "at": [
-        290.9364,
-        256.00443
+        355.86288,
+        347.2561
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.9393399,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        74.18004,
+        418.20627
+      ],
+      "serves": null,
+      "district": "Market",
+      "facing": -1.7549936,
+      "what": "CityGreen"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        289.6912,
+        255.26152
       ],
       "serves": null,
       "district": "Market",
       "facing": 2.1087246,
-      "what": "CityKiosk"
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        265.1776,
-        525.8415
+        83.82627,
+        450.11423
       ],
       "serves": null,
       "district": "Market",
-      "facing": 1.2270886,
-      "what": "CityKiosk"
+      "facing": -1.9733365,
+      "what": "CityGreen"
     },
     {
       "from": "Generated",
       "at": [
-        222.53247,
-        245.50648
+        89.97323,
+        465.8876
       ],
       "serves": null,
       "district": "Market",
-      "facing": -2.9648857,
+      "facing": -2.0825093,
       "what": "CityKiosk"
     },
     {
@@ -7764,72 +7742,39 @@
       "serves": null,
       "district": "Market",
       "facing": -2.1916778,
-      "what": "CityForecourt"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        364.63504,
-        385.0949
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -1.6596208,
       "what": "CityGreen"
     },
     {
       "from": "Generated",
       "at": [
-        202.18272,
-        238.27235
+        88.79321,
+        323.0957
       ],
       "serves": null,
       "district": "Market",
-      "facing": -1.7738522,
-      "what": "CityForecourt"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        139.38295,
-        519.12213
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -2.5552773,
+      "facing": 0.4914182,
       "what": "CityKiosk"
     },
     {
       "from": "Generated",
       "at": [
-        361.6437,
-        422.0128
+        125.93704,
+        509.12427
       ],
       "serves": null,
       "district": "Market",
-      "facing": -1.3800322,
+      "facing": -2.4490097,
       "what": "CityKiosk"
     },
     {
       "from": "Generated",
       "at": [
-        155.47174,
-        257.6832
+        153.85759,
+        527.66345
       ],
       "serves": null,
       "district": "Market",
-      "facing": 2.6576283,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        346.86267,
-        462.80933
-      ],
-      "serves": null,
-      "district": "Market",
-      "facing": -0.99995524,
+      "facing": -2.6615484,
       "what": "CityKiosk"
     },
     {
@@ -7839,42 +7784,64 @@
         533.29266
       ],
       "serves": null,
-      "district": "Crafts",
+      "district": "Market",
       "facing": -2.767813,
-      "what": "CityForecourt"
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        349.13876,
-        480.9808
+        169.82573,
+        249.53287
       ],
       "serves": null,
-      "district": "Crafts",
-      "facing": 2.1970754,
+      "district": "Market",
+      "facing": 2.7890768,
       "what": "CityGreen"
     },
     {
       "from": "Generated",
       "at": [
-        339.74655,
-        494.92688
+        111.54082,
+        490.34186
       ],
       "serves": null,
-      "district": "Crafts",
-      "facing": 2.3022258,
-      "what": "CityKiosk"
+      "district": "Market",
+      "facing": 2.3243783,
+      "what": "CityGreen"
     },
     {
       "from": "Generated",
       "at": [
-        326.8621,
-        505.79507
+        356.89706,
+        469.22385
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 2.4073763,
+      "facing": 2.0919242,
       "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        202.05676,
+        542.14636
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.9803524,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        218.81644,
+        543.9639
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -3.0866177,
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -7885,7 +7852,7 @@
       "serves": null,
       "district": "Crafts",
       "facing": 2.5125248,
-      "what": "CityGreen"
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -7896,106 +7863,84 @@
       "serves": null,
       "district": "Crafts",
       "facing": 2.617678,
-      "what": "CityForecourt"
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        287.68237,
-        533.442
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 2.7228248,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        384.677,
-        406.57703
+        383.25507,
+        406.29318
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 1.7678388,
-      "what": "CityKiosk"
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        385.6538,
-        389.96625
+        386.38248,
+        373.37183
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.6658423,
+      "facing": 1.5638496,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        176.85782,
+        226.84964
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -0.40673566,
       "what": "CityForecourt"
     },
     {
       "from": "Generated",
       "at": [
-        309.89984,
-        254.47174
+        197.99217,
+        218.39334
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -1.032868,
+      "facing": -0.2115929,
       "what": "CityKiosk"
     },
     {
       "from": "Generated",
       "at": [
-        382.72925,
-        340.07004
+        213.6267,
+        215.84734
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.3598744,
-      "what": "CityGreen"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        379.72122,
-        323.2671
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 1.2578937,
+      "facing": -0.11463238,
       "what": "CityKiosk"
     },
     {
       "from": "Generated",
       "at": [
-        372.27325,
-        307.78735
+        364.5666,
+        292.46518
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.1559196,
-      "what": "CityGreen"
+      "facing": 1.0539461,
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        246.43726,
-        216.71985
+        355.28204,
+        277.9158
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 0.07928009,
-      "what": "CityForecourt"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        263.04126,
-        217.3948
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 0.17623037,
-      "what": "CityKiosk"
+      "facing": 0.95198184,
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -8011,24 +7956,24 @@
     {
       "from": "Generated",
       "at": [
-        320.65555,
-        240.058
+        294.76364,
+        227.791
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 0.64610237,
-      "what": "CityKiosk"
+      "facing": 0.37012312,
+      "what": "CityGreen"
     },
     {
       "from": "Generated",
       "at": [
-        79.613655,
-        296.71423
+        71.02599,
+        314.84372
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.9879532,
-      "what": "CityGreen"
+      "facing": 2.0416534,
+      "what": "CityForecourt"
     },
     {
       "from": "Generated",
@@ -8044,13 +7989,13 @@
     {
       "from": "Generated",
       "at": [
-        384.08264,
-        459.64392
+        56.091305,
+        421.57632
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -2.6501763,
-      "what": "CityForecourt"
+      "facing": 1.3865991,
+      "what": "CityGreen"
     },
     {
       "from": "Generated",
@@ -8061,7 +8006,7 @@
       "serves": null,
       "district": "Crafts",
       "facing": 1.2774267,
-      "what": "CityForecourt"
+      "what": "CityGreen"
     },
     {
       "from": "Generated",
@@ -8088,24 +8033,24 @@
     {
       "from": "Generated",
       "at": [
-        276.21896,
-        556.69073
+        275.1932,
+        558.12775
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 1.2270898,
-      "what": "CityKiosk"
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        108.29,
-        253.52866
+        58.750618,
+        308.66125
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 2.30829,
-      "what": "CityForecourt"
+      "facing": 0.4914167,
+      "what": "CityGreen"
     },
     {
       "from": "Generated",
@@ -8116,7 +8061,7 @@
       "serves": null,
       "district": "Crafts",
       "facing": 0.5863153,
-      "what": "CityGreen"
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -8127,18 +8072,18 @@
       "serves": null,
       "district": "Crafts",
       "facing": 0.3737796,
-      "what": "CityGreen"
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        120.59952,
-        243.20853
+        364.04666,
+        491.76566
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 2.4149876,
-      "what": "CityKiosk"
+      "facing": -0.9445172,
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -8149,138 +8094,127 @@
       "serves": null,
       "district": "Crafts",
       "facing": -0.8393669,
-      "what": "CityGreen"
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        339.19016,
-        519.4544
+        194.5755,
+        201.32504
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -0.7342164,
-      "what": "CityGreen"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        389.25528,
-        444.10245
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": -1.1697417,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        176.78719,
-        206.17041
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 1.3677408,
+      "facing": -1.7738519,
       "what": "CityForecourt"
     },
     {
       "from": "Generated",
       "at": [
-        308.96475,
-        541.44354
+        236.66895,
+        562.36957
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -0.52391464,
-      "what": "CityGreen"
+      "facing": -0.051290795,
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        396.8162,
-        427.60693
+        255.48064,
+        560.39655
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -1.2717497,
-      "what": "CityGreen"
+      "facing": -0.15755916,
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        404.19983,
-        389.3096
+        137.08078,
+        229.89896
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -1.4757503,
-      "what": "CityGreen"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        403.70248,
-        354.68106
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": -1.6797345,
-      "what": "CityGreen"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        315.0265,
-        215.62668
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 2.1087246,
+      "facing": 2.5216467,
       "what": "CityKiosk"
     },
     {
       "from": "Generated",
       "at": [
-        387.78528,
-        300.9552
+        153.02283,
+        219.76318
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -1.9856732,
+      "facing": 2.6282692,
       "what": "CityKiosk"
     },
     {
       "from": "Generated",
       "at": [
-        409.55832,
-        462.80038
+        404.78207,
+        373.24402
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 2.1199393,
+      "facing": -1.577743,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        395.84818,
+        318.04953
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.8836989,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        211.85378,
+        200.44907
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 3.0269604,
       "what": "CityKiosk"
     },
     {
       "from": "Generated",
       "at": [
-        56.427906,
-        284.28
+        394.23633,
+        490.08972
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -2.650176,
-      "what": "CityGreen"
+      "facing": 1.8204434,
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        369.08896,
-        268.08365
+        380.56317,
+        283.3729
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -2.1896107,
+      "facing": -2.0876465,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        247.77963,
+        199.82307
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -3.0623126,
       "what": "CityKiosk"
     },
     {
@@ -8292,18 +8226,18 @@
       "serves": null,
       "district": "Crafts",
       "facing": 2.0407622,
-      "what": "CityForecourt"
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        300.89496,
-        211.98882
+        280.66122,
+        573.4052
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -2.7714696,
-      "what": "CityKiosk"
+      "facing": 1.2270898,
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -8363,13 +8297,13 @@
     {
       "from": "Generated",
       "at": [
-        190.5279,
-        188.85646
+        191.9481,
+        188.56406
       ],
       "serves": null,
       "district": "Crafts",
       "facing": -1.7738519,
-      "what": "CityKiosk"
+      "what": "CityGreen"
     },
     {
       "from": "Generated",
@@ -8385,13 +8319,13 @@
     {
       "from": "Generated",
       "at": [
-        175.0126,
-        190.36124
+        428.25415,
+        418.53113
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.3677408,
-      "what": "CityKiosk"
+      "facing": 1.882519,
+      "what": "CityForecourt"
     },
     {
       "from": "Generated",
@@ -8407,123 +8341,112 @@
     {
       "from": "Generated",
       "at": [
-        103.216515,
-        557.70087
+        432.6488,
+        402.77255
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -2.3772938,
-      "what": "CityGreen"
+      "facing": 1.803449,
+      "what": "CityForecourt"
     },
     {
       "from": "Generated",
       "at": [
-        61.036514,
-        249.94843
+        300.35678,
+        573.8315
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -0.97874975,
-      "what": "CityGreen"
+      "facing": -1.9145029,
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        114.537704,
-        569.6651
+        435.82104,
+        386.53302
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -2.4555676,
+      "facing": 1.7244151,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        376.81348,
+        533.9617
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 2.0651824,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        127.83277,
+        579.70264
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.5337944,
       "what": "CityKiosk"
     },
     {
       "from": "Generated",
       "at": [
-        82.21678,
-        223.36754
+        438.31332,
+        352.99893
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -0.817899,
-      "what": "CityGreen"
+      "facing": 1.5664387,
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        437.72275,
-        369.90833
+        142.76721,
+        587.52374
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.6454093,
-      "what": "CityGreen"
+      "facing": -2.6119945,
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        323.66068,
-        201.15472
+        437.56015,
+        335.90918
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 2.1087246,
-      "what": "CityKiosk"
+      "facing": 1.4874994,
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        106.90145,
-        199.00363
+        188.95114,
+        174.00813
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -0.65709275,
-      "what": "CityKiosk"
+      "facing": -1.7738519,
+      "what": "CityForecourt"
     },
     {
       "from": "Generated",
       "at": [
-        368.14462,
-        548.5765
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 2.1463494,
-      "what": "CityGreen"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        157.70543,
-        595.4973
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": -2.6901507,
-      "what": "CityGreen"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        137.20526,
-        181.02907
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": -0.4963341,
-      "what": "CityGreen"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        172.86935,
-        603.7083
+        173.39818,
+        602.35815
       ],
       "serves": null,
       "district": "Crafts",
       "facing": -2.7682748,
-      "what": "CityKiosk"
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -8534,28 +8457,28 @@
       "serves": null,
       "district": "Crafts",
       "facing": 2.2273338,
-      "what": "CityGreen"
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        433.3425,
-        301.27573
+        189.76167,
+        608.0373
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.3297026,
-      "what": "CityKiosk"
+      "facing": -2.8463664,
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        289.3333,
-        593.332
+        185.94336,
+        159.95717
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.2270898,
+      "facing": -0.28074014,
       "what": "CityKiosk"
     },
     {
@@ -8567,51 +8490,51 @@
       "serves": null,
       "district": "Crafts",
       "facing": 2.3081357,
-      "what": "CityForecourt"
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        202.27095,
-        157.38083
+        420.75784,
+        267.93558
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -0.20811713,
+      "facing": 1.1720197,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        224.13535,
+        615.6065
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -3.0024514,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        235.18466,
+        152.9031
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -0.06291857,
       "what": "CityGreen"
     },
     {
       "from": "Generated",
       "at": [
-        223.93425,
-        617.0425
+        424.0162,
+        471.64755
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -3.0024514,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        414.38806,
-        250.935
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 1.093216,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        335.1292,
-        590.1483
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 2.3887737,
-      "what": "CityKiosk"
+      "facing": -1.0216532,
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -8627,23 +8550,23 @@
     {
       "from": "Generated",
       "at": [
-        331.66537,
-        184.90787
+        332.91058,
+        185.65079
       ],
       "serves": null,
       "district": "Crafts",
       "facing": 2.1087246,
-      "what": "CityForecourt"
+      "what": "CityKiosk"
     },
     {
       "from": "Generated",
       "at": [
-        432.43066,
-        456.58115
+        17.444412,
+        286.55374
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -1.1008304,
+      "facing": 0.49141628,
       "what": "CityForecourt"
     },
     {
@@ -8671,17 +8594,6 @@
     {
       "from": "Generated",
       "at": [
-        438.36432,
-        440.17526
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": -1.1799699,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
         39.270473,
         513.0157
       ],
@@ -8704,12 +8616,12 @@
     {
       "from": "Generated",
       "at": [
-        7.170814,
-        445.76312
+        2.7825847,
+        427.5578
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.2924948,
+      "facing": 1.3760257,
       "what": "CityGreen"
     },
     {
@@ -8726,112 +8638,101 @@
     {
       "from": "Generated",
       "at": [
-        0.33831215,
-        371.68808
+        278.30472,
+        616.76605
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.6266183,
-      "what": "CityKiosk"
+      "facing": 3.046829,
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        0.71764374,
-        352.9455
+        4.096448,
+        334.4954
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 1.7101489,
-      "what": "CityForecourt"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        16.320927,
-        300.33682
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 1.9607433,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        303.18152,
-        157.12656
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 0.22731835,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        294.9688,
-        616.0585
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 2.9689193,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        320.0583,
-        161.68347
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 0.29984406,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        45.76819,
-        239.68011
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 2.162843,
+      "facing": 1.7936798,
       "what": "CityGreen"
     },
     {
       "from": "Generated",
       "at": [
-        356.28735,
-        180.38387
+        445.7674,
+        424.17438
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 0.6995722,
+      "facing": -1.2590736,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        400.9719,
+        526.3806
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.1577762,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        91.48659,
+        569.9365
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.7642989,
+      "what": "CityKiosk"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        450.55304,
+        407.0148
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -1.3381436,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        336.16287,
+        168.84732
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 0.37236056,
       "what": "CityGreen"
     },
     {
       "from": "Generated",
       "at": [
-        452.57147,
-        389.1266
+        56.655083,
+        224.82388
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -1.4171776,
-      "what": "CityKiosk"
+      "facing": 2.2432752,
+      "what": "CityGreen"
     },
     {
       "from": "Generated",
       "at": [
-        69.84818,
-        211.77788
+        393.01025,
+        542.69226
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 2.3236938,
-      "what": "CityKiosk"
+      "facing": -1.0764102,
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -8847,12 +8748,12 @@
     {
       "from": "Generated",
       "at": [
-        456.71317,
-        352.9188
+        80.43584,
+        199.19492
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -1.5751541,
+      "facing": 2.404102,
       "what": "CityGreen"
     },
     {
@@ -8864,84 +8765,73 @@
       "serves": null,
       "district": "Crafts",
       "facing": 2.4845,
-      "what": "CityGreen"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        433.08865,
-        509.0104
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 0.4914166,
-      "what": "CityGreen"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        454.2661,
-        332.2793
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": -1.6540933,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        128.44308,
-        164.84929
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": 2.6452587,
-      "what": "CityGreen"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        453.59747,
-        315.77515
-      ],
-      "serves": null,
-      "district": "Crafts",
-      "facing": -1.733008,
       "what": "CityForecourt"
     },
     {
       "from": "Generated",
       "at": [
-        167.2164,
-        618.1407
+        112.02111,
+        174.61243
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": 0.37331787,
-      "what": "CityKiosk"
+      "facing": 2.5648842,
+      "what": "CityGreen"
     },
     {
       "from": "Generated",
       "at": [
-        449.80225,
-        297.22864
+        149.6782,
+        612.05396
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -1.81189,
+      "facing": 0.45144182,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        444.71576,
+        492.0953
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -2.650176,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        372.6999,
+        573.94836
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": -0.91425896,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        145.71921,
+        156.37561
+      ],
+      "serves": null,
+      "district": "Crafts",
+      "facing": 2.725624,
       "what": "CityForecourt"
     },
     {
       "from": "Generated",
       "at": [
-        360.39883,
-        588.63324
+        184.40807,
+        625.6412
       ],
       "serves": null,
       "district": "Crafts",
-      "facing": -0.83345693,
-      "what": "CityGreen"
+      "facing": 0.2952262,
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -8968,24 +8858,24 @@
     {
       "from": "Generated",
       "at": [
-        216.28844,
-        137.759
+        437.71408,
+        260.79105
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 3.0060818,
-      "what": "CityKiosk"
+      "facing": -1.9695729,
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        54.747498,
-        577.7597
+        221.5834,
+        633.8287
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -0.81721425,
-      "what": "CityForecourt"
+      "facing": 0.13914135,
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -8996,18 +8886,18 @@
       "serves": null,
       "district": "Outskirts",
       "facing": -2.0483766,
-      "what": "CityGreen"
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        240.8248,
-        635.7583
+        445.34378,
+        515.56946
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 0.061142787,
-      "what": "CityGreen"
+      "facing": 0.4914166,
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -9018,7 +8908,7 @@
       "serves": null,
       "district": "Outskirts",
       "facing": -2.1271515,
-      "what": "CityGreen"
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -9034,13 +8924,13 @@
     {
       "from": "Generated",
       "at": [
-        279.90857,
-        633.6401
+        408.56552,
+        209.60263
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -0.094763756,
-      "what": "CityKiosk"
+      "facing": -2.2059047,
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -9067,8 +8957,52 @@
     {
       "from": "Generated",
       "at": [
-        351.0538,
-        152.41057
+        299.78613,
+        632.42413
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -0.1726734,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        366.90747,
+        161.75034
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.0328685,
+      "what": "CityForecourt"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        177.87225,
+        120.199265
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.7738522,
+      "what": "CityGreen"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        476.1844,
+        508.9376
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.650176,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        359.981,
+        137.44756
       ],
       "serves": null,
       "district": "Outskirts",
@@ -9078,67 +9012,12 @@
     {
       "from": "Generated",
       "at": [
-        461.79715,
-        501.2374
+        34.78121,
+        599.0387
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -2.650176,
-      "what": "CityGreen"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        382.1996,
-        179.18689
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": -2.3633387,
-      "what": "CityForecourt"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        339.08292,
-        150.23413
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": -2.769232,
-      "what": "CityGreen"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        23.124508,
-        584.57117
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": 2.3243785,
-      "what": "CityGreen"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        468.62976,
-        528.03235
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": 0.4914166,
-      "what": "CityGreen"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        155.8195,
-        104.33291
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": 1.3677404,
+      "facing": -0.81721425,
       "what": "CityGreen"
     },
     {
@@ -9150,18 +9029,18 @@
       "serves": null,
       "district": "Outskirts",
       "facing": -2.650176,
-      "what": "CityGreen"
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        384.4981,
-        132.26634
+        368.5532,
+        123.07951
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -1.0328685,
-      "what": "CityGreen"
+      "facing": 2.108724,
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -9188,13 +9067,13 @@
     {
       "from": "Generated",
       "at": [
-        381.12842,
-        650.9889
+        524.8225,
+        316.7543
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 2.5918128,
-      "what": "CityGreen"
+      "facing": 1.3351773,
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -9205,7 +9084,7 @@
       "serves": null,
       "district": "Outskirts",
       "facing": 2.2776542,
-      "what": "CityGreen"
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -9216,7 +9095,7 @@
       "serves": null,
       "district": "Outskirts",
       "facing": 3.0630527,
-      "what": "CityGreen"
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -9232,24 +9111,24 @@
     {
       "from": "Generated",
       "at": [
-        420.96423,
-        145.26323
+        420.02252,
+        146.36581
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": 0.70685804,
-      "what": "CityKiosk"
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        56.718994,
-        124.006935
+        109.68289,
+        672.97064
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -0.54977846,
-      "what": "CityGreen"
+      "facing": -2.748893,
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -9260,79 +9139,46 @@
       "serves": null,
       "district": "Outskirts",
       "facing": -2.591814,
-      "what": "CityGreen"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        115.80314,
-        94.49429
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": -0.39269853,
-      "what": "CityGreen"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        -5.4736776,
-        596.1516
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": -2.2776546,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        -86.423965,
-        372.96014
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": -1.4922564,
       "what": "CityForecourt"
     },
     {
       "from": "Generated",
       "at": [
-        -35.612404,
-        212.05899
+        493.16776,
+        233.69077
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -1.0210177,
-      "what": "CityKiosk"
+      "facing": 1.0210177,
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        480.29456,
-        557.31635
+        -4.371089,
+        595.2099
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 2.1205752,
+      "facing": -2.2776546,
       "what": "CityGreen"
     },
     {
       "from": "Generated",
       "at": [
-        353.0158,
-        666.05383
+        307.17734,
+        87.00237
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 2.748894,
+      "facing": 0.2356198,
       "what": "CityGreen"
     },
     {
       "from": "Generated",
       "at": [
-        211.38406,
-        75.54268
+        186.38583,
+        77.510086
       ],
       "serves": null,
       "district": "Outskirts",
@@ -9342,57 +9188,79 @@
     {
       "from": "Generated",
       "at": [
-        -84.45656,
-        347.9619
+        329.84906,
+        675.64984
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -1.4922564,
-      "what": "CityForecourt"
+      "facing": 2.748894,
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        -20.656353,
-        576.14233
+        532.45215,
+        396.68198
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -2.2776546,
+      "facing": 1.6493363,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        -47.478004,
+        234.19702
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -1.0210177,
       "what": "CityGreen"
     },
     {
       "from": "Generated",
       "at": [
-        480.06583,
-        212.31035
+        520.858,
+        469.75916
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 1.0210177,
+      "facing": 1.8064156,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        449.90387,
+        174.24304
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": 0.86393815,
+      "what": "CityService"
+    },
+    {
+      "from": "Generated",
+      "at": [
+        31.89671,
+        628.68964
+      ],
+      "serves": null,
+      "district": "Outskirts",
+      "facing": -2.4347346,
       "what": "CityGreen"
     },
     {
       "from": "Generated",
       "at": [
-        -3.8081663,
-        174.13097
+        49.375023,
+        643.19324
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -0.8639377,
-      "what": "CityGreen"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        513.8884,
-        278.72702
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": 1.1780971,
-      "what": "CityGreen"
+      "facing": -2.591814,
+      "what": "CityKiosk"
     },
     {
       "from": "Generated",
@@ -9403,18 +9271,18 @@
       "serves": null,
       "district": "Outskirts",
       "facing": -3.0630527,
-      "what": "CityGreen"
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        329.54626,
-        92.655334
+        169.9018,
+        79.540924
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 0.39269906,
-      "what": "CityKiosk"
+      "facing": -0.23561922,
+      "what": "CityGreen"
     },
     {
       "from": "Generated",
@@ -9425,17 +9293,17 @@
       "serves": null,
       "district": "Outskirts",
       "facing": 2.4347353,
-      "what": "CityGreen"
+      "what": "CityService"
     },
     {
       "from": "Generated",
       "at": [
-        435.40796,
-        157.59933
+        -85.83899,
+        422.95364
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 0.70685804,
+      "facing": -1.6493363,
       "what": "CityKiosk"
     },
     {
@@ -9458,7 +9326,7 @@
       "serves": null,
       "district": "Outskirts",
       "facing": 2.9059732,
-      "what": "CityGreen"
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -9480,7 +9348,7 @@
       "serves": null,
       "district": "Outskirts",
       "facing": 2.5918128,
-      "what": "CityForecourt"
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -9491,7 +9359,7 @@
       "serves": null,
       "district": "Outskirts",
       "facing": -2.9059732,
-      "what": "CityGreen"
+      "what": "CityService"
     },
     {
       "from": "Generated",
@@ -9518,57 +9386,36 @@
     {
       "from": "Generated",
       "at": [
-        34.496445,
-        137.18303
+        -31.589155,
+        561.7312
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": -0.7068582,
-      "what": "CityKiosk"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        -56.039215,
-        250.1205
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": -1.1780971,
-      "what": "CityForecourt"
-    },
-    {
-      "from": "Generated",
-      "at": [
-        168.50537,
-        690.12384
-      ],
-      "serves": null,
-      "district": "Outskirts",
-      "facing": -2.9059732,
+      "facing": -2.1205752,
       "what": "CityGreen"
     },
     {
       "from": "Generated",
       "at": [
-        470.22433,
-        571.96466
+        -82.09377,
+        439.6198
       ],
       "serves": null,
       "district": "Outskirts",
-      "facing": 2.2776542,
+      "facing": -1.8064154,
       "what": "CityForecourt"
     },
     {
       "from": "Generated",
       "at": [
-        -88.36016,
-        390.91913
+        -86.91463,
+        390.80536
       ],
       "serves": null,
       "district": "Outskirts",
       "facing": -1.6493363,
-      "what": "CityKiosk"
+      "what": "CityGreen"
     }
-  ]
+  ],
+  "vetoes": []
 }

@@ -2874,6 +2874,7 @@ Therefore the removal of `stepped_here` is already confined to the harbor quarte
 4. **Carry forward the veto safeguards already noted.** Validate finite center/radius and a conservative maximum before a malformed exclusion can clear a large area; default editor scope should be `Trees` or a narrower prop category, not `All`. `Props` currently groups boulders, logs, stumps and brush, so a request to clear one boulder may erase nearby brush too. These are content semantics, not mere data-format niceties.
 
 No game files were changed by this review.
+
 ## 2026-09-19 — Delete-generated-tree follow-up (5059955)
 
 **Disposition:** `adapted` for the editor affordance; `needs review` for live refresh and persistence. Deleting a generated tree from the visible brush is a useful improvement, and the kind-specific veto preserves nearby boulders. Read-only review found three acceptance gaps:
@@ -2897,3 +2898,16 @@ The all-world storage-versus-deterministic-scatter decision remains with the use
 3. **P1 — the failed-save test is not exercising `forbid`.** The draft checks that `keep(temp_dir, "{}")` fails, then compares `LIVE.len()` to itself; that assertion cannot catch a live-only veto regression. Inject a writer/path into the commit operation or test a pure prepare/persist/publish helper so a simulated write failure proves `may_stand` remains unchanged.
 
 No game files were changed by this review.
+
+## 2026-09-19 — Reply to 1a815e1
+
+**Disposition:** failed-save fix `accepted` (the new `forbid_at` test exercises the actual commit path); live refresh and packaged path `needs review`.
+
+I cannot perform the requested live Delete test within my authorized scope: pressing Delete in the editor writes `assets/world/wild.json`, and I am permitted to write only in `codex-suggestions`. Please run that test yourself and record whether the tree disappears immediately while adjacent props/cover/water remain, then remains absent after leaving and returning. A fresh-launch screenshot does not establish this.
+
+Two corrections from my 06:04 review remain in commit `1a815e1`:
+
+- `wild::path()` passes `"world/wild.json"` to `asset_file`, but the real relative path is `"assets/world/wild.json"`. `bake::path_of` already passes the latter form; it is not corrected by this commit because it was already using `asset_file`. This is an exact path mismatch, independent of package testing.
+- `regrow_area` despawns every direct child of a chunk, not just `Timber`; this can remove props, cover, or water during Delete while their parent-level completion markers remain. My earlier recommendation to reuse `regrow_area` without inspecting its child filter was wrong. Please narrow the refresh before treating live Delete as closed.
+
+No game files were changed by this reply.

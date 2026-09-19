@@ -127,6 +127,12 @@ const SHORE_STEP: f32 = 8.0;
 /// metres across - so thirty-two is finer than the thing being measured.
 pub const SHORE_ROUND: usize = 32;
 
+/// The settlements whose streets are grown, besides the first city.
+///
+/// A worklist - see `Site::grows`. A name joins it when that city has been designed
+/// and looked at, and its stored layout re-baked.
+const GROWN: [&str; 1] = ["city_2"];
+
 /// How far back from the water a settlement's own ground stops, in metres.
 ///
 /// A town wants a bank above its harbour, not a street that walks into the sea.
@@ -200,6 +206,22 @@ pub struct Site {
     /// downstream of the plan can sample the unlevelled ground: by then the
     /// levelling is what it would be sampling.
     pub water: Shore,
+    /// Whether this settlement's streets are GROWN rather than drawn.
+    ///
+    /// # A worklist, not a rule
+    ///
+    /// The drawn plans describe what a town HAS - a middle, ways out of it, ways
+    /// round it - and laying that out literally produces a wheel, recognisable as
+    /// machine-made from any height and through any amount of wobble. Growing the
+    /// streets instead is what stops that, and it is the right answer for every city
+    /// eventually.
+    ///
+    /// It is not switched on for every city at once, because each one is being
+    /// designed to its own concept art and a city that grows before anybody has
+    /// looked at it is a city nobody has checked. So this names the ones that have
+    /// been worked on, and they join it one at a time - which is also the shape the
+    /// stored layouts have, since each city's file is re-baked when its turn comes.
+    pub grows: bool,
     /// Whether this is the FIRST city out from the ranch: the one a player walks
     /// into before any other, and the one being built to the concept art.
     ///
@@ -1402,6 +1424,7 @@ impl Settlements {
             // The ranch is the origin of the progression, not a step in it.
             era: crate::world::town::Era::Old,
             first: false,
+            grows: false,
             harbour: f32::NAN,
             water: Shore::default(),
             seed: 0,
@@ -1435,6 +1458,7 @@ impl Settlements {
                 // Ranked below, once every site is placed.
                 era: crate::world::town::Era::default(),
                 first: false,
+                grows: false,
                 // Measured once the whole list is placed - see `reaches_toward`.
                 harbour: f32::NAN,
             water: Shore::default(),
@@ -1510,8 +1534,24 @@ impl Settlements {
                 .total_cmp(&settlements.sites[b].at.distance(ranch_at))
         });
         let many = order.len();
+        // A CITY IS RANKED AMONG CITIES. See `Era::of_city` - ranked among all the
+        // settlements, the second city came out Old and had no glass in it.
+        let cities: Vec<usize> = order
+            .iter()
+            .copied()
+            .filter(|&which| settlements.sites[which].city)
+            .collect();
+        let many_cities = cities.len();
         for (rank, which) in order.into_iter().enumerate() {
-            let era = crate::world::town::Era::at_rank(rank, many);
+            let era = if settlements.sites[which].city {
+                let place = cities
+                    .iter()
+                    .position(|&other| other == which)
+                    .unwrap_or(0);
+                crate::world::town::Era::of_city(place, many_cities)
+            } else {
+                crate::world::town::Era::at_rank(rank, many)
+            };
             settlements.sites[which].era = era;
             // AND ITS PLAN, which depends on that era: the narrow spine belongs
             // to the cities further out. Chosen here rather than at creation
@@ -1711,6 +1751,11 @@ impl Settlements {
                 crate::config::WORLD_SEED.wrapping_add(which as u32 * 7717);
             settlements.sites[which].shape =
                 crate::world::town::PlanShape::of(&settlements.sites[which]);
+        }
+
+        // AND WHICH ONES HAVE BEEN DESIGNED. See `Site::grows`.
+        for site in settlements.sites.iter_mut() {
+            site.grows = site.first || GROWN.contains(&site.name);
         }
 
         // The streets inside each town, once there are sites and roads for the

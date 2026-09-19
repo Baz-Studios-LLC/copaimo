@@ -663,6 +663,32 @@ impl Era {
         }
     }
 
+    /// The era of the `rank`th CITY out from the ranch, of `many` cities.
+    ///
+    /// # One old city, and the progression starts at the second
+    ///
+    /// Ranked among all thirteen settlements, the second city came out `Old`: it sits
+    /// fourth by distance, a share of 0.25, and the Old band runs to 0.26. So the
+    /// city whose concept art is titled "transitional modern" had no glass anywhere
+    /// in it and was simply another old town at city density, which is the one thing
+    /// it must not be - the user's words were "city 2 has the glass towers, not city
+    /// 1".
+    ///
+    /// The progression was always about CITIES. Villages are rustic wherever they
+    /// stand and their era only picks their street plan, so they keep the ranking
+    /// they had; a city is ranked among cities, and exactly one of them - the first,
+    /// the one built to the harbour concept - is Old. Everything after it is turning
+    /// or turned.
+    pub fn of_city(rank: usize, many: usize) -> Era {
+        if rank == 0 {
+            return Era::Old;
+        }
+        // The rest share out the remaining three eras, so the last city is `Ahead`
+        // however many there are.
+        Era::at_rank(rank - 1, (many - 1).max(1))
+            .max(Era::Turning)
+    }
+
     /// Whether this era builds in glass and steel at all.
     pub fn is_modern(self) -> bool {
         matches!(self, Era::Modern | Era::Ahead)
@@ -4529,7 +4555,7 @@ pub fn lay_out(site: &Site, crossing: &[Street], seed: u32) -> Layout {
     // settlement in the world is not what was asked and has cost this exact feature
     // twice already.
     let plan = site.plan;
-    if site.first {
+    if site.grows {
         grown_streets(&on, Some(site), crossing, &mut ways, &mut parcels);
     } else if plan != Plan::Rings {
         match plan {
@@ -4539,7 +4565,7 @@ pub fn lay_out(site: &Site, crossing: &[Street], seed: u32) -> Layout {
         }
     }
     let _ = on.city;
-    if plan == Plan::Rings && !site.first {
+    if plan == Plan::Rings && !site.grows {
 
     // # The rings WOBBLE, and the radials do not all reach
     //
@@ -5110,6 +5136,7 @@ pub fn lay_out(site: &Site, crossing: &[Street], seed: u32) -> Layout {
             site.city,
             site.character,
             site.era,
+            site.bearing,
             seed,
         );
         let Some(what) = what else { continue };
@@ -5886,6 +5913,16 @@ fn era_fallback(city: bool, era: Era) -> Building {
     }
 }
 
+/// Whether a point is on the far side of a town's middle as a player arrives.
+///
+/// The seam of a turning city: the road in crosses the old quarter, reaches the
+/// middle, and the new city is beyond it. A straight division rather than a wedge,
+/// because the concept has two halves meeting at a plaza and not a slice cut out of
+/// one city.
+fn across_the_seam(at: Vec2, middle: Vec2, facing: f32) -> bool {
+    (at - middle).dot(Vec2::from_angle(facing)) > 0.0
+}
+
 fn what_stands_here(
     index: usize,
     lot: &Parcel,
@@ -5895,6 +5932,9 @@ fn what_stands_here(
     city: bool,
     character: Character,
     era: Era,
+    // Which way the town faces, so a TURNING city knows which half of itself is
+    // new - see `across_the_seam`.
+    facing: f32,
     seed: u32,
 ) -> Option<Building> {
     let roll = unit(seed.wrapping_add(index as u32 * 131), 11);
@@ -5907,6 +5947,24 @@ fn what_stands_here(
     // rule, the obvious one, and Lynch's districts all at once: the ground with the
     // most feet on it carries the trade, and what a place is FOR is what tells one
     // part of a town from another.
+    // A TURNING CITY IS TWO CITIES WITH A SEAM DOWN IT.
+    //
+    // `Era::Turning` took the old kit outright, so the city between the harbour town
+    // and the glass ones was an old town at city density and nothing else - no glass
+    // anywhere, and no reason for it to be the second city rather than another
+    // version of the first. The concept is explicit about what it should be: tile
+    // roofs and timber on one side, glass and green roofs on the other, meeting at a
+    // plaza in the middle.
+    //
+    // So the era is decided per SIDE, not per lot. A lot beyond the middle - the far
+    // half as a player arrives - builds as a modern city; the near half stays old.
+    // Dealt lot by lot it would be noise; dealt by side it is a seam you walk
+    // through, which is the thing worth having.
+    let era = if era == Era::Turning && across_the_seam(lot.at, middle, facing) {
+        Era::Modern
+    } else {
+        era
+    };
     let wanted =
         District::of(lot.at.distance(middle), inner, outer).builds(roll, city, character, era);
     // A TOWNHOUSE'S TILES, wherever the townhouse came from - the district's own
@@ -10768,6 +10826,7 @@ mod tests {
             // are for what a plan IS; the first city's own shape is measured against
             // the real world, by the step, road and kerb guards and by `--drive`.
             first: false,
+            grows: false,
             // No water near a fabricated site: it is a shape in the abstract, and a
             // shoreline is a fact about a real place.
             // No shoreline on a fabricated site, so no harbour bearing either.
@@ -11495,6 +11554,7 @@ mod tests {
             out - site.plan.reaches(site.radius)
         );
     }
+
 
 
 

@@ -10745,5 +10745,6 @@
       "facing": -1.421389,
       "what": "CityService"
     }
-  ]
+  ],
+  "vetoes": []
 }
