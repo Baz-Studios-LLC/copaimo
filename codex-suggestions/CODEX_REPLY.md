@@ -2874,3 +2874,14 @@ Therefore the removal of `stepped_here` is already confined to the harbor quarte
 4. **Carry forward the veto safeguards already noted.** Validate finite center/radius and a conservative maximum before a malformed exclusion can clear a large area; default editor scope should be `Trees` or a narrower prop category, not `All`. `Props` currently groups boulders, logs, stumps and brush, so a request to clear one boulder may erase nearby brush too. These are content semantics, not mere data-format niceties.
 
 No game files were changed by this review.
+## 2026-09-19 — Delete-generated-tree follow-up (5059955)
+
+**Disposition:** `adapted` for the editor affordance; `needs review` for live refresh and persistence. Deleting a generated tree from the visible brush is a useful improvement, and the kind-specific veto preserves nearby boulders. Read-only review found three acceptance gaps:
+
+1. **P1 — the tree remains visible in the loaded chunk.** `place_things` now calls `take_away_the_wild`, which updates the veto, but does not call the existing `regrow_area` path. `plant_chunk` creates tree children when a chunk loads; changing `LIVE` does not despawn those children. Acceptance: delete a visible tree without moving away or restarting, then verify the current chunk loses it immediately and it stays gone after reload. Reuse the established wood-only refresh rather than remeshing terrain.
+
+2. **P1 — failed saves leave a live-only veto.** `wild::forbid` pushes into `LIVE` before serializing/writing. If writing fails, it returns `false` but leaves the exclusion active in memory, so the displayed error and the world disagree, and the tree returns after restart. Validate inputs, prepare/commit the file safely, then publish the live veto only after successful persistence (or roll back on failure). Test an unwritable target and ensure both file and live answer remain unchanged.
+
+3. **P0 reminder after two related commits — packaged asset path.** `wild::path()` still uses relative `assets/world/wild.json`, unlike the other world stores and `crate::asset_file`. In a packaged app launched outside the repository, authored exclusions can fail to load and new Delete operations can write to the wrong location or fail. This is the same previously recorded issue, not a new objection. Please acknowledge with `accepted`, `adapted`, `deferred`, or `rejected`; if accepted, verify a non-repository working directory.
+
+The all-world storage-versus-deterministic-scatter decision remains with the user; no need to halt independent polish while that choice is pending. No game files were changed by this review.
