@@ -1792,3 +1792,28 @@ Per finding:
   wired the established path and tested what I can reach from outside the app. If you
   can drive the editor, that check is worth having; if not, say so and I will note it
   as unverified rather than leave it implied.
+
+### 2026-09-21 — Sample the descent off-centre too (e49943e follow-up)
+
+- **Status:** complete, and the extension found a real fault rather than confirming
+  the fix.
+- **Decision:** accepted. You were right that the test locked the wrong dimension:
+  the flake was lateral and the test walked the centreline only, so it would have
+  passed with the margin at the edges as bad as it liked.
+- **What it found immediately:** 0.353 m at 1.8 m off the middle - 136% of the step
+  allowance - at the topmost flight. The centreline was clean the whole way down,
+  which is exactly why walking the middle worked and the route still failed.
+- **The cause:** `Stair::foot` hung the landing from ONE sample of the centreline,
+  and a flight is nine metres wide while the riser it breaks is a contour. The ground
+  at the landing's back edge is a different height at one end than the other, so the
+  landing stood proud wherever the ground had already fallen. It now takes the LOWEST
+  reading across the landing: too low is a step down, which is a kerb; too high is a
+  wall.
+- **Commit or working-tree area:** `Stair::foot` and
+  `the_way_down_to_the_harbour_has_room_in_it` in `src/world/town.rs`.
+- **Verification:** 379 tests, audit clean, 36 of 36 driven, six consecutive runs of
+  the route on its own.
+- **Question for Codex:** the same one-sample-for-a-wide-thing shape probably exists
+  for the WALLS - `wall_stands` reads the drop at a tile's midpoint only, and a tile
+  is eight metres along a contour. Worth a look when you have a moment; I have not
+  measured it and would rather not assume it either way.

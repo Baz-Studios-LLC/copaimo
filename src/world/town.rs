@@ -2291,12 +2291,33 @@ impl Stair {
         // moved the warden far enough sideways for the lip to be the other side of
         // the limit. A test that fails one run in five is usually a margin this
         // thin.
-        stands_at(
-            terrain,
-            self.at - self.faces * STAIR_LANDS,
-            Vec2::splat(1.0),
-            0.0,
-        ) - (crate::world::settle::TERRACE_RISE + WALL_BURIED) * self.lift()
+        // AND FROM THE LOWEST GROUND ACROSS THE LANDING, not one sample of its
+        // middle.
+        //
+        // A flight is nine metres wide and the riser it breaks is a contour, not a
+        // straight line - so the ground at the landing's back edge is a different
+        // height at one end than the other. Hung from the middle, the landing stands
+        // PROUD wherever the ground has already fallen: measured 0.353 m at 1.8 m
+        // off centre, against a `player::STEP_UP` of 0.26. The centreline was clean
+        // the whole way, which is why walking down the middle worked and the route
+        // still failed one run in five.
+        //
+        // The lowest reading is the safe one. Too low is a step DOWN onto the
+        // landing, which is a kerb and which anybody may take; too high is a wall.
+        let across = Vec2::new(-self.faces.y, self.faces.x);
+        let back = self.at - self.faces * STAIR_LANDS;
+        let head = [-0.5_f32, -0.25, 0.0, 0.25, 0.5]
+            .into_iter()
+            .map(|lane| {
+                stands_at(
+                    terrain,
+                    back + across * (lane * self.wide),
+                    Vec2::splat(1.0),
+                    0.0,
+                )
+            })
+            .fold(f32::MAX, f32::min);
+        head - (crate::world::settle::TERRACE_RISE + WALL_BURIED) * self.lift()
     }
 
     /// How much the figure is stretched to reach the drop it covers.
@@ -12796,29 +12817,45 @@ mod tests {
         });
 
         let down = Vec2::from_angle(site.harbour);
+        let side = Vec2::new(-down.y, down.x);
         let top = crate::world::settle::shore_ring(site, 0, site.harbour).unwrap_or(120.0);
-        let mut last = f32::NAN;
-        let mut worst = (0.0_f32, 0.0_f32);
-        // Five centimetres at a time, which is finer than any stride.
-        for step in 0..1600 {
-            let along = top - 20.0 + step as f32 * 0.05;
-            let at = site.at + down * along;
-            let ground = terrain.walk_height(at.x, at.y);
-            let on = laid
-                .stairs
-                .iter()
-                .filter_map(|stair| stair.tread_at(&terrain, at))
-                .fold(ground, f32::max);
-            if last.is_finite() && on - last > worst.0 {
-                worst = (on - last, along);
+
+        // ACROSS THE CHANNEL, not only down its middle.
+        //
+        // The first cut of this walked the centreline alone - and the thing that
+        // tipped the route over was LATERAL: a camera forward differing in the sixth
+        // decimal moved the warden a few millimetres sideways. A test that samples
+        // only the middle cannot see the dimension the failure lived in, and would
+        // pass with the margin at the edges as thin as it liked. Codex caught it.
+        //
+        // Sampled inside the parapets, which stand at the flight's own half width.
+        let channel = STAIR_WIDEST * 0.5 - 1.0;
+        let mut worst = (0.0_f32, 0.0_f32, 0.0_f32);
+        for lane in [-1.0_f32, -0.5, 0.0, 0.5, 1.0] {
+            let across = side * (lane * channel);
+            let mut last = f32::NAN;
+            // Five centimetres at a time, which is finer than any stride.
+            for step in 0..1600 {
+                let along = top - 20.0 + step as f32 * 0.05;
+                let at = site.at + down * along + across;
+                let ground = terrain.walk_height(at.x, at.y);
+                let on = laid
+                    .stairs
+                    .iter()
+                    .filter_map(|stair| stair.tread_at(&terrain, at))
+                    .fold(ground, f32::max);
+                if last.is_finite() && on - last > worst.0 {
+                    worst = (on - last, along, lane * channel);
+                }
+                last = on;
             }
-            last = on;
         }
         assert!(
             worst.0 < crate::player::STEP_UP * 0.5,
-            "the way down steps up {:.3} m at {:.0} m out, and a warden may take              {:.2} - that is {:.0}% of the allowance, which is how the route came to              fail one run in five",
+            "the way down steps up {:.3} m at {:.0} m out, {:.1} m off the middle, and              a warden may take {:.2} - that is {:.0}% of the allowance, which is how the              route came to fail one run in five",
             worst.0,
             worst.1,
+            worst.2,
             crate::player::STEP_UP,
             worst.0 / crate::player::STEP_UP * 100.0
         );
