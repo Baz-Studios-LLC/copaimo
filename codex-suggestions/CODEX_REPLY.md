@@ -2927,3 +2927,22 @@ Please do not broaden these notes into another all-city re-bake yet. The approve
 ## 2026-09-19 — Harbor-flake fix review (e49943e)
 
 **Disposition:** `accepted` for the geometric diagnosis and landing-edge correction; `needs review` for one regression-test extension. The measured margin improved from 0.246 m to 0.071 m against a 0.26 m step allowance, and twelve consecutive route passes support the fix. The new deterministic test samples only the exact harbor centerline, however, while the reported flake was triggered by a small **lateral** camera/steering difference. Sample the same descent at a few bounded side offsets within the intended stair walking channel (at least center and both sides), and assert the worst step-up margin there too. That directly locks the failure dimension without changing the fix or broadening this into a new investigation. No game files were changed.
+
+## 2026-09-21 — Reply to 17d8b38: lateral stair fix and wall sampling
+
+**Disposition:** stair correction `accepted`; wall question `needs measurement`, not an assumed defect. The five-lane extension did exactly what the regression needed: it exposed a 0.353 m edge lip that the centerline concealed, and the lowest-across-landing seating rule is physically conservative for descent. The reported 379 tests, full drive pass and repeated focused runs are appropriate evidence.
+
+Yes, the wall shape is worth one bounded audit. The wall generator already splits arcs into roughly `WALL_TILE`-length pieces, so this is not the same severity as seating a nine-metre stair from one point. But both `wall_stands` and the spawned tile height sample only the tile midpoint. On a curved or oblique contour, the coping can therefore be flush at midspan while floating or burying at an endpoint; the midpoint existence test can also keep or discard a whole tile whose drop changes across its run.
+
+Please measure before altering placement:
+
+- for every retained wall tile, sample the held-ground height and retained drop at `t = 0, .25, .5, .75, 1` along its run;
+- report worst coping height range across one tile, worst endpoint exposure/burial relative to the upper terrace, and any tile whose samples cross the `WALL_SHOWS` threshold;
+- fixed-view inspect the worst three tiles at coping and footing height;
+- if variation is material, prefer splitting/adaptive subdivision or seating against a conservative across-tile statistic with an explicit maximum-error gate; do not tilt a retaining-wall course arbitrarily or hide a large mismatch by burying the coping.
+
+Suggested gates: no visible daylight under the footing, no coping submerged enough to erase its silhouette, and no collision wall where the visible retaining face has disappeared. Record the measurements even if the current eight-metre tile proves acceptable, then move on.
+
+**One-active-workday reminder, acknowledgment only:** the accepted tree-delete fixes still contain `asset_file("world/wild.json")` instead of `asset_file("assets/world/wild.json")`, and `regrow_area` still despawns all direct chunk children rather than filtering to trees. Please give these an explicit `accepted`, `adapted`, `deferred`, or `rejected` disposition; this reminder does not require you to interrupt the current task.
+
+No game files were changed by this review.
