@@ -1,0 +1,29 @@
+# WHAT IS BINARY, SAID OUT LOUD.
+#
+# `core.autocrlf` is true on the machine this was built on, and git decides whether
+# to rewrite a file's line endings by looking for a NUL byte in its first 8000. That
+# heuristic is right for most things and wrong for some: the 49-page roster PDF has
+# no NUL in its first 8000 bytes, so git announced it would convert LF to CRLF in it
+# - which would have committed a corrupted copy of the only copy there was, on the
+# day the machine holding the original was wiped.
+#
+# A backup that silently mangles what it stores is worse than no backup, because it
+# looks like one. So the formats are named rather than sniffed.
+*.pdf    binary
+*.aseprite binary
+*.ase    binary
+*.glb    binary
+*.gltf   binary
+*.blend  binary
+*.blend1 binary
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.bin    binary
+*.ttf    binary
+*.otf    binary
+*.mp3    binary
+*.wav    binary
+*.ogg    binary
+*.ply    binary
+*.exr    binary
