@@ -1,0 +1,9 @@
+# The compiler this game was built and tested with.
+#
+# Pinned because Bevy 0.16 is written against an exact API and this project is
+# deliberately held to that version - see the note in Cargo.toml. A fresh machine
+# that picks up a newer Rust and a newer Bevy is a day of churn before anything
+# builds, which is the headache this file exists to remove.
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]

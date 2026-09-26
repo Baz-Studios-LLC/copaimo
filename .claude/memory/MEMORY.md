@@ -1,0 +1,74 @@
+# Memory Index
+
+- [Blender is the tool](blender-is-the-tool.md) — Copaimo asset/rig/anim work uses Blender for the game's WHOLE life; always measure+render in it rather than reasoning about geometry (every rig fault came from reasoning)
+- [Copaimo game concept](ranger-monster-game-concept.md) — COPAIMO: THE WARDENS GUILD (renamed from Ranger 2026-08-18) — Pokémon+Monster Rancher; repo Baz-Studios-LLC/copaimo, LOCAL FOLDER still Desktop/ranger-game; Bevy 0.16; monsters are ALLY companions; heightmap-driven open world built first; DESIGN.md + assets/models/
+- [Copaimo grows by continents](ranger-continents-expansion.md) — ONE game grown by expansions, never a Part 2; new continents/monsters patch in, so saves and world code must survive it
+- [Copaimo is stylised, not realistic](ranger-stylised-not-realistic.md) — fantasy monster game; judge visuals by how they READ, never against real-world measurements
+- [Ask when a tuning word is ambiguous](ask-when-a-tuning-word-is-ambiguous.md) — "too thin" could be two things; ask which before spending a pass on the wrong one
+- [Copaimo rig pipeline](copaimo-rig-pipeline.md) — animate_ranger.sh = prepare_rig→animate→verify; A-pose bind w/ knee ease; measured natives drive motion.rs covers; raw exports can't be copied onto the prepared rig
+- [Validate the ruler first](validate-the-ruler-first.md) — user's "stop guessing": fix the instrument before the subject; guards compare against the SPEC never their input; unmoved numbers mean a disconnected knob
+- [Genshin is the movement standard](copaimo-genshin-movement-standard.md) — Copaimo movement judged vs Genshin Impact; realism explicitly NOT a constraint; never let a realism band GATE a tuning value (a value a guard can refuse is an output, not a knob)
+- [Copaimo reference library](copaimo-reference-library.md) — docs/ holds sourced industry standards (rigging/animation/Blender/pipeline/AI); CHECK IT before deriving a technique from scratch
+- [Copaimo asset is committed](copaimo-asset-is-committed.md) — ranger_apose.glb IS the source of truth; build only READS it; mesh sculpting baked once, never re-derived per build (that's what cut the cuffs/trouser/shoulder)
+- [Copaimo hand rig](copaimo-hand-rig.md) — 71 bones w/ 30 finger bones; curl = local X; closing sign MEASURED per hand (-1 L, +1 R); a thumb is NOT the short/splayed/odd digit (that's the pinky)
+- [Copaimo troubleshooting log](copaimo-troubleshooting-log.md) — TROUBLESHOOTING.md is the durable fix log; keep it current as ISSUE + SOLUTION pairs, and READ it before writing a step (I re-hit a bug it already documented)
+- [Confirm which thing they see](confirm-which-thing-they-see.md) — before changing a reported visual fault, establish WHICH mesh/scene they're looking at; by the 2nd report of the same fault, contact-sheet every past state and ask them to point (4 passes wasted on shoes that were already right)
+- [Copaimo settlements](copaimo-settlements.md) — towns generated in src/world/town.rs from 10 Blender figures; villages=fantasy/dirt, cities=modern towers/stone; size set by GENRE (village 11, city 28) not by what fits
+- [Ask the artefact, not the arithmetic](ask-the-artefact-not-the-arithmetic.md) — when my numbers say fine and the user sees a fault, I'm measuring the right value on the wrong object; check what SHIPS (spawned entity, exported glb, rendered pixels)
+- [Research proven solutions first](research-proven-solutions-first.md) — ALWAYS find and implement the industry-standard technique; a measured limit reported as a tradeoff means I stopped researching too early (incl. mesh/rigging)
+- [Copaimo AAA quality bar](copaimo-aaa-quality-bar.md) — game must eventually be AAA; after the reported fault is green, ask what a player would STILL notice and measure that too
+- [Perfect or not done](copaimo-perfect-or-not-done.md) — Copaimo must be HIGHEST quality; green tests are not done — look at it in-game at ground level before ever saying finished
+
+- [VIOLET EDGE GitHub repo](neon-edge-github-repo.md) — repo=Baz-Studios-LLC/Violet-Edge; gh IS authed; CI release on v* tag builds win/mac.dmg/linux; latest published v0.2.5
+- [VIOLET EDGE release cadence](neon-edge-release-cadence.md) — batch changes; don't release per single change; hold pushes until user says go (commit locally meanwhile); PATCH bumps by default — no big version jumps for modest additions
+
+- [Preview reload quirk](preview-tab-hidden-quirk.md) — to load edits use location.reload(true); preview_start does NOT refresh the open tab; reload rarely freezes screenshots (then fall back to eval)
+- [Ensure game balance](ensure-game-balance.md) — always verify CRASHOUT stays balanced after mechanic changes; survival is bounded-but-skillful by design
+- [Balance lever](crashout-balance-lever.md) — ease CRASHOUT difficulty at the SOURCE (event/task inflow), never by slowing the meter rise or buffing relief (both rejected)
+- [Testing: pause the meter](crashout-testing-meter-pause.md) — OK to pin/freeze the crashout meter while testing (it climbs in real time between tool calls and auto-rampages); setCrashout(0) per render, restore/clean-menu after
+- [Design log](crashout-design-log.md) — keep crashout/DESIGN.md (pillars + invariants + change log) updated after substantive changes; game is intentionally single-file (split declined)
+- [Text style](crashout-text-style.md) — keep CRASHOUT in-game text plain/American-neutral; no random British slang (user flagged "the place is a tip")
+- [Release target](crashout-release-target.md) — CRASHOUT targets Steam (desktop), not mobile; near-ready (balance testing + design cleanup left); strip the __crashout debug hook for release
+- [Chair: leave original](crashout-chair-leave-original.md) — furniture office-chair base = ORIGINAL flat plank; 3 redesigns rejected, don't touch it again (≠ the chair WEAPON, which was fixed)
+- [Spirit Spire project](spirit-spire-project.md) — Godot 4.7 spear/shield Metroidvania w/ modular Phantom system; base kit is boot state & tuning target, Phantoms additive; player/movement built first
+- [Spirit Spire world](spirit-spire-world.md) — one open inverting tower (7 regions, ~32 rooms); phantom+relic gating; 2 villains (Ascendant Shaman → Arbiter of Chaos); map in GAME_MAP.md + design/tower_map.svg
+- [Spirit Spire learning](spirit-spire-learning.md) — user is LEARNING Godot/gamedev via this game; explain the why; study doc at Obsidian Game/Godot/Spirit Spire Dev Notes.md
+- [Godot headless verify](godot-headless-verify.md) — validate a Godot project from CLI: --import first (builds class_name cache), then --headless --quit-after + grep; watch for real RefCounted cycles in leak warnings
+- [NEON EDGE project](neon-drift-project.md) — neon Asteroids love letter at Desktop/neon-asteroids (renamed NEON DRIFT→NEON EDGE 2026-07-14); modular ES modules, full-screen arena (NO wrap, edge is the bound) + grid box, played via Artifact bundle (dist/neon-edge.html)
+- [NEON EDGE keep playable](neon-drift-keep-playable.md) — after ANY neon-edge code change: rebuild bundle (build/bundle.py → dist/neon-edge.html) + redeploy Artifact (same URL) + commit LOCALLY; ⛔ do NOT git push unless the user says so (as of 2026-07-14)
+- [NEON EDGE asteroids core](neon-drift-asteroids-core.md) — asteroids are THE core; mines/enemies/etc must never overshadow them (capped as a fraction of asteroid population)
+- [NEON EDGE shadowBlur perf](neon-drift-shadowblur-perf.md) — canvas shadowBlur is the bottleneck; batch strokes + gradient bloom, keep blurred ops in the tens not hundreds (a per-segment portal hung the game)
+- [NEON EDGE design doc](neon-edge-design-doc.md) — ACTIVE DESIGN.md now in neon-edge-bevy/ (asteroid/enemy/boss roster, ✅/🔷 status); planned asteroids: orange(explosive/chain), red(grows), pulser(invuln when lit); update it after any mechanic/spawn/tuning change
+- [NEON EDGE purple = player](neon-edge-purple-is-player.md) — palette rule: purple is reserved for the player ship + its kit; nothing else may use purple (check before picking any new color)
+- [VIOLET EDGE Bevy port](neon-edge-bevy-port.md) — ⭐RENAMED "NEON EDGE"→"VIOLET EDGE" 2026-07-16 (Neon Edge taken; Violet Edge cleared web/Steam/trademark). Rust+Bevy 0.16 native port; folder still Desktop/neon-edge-bevy + memory slugs still neon-edge-* (legacy paths, game=Violet Edge); crate=violet-edge; Rust 1.97 at ~/.cargo/bin (not on PATH); I compile/verify, user runs the window
+- [NEON EDGE difficulty](neon-edge-difficulty.md) — target is difficult-but-not-impossible; manageable chaos is fine/welcome; only pull back at unavoidable/instant-death; arcade full-reset is FINAL (records persist, power doesn't); release bar = user beats it without dev mode
+- [VIOLET EDGE quality bar](neon-edge-quality-bar.md) — look/feel/sound must read AAA (Geometry Wars/Resogun class); polish every surface (transitions, audio identity per state, layered feedback); polish outranks feature count
+- [VIOLET EDGE produced music](violet-edge-produced-music.md) — music is ALL Antigravity-produced now (main/boss/gameover mp3s embedded, migration done 2026-07-30); procedural score DELETED; corruption tiers dormant (tier clamps to available variants); checklist = loop-edge silence + level-match via play_track gain
+- [Hittability = bigger targets](neon-edge-hittability.md) — small stuff hard to hit? enlarge SIZES (asteroid_radius/MINE_R/ENEMY_R), NOT aim assist (user rejected aim assist; removed in v0.4.2)
+- [Ship: original dart](neon-edge-ship-design.md) — hull = ORIGINAL dart, logo-hull redesigns rejected 2×, don't re-propose; engine = flame + short Tron ribbon, spark particles deleted
+- [Bosses = alive spectacle](neon-edge-bosses-alive.md) — bosses never static: idle motion layer + movement character + staged deaths + one draw_X_body shared by fight/banner/cameo
+- [Powerup↔boss tie](neon-edge-powerup-boss-tie.md) — every VIOLET EDGE powerup is thematically derived from the boss whose defeat drops it (chain=Warden, mass=red/Glutton, drone=enemy ship); full 10-boss mapping in DESIGN.md
+- [Warhead balance](neon-edge-warhead-balance.md) — RESOLVED: Q-toggled SIEGE weapon (1.3s cadence, on-impact 110px AoE, no pierce); don't re-buff cadence — remaining levers are AoE size, or ~0.9s if it feels dead
+- [Scope: cap at wave 30](neon-edge-scope-cap.md) — standard run ENDS at wave 30 (6 bosses); NG+ = separate mode replaying 1-30 harder (deferred); waves 31-50 / bosses 35-50 SHELVED
+- [Work in small steps](neon-edge-small-steps.md) — VIOLET EDGE "small steps" = one cohesive SECTION/area at a time (may be several related changes), NOT one-tiny-edit-at-a-time; verify + let user playtest
+- [Photosensitivity](neon-edge-photosensitivity.md) — light-heavy game: keep ALL flashing/pulsing ≤3 flashes/sec, esp. large-area (full-screen/grid/bosses); ramp urgency via brightness not frequency
+- [Trello board](violet-edge-trello.md) — user tracks VIOLET EDGE on a Trello board; no Trello connector + user DECLINED direct access — they'll paste notes here manually (don't re-offer to connect)
+- [Opificium terrain bench](opificium-terrain-bench.md) — Opificium = the Baz Studios game-dev app (Bevy 0.19, branch `master`); OTHERS EDIT IT so use branches+PRs; 9 brushes; generation shared via terrain-core
+- [Stay in the game repo](stay-in-the-game-repo.md) — do the task in the repo the user named; offer the Opificium follow-through instead of just doing it
+- [Conservative version numbers](conservative-version-numbers.md) — PATCH by default on EVERY project, however big the session felt; these are years-long games
+- [Baz Studios launcher](baz-studios-launcher.md) — INTERNAL-only Tauri launcher listing all company games; pulls each live from its repo's published GitHub Release (`<slug>-game.zip`, skips prereleases); wire NEON EDGE releases AFTER the Bevy port
+- [Spiral motion bistability](spiral-motion-bistability.md) — rotating rigid spirals read either way; animate material ALONG the path (head leads, tail trails) for a true drain/vortex read; derive canvas y-down angle signs
+- [Favor emergent discovery](favor-emergent-skill-discovery.md) — leave skill-gated mechanics for players to find; surface the tradeoff to the user, don't hand-hold
+- [DRY / no code reuse](dry-no-code-reuse.md) — user insists: never copy-paste; factor shared logic into helpers; also don't reuse assets/sfx that should be distinct
+- [Test after building](test-after-building.md) — compiling and launching without a panic is not verification; test behaviour, and only ask for eyes on things that need eyes
+- [Finish each stage completely](finish-each-stage-completely.md) — a stage is done only when EVERY bullet AND its stated "Refuses when" guard are built; never advance with items open
+- [Copaimo is walk and jog only](copaimo-walk-and-jog-only.md) — no sprint tier (removed 2026-08-25); run.glb builds into the clip named `jog`; a real run comes BESIDE it, never replacing it
+- [No cars in Copaimo](copaimo-no-cars.md) — fantasy world, people walk or ride a Copaimo; streets are pedestrian, so a street crossing a terrace edge just BECOMES stairs
+- [Codex leaves reviews](copaimo-codex-suggestions.md) — check `copaimo/codex-suggestions/` OFTEN; Codex reviews the game (never edits) and files bugs there; verify each before acting
+- [Codex collaboration](copaimo-codex-collaboration.md) — I can TASK Codex with research/review via CLAUDE_REPLY.md (it never edits the game); push back when a suggestion goes against the direction; record a disposition for every finding
+- [Copaimo screen-space ink](copaimo-screen-space-ink.md) — outlines come from src/ink.rs over the finished frame (NOT hulls, NOT a prepass); hulls stay only on the warden and authored landmarks
+- [Look at the game yourself](copaimo-look-at-the-game.md) — Copaimo has `--photo` (drives the real game, screenshots it, `--map` opens the map); ALWAYS load and LOOK before reporting a visual change
+- [Copaimo playtest driver](copaimo-playtest-driver.md) — `--drive` plays the real game (real keys, real collision); run after movement/terrain changes, and prove each route by putting the fault back
+- [Copaimo building plans](copaimo-building-plans.md) — buildings are planned in town.py, MEASURED off the built mesh into assets/models/town.txt, checked against the game in Rust; the recurring bug family is ONE FACT WITH TWO DERIVATIONS
+- [Old character solutions are in git history](copaimo-old-character-solutions.md) — the deleted animate_ranger.py solved the arm pump, forearm tuck, lean bands; search git log BEFORE re-deriving
+- [Copaimo world is already hybrid](copaimo-world-is-already-hybrid.md) — assets/world already stores edits/surface/country/forest/placed(+ids) with an in-game editor; EXTEND those layers; lattice slot = free stable id for scatter; sprout salt is NOT a stable id

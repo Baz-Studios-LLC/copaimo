@@ -9,6 +9,38 @@ raise, not enemies you fight off.
 
 Rust + Bevy 0.16.
 
+## Picking this up on a new machine
+
+```bash
+git clone https://github.com/Baz-Studios-LLC/copaimo.git
+cd copaimo
+cargo run
+```
+
+That is the whole of it for playing and for working on the game's code. Everything
+the game loads is in the repository: the models, the heightmap, the hand-sculpted
+terrain, the settlement files, the fonts.
+
+**What you need installed**
+
+| | | |
+|---|---|---|
+| Rust | 1.97.1 | pinned in `rust-toolchain.toml`, so rustup fetches it for you |
+| Blender | 5.2 LTS | **only** to rebuild the art; `dev/art/blender.sh` finds it on the usual paths |
+
+**What is not in the repository, and does not need to be**
+
+The `.blend` files are intermediates — `dev/art/build.sh` rebuilds each one from its
+`.py` and exports the `.glb` the game actually loads. The `.glb` are committed, so a
+clone runs without Blender installed at all. You only need Blender to CHANGE a
+building.
+
+**What is in the repository and is not code**
+
+`.claude/memory/` is Claude's memory for this project, checked in when the machine it
+lived on was reset. It normally lives outside any repository; see the README in that
+folder for where it goes and how to restore it.
+
 ## Running
 
 ```bash
